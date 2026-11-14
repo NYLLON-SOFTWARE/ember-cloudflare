@@ -1,6 +1,19 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { Me } from "@ember/protocol";
-import { APPS_FORBIDDEN, MAX_APP_NAME_LENGTH, MAX_APP_TOKEN_LENGTH, MAX_APP_TOOLS, MAX_APP_URL_LENGTH, type App, type AppChanges, type AppId, type AppRefused, type NewApp, type SetAsideTool } from "@ember/protocol/apps";
+import {
+  APPS_FORBIDDEN,
+  MAX_APP_NAME_LENGTH,
+  MAX_APP_TOKEN_LENGTH,
+  MAX_APP_TOOLS,
+  MAX_APP_URL_LENGTH,
+  type App,
+  type AppChanges,
+  type AppId,
+  type AppRefused,
+  type AppSignIn,
+  type NewApp,
+  type SetAsideTool,
+} from "@ember/protocol/apps";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
@@ -10,8 +23,9 @@ import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { agentSettingsPath, appSettingsPath, navigate } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, changeApp, connectApp, disconnectApp, fetchApp, fetchApps, isSignedOut, readAppTools } from "@/lib/api";
+import { ApiError, beginAppSignIn, beginNewAppSignIn, changeApp, connectApp, disconnectApp, fetchApp, fetchApps, isSignedOut, readAppTools } from "@/lib/api";
 import { dateTimeLabel } from "@/lib/messages";
+import { openPage } from "@/lib/page";
 import { cn } from "@/lib/utils";
 import { AGENTS_PATH, useAgentsOnly } from "./agent-list";
 import { toolsOf } from "./app-list";
@@ -20,18 +34,34 @@ import { DeleteButton, isMissing } from "./room-settings-page";
 import { CHANGES_SAVED, PageHeading, Panel, SettingsPage } from "./settings-page";
 
 // The pages for connecting an app and changing one, which share the app form. Connecting one goes on to
-// its page, which lists the tools Ember read from its server, and can read them again.
+// its page, which lists the tools Ember read from its server, and can read them again. An app whose
+// server asks for a sign-in is connected by signing in there: the form sends the browser to its
+// authorization server, which sends it back to the page that finishes (app-signed-in-page.tsx).
 
 /** What Remove app asks first, in the browser's own dialog. */
-export const CONFIRM_REMOVE_APP = "Are you sure you want to remove this app? Ember forgets its token and the tools it read.";
+export const CONFIRM_REMOVE_APP = "Are you sure you want to remove this app? Ember forgets its token or sign-in, and the tools it read.";
 
 /** What the form says while Ember asks an app's server for its tools, which can take a while. */
 export const READING_TOOLS = "Reading its tools…";
+
+/** What the form says while Ember finds where an app's server signs people in, before the browser goes there. */
+export const FINDING_SIGN_IN = "Finding its sign-in…";
 
 /** What each field is for. */
 export const URL_EXPLAINED = "Where its MCP server is, which the app's documentation gives. It often ends in /mcp.";
 export const TOKEN_EXPLAINED = "Optional. Ember sends it to the server with every request, keeps it encrypted, and never shows it again.";
 export const TOKEN_KEPT = "It has a token. Leave this blank to keep it, or type another.";
+
+/** What a signed-in app's page says of its server's address, and of the sign-in Ember keeps. */
+export const ADDRESS_KEPT = "This app signs in to its server there, so its address stays as it is. To move it, remove it and connect it again.";
+export const SIGN_IN_EXPLAINED = "Ember keeps the sign-in encrypted, and gets itself a new token from it as each one ends.";
+export const SIGN_IN_HAS_ENDED = "Its sign-in has ended, so Ember doesn't ask its server, and no agent can use its tools. Sign in to it again.";
+
+/** Who signed in to an app's server for Ember, and when. */
+export const signedInBy = ({ by, at }: AppSignIn) => `Signed in ${by ? `by ${by.name}, ` : ""}${dateTimeLabel(new Date(at))}.`;
+
+/** What the button that begins a sign-in to the server at `url` says: where it goes. */
+export const signInTo = (url: string) => `Sign in to ${URL.parse(url.trim())?.host ?? "its server"}`;
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -52,17 +82,20 @@ const NO_FIELDS: Fields = { name: "", url: "", token: "", noToken: false };
 
 const fieldsOf = (app: App): Fields => ({ ...NO_FIELDS, name: app.name, url: app.url });
 
-/** Why what the form sends is refused, said on the field it's about, or else, with none, under its button. */
+/** Why what the form sends is refused, said on the field it's about, or else, with none, under its button, and whether that's for want of a sign-in, which the form then offers. */
 interface Refusal {
   field: AppField | null;
   error: string;
+  signIn: boolean;
 }
 
 const APP_FIELDS: readonly string[] = ["name", "url", "token"] satisfies AppField[];
 
 /** What a 422 answer says is refused, on the field of the form it names, if it names one. */
 const refusalOf = (error: unknown): Refusal | null =>
-  error instanceof ApiError && error.status === 422 ? { field: error.field !== undefined && APP_FIELDS.includes(error.field) ? (error.field as AppField) : null, error: error.message } : null;
+  error instanceof ApiError && error.status === 422
+    ? { field: error.field !== undefined && APP_FIELDS.includes(error.field) ? (error.field as AppField) : null, error: error.message, signIn: error.signIn === true }
+    : null;
 
 /** The app the form asks Ember to connect. */
 const newAppOf = ({ name, url, token }: Fields): NewApp => ({ name, url, ...(token.trim() !== "" && { token }) });
@@ -92,7 +125,7 @@ export function NewAppPage({ me, onFailed }: PageProps) {
   const [ready, setReady] = useState(false);
   const [fields, setFields] = useState(NO_FIELDS);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-  const [connecting, setConnecting] = useState(false);
+  const [working, setWorking] = useState<string | null>(null);
   const { forbidden, failed } = useAgentsOnly(onFailed);
   const flash = useFlash();
   const mounted = useMounted();
@@ -116,24 +149,32 @@ export function NewAppPage({ me, onFailed }: PageProps) {
     return () => void (stopped = true);
   }, [me.administrator, failed]);
 
-  const connect = () => {
-    setConnecting(true);
+  /** Sends `request`, the form saying it's `working` meanwhile, then does `done` with what it answers, or says why it's refused or failed. */
+  const send = <T,>(working: string, request: () => Promise<T>, done: (answer: T) => void) => {
+    setWorking(working);
     setRefusal(null);
-    connectApp(newAppOf(fields)).then(
-      (app) => {
-        if (!mounted.current) return;
-        navigate(appSettingsPath(app.id));
-        flash("notice", `${app.name} is connected. Ember read ${toolsOf(app.tools.length)} from it.`);
-      },
+    request().then(
+      (answer) => mounted.current && done(answer),
       (error: unknown) => {
         if (!mounted.current && !isSignedOut(error)) return;
-        setConnecting(false);
+        setWorking(null);
         const refused = refusalOf(error);
         if (refused) setRefusal(refused);
         else failed(error);
       },
     );
   };
+  const connect = () =>
+    send(READING_TOOLS, () => connectApp(newAppOf(fields)), (app) => {
+      navigate(appSettingsPath(app.id));
+      flash("notice", connectedNotice(app));
+    });
+  // The form is as it was for whoever comes back to it with the browser's Back.
+  const signIn = () =>
+    send(FINDING_SIGN_IN, () => beginNewAppSignIn({ name: fields.name, url: fields.url }), (authorizationUrl) => {
+      setWorking(null);
+      openPage(authorizationUrl);
+    });
 
   return (
     <SettingsPage back={AGENTS_PATH}>
@@ -147,10 +188,11 @@ export function NewAppPage({ me, onFailed }: PageProps) {
               setRefusal(null);
             }}
             refusal={refusal}
-            busy={connecting}
-            reading={connecting}
+            busy={working !== null}
+            working={working}
             canSave
             onSave={connect}
+            onSignIn={signIn}
           />
         )}
       </Panel>
@@ -158,13 +200,18 @@ export function NewAppPage({ me, onFailed }: PageProps) {
   );
 }
 
+/** What a page says once `app` is connected. */
+export const connectedNotice = (app: App) => `${app.name} is connected. Ember read ${toolsOf(app.tools.length)} from it.`;
+
 /** What the page is doing, which its buttons wait for. */
-type Busy = "saving" | "reading" | "removing" | null;
+type Busy = "saving" | "reading" | "signing-in" | "removing" | null;
 
 /**
  * A connected app's page, which only administrators may open while Ember AI is on, as Connect an app: the
  * app form, then the tools Ember read from its server, with Read its tools again, and Remove app, which
- * asks first. An id that isn't a connected app's gets the 404 page.
+ * asks first. An app that signs in to its server says who signed in in place of its token, with Sign in
+ * again, which sends the browser to its authorization server. An id that isn't a connected app's gets
+ * the 404 page.
  */
 export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & { appId: AppId; onMissing: () => void }) {
   const [app, setApp] = useState<App | null>(null);
@@ -244,6 +291,7 @@ export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & 
       },
       ({ error }) => setUnread(error),
     );
+  const signIn = () => send("signing-in", () => beginAppSignIn(appId), openPage, setRefusal);
   const remove = () => {
     if (!confirm(CONFIRM_REMOVE_APP)) return;
     send("removing", () => disconnectApp(appId), () => navigate(AGENTS_PATH), ({ error }) => setUnread(error));
@@ -263,9 +311,10 @@ export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & 
               }}
               refusal={refusal}
               busy={busy !== null}
-              reading={busy === "saving" && rereads}
+              working={busy === "saving" && rereads ? READING_TOOLS : busy === "signing-in" ? FINDING_SIGN_IN : null}
               canSave={Object.keys(changes).length > 0}
               onSave={save}
+              onSignIn={signIn}
             />
             <hr className="my-8 w-full" />
             <Tools app={app} busy={busy} unread={unread} onReadAgain={readAgain} />
@@ -286,26 +335,29 @@ interface FormProps {
   refusal: Refusal | null;
   /** Whether the form or one of the page's buttons is on its way to the server, which the form's button waits for, its fields kept as they were sent: what it answers would replace anything typed since. */
   busy: boolean;
-  /** Whether Ember is asking the app's server for its tools as the form is sent. */
-  reading: boolean;
+  /** What Ember is doing that can take a while, as the form says it: reading the app's tools, or finding its sign-in. */
+  working: string | null;
   /** Whether there's anything to send. */
   canSave: boolean;
   onSave: () => void;
+  /** Begins a sign-in to the app's server, which the form offers once the server asks for one, and a signed-in app's page always. */
+  onSignIn: () => void;
 }
 
 /**
  * The app form: the app's name, its server's address and the token Ember sends it, each with what it's
  * for under it, or why it was refused, and Connect, or Save changes, which says so while Ember reads the
- * server's tools.
+ * server's tools. A server that asks for a sign-in has the form offer one under the token, and an app
+ * that's signed in to has its sign-in in the token's place, its address kept.
  */
-function AppForm({ saved, fields, onChange, refusal, busy, reading, canSave, onSave }: FormProps) {
+function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onSave, onSignIn }: FormProps) {
   const save = (event: FormEvent) => {
     event.preventDefault();
     if (!busy && canSave) onSave();
   };
   const refused = (field: AppField) => (refusal?.field === field ? true : undefined);
   const describedBy = (id: string, field: AppField) => (refusal?.field === field ? `${id}-refusal` : `${id}-description`);
-  const keepsToken = saved?.hasToken === true;
+  const signedIn = saved?.signIn ?? null;
 
   return (
     <form onSubmit={save} className={AUTH_FORM}>
@@ -333,7 +385,7 @@ function AppForm({ saved, fields, onChange, refusal, busy, reading, canSave, onS
       <Field id="app_url" label="Server address">
         <Input
           id="app_url"
-          readOnly={busy}
+          readOnly={busy || signedIn !== null}
           type="url"
           inputMode="url"
           placeholder="https://example.com/mcp"
@@ -347,46 +399,93 @@ function AppForm({ saved, fields, onChange, refusal, busy, reading, canSave, onS
           className={FIELD_INPUT}
         />
         <Under id="app_url" field="url" refusal={refusal}>
-          {URL_EXPLAINED}
+          {signedIn ? ADDRESS_KEPT : URL_EXPLAINED}
         </Under>
       </Field>
-      <Field id="app_token" label="Token">
-        <Input
-          id="app_token"
-          readOnly={busy}
-          type="password"
-          placeholder={keepsToken ? "Unchanged" : "None"}
-          maxLength={MAX_APP_TOKEN_LENGTH}
-          autoComplete="off"
-          data-1p-ignore
-          disabled={fields.noToken}
-          aria-invalid={refused("token")}
-          aria-describedby={describedBy("app_token", "token")}
-          value={fields.token}
-          onChange={(event) => onChange({ ...fields, token: event.target.value })}
-          className={FIELD_INPUT}
-        />
-        <Under id="app_token" field="token" refusal={refusal}>
-          {keepsToken ? TOKEN_KEPT : TOKEN_EXPLAINED}
-        </Under>
-        {keepsToken && (
-          <label className="flex min-h-9 cursor-pointer items-center gap-[1ch] text-[0.9em]">
-            <input
-              type="checkbox"
-              checked={fields.noToken}
-              disabled={busy}
-              onChange={(event) => onChange({ ...fields, token: "", noToken: event.target.checked })}
-              className="size-4 flex-none accent-foreground"
-            />
-            <span>Send no token</span>
-          </label>
-        )}
-      </Field>
+      {signedIn ? (
+        <SignedIn signIn={signedIn} refusal={refusal} busy={busy} onSignIn={onSignIn} />
+      ) : (
+        <Token saved={saved} fields={fields} onChange={onChange} refusal={refusal} busy={busy} onSignIn={onSignIn} />
+      )}
       <SubmitButton disabled={busy || !canSave}>{saved ? "Save changes" : "Connect"}</SubmitButton>
-      <p role="status" className={cn(NOTE, "-mt-1 text-center wrap-anywhere empty:hidden", !reading && "text-negative")}>
-        {reading ? READING_TOOLS : refusal?.field === null ? refusal.error : null}
+      <p role="status" className={cn(NOTE, "-mt-1 text-center wrap-anywhere empty:hidden", working === null && "text-negative")}>
+        {working ?? (refusal?.field === null ? refusal.error : null)}
       </p>
     </form>
+  );
+}
+
+/** The token's field: what it's for, or why it was refused, Send no token for an app that has one, and Sign in, once the server asks for a sign-in. */
+function Token({ saved, fields, onChange, refusal, busy, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "onSignIn">) {
+  const keepsToken = saved?.hasToken === true;
+  return (
+    <Field id="app_token" label="Token">
+      <Input
+        id="app_token"
+        readOnly={busy}
+        type="password"
+        placeholder={keepsToken ? "Unchanged" : "None"}
+        maxLength={MAX_APP_TOKEN_LENGTH}
+        autoComplete="off"
+        data-1p-ignore
+        disabled={fields.noToken}
+        aria-invalid={refusal?.field === "token" ? true : undefined}
+        aria-describedby={refusal?.field === "token" ? "app_token-refusal" : "app_token-description"}
+        value={fields.token}
+        onChange={(event) => onChange({ ...fields, token: event.target.value })}
+        className={FIELD_INPUT}
+      />
+      <Under id="app_token" field="token" refusal={refusal}>
+        {keepsToken ? TOKEN_KEPT : TOKEN_EXPLAINED}
+      </Under>
+      {keepsToken && (
+        <label className="flex min-h-9 cursor-pointer items-center gap-[1ch] text-[0.9em]">
+          <input
+            type="checkbox"
+            checked={fields.noToken}
+            disabled={busy}
+            onChange={(event) => onChange({ ...fields, token: "", noToken: event.target.checked })}
+            className="size-4 flex-none accent-foreground"
+          />
+          <span>Send no token</span>
+        </label>
+      )}
+      {refusal?.signIn && (
+        <button type="button" disabled={busy} onClick={onSignIn} className={cn(BUTTON, "self-start")}>
+          {signInTo(fields.url)}
+        </button>
+      )}
+    </Field>
+  );
+}
+
+/**
+ * In the token's place for an app that signs in to its server: who signed in, and when, that the
+ * sign-in has ended, if it has, and Sign in again, with why that couldn't begin, if it couldn't.
+ */
+function SignedIn({ signIn, refusal, busy, onSignIn }: { signIn: AppSignIn; refusal: Refusal | null; busy: boolean; onSignIn: () => void }) {
+  return (
+    <div role="group" aria-labelledby="app-sign-in-label" className="flex min-w-0 flex-col gap-[7px] text-start">
+      <span id="app-sign-in-label" className="text-[13px] font-[550]">
+        Sign-in
+      </span>
+      {signIn.ended && (
+        <p role="alert" className={cn(NOTE, "text-negative")}>
+          {SIGN_IN_HAS_ENDED}
+        </p>
+      )}
+      <p className={NOTE}>
+        {signedInBy(signIn)} {SIGN_IN_EXPLAINED}
+      </p>
+      <button type="button" disabled={busy} onClick={onSignIn} className={cn(BUTTON, "self-start")}>
+        Sign in again
+      </button>
+      {refusal?.field === "token" && (
+        <p role="alert" className={cn(NOTE, "wrap-anywhere text-negative")}>
+          {refusal.error}
+        </p>
+      )}
+    </div>
   );
 }
 

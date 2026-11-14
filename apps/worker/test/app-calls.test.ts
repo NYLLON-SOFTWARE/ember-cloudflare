@@ -4,7 +4,7 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
-import { alwaysAllowedFor, CALL_NOT_SHOWN, CALL_OUTCOMES, MAX_SHOWN_INPUT_LENGTH, TOO_LONG_TO_SHOW, unmadeFor } from "../src/apps/tools";
+import { alwaysAllowedFor, CALL_NOT_SHOWN, CALL_OUTCOMES, MAX_SHOWN_INPUT_LENGTH, signInEnded, TOO_LONG_TO_SHOW, unmadeFor } from "../src/apps/tools";
 import { CALL_WAITS_MS } from "../src/apps/waiting-calls";
 import { CALL_DECLINED } from "../src/assistant/tool-calls";
 import { api, connect, cookieOf, freshDeploy, post, roomSql, roomStub, shown, workspaceSql, type Client, type Session } from "./support";
@@ -504,6 +504,17 @@ describe("A call of a connected app's tool", () => {
     expect(apps.map(({ tools }) => tools.map(({ name }) => name))).toEqual([["search_issues"]]);
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
     expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+  });
+
+  it("isn't made of an app whose sign-in has ended, which the model is told, until an administrator signs in to it again", async () => {
+    const { inGeneral, ada, tracker } = await setUp();
+    await workspaceSql("UPDATE apps SET token = NULL, sign_in = NULL, signed_in_by = ?, signed_in_at = ? WHERE id = ?", ada.user.id, new Date().toISOString(), tracker.id);
+    script = [CALL, { text: "It needs signing in to again." }];
+
+    click(inGeneral, await ask(inGeneral), "allow");
+    expect((await fromEmber(inGeneral)).plainText).toBe("It needs signing in to again.");
+    expect(told()).toEqual([[`Not run: ${signInEnded("Tracker")}`, true]]);
+    expect(rpcs).toEqual([]);
   });
 
   it("is never asked for with more than its card shows, which the model is told, so that nobody allows what they couldn't read", async () => {

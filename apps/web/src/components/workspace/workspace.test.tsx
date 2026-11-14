@@ -2110,13 +2110,14 @@ describe("Agent pages", () => {
     toolsLeftOut: 0,
     toolsReadAt: "2026-11-13T10:30:00.000Z",
     connectedBy: { id: ada.id, name: ada.name },
+    signIn: null,
   };
   /** What an administrator's workspace answers while Ember AI is on. */
   const withAgents = (responses: Parameters<typeof serve>[0] = {}) =>
     serve({
       "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true, assistant }),
       "GET /api/account/agents": () => Response.json({ agents: [recap] }),
-      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length, setAside: 0 }] }),
+      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length, setAside: 0, signInEnded: false }] }),
       "POST /api/account/assistant/offered": () => Response.json(SHIPPED_MODELS),
       // The Tools card of each agent's page.
       "GET /api/account/agents/a1/tools": () => Response.json({ apps: [] }),

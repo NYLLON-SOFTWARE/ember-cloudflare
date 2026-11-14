@@ -1,9 +1,9 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { TOOL_GONE, type AgentTools, type AppAnswer, type Apps } from "@ember/protocol/apps";
 import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { FILE_QUESTION, FILED, startFakeGateway, type FakeGateway } from "./fake-gateway";
-import { calledWith, MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
+import { ALLOW_HEADING, calledWith, MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
 
 // The Apps card on the AI assistant tab, Connect an app, a connected app's page, the Tools card on
 // @ember's page, and @ember calling a picked tool once it's allowed, or at once where an administrator
@@ -45,6 +45,14 @@ async function openApps(page: Page) {
   return page.getByRole("region", { name: "Apps", exact: true });
 }
 
+/** Fills in Connect an app, which the Apps card `card` links to, for an app at `url`, and sends it. */
+async function connectAt(page: Page, card: Locator, url: string): Promise<void> {
+  await card.getByRole("link", { name: "Connect an app" }).click();
+  await page.getByRole("textbox", { name: "Name" }).fill("Tracker");
+  await page.getByRole("textbox", { name: "Server address" }).fill(url);
+  await page.getByRole("button", { name: "Connect" }).click();
+}
+
 /** Asks @ember `question` in the room the page shows. */
 async function askEmber(page: Page, question: string): Promise<void> {
   const composer = editorField(page, "Write a message");
@@ -69,8 +77,12 @@ test.describe("Apps", () => {
     await page.getByRole("textbox", { name: "Server address" }).fill(mcp.url);
     await page.getByRole("button", { name: "Connect" }).click();
     const token = page.getByLabel("Token", { exact: true });
-    await expect(token).toHaveAccessibleDescription(`${host} asks for a sign-in. Give a token for it, if it has one: Ember can't sign in to an app any other way yet.`);
+    await expect(token).toHaveAccessibleDescription(`${host} asks for a sign-in. Sign in to it, or give a token for it, if it has one.`);
     await expect(page).toHaveURL(/\/account\/apps\/new$/);
+    // This server describes no sign-in, which the offer to sign in finds.
+    await page.getByRole("button", { name: `Sign in to ${host}` }).click();
+    await expect(token).toHaveAccessibleDescription(`${host} doesn't say how to sign in to it. Give a token for it, if it has one.`);
+    await expect(page.getByRole("button", { name: /^Sign in/ })).toHaveCount(0);
 
     // With it, Ember reads the server's tools and goes to the app's page, which lists them.
     await token.fill(MCP_TOKEN);
@@ -106,6 +118,69 @@ test.describe("Apps", () => {
     await page.getByRole("button", { name: "Remove Tracker" }).click();
     await expect(card).toContainText("No apps are connected yet.");
     await expect(card.getByRole("listitem")).toHaveCount(0);
+  });
+
+  test("the administrator connects an app whose server signs people in by signing in there, and signs in again once that has ended", async ({ page }) => {
+    const signsIn = await startFakeMcp({ signsIn: true });
+    try {
+      const signIn = signsIn.signIn!;
+      const host = new URL(signsIn.url).host;
+      const card = await openApps(page);
+
+      // The server asks for a sign-in, which Ember finds and sends the browser to. Denying it there changes nothing.
+      await connectAt(page, card, signsIn.url);
+      await page.getByRole("button", { name: `Sign in to ${host}` }).click();
+      await expect(page.getByRole("heading", { name: ALLOW_HEADING })).toBeVisible();
+      await page.getByRole("link", { name: "Deny" }).click();
+      await expect(page.getByRole("heading", { level: 1, name: "The app isn't signed in to" })).toBeVisible();
+      await expect(page.getByRole("alert")).toHaveText("The sign-in was turned down there, so nothing has changed.");
+      await expect(page).toHaveURL(/\/account\/apps\/signed-in$/);
+      await page.getByRole("link", { name: "Back to the apps" }).click();
+      await expect(card).toContainText("No apps are connected yet.");
+
+      // Allowing it comes back to Ember, which finishes the sign-in, reads the server's tools and connects the app.
+      await connectAt(page, card, signsIn.url);
+      await page.getByRole("button", { name: `Sign in to ${host}` }).click();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page).toHaveURL(/\/account\/apps\/[^/]+\/edit$/);
+      await expect(page.getByRole("alert")).toHaveText("Tracker is connected. Ember read 2 tools from it.");
+      expect(signIn.exchanged).toBe(1);
+      const kept = page.getByRole("group", { name: "Sign-in" });
+      await expect(kept).toContainText("Signed in by Ada Lovelace");
+      await expect(kept).not.toContainText("has ended");
+      await expect(page.getByLabel("Token", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("textbox", { name: "Server address" })).toHaveAttribute("readonly");
+      const tools = page.getByRole("region", { name: /^Tools/ });
+      await expect(tools.getByRole("heading", { name: "Tools (2)" })).toBeVisible();
+
+      // Its access tokens are short-lived, so Ember gets itself another to read the tools again.
+      signsIn.tools.push({ name: "close_issue", description: "Closes an issue.", inputSchema: { type: "object" } });
+      await tools.getByRole("button", { name: "Read its tools again" }).click();
+      await expect(tools.getByRole("heading", { name: "Tools (3)" })).toBeVisible();
+      expect(signIn.refreshed).toBe(1);
+
+      // Once the sign-in is ended at the service, Ember finds so, and says so on the app's page and its row.
+      signIn.end();
+      await tools.getByRole("button", { name: "Read its tools again" }).click();
+      await expect(tools.getByRole("status")).toHaveText("Ember's sign-in to Tracker has ended. An administrator has to sign in to it again, on its page.");
+      await page.reload();
+      await expect(kept.getByRole("alert")).toContainText("Its sign-in has ended");
+      await page.getByRole("link", { name: "Go Back" }).click();
+      await expect(card.getByRole("listitem")).toContainText("Its sign-in has ended");
+
+      // Signing in again keeps the app, which its server answers again.
+      await card.getByRole("link", { name: "Edit Tracker" }).click();
+      await kept.getByRole("button", { name: "Sign in again" }).click();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page).toHaveURL(/\/account\/apps\/[^/]+\/edit$/);
+      await expect(page.getByRole("alert")).toHaveText("Ember is signed in to Tracker again.");
+      await expect(kept).not.toContainText("has ended");
+      await expect(tools.getByRole("heading", { name: "Tools (3)" })).toBeVisible();
+      await page.getByRole("link", { name: "Go Back" }).click();
+      await expect(card.getByRole("listitem")).toHaveText([`Tracker${host}/mcp · 3 toolsEdit Tracker`]);
+    } finally {
+      await signsIn.close();
+    }
   });
 
   test("the administrator renames an app, which reads nothing from its server, and an address with no MCP server is refused", async ({ page, request }) => {

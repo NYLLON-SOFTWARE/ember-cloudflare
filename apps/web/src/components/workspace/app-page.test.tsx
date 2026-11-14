@@ -2,14 +2,36 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "@ember/protocol";
-import { APPS_FORBIDDEN, APPS_FULL, type App, type AppAnswer } from "@ember/protocol/apps";
+import { APPS_FORBIDDEN, APPS_FULL, type App, type AppAnswer, type AppSignInBegun } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { agentSettingsPath, appSettingsPath, NEW_APP_PATH } from "@/hooks/use-route";
+import { openPage } from "@/lib/page";
 import { AGENTS_PATH } from "./agent-list";
-import { AppSettingsPage, changesOf, CONFIRM_REMOVE_APP, NewAppPage, NO_TOOLS, READING_TOOLS, SET_ASIDE_EXPLAINED, TOKEN_EXPLAINED, TOKEN_KEPT, TOOL_IS_GONE, toolsLeftOut, URL_EXPLAINED } from "./app-page";
+import {
+  ADDRESS_KEPT,
+  AppSettingsPage,
+  changesOf,
+  CONFIRM_REMOVE_APP,
+  FINDING_SIGN_IN,
+  NewAppPage,
+  NO_TOOLS,
+  READING_TOOLS,
+  SET_ASIDE_EXPLAINED,
+  SIGN_IN_EXPLAINED,
+  SIGN_IN_HAS_ENDED,
+  signedInBy,
+  TOKEN_EXPLAINED,
+  TOKEN_KEPT,
+  TOOL_IS_GONE,
+  toolsLeftOut,
+  URL_EXPLAINED,
+} from "./app-page";
 import { CHANGES_SAVED } from "./settings-page";
+
+// Leaving for an app's authorization server would end the test's page.
+vi.mock("@/lib/page", async (original) => ({ ...(await original<typeof import("@/lib/page")>()), openPage: vi.fn() }));
 
 const ada: Me = { id: "0mgk3x2a9b4c5d", name: "Ada Lovelace", administrator: true };
 
@@ -27,10 +49,19 @@ const LINEAR: App = {
   toolsReadAt: "2026-11-13T10:30:00.000Z",
   connectedBy: { id: ada.id, name: ada.name },
   setAside: [],
+  signIn: null,
 };
 
+/** The app as it is once an administrator signed in to its server, in place of a token. */
+const SIGNED_IN: App = { ...LINEAR, hasToken: false, signIn: { by: { id: ada.id, name: ada.name }, at: "2026-11-14T08:00:00.000Z", ended: false } };
+
+/** Where the app's authorization server signs people in, as Ember answers once it has found it. */
+const AUTHORIZE = "https://auth.linear.example/authorize?client_id=ember&state=5f2c";
+const begun = () => Response.json({ authorizationUrl: AUTHORIZE } satisfies AppSignInBegun);
+const ASKS_FOR_SIGN_IN = "mcp.linear.example asks for a sign-in. Sign in to it, or give a token for it, if it has one.";
+
 const answer = (app: App, status = 200) => Response.json({ app } satisfies AppAnswer, { status });
-const refused = (status: number, error: string, field?: string) => Response.json({ error, ...(field && { field }) }, { status });
+const refused = (status: number, error: string, field?: string, signIn?: true) => Response.json({ error, ...(field && { field }), ...(signIn && { signIn }) }, { status });
 
 interface Answers {
   /** What listing the apps answers, rather than none. */
@@ -88,7 +119,10 @@ const tokenField = () => screen.getByLabelText("Token");
 const tools = () => screen.getByRole("region", { name: /^Tools/ });
 const flashed = () => screen.findByRole("alert");
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(openPage).mockClear();
+});
 
 describe("Connect an app", () => {
   it("asks for a name, the server's address and a token, saying what each is for, with Go Back to the AI assistant tab", async () => {
@@ -160,6 +194,43 @@ describe("Connect an app", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Expected a JSON object"));
   });
 
+  it("offers to sign in to a server that asks for a sign-in, and sends the browser where it signs people in", async () => {
+    let found!: (response: Response) => void;
+    const requests = serve({ sent: (request) => (request === "POST /api/account/apps" ? refused(422, ASKS_FOR_SIGN_IN, "token", true) : new Promise((resolve) => (found = resolve))) });
+    const { user } = showNew();
+    await user.type(await nameField(), "Linear");
+    await user.type(urlField(), LINEAR.url);
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(tokenField()).toHaveAccessibleDescription(ASKS_FOR_SIGN_IN));
+    await user.click(screen.getByRole("button", { name: "Sign in to mcp.linear.example" }));
+    expect(screen.getByRole("status")).toHaveTextContent(FINDING_SIGN_IN);
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+    expect(requests.at(-1)).toEqual({ request: "POST /api/account/app-sign-ins", body: { name: "Linear", url: LINEAR.url } });
+    expect(openPage).not.toHaveBeenCalled();
+
+    found(begun());
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    // The form is as it was for whoever comes back to it.
+    expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("says why a sign-in couldn't begin, on the field it's about, and no longer offers one", async () => {
+    const why = "mcp.linear.example has a sign-in, but doesn't let Ember register itself for it. Give a token for it, if it has one.";
+    serve({ sent: (request) => (request === "POST /api/account/apps" ? refused(422, ASKS_FOR_SIGN_IN, "token", true) : refused(422, why, "token")) });
+    const { user } = showNew();
+    await user.type(await nameField(), "Linear");
+    await user.type(urlField(), LINEAR.url);
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    await user.click(await screen.findByRole("button", { name: "Sign in to mcp.linear.example" }));
+
+    await waitFor(() => expect(tokenField()).toHaveAccessibleDescription(why));
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+    expect(openPage).not.toHaveBeenCalled();
+  });
+
   it("says so, as the workspace's alerts do, when as many apps are connected as can be", async () => {
     serve({ sent: () => refused(409, APPS_FULL) });
     const { user, onFailed } = showNew();
@@ -209,6 +280,47 @@ describe("A connected app's page", () => {
     expect(list).toHaveTextContent(/^list_issues$/);
     expect(tools()).not.toHaveTextContent("Ember leaves out");
     expect(within(tools()).queryByRole("group")).toBeNull();
+  });
+
+  it("says who signed in to an app that signs in to its server, in place of a token, and keeps its address", async () => {
+    serve({ loaded: () => answer(SIGNED_IN) });
+    const { user } = showSettings();
+    expect(await nameField()).toHaveValue("Linear");
+
+    expect(screen.queryByLabelText("Token")).toBeNull();
+    const signIn = screen.getByRole("group", { name: "Sign-in" });
+    expect(signIn).toHaveTextContent(signedInBy(SIGNED_IN.signIn!));
+    expect(signedInBy(SIGNED_IN.signIn!)).toMatch(/^Signed in by Ada Lovelace, .+\.$/);
+    expect(signIn).toHaveTextContent(SIGN_IN_EXPLAINED);
+    expect(signIn).not.toHaveTextContent(SIGN_IN_HAS_ENDED);
+    expect(urlField()).toHaveAttribute("readonly");
+    expect(urlField()).toHaveAccessibleDescription(ADDRESS_KEPT);
+    // Its name is still its administrators' to change.
+    await user.type(await nameField(), " issues");
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+  });
+
+  it("says a sign-in has ended, and signs in again by sending the browser where its server signs people in", async () => {
+    const requests = serve({ loaded: () => answer({ ...SIGNED_IN, signIn: { ...SIGNED_IN.signIn!, ended: true } }), sent: begun });
+    const { user } = showSettings();
+    await nameField();
+    expect(within(screen.getByRole("group", { name: "Sign-in" })).getByRole("alert")).toHaveTextContent(SIGN_IN_HAS_ENDED);
+
+    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests).toEqual([{ request: `POST /api/account/apps/${LINEAR.id}/sign-in`, body: undefined }]);
+  });
+
+  it("says why signing in again couldn't begin, under Sign in again", async () => {
+    const why = "mcp.linear.example doesn't say how to sign in to it. Give a token for it, if it has one.";
+    serve({ loaded: () => answer(SIGNED_IN), sent: () => refused(422, why, "token") });
+    const { user } = showSettings();
+    await nameField();
+    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+
+    expect(await within(screen.getByRole("group", { name: "Sign-in" })).findByRole("alert")).toHaveTextContent(why);
+    expect(screen.getByRole("button", { name: "Sign in again" })).toBeEnabled();
+    expect(openPage).not.toHaveBeenCalled();
   });
 
   it("says which tools are set aside for the agents that had them, as the app changed them or no longer has them, with a link to each agent's page", async () => {

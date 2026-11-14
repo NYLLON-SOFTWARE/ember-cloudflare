@@ -9,7 +9,7 @@ import { toBase64url, urlsafeDecode64 } from "./encoding";
 // something else, doesn't open.
 
 /** What a secret is kept for, whose key is derived for it alone. */
-export type SealedSecret = "resend-api-key" | "turnstile-secret-key" | "ai-gateway-token" | "sfu-app-secret" | "app-token";
+export type SealedSecret = "resend-api-key" | "turnstile-secret-key" | "ai-gateway-token" | "sfu-app-secret" | "app-token" | "app-sign-in";
 
 const VERSION = "v1";
 /** AES-GCM's nonce, 96 bits, as it's recommended. */

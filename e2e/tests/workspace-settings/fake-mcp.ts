@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -5,7 +6,9 @@ import type { AddressInfo } from "node:net";
 // over Streamable HTTP as far as Ember asks it (apps/worker/src/apps/mcp.ts), answering `initialize`
 // with what it calls itself, taking the notification that follows, listing its tools, and answering a
 // call of one with `calledWith`, to whoever sends its token. It serves on this machine, where Ember
-// asks an app over http.
+// asks an app over http. Started to sign people in, it takes no token of its own: it's its own OAuth
+// authorization server, as the protocol has one found, which registers whoever asks, shows a page to
+// allow or deny them, and gives short-lived access tokens with a token to get the next one with.
 
 /** What the server calls itself. */
 export const SERVER_NAME = "Tracker";
@@ -39,8 +42,29 @@ export interface FakeMcp {
   asked: string[];
   /** The calls of its tools it ran, in order: each tool's name and what it was called with. */
   calls: Array<{ name: string; arguments: unknown }>;
+  /** Its sign-in, when it signs people in rather than taking its token. */
+  signIn: FakeSignIn | null;
   close: () => Promise<void>;
 }
+
+/** What the server's authorization server asks whoever is sent to it, over its Allow and Deny. */
+export const ALLOW_HEADING = "Allow Ember to use Tracker?";
+
+/** A fake server's sign-in: the access token it takes now and the token that gets the next one, neither once it's `end`ed. */
+export interface FakeSignIn {
+  access: string | null;
+  refresh: string | null;
+  /** The codes it sent a browser back with, each with what the browser was sent to it with. */
+  codes: Map<string, URLSearchParams>;
+  /** How many times it gave tokens for a code, and for a token that gets the next one. */
+  exchanged: number;
+  refreshed: number;
+  /** Ends the sign-in, as when it's taken back at the service: its tokens stop working. */
+  end: () => void;
+}
+
+/** How long the fake's access tokens last, in seconds: so short that Ember gets another before each use. */
+const ACCESS_LASTS = 30;
 
 interface Message {
   id?: number;
@@ -58,18 +82,89 @@ function resultOf(mcp: FakeMcp, message: Message): unknown {
   return { content: [{ type: "text", text: calledWith(name, given) }] };
 }
 
+type Reply = (status: number, body?: unknown, headers?: Record<string, string>) => void;
+
+async function bodyOf(request: IncomingMessage): Promise<string> {
+  let body = "";
+  for await (const chunk of request) body += String(chunk);
+  return body;
+}
+
+/** The tokens the authorization server gives next, which end the ones it gave last. */
+function nextTokens(signIn: FakeSignIn) {
+  signIn.access = `access-${randomUUID()}`;
+  signIn.refresh = `refresh-${randomUUID()}`;
+  return { access_token: signIn.access, token_type: "Bearer", expires_in: ACCESS_LASTS, refresh_token: signIn.refresh };
+}
+
+/** What the token endpoint answers `form`: tokens for a code it sent a browser back with, proven with its verifier, or for the token it gave last to get another with. */
+function tokensFor(signIn: FakeSignIn, form: URLSearchParams, reply: Reply): void {
+  if (form.get("grant_type") === "refresh_token") {
+    if (signIn.refresh === null || form.get("refresh_token") !== signIn.refresh) return reply(400, { error: "invalid_grant" });
+    signIn.refreshed += 1;
+    return reply(200, nextTokens(signIn));
+  }
+  const code = form.get("code") ?? "";
+  const sent = signIn.codes.get(code);
+  signIn.codes.delete(code);
+  const challenge = createHash("sha256").update(form.get("code_verifier") ?? "").digest("base64url");
+  if (!sent || sent.get("code_challenge") !== challenge || sent.get("redirect_uri") !== form.get("redirect_uri")) return reply(400, { error: "invalid_grant" });
+  signIn.exchanged += 1;
+  reply(200, nextTokens(signIn));
+}
+
+/** The page the authorization server shows whoever is sent to it with `query`: a link that allows Ember, back to it with a code, and one that denies it. */
+function allowPage(signIn: FakeSignIn, query: URLSearchParams): string {
+  const back = (answer: Record<string, string>) => {
+    const to = new URL(query.get("redirect_uri") ?? "http://localhost/");
+    for (const [name, value] of Object.entries({ ...answer, state: query.get("state") ?? "" })) to.searchParams.set(name, value);
+    return to.href.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+  };
+  const code = `code-${randomUUID()}`;
+  signIn.codes.set(code, query);
+  return `<!doctype html><title>${SERVER_NAME}</title><h1>${ALLOW_HEADING}</h1><p><a href="${back({ code })}">Allow</a> <a href="${back({ error: "access_denied" })}">Deny</a></p>`;
+}
+
+/** What the server says of its sign-in at `origin`, as OAuth has an authorization server describe itself. */
+const describedAt = (origin: string) => ({
+  issuer: origin,
+  authorization_endpoint: `${origin}/authorize`,
+  token_endpoint: `${origin}/token`,
+  registration_endpoint: `${origin}/register`,
+  response_types_supported: ["code"],
+  grant_types_supported: ["authorization_code", "refresh_token"],
+  code_challenge_methods_supported: ["S256"],
+  token_endpoint_auth_methods_supported: ["none"],
+});
+
+/** Answers what's asked of the server's sign-in at `url`, as the protocol finds an authorization server and OAuth asks one: whether that's what was asked. */
+async function answerSignIn(signIn: FakeSignIn, url: URL, request: IncomingMessage, response: ServerResponse, reply: Reply): Promise<boolean> {
+  const { origin, pathname } = url;
+  if (pathname === "/.well-known/oauth-protected-resource/mcp") reply(200, { resource: `${origin}/mcp`, authorization_servers: [origin] });
+  else if (pathname === "/.well-known/oauth-authorization-server") reply(200, describedAt(origin));
+  else if (pathname === "/register" && request.method === "POST") reply(201, { ...(JSON.parse(await bodyOf(request)) as object), client_id: "ember-e2e" });
+  else if (pathname === "/token" && request.method === "POST") tokensFor(signIn, new URLSearchParams(await bodyOf(request)), reply);
+  else if (pathname === "/authorize") response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(allowPage(signIn, url.searchParams));
+  else return false;
+  return true;
+}
+
 async function answer(mcp: FakeMcp, request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const reply = (status: number, body?: unknown, headers: Record<string, string> = {}) => {
+  const reply: Reply = (status, body, headers = {}) => {
     response.writeHead(status, { ...(body !== undefined && { "Content-Type": "application/json" }), ...headers });
     response.end(body === undefined ? undefined : JSON.stringify(body));
   };
-  if (new URL(request.url ?? "/", "http://localhost").pathname !== "/mcp") return reply(404, { error: "Not found" });
-  if (request.headers.authorization !== `Bearer ${MCP_TOKEN}`) return reply(401, { error: "Unauthorized" }, { "WWW-Authenticate": "Bearer" });
+  const url = new URL(request.url ?? "/", mcp.url);
+  if (mcp.signIn && (await answerSignIn(mcp.signIn, url, request, response, reply))) return;
+  if (url.pathname !== "/mcp") return reply(404, { error: "Not found" });
+  const takes = mcp.signIn ? mcp.signIn.access : MCP_TOKEN;
+  if (takes === null || request.headers.authorization !== `Bearer ${takes}`) {
+    const challenge = mcp.signIn ? `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource/mcp"` : "Bearer";
+    return reply(401, { error: "Unauthorized" }, { "WWW-Authenticate": challenge });
+  }
   // It keeps no stream open for what it would send on its own.
   if (request.method !== "POST") return reply(405);
-  let body = "";
-  for await (const chunk of request) body += String(chunk);
-  const message = JSON.parse(body) as Message;
+  const message = JSON.parse(await bodyOf(request)) as Message;
   mcp.asked.push(message.method);
   if (message.id === undefined) return reply(202);
   const result = resultOf(mcp, message);
@@ -77,9 +172,10 @@ async function answer(mcp: FakeMcp, request: IncomingMessage, response: ServerRe
   reply(200, { jsonrpc: "2.0", id: message.id, result });
 }
 
-/** Starts the server on a port of its own, on this machine. */
-export async function startFakeMcp(): Promise<FakeMcp> {
-  const mcp: FakeMcp = { url: "", tools: [...TOOLS], asked: [], calls: [], close: async () => {} };
+/** Starts the server on a port of its own, on this machine: one that takes its token, or one that `signsIn` whoever its authorization server allows. */
+export async function startFakeMcp({ signsIn = false } = {}): Promise<FakeMcp> {
+  const signIn: FakeSignIn = { access: null, refresh: null, codes: new Map(), exchanged: 0, refreshed: 0, end: () => void Object.assign(signIn, { access: null, refresh: null }) };
+  const mcp: FakeMcp = { url: "", tools: [...TOOLS], asked: [], calls: [], signIn: signsIn ? signIn : null, close: async () => {} };
   const server = createServer((request, response) => {
     answer(mcp, request, response).catch(() => response.destroy());
   });

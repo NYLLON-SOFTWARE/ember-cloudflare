@@ -870,12 +870,11 @@ often ends in `/mcp`, and a token, if the server takes one. Ember asks the serve
 over Streamable HTTP, and connects the app only once it has answered, so a wrong address or token is
 said on its field, in words about what the server did: it asked for a sign-in, didn't take the token,
 has no MCP server there, sent the address on to another, took longer than 20 seconds, or answered
-with more than 4 MB.
+with more than 4 MB. A server that asks for a sign-in is connected by [signing in to it](#signing-in-to-an-app).
 
 An administrator picks the tools each agent may use, and an agent calls one only once someone allows
 that call, on a card in the room, unless the administrator has that agent's calls of the tool always
-allowed. A server that signs people in with OAuth can't be connected yet, only one that takes a token
-or nothing.
+allowed.
 
 - **The address** is an `https` one, or `http` on `localhost`, for a server you're developing, with no
   name and password in it. Ember asks only that address: it follows no redirect, and it looks the name
@@ -890,8 +889,8 @@ or nothing.
   letters, digits, `_`, `-` and `.`, a description up to 1,500 characters and a schema of what it takes
   up to 8,000, and the page says how many more the server has. **Read its tools again** asks the
   server again, and leaves the app as it was if the server doesn't answer.
-- **Remove app** forgets the app, its token and its tools. Up to 10 apps can be connected, and they're
-  kept while Ember AI is off.
+- **Remove app** forgets the app, its token or sign-in, and its tools. Up to 10 apps can be connected,
+  and they're kept while Ember AI is off.
 - **An agent's tools** are picked on its page, and @ember's on its own, in the **Tools** card: every
   connected app's tools, by app, each with a checkbox, up to 20 an agent. A pick is saved as it's made.
   An agent is given nothing that isn't picked for it, and anyone who can ask the agent could have it
@@ -937,6 +936,43 @@ or nothing.
 Reading an app's tools and calling one run in a Durable Object of its own, `AppConnector`, apart from the rooms and
 the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none
 of a server's code runs in Ember.
+
+#### Signing in to an app
+
+Many services' MCP servers take no token you could paste: they sign you in, with OAuth, as the
+protocol has it. When a server answers Connect an app by asking for a sign-in, the token's field says
+so and offers **Sign in to** its host. Ember then finds where the server signs people in, sends your
+browser there, and connects the app once you've allowed it and the service has sent you back. The
+app's page says who signed in, and when, in place of a token.
+
+- **It's one sign-in for the app**, made by an administrator and used for every agent given the
+  app's tools, as a token is. So what an agent can do there is what the administrator who signed in
+  can, for anyone who can ask the agent: sign in as an account made for Ember where the service lets
+  you, and pick tools with that in mind.
+- **Ember finds the sign-in from the server**, as the protocol says to: the server names its
+  authorization server, which describes itself. Ember says who it is with a document it serves at
+  `/oauth/client.json` where the authorization server reads one, and otherwise registers itself
+  there; a service that does neither can't be signed in to yet. It asks for the access the server
+  says it needs, proves each sign-in with PKCE, and names the server's address as what the tokens
+  are for, so they're no good anywhere else.
+- **Every address in it is checked** as the server's own is: `https` only, unless the server is one
+  you're developing on `localhost`, each looked up first and refused where it resolves to a private
+  address, with no redirect followed. An authorization server that says it's another service's, or
+  describes a sign-in for another address than the server's, is refused.
+- **You come back to Ember signed in**, at `/account/apps/signed-in`, which takes the code out of the
+  address at once. A sign-in is finished only by the administrator who began it, once, within ten
+  minutes; Ember keeps what it needs to finish it encrypted until then.
+- **The tokens are kept encrypted**, for that app alone, and never shown. An access token that's
+  about to end is replaced first, with the token the service gave for that, one request at a time,
+  so a token that's replaced as it's used is never sent twice.
+- **A sign-in ends** when the service won't give another token: it was taken back there, or the
+  service gave none to renew with. Ember then asks the server nothing: a call of its tools tells the
+  model so, the app's page and its row on the AI assistant tab say so, and **Sign in again** on the
+  app's page restores it, keeping the app and every agent's picks. A service that couldn't be reached
+  for a new token ends nothing: Ember goes on with the token it has.
+- **A signed-in app keeps its address** and takes no token, since its sign-in is to the server there.
+  To move it, remove it and connect it again. Removing it forgets the sign-in; take Ember's access
+  back at the service too, which Ember doesn't do for you.
 
 ### Huddles
 

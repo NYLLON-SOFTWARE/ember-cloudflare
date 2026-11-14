@@ -100,6 +100,12 @@ export function appTool(env: Env, agentId: UserId, given: GivenTool, { described
   };
 }
 
+/** Whether the sign-in to the app asked as `access` has ended, so that its server isn't asked until an administrator signs in again. */
+export const hasEnded = (access: Pick<AppCallAccess, "signedIn" | "key">) => access.signedIn && access.key === null;
+
+/** What's said of an app whose sign-in has ended, to a model whose call of its tool isn't made, and to an administrator who has its tools read. */
+export const signInEnded = (appName: string) => `Ember's sign-in to ${appName} has ended. An administrator has to sign in to it again, on its page.`;
+
 /** What a model is told of a call made without asking first that the room couldn't be shown. */
 export const CALL_NOT_SHOWN = "Not run: the room couldn't be shown this call, and a call nobody is shown isn't made.";
 
@@ -108,18 +114,19 @@ export const CALL_NOT_SHOWN = "Not run: the room couldn't be shown this call, an
  * is `shown` it, as the agent's calls of it are always allowed: what its app answered, or why not, for
  * the model to read. The Workspace says where it goes, as it finds the tool then: one no longer picked
  * for the agent, changed since, or, with nobody asked, no longer always allowed, isn't called, and
- * neither is one the room can't be shown. A call shown that then isn't made, as its tool is found
- * changed or its server can't be asked, has the room told so.
+ * neither is one the room can't be shown, or one of an app whose sign-in has ended. A call shown that
+ * then isn't made, as its tool is found changed or its server can't be asked, has the room told so.
  */
 async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, shown?: ShowsCall): Promise<string> {
   const access = await workspace(env).appToolCall(agentId, tool, shown !== undefined);
   if (!access) throw new ToolError(`Not run: ${tool.as} isn't one of your tools any more${shown ? ", or each call of it has to be allowed now" : ""}.`);
+  if (hasEnded(access)) throw new ToolError(`Not run: ${signInEnded(tool.appName)}`);
   const shownCall = await shown?.(input);
   if (typeof shownCall === "string") {
     console.error(`A call of the tool ${tool.name} of app ${tool.appId} wasn't made, as the room couldn't be shown it: ${shownCall}`);
     throw new ToolError(CALL_NOT_SHOWN);
   }
-  const { text, failed, unmade, changed } = await appConnector(env).call(access.url, access.token, { name: tool.name, fingerprint: tool.fingerprint }, input);
+  const { text, failed, unmade, changed } = await appConnector(env).call(access.url, access.key, { name: tool.name, fingerprint: tool.fingerprint }, input);
   await Promise.all([changed && readAgain(env, tool, access), unmade && shownCall?.unmade(changed ? "changed" : "unasked")]);
   if (failed) throw new ToolError(text);
   return text;
@@ -133,7 +140,7 @@ async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<
  */
 async function readAgain(env: Env, tool: GivenTool, access: AppCallAccess): Promise<void> {
   try {
-    const read = await appConnector(env).read(access.url, access.token, true);
+    const read = await appConnector(env).read(access.url, access.key, true);
     if (!("error" in read)) await workspace(env).keepAppRead(tool.appId, read, access);
   } catch (error) {
     console.error(`Reading the tools of app ${tool.appId} again, after a call found one changed, failed: ${error instanceof Error ? error.name : "unknown error"}`);
