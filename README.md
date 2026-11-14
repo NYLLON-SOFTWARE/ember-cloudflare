@@ -155,8 +155,8 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Computers** | ✅ any modern browser, or installed as an app | ✅ native Mac, Windows and Linux apps, or the browser |
 | **Light and dark** | ✅ | ✅ |
 | **Incoming webhooks** | ✅ Slack-compatible, with attachments and Block Kit | ✅ |
-| **Bots that answer** |
-| **Slash commands and bot events** | ✅ a bot answers /commands and hears the rooms it is in | ✅ | ✅ through a webhook per bot | ✅ through Slack apps |
+| **Bots that answer** | ✅ through a webhook per bot | ✅ through Slack apps |
+| **Slash commands and bot events** | ✅ a bot answers /commands and hears the rooms it is in | ✅ |
 | **Ways to join** | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
 | **Single sign-on** | Memberful, for membership communities | Google on every plan, and SAML SSO with SCIM on Business+ |
 
