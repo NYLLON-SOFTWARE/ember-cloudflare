@@ -277,6 +277,19 @@ describe("Profile fields on workspace settings", () => {
     expect(screen.getByLabelText("Name")).toHaveValue("Phone number");
   });
 
+  it("keeps a field added while the fields load, when the load answers after the add does", async () => {
+    let answer = (_: Response) => {};
+    const { user } = show({ loaded: () => new Promise((resolve) => (answer = resolve)) });
+    // The form is there before the fields are, and the add answers first.
+    await user.type(screen.getByLabelText("Name"), "Phone");
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    await waitFor(() => expect(listed()).toEqual(["Title", "Pronouns", "Phone"]));
+
+    await act(async () => answer(Response.json({ fields: FIELDS })));
+    await waitFor(() => expect(listed()).toEqual(["Title", "Pronouns", "Phone"]));
+    expect(screen.getByLabelText("Name")).toHaveValue("");
+  });
+
   it("says Changes saved. once a field is added", async () => {
     const { user } = show();
     await shown();
