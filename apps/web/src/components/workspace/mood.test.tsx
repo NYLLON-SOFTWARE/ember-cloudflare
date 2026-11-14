@@ -38,4 +38,13 @@ describe("Mood", () => {
     act(() => vi.advanceTimersByTime(24 * 3_600_000));
     expect(screen.getByText("😌 Pairing on the compiler")).toBeInTheDocument();
   });
+
+  it("takes a mood off 30 days out, arming again at the cap a browser arms a timer to", () => {
+    render(<Mood mood={worn(new Date("2026-11-11T18:00:00").toISOString())} />);
+    act(() => vi.advanceTimersByTime(2_147_483_647));
+    // Still 30 days minus the cap from coming off, so the first firing armed again rather than took it off.
+    expect(screen.getByText("😌 Pairing on the compiler")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(30 * 24 * 3_600_000 - 2_147_483_647));
+    expect(screen.queryByText(/^😌/)).toBeNull();
+  });
 });

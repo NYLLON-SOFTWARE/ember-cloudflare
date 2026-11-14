@@ -2407,7 +2407,8 @@ const PROFILE_FIELDS = {
 
 /**
  * Parses an untrusted mood someone wears beside their name. Returns why it's refused instead. The emoji
- * and the words are both wanted: a mood without either is none, which taking it off is for.
+ * and the words are both wanted: a mood without either is none, which taking it off is for. The clear
+ * time is kept as the instant its text names, written canonically, not as it was written.
  */
 export function parseMood(data: unknown): PersonMood | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
@@ -2417,7 +2418,13 @@ export function parseMood(data: unknown): PersonMood | string {
   if (typeof text !== "string" || text === "") return "A few words are required";
   if (text.length > MAX_MOOD_TEXT_LENGTH) return `Words must be at most ${MAX_MOOD_TEXT_LENGTH} characters`;
   if (clearAt !== null && typeof clearAt !== "string") return "Clear time must be a time or null";
-  if (typeof clearAt === "string" && Number.isNaN(Date.parse(clearAt))) return "Clear time isn't a time";
+  if (typeof clearAt === "string") {
+    // A time's text is read loosely, so what a browser tolerates could be padded and absurd while naming
+    // a fine instant. Save the instant it names, as the canonical UTC ISO time, and refuse what names none.
+    const parsed = Date.parse(clearAt);
+    if (!Number.isFinite(parsed)) return "Clear time isn't a time";
+    return { emoji, text, clearAt: new Date(parsed).toISOString() };
+  }
   return { emoji, text, clearAt };
 }
 

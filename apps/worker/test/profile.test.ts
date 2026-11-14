@@ -487,6 +487,14 @@ describe("Your mood", () => {
     expect(await moodOf(grace, grace.user.id)).toEqual(expired);
   });
 
+  it("saves a clear time as the instant its text names, however padded or strangely it was written", async () => {
+    const grace = await signIn("Grace Hopper");
+    const padded = { ...mood, clearAt: `2027-01-01 09:00:00 UTC${" ".repeat(900_000)}` };
+    expect((await save(grace, { mood: padded })).status).toBe(200);
+    expect(await profileOf(grace)).toMatchObject({ mood });
+    expect(await moodOf(grace, grace.user.id)).toEqual(mood);
+  });
+
   it.each([
     ["a mood without an emoji", { ...mood, emoji: "" }, "Emoji is required"],
     ["an emoji longer than the form takes", { ...mood, emoji: "x".repeat(MAX_MOOD_EMOJI_LENGTH + 1) }, `Emoji must be at most ${MAX_MOOD_EMOJI_LENGTH} characters`],
