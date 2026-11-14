@@ -26,7 +26,6 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { OTHER_ACTION } from "./dialog-styles";
 import { afterNavigating, dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, usePath, useQuery, useRoute, type Route } from "@/hooks/use-route";
 import { HomePage } from "../mobile/home-page";
 import { KeyboardInset } from "../mobile/keyboard-inset";
@@ -175,7 +174,8 @@ function NotLoaded({ settings, onRetry }: { settings: boolean; onRetry: () => vo
   const content = (
     <MainContent className={cn("flex flex-col items-center justify-center gap-3 bg-background text-muted-foreground", !settings && "col-start-3 row-span-2 max-md:col-start-1")}>
       <p role="alert">{NOT_LOADED}</p>
-      <button type="button" onClick={onRetry} className={OTHER_ACTION}>
+      {/* As the dialogs' other action looks (dialog-styles.ts), which the app's script would otherwise bring along. */}
+      <button type="button" onClick={onRetry} className="inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-[9px] border bg-background px-[22px] py-[0.5em] font-semibold text-foreground touch:min-h-11">
         Try again
       </button>
     </MainContent>
