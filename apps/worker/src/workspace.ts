@@ -5218,11 +5218,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Whether push subscription `id` is still saved, for someone still active, as a room asks just before
-   * sending a push that waited its turn, so that one banned, removed or suspended meanwhile gets none.
+   * Whether push subscription `id` is still saved, for someone still active whose stay, if they're a
+   * guest of one room, hasn't ended yet, as a room asks just before sending a push that waited its turn,
+   * so that one banned, removed, suspended or whose stay has passed meanwhile gets none.
    */
   async pushable(id: number): Promise<boolean> {
-    return this.store.pushable(id);
+    return this.store.pushable(id, Date.now());
   }
 
   /**

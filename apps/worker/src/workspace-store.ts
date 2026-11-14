@@ -1735,11 +1735,12 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  * thread for a reply sent only there, at all messages, when it's in the room's timeline, as ?7 says, then
  * of those at @mentions or all messages whom it mentions, a JSON list ?4, or who follow the thread it's a
  * reply in, a JSON list ?8, each in the order they were saved, but none of whoever has hushed their push
- * notifications (Do not disturb) while a row in `dnd` covers the moment, ?9 being it. Guests of one room,
- * whom guest_stays keeps, are pushed whatever ?6 says, and the open sign-in's guests, without a stay,
- * only while ?6 says they can stay signed in. Each comes with the room, its author's name and the count
- * its push sets the badge to: how many of its owner's conversations are marked unread. Nothing once the
- * Workspace has applied the message's event.
+ * notifications (Do not disturb) while a row in `dnd` covers the moment, ?9 being it and the instant the
+ * guests' stays are read against: guests of one room, whom guest_stays keeps, are pushed whatever ?6
+ * says while their stay hasn't ended, and the open sign-in's guests, without a stay, only while ?6 says
+ * they can stay signed in. Each comes with the room, its author's name and the count its push sets the
+ * badge to: how many of its owner's conversations are marked unread. Nothing once the Workspace has
+ * applied the message's event.
  */
 export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -1748,7 +1749,9 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id))
+  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE}
+    AND (users.guest = 0 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?9)
+      OR (?6 = 1 AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)))
     AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
     AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = memberships.user_id AND dnd.until_at > ?9)
     AND ((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
@@ -1757,29 +1760,14 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
 
 /**
  * Whether push subscription ?1 may still have a push at the moment ?2 is: still saved, for someone
- * active who hasn't hushed their push notifications (Do not disturb) since `MESSAGE_PUSHES` chose its
- * recipients. Its id is never another's, as AUTOINCREMENT numbers them.
+ * active who hasn't hushed their push notifications (Do not disturb), and, should they be a guest of
+ * one room, while their stay hasn't ended yet, so a push holding the message's text waits for nobody
+ * whose reads refuse. Its id is never another's, as AUTOINCREMENT numbers them.
  */
 const PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
   WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE}
-    AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = push_subscriptions.user_id AND dnd.until_at > ?2)`;
-
-/**
- * Hushes someone's push notifications (Do not disturb) until ?2, in milliseconds since the epoch,
- * answering when it ends. Setting a hush again, for a person whose row is there, overwrites it; a row
- * whose time has passed is overwritten all the same, so it's stale rather than wrong.
- */
-const SET_DND = `INSERT INTO dnd (user_id, until_at) VALUES (?1, ?2)
-  ON CONFLICT (user_id) DO UPDATE SET until_at = excluded.until_at RETURNING until_at`;
-
-/** Lifts the hush on someone's push notifications, taking their row away. */
-const CLEAR_DND = `DELETE FROM dnd WHERE user_id = ?`;
-
-/**
- * When someone's hush of push notifications ends, in milliseconds since the epoch, while it still
- * covers ?2, the moment asking: nothing once it has passed, so a stale row is simply none.
- */
-const DND_UNTIL = `SELECT until_at FROM dnd WHERE user_id = ?1 AND until_at > ?2`;
+    AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = push_subscriptions.user_id AND dnd.until_at > ?2)
+    AND (users.guest = 0 OR NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at <= ?2))`;
 
 /** A subscription a push goes to, and the count it sets the badge to. */
 interface DeliveryRow {
@@ -4084,9 +4072,9 @@ export class WorkspaceStore {
     return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
   }
 
-  /** Whether push subscription `id` may still have a push: still saved, for someone active with no hush covering the moment. */
-  async pushable(id: number): Promise<boolean> {
-    return (await this.db.all(PUSHABLE, id, Date.now())).length > 0;
+  /** Whether push subscription `id` may still have a push: still saved, for someone active with no hush covering the moment, and, should they be a guest, no stay that's ended. */
+  async pushable(id: number, now: number): Promise<boolean> {
+    return (await this.db.all(PUSHABLE, id, now)).length > 0;
   }
 
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */
