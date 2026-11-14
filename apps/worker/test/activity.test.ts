@@ -217,6 +217,74 @@ describe("Activity", () => {
     expect(await activityOf(grace)).toEqual({ items: [], unread: 0, more: false });
   });
 
+  it("tells nobody out of a private room what its messages say once edited, and keeps nothing of theirs about it", async () => {
+    const [adaSession, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Plans", { closedTo: [adaSession.user.id, grace.user.id], as: adaSession });
+    const ada = await connect(room.id, adaSession, { visible: true });
+    const tab = await openWorkspaceSocket(grace);
+    const message = await post(ada, `${mention(grace.user)} the plan is`);
+    await heardActivity(tab, room.id);
+    // As if they'd left before anything took their items out.
+    await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", room.id, grace.user.id);
+
+    ada.send({ type: "message.update", messageId: message.id, body: `${mention(grace.user)} the plan is hunter2` });
+    await ada.next("message.updated");
+    await sleep(50);
+    expect(await heardActivity(tab)).toEqual([]);
+    expect(await workspaceSql("SELECT id FROM activity WHERE user_id = ? AND message_id = ?", grace.user.id, message.id)).toEqual([]);
+  });
+
+  it("takes a private room's items out of the Activity of whoever's taken out of it, telling their tabs, and edits reach none of them", async () => {
+    const [adaSession, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const room = await createRoom("Plans", { closedTo: [adaSession.user.id, grace.user.id, linus.user.id], as: adaSession });
+    const ada = await connect(room.id, adaSession, { visible: true });
+    const tab = await openWorkspaceSocket(grace);
+    const message = await post(ada, `${mention(grace.user)} ${mention(linus.user)} the plan is`);
+    await heardActivity(tab, room.id);
+    const graceItems = (await activityOf(grace)).items.map((item) => item.id);
+    expect(graceItems).toHaveLength(2);
+
+    const changed = await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: adaSession.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [adaSession.user.id, linus.user.id] }) });
+    expect(changed.status).toBe(200);
+    expect(await heardActivity(tab)).toEqual([{ type: "activity.removed", ids: expect.arrayContaining(graceItems) }]);
+    expect(await workspaceSql("SELECT id FROM activity WHERE user_id = ?", grace.user.id)).toEqual([]);
+
+    ada.send({ type: "message.update", messageId: message.id, body: `${mention(grace.user)} ${mention(linus.user)} the plan is hunter2` });
+    await ada.next("message.updated");
+    await sleep(50);
+    expect(await heardActivity(tab)).toEqual([]);
+    // Who's still in it sees it as it is now.
+    expect((await activityOf(linus)).items).toContainEqual(item({ kind: "mention", preview: expect.stringContaining("hunter2") }));
+  });
+
+  it("takes a sub-room's items out of the Activity of whoever leaves its parent, and edits there reach none of them", async () => {
+    const [adaSession, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const strata = await createRoom("Strata", { closedTo: [adaSession.user.id, grace.user.id], as: adaSession });
+    const created = await api("/api/rooms", {
+      method: "POST",
+      headers: { Cookie: adaSession.cookie },
+      body: JSON.stringify({ kind: "closed", name: "Ops", memberIds: [adaSession.user.id, grace.user.id], parentId: strata.id }),
+    });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { room: ops } = (await created.json()) as { room: { id: RoomId } };
+    const ada = await connect(ops.id, adaSession, { visible: true });
+    const tab = await openWorkspaceSocket(grace);
+    const message = await post(ada, `${mention(grace.user)} the plan is`);
+    await heardActivity(tab, ops.id);
+    expect((await activityOf(grace)).items).toContainEqual(item({ kind: "mention", roomId: ops.id }));
+
+    const left = await api(`/api/rooms/${strata.id}/membership`, { method: "DELETE", headers: { Cookie: grace.cookie } });
+    expect(left.status).toBeLessThan(300);
+    expect(await heardActivity(tab)).toEqual([{ type: "activity.removed", ids: expect.any(Array) }]);
+    expect(await workspaceSql("SELECT id FROM activity WHERE user_id = ?", grace.user.id)).toEqual([]);
+
+    ada.send({ type: "message.update", messageId: message.id, body: `${mention(grace.user)} the plan is hunter2` });
+    await ada.next("message.updated");
+    await sleep(50);
+    expect(await heardActivity(tab)).toEqual([]);
+    expect(await workspaceSql("SELECT id FROM activity WHERE preview LIKE '%hunter2%' AND user_id = ?", grace.user.id)).toEqual([]);
+  });
+
   it("pages its items, newest first", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const dm = await direct(ada, grace);

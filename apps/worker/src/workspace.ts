@@ -3329,6 +3329,7 @@ export class Workspace extends DurableObject<Env> {
       this.closeSockets(id, CloseCode.Revoked);
       if (queued) await this.revocationsQueued(now);
     }
+    await this.forgetRoomsLeft([id]);
     this.broadcast({ type: "user.updated", user: removed });
     return removed;
   }
@@ -4536,6 +4537,7 @@ export class Workspace extends DurableObject<Env> {
         if (queued) await this.revocationsQueued(now);
       }
       this.tell(saved.removedIds, { type: "room.gone", roomId });
+      await this.forgetRoomsLeft(saved.removedIds);
       this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
       // Whoever it puts in has heard nothing of a huddle going on there.
       const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
@@ -4573,6 +4575,7 @@ export class Workspace extends DurableObject<Env> {
         await this.revocationsQueued(now);
       }
       this.tell([user.id], { type: "room.gone", roomId });
+      await this.forgetRoomsLeft([user.id]);
       return "left";
     });
   }
@@ -4637,6 +4640,14 @@ export class Workspace extends DurableObject<Env> {
   /** Tells each person of the items gone from their Activity. */
   private tellOfRemovedActivity(removed: RemovedItems): void {
     for (const [userId, ids] of removed) this.tell([userId], { type: "activity.removed", ids });
+  }
+
+  /**
+   * Takes what's about the rooms `userIds` have just left, or been taken out of, out of their Activity,
+   * telling them, so that none of it shows if they're back, and nothing edits it meanwhile.
+   */
+  private async forgetRoomsLeft(userIds: UserId[]): Promise<void> {
+    this.tellOfRemovedActivity(await this.activity.forgetRoomsLeft([...new Set(userIds)]));
   }
 
   /** A page of the Activity of the person `credentials` signs in, older than item `before`, or the newest, or null without a valid session. */

@@ -164,8 +164,26 @@ const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_i
 /** Removes the item for reaction ?3 by ?2 to message ?1, answering it. */
 const REMOVE_REACTION = `DELETE FROM activity WHERE message_id = ?1 AND kind = 'reaction' AND actor_id = ?2 AND content = ?3 RETURNING user_id, id`;
 
-/** Gives every item about message ?1 in room ?2 its text's start as it is now, ?3, answering those it changed. */
-const EDIT_MESSAGE = `UPDATE activity SET preview = ?3 WHERE message_id = ?1 AND room_id = ?2 AND preview IS NOT ?3 RETURNING user_id, ${COLUMNS}`;
+/** Whether the person whose item it is is still in the item's room. */
+const STILL_IN_ROOM = `EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = activity.room_id AND memberships.user_id = activity.user_id)`;
+
+/**
+ * Gives the items about message ?1 in room ?2 of the people still in it its text's start as it is now,
+ * ?3, answering those it changed. Nobody who has left the room hears what it says now.
+ */
+const EDIT_MESSAGE = `UPDATE activity SET preview = ?3 WHERE message_id = ?1 AND room_id = ?2 AND preview IS NOT ?3 AND ${STILL_IN_ROOM} RETURNING user_id, ${COLUMNS}`;
+
+/** Removes the items about message ?1 in room ?2 of anyone no longer in it, which would keep what it said before. */
+const EDIT_MESSAGE_LEFT = `DELETE FROM activity WHERE message_id = ?1 AND room_id = ?2 AND NOT ${STILL_IN_ROOM}`;
+
+/**
+ * Removes the items of the people a JSON list ?1 names about rooms they're no longer in, answering them,
+ * so that nothing from a room they've left, or been taken out of, stays in their Activity. A note's
+ * reminder, in no room, stays.
+ */
+const FORGET_ROOMS_LEFT = `DELETE FROM activity
+  WHERE user_id IN (SELECT value FROM json_each(?1)) AND room_id <> '' AND NOT ${STILL_IN_ROOM}
+  RETURNING user_id, id`;
 
 /** Removes every item about message ?1 in room ?2, answering them. */
 const REMOVE_MESSAGE = `DELETE FROM activity WHERE message_id = ?1 AND room_id = ?2 RETURNING user_id, id`;
@@ -215,9 +233,19 @@ export class ActivityStore {
     return removedItems(await this.db.all(REMOVE_REACTION, messageId, reactorId, content));
   }
 
-  /** Has the items about message `messageId` in room `roomId` say what it says now, `plainText`, answering those it changed. */
+  /**
+   * Has the items about message `messageId` in room `roomId` say what it says now, `plainText`, answering
+   * those it changed, all of them for people still in the room, and removes any left for those who aren't.
+   */
   async editMessage(roomId: RoomId, messageId: string, plainText: string): Promise<RecordedItems> {
-    return recordedItems(await this.db.all<RecordedRow>(EDIT_MESSAGE, messageId, roomId, previewOf(plainText)));
+    const [edited] = await this.db.batch([statement(EDIT_MESSAGE, messageId, roomId, previewOf(plainText)), statement(EDIT_MESSAGE_LEFT, messageId, roomId)]);
+    return recordedItems(edited as RecordedRow[]);
+  }
+
+  /** Removes the items of `userIds` about rooms they're no longer in, answering them. */
+  async forgetRoomsLeft(userIds: UserId[]): Promise<RemovedItems> {
+    if (userIds.length === 0) return new Map();
+    return removedItems(await this.db.all(FORGET_ROOMS_LEFT, JSON.stringify(userIds)));
   }
 
   async removeMessage(roomId: RoomId, messageId: string): Promise<RemovedItems> {
