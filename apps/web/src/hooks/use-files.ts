@@ -4,6 +4,8 @@ import { fetchFiles, markFile } from "@/lib/library";
 
 // The workspace's files, as the Files page and its navigation both show them: loaded when either mounts,
 // and kept as starring or opening one changes them, so the Starred list beside the page stays in step.
+// They're whoever's signed in's: another tab signing this browser in as someone else starts them afresh,
+// and drops a load still on its way for the person before.
 
 interface FilesState {
   files: LibraryFile[] | null;
@@ -11,9 +13,21 @@ interface FilesState {
   failed: boolean;
 }
 
-let state: FilesState = { files: null, failed: false };
+const NO_FILES: FilesState = { files: null, failed: false };
+
+/** Whose files `state` holds. */
+let owner: string | null = null;
+let state = NO_FILES;
 const listeners = new Set<() => void>();
 let loading: Promise<void> | null = null;
+
+/** Starts afresh for `userId`, unless the files are theirs already. */
+function filesOf(userId: string): void {
+  if (owner === userId) return;
+  owner = userId;
+  state = NO_FILES;
+  loading = null;
+}
 
 function set(next: FilesState): void {
   state = next;
@@ -25,26 +39,29 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-/** Loads the files afresh, telling `onFailed` why it couldn't. */
-export function reloadFiles(onFailed?: (error: unknown) => void): Promise<void> {
-  loading ??= fetchFiles().then(
+/** Loads `userId`'s files afresh, telling `onFailed` why it couldn't. */
+export function reloadFiles(userId: string, onFailed?: (error: unknown) => void): Promise<void> {
+  filesOf(userId);
+  const load: Promise<void> = (loading ??= fetchFiles().then(
     ({ files }) => {
+      if (loading !== load) return;
       loading = null;
       set({ files, failed: false });
     },
     (error: unknown) => {
+      if (loading !== load) return;
       loading = null;
       set({ ...state, failed: true });
       onFailed?.(error);
     },
-  );
-  return loading;
+  ));
+  return load;
 }
 
-/** The workspace's files, loading them afresh whenever a page that shows them mounts. */
-export function useFiles(onFailed?: (error: unknown) => void): FilesState {
-  useEffect(() => void reloadFiles(onFailed), [onFailed]);
-  return useSyncExternalStore(subscribe, () => state);
+/** The files of `userId`, who's signed in, loading them afresh whenever a page that shows them mounts. */
+export function useFiles(userId: string, onFailed?: (error: unknown) => void): FilesState {
+  useEffect(() => void reloadFiles(userId, onFailed), [userId, onFailed]);
+  return useSyncExternalStore(subscribe, () => (owner === userId ? state : NO_FILES));
 }
 
 function withMarks(fileId: string, marks: Partial<FileMarks>): void {

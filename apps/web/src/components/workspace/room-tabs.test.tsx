@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { navigate } from "@/hooks/use-route";
+import { EditTabsDialog, RoomTabPanel } from "./room-tab-panels";
 import { RoomTabs, useRoomTabs } from "./room-tabs";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
@@ -189,5 +190,44 @@ describe("Room tabs", { timeout: PAGES_LOAD_MS * 2 }, () => {
     renderStrip();
     await screen.findByRole("tab", { name: "Plans" });
     expect(screen.getByRole("tablist", { name: "Room tabs" })).not.toContainElement(screen.getByRole("button", { name: "Add a tab" }));
+  });
+});
+
+describe("A room tab's panel", { timeout: PAGES_LOAD_MS * 2 }, () => {
+  it("opens its tab once, however often the room around it renders", async () => {
+    serve();
+    const panel = (onTabGone: () => void) => <RoomTabPanel room={general} me={ada} shown="t1" tab={tabs[0]!} onTabChanged={vi.fn()} onTabGone={onTabGone} onFailed={failed} />;
+    const { rerender } = render(panel(() => {}));
+    expect(await screen.findByText("Plans", {}, { timeout: PAGES_LOAD_MS })).toBeVisible();
+    // A room busy with typing and messages renders its view, and the handlers it passes down, afresh.
+    for (let times = 0; times < 5; times++) rerender(panel(() => {}));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const opens = vi.mocked(fetch).mock.calls.filter(([url, init]) => String(url) === "/api/rooms/general/tabs/t1" && init?.method === undefined);
+    expect(opens).toHaveLength(1);
+  });
+
+  it("saves Edit tabs again after a Save that failed partway, taking a tab already removed as removed", async () => {
+    let renames = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path === "/api/rooms/general/tabs/t1" && init?.method === "DELETE") return new Response(null, { status: renames === 0 ? 204 : 404 });
+      if (path === "/api/rooms/general/tabs/t2" && init?.method === "PATCH") {
+        renames++;
+        if (renames === 1) return Response.json({ error: "Couldn’t rename that tab" }, { status: 503 });
+        return Response.json({ tab: { ...tabs[1]!, title: "Handbook" } });
+      }
+      if (path === "/api/rooms/general/tabs/order") return Response.json({ tabs: [{ ...tabs[1]!, title: "Handbook" }] });
+      return Response.json({}, { status: 404 });
+    });
+    const saved = vi.fn();
+    render(<EditTabsDialog room={general} tabs={tabs} onClose={vi.fn()} onSaved={saved} onFailed={failed} />);
+    await userEvent.click(screen.getByRole("button", { name: "Remove Plans" }));
+    const title = screen.getByDisplayValue("Guide");
+    await userEvent.clear(title);
+    await userEvent.type(title, "Handbook");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(renames).toBe(1));
+    await userEvent.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saved).toHaveBeenCalledWith([{ ...tabs[1]!, title: "Handbook" }]));
   });
 });

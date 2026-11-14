@@ -178,6 +178,29 @@ describe("Writing a canvas together", () => {
     expect(sams!.getText()).toContain("SAM OFFLINE");
   });
 
+  it("sends what was written while the socket was away once it's back, though the canvas has closed meanwhile", async () => {
+    const fake = new FakeRoom();
+    const socket = new Socket(fake, maya);
+    const { unmount } = render(
+      <RoomFramesContext value={socket.frames}>
+        <CanvasEditor room={room} me={maya} opened={opened} onSaved={vi.fn()} onFailed={vi.fn()} />
+      </RoomFramesContext>,
+    );
+    await waitFor(() => expect(document.querySelector(".ProseMirror")).not.toBeNull());
+    const editor = document.querySelector<HTMLElement & { editor: Editor }>(".ProseMirror")!.editor;
+    await waitFor(() => expect(fake.writing.get(socket)).toBe("t1"));
+    socket.open = false;
+    typeAtEnd(editor, "WRITTEN OFFLINE");
+    // Closed, as on going to Messages, while the socket is away: this browser keeps it meanwhile.
+    unmount();
+    expect(localStorage.getItem("ember:canvas-unsaved:t1")).toContain("WRITTEN OFFLINE");
+    socket.reconnect();
+    // Confirmed, the canvas is let go, which the room saves as nobody else is writing it.
+    await waitFor(() => expect(fake.saved.body).toContain("WRITTEN OFFLINE"), { timeout: 3000 });
+    await waitFor(() => expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull());
+    expect(fake.writing.has(socket)).toBe(false);
+  });
+
   it("keeps every key of two people typing at the same spot, in order", async () => {
     const { sockets, editors } = writeTogether();
     await waitFor(() => expect(editors()).toHaveLength(2));

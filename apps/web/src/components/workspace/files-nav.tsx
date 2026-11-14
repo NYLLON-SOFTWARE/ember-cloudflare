@@ -31,8 +31,8 @@ const PLACES: Array<{ place: FilesPlace; Icon: ComponentType<IconoirIconProps> }
  * The Files page's column, in the sidebar's place, after Slack's: All files and Canvases, then Starred,
  * which lists the files you’ve starred, each opening its file.
  */
-export function FilesNav({ place }: { me: Me; place: FilesPlace }) {
-  const { files } = useFiles();
+export function FilesNav({ me, place }: { me: Me; place: FilesPlace }) {
+  const { files } = useFiles(me.id);
   const starred = files?.filter((file) => file.starred) ?? [];
   return (
     <nav

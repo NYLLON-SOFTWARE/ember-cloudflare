@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useContext, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Suspense, useCallback, useContext, useEffect, useEffectEvent, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { isWebImage, type Me, type RoomId } from "@ember/protocol";
 import {
   fileMarkOf,
@@ -66,21 +66,24 @@ const isGone = (error: unknown) => error instanceof Error && "status" in error &
 
 function AddedTab({ room, me, tabId, onTabChanged, onTabGone, onFailed }: { room: Room; me: Me; tabId: string } & Pick<PanelProps, "onTabChanged" | "onTabGone" | "onFailed">) {
   const [opened, setOpened] = useState<OpenedTab | null>(null);
+  // Opened once for each tab shown, however often the room around it changes.
+  const notOpened = useEffectEvent((error: unknown) => {
+    if (!isGone(error)) return onFailed(error);
+    // A canvas deleted as this browser kept what it had unsaved leaves nothing to merge it into.
+    forgetUnsaved(tabId);
+    onTabGone();
+  });
   useEffect(() => {
     let stopped = false;
     openTab(room.id, tabId).then(
       (opened) => !stopped && setOpened(opened),
       (error: unknown) => {
         if (stopped && !isSignedOut(error)) return;
-        if (isGone(error)) {
-          // A canvas deleted as this browser kept what it had unsaved leaves nothing to merge it into.
-          forgetUnsaved(tabId);
-          onTabGone();
-        } else onFailed(error);
+        notOpened(error);
       },
     );
     return () => void (stopped = true);
-  }, [room.id, tabId, onTabGone, onFailed]);
+  }, [room.id, tabId]);
   const changed = useCallback(
     (next: OpenedTab) => {
       setOpened(next);
@@ -613,7 +616,14 @@ export function EditTabsDialog({ room, tabs, onClose, onSaved, onFailed }: { roo
     setSaving(true);
     setError(null);
     try {
-      for (const { tab, removed } of rows) if (removed) await removeTab(room.id, tab.id);
+      // A tab removed already, by a Save that failed after it or by someone else, is as good as removed now.
+      for (const { tab, removed } of rows) {
+        if (!removed) continue;
+        await removeTab(room.id, tab.id).catch((failure: unknown) => {
+          if (!isGone(failure)) throw failure;
+        });
+        setRows((rows) => rows.filter((row) => row.tab.id !== tab.id));
+      }
       const kept = rows.filter(({ removed }) => !removed);
       for (const { tab, title } of kept) if (title.trim() && title.trim() !== tab.title) await renameTab(room.id, tab.id, title.trim());
       const order = kept.map(({ tab }) => tab.id);

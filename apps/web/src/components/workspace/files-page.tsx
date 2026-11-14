@@ -42,7 +42,7 @@ function emptyTitle(place: FilesPlace, filters: FileFilters, files: LibraryFile[
  * first unless another's picked. Each row opens its file, stars it, downloads it, or goes to its message.
  */
 export function FilesPage({ me, place, rooms, onFailed }: Props) {
-  const { files, failed } = useFiles(onFailed);
+  const { files, failed } = useFiles(me.id, onFailed);
   const names = useSearchNames(me, rooms);
   const [filters, setFilters] = useState<FileFilters>(NO_FILE_FILTERS);
   const [sort, setSort] = useState<FileSort>("viewed");

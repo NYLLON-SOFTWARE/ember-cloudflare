@@ -1,12 +1,14 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { MAX_CANVAS_STEPS, type User } from "@ember/protocol";
-import type { Canvas } from "@ember/protocol/library";
+import { CANVAS_GONE, type Canvas } from "@ember/protocol/library";
 import type { Editor } from "@tiptap/core";
 import type { Node } from "@tiptap/pm/model";
+import type { EditorState } from "@tiptap/pm/state";
 import { Step } from "@tiptap/pm/transform";
 import { collab, getVersion, receiveTransaction, sendableSteps } from "prosemirror-collab";
 import type { RoomFrames } from "@/hooks/use-room";
 import { mergeCanvas } from "@/lib/canvas-merge";
+import { forgetUnsaved, keepUnsaved } from "@/lib/canvas-unsaved";
 
 // Writing a canvas together, over the room's socket, after ProseMirror's collab: the editor sends the
 // steps it makes, a tenth of a second's at a time, over the version it has, and the room, the one
@@ -14,7 +16,8 @@ import { mergeCanvas } from "@/lib/canvas-merge";
 // them. Steps from others are applied as they come, and steps of its own that the room hasn't taken yet
 // are rebased over them and sent again. A room that has lost the steps since the version here, as one
 // that restarted, sends the canvas whole, which what's here is merged into (canvas-merge.ts), so nothing
-// written is lost while the socket is away. Steps wait while it is, and go once it's back.
+// written is lost while the socket is away. Steps wait while it is, and go once it's back, even once the
+// canvas has closed (part, below).
 
 /** How long the editor gathers steps before it sends them: a few keys a message, which each wakes the room. */
 const SEND_EVERY_MS = 250;
@@ -76,6 +79,55 @@ export interface LiveCanvas {
   confirmed: () => string | null;
 }
 
+/** Ends what's still sending the steps a canvas closed with, by tab, as it opens again here. */
+const parting = new Map<string, () => void>();
+
+/**
+ * Keeps sending the steps an editor closed with, those of its last state, until the room confirms them, as one
+ * that closed while the room's socket was away, or before the room answered, would otherwise lose them. This
+ * browser keeps them meanwhile too, in case the page goes first, or the canvas opens here again, which merges
+ * them in.
+ */
+function part(frames: RoomFrames, tabId: string, clientId: string, state: EditorState, confirmed: Node) {
+  keepUnsaved(tabId, { base: JSON.stringify(confirmed.toJSON()), body: JSON.stringify(state.doc.toJSON()), version: getVersion(state), sent: false });
+  let waiting: ReturnType<typeof setTimeout> | null = null;
+  const join = () => frames.send({ type: "canvas.join", tabId, version: getVersion(state) });
+  const send = () => {
+    if (waiting) clearTimeout(waiting);
+    waiting = null;
+    const sendable = sendableSteps(state);
+    if (!sendable) return end(true);
+    const steps = sendable.steps.slice(0, MAX_CANVAS_STEPS).map((step) => step.toJSON() as unknown);
+    if (frames.send({ type: "canvas.steps", tabId, version: sendable.version, clientId, steps })) waiting = setTimeout(send, CONFIRM_WITHIN_MS);
+  };
+  /** Stops, forgetting the kept copy once the room has every step. */
+  const end = (confirmedAll: boolean) => {
+    stop();
+    if (waiting) clearTimeout(waiting);
+    parting.delete(tabId);
+    if (!confirmedAll) return;
+    forgetUnsaved(tabId);
+    frames.send({ type: "canvas.leave", tabId });
+  };
+  const stop = frames.listen((frame) => {
+    if (frame.type === "welcome" || frame.type === "resumed") return void join();
+    if (!("tabId" in frame) || frame.tabId !== tabId) return;
+    if (frame.type === "canvas.steps") {
+      const here = getVersion(state);
+      if (frame.version > here) return void join();
+      const fresh = frame.steps.slice(here - frame.version).map((json) => Step.fromJSON(state.schema, json));
+      if (fresh.length > 0) state = state.apply(receiveTransaction(state, fresh, frame.clientIds.slice(here - frame.version)));
+      return send();
+    }
+    // A room that lost its steps sends the canvas whole, and the copy kept here is merged in as the canvas
+    // next opens; one that's been deleted leaves nothing to keep.
+    if (frame.type === "canvas.refused" && frame.message === CANVAS_GONE) forgetUnsaved(tabId);
+    end(false);
+  });
+  parting.set(tabId, () => end(false));
+  send();
+}
+
 export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerged, onRefused }: Options): LiveCanvas {
   const [offline, setOffline] = useState(false);
   const handle = useRef({ flush: () => version, confirmed: (): string | null => null });
@@ -86,6 +138,8 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
   useEffect(() => {
     if (!editor || !frames) return;
     const clientId = crypto.randomUUID();
+    // Steps this canvas closed with stop going on their own: what this browser kept of them is merged in instead.
+    parting.get(tabId)?.();
     // The document as the room has it at the version here, which what's here is merged from.
     let confirmed: Node = editor.state.doc;
     editor.registerPlugin(collab({ version, clientID: clientId }));
@@ -177,9 +231,10 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
       editor.off("transaction", onTransaction);
       if (timer) clearTimeout(timer);
       settle();
-      // What's left goes, then the canvas is let go, which the room saves once nobody else is writing it.
-      sendNow();
-      frames.send({ type: "canvas.leave", tabId });
+      // What's left goes on until the room has it, then the canvas is let go, which the room saves once nobody
+      // else is writing it.
+      if (sendableSteps(editor.state)) part(frames, tabId, clientId, editor.state, confirmed);
+      else frames.send({ type: "canvas.leave", tabId });
     };
   }, [editor, frames, tabId]);
 
