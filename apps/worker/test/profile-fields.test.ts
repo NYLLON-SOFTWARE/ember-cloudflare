@@ -223,8 +223,11 @@ describe("Profile fields", () => {
     expect(await values()).toEqual([]);
     // A choice it has is saved, so it was the one the workspace hadn't.
     expect((await save(grace, { fieldValues: { [field!.id]: "they/them" } })).status).toBe(200);
-    expect(await (await save(grace, { fieldValues: { gone: "Countess" } })).json()).toEqual({ error: PROFILE_FIELD_UNKNOWN });
     expect(await values()).toEqual([{ field_id: field!.id, user_id: grace.user.id, value: "they/them" }]);
+    // A save that mixes one the workspace hasn't with the rest of the profile changes nothing at all.
+    expect(await (await save(grace, { name: "Grace Brewer", fieldValues: { gone: "Countess" } })).json()).toEqual({ error: PROFILE_FIELD_UNKNOWN });
+    expect(await values()).toEqual([{ field_id: field!.id, user_id: grace.user.id, value: "they/them" }]);
+    expect((await profileOf(grace)).name).toBe("Grace Hopper");
   });
 
   it("keeps the fields it answers to the fields of now, so someone's page shows what the workspace asks", async () => {
@@ -258,6 +261,22 @@ describe("Profile fields", () => {
     expect(await values()).toEqual([{ field_id: field!.id, user_id: grace.user.id, value: "she/her" }]);
     expect((await save(grace, { fieldValues: { [field!.id]: "she/her" } })).status).toBe(422);
     expect((await save(grace, { fieldValues: { [field!.id]: "they/them" } })).status).toBe(200);
+  });
+
+  it("saves what someone gives the fields with a change of their password, which ends their other sessions", async () => {
+    const administrator = await setUp();
+    await add(administrator, { name: "Title" });
+    const [field] = await fieldsOf(administrator);
+
+    // A new password ends their other sessions, and the answers save with the rest in the same write.
+    const saved = await save(administrator, { name: "Ada King", password: "difference engine", currentPassword: "analytical engine", fieldValues: { [field!.id]: "Countess" } });
+    expect(saved.status).toBe(200);
+    expect(((await saved.json()) as ProfileAnswer).profile.fields).toEqual([{ ...field, value: "Countess" }]);
+    expect(await values()).toEqual([{ field_id: field!.id, user_id: administrator.user.id, value: "Countess" }]);
+    expect((await profileOf(administrator)).name).toBe("Ada King");
+    expect(
+      (await api("/api/session", { method: "POST", headers: { "CF-Connecting-IP": "1.2.3.4" }, body: JSON.stringify({ emailAddress: "ada@example.com", password: "difference engine" }) })).status,
+    ).toBe(201);
   });
 
   it("answers a save of the profile that names no fields without touching any", async () => {
