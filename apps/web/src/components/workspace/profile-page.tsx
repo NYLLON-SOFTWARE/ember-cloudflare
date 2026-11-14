@@ -53,6 +53,8 @@ interface Props {
   dndUntil: string | null;
   /** Shows your push notifications as this page loads them and the Do not disturb section saves them. */
   onDndChanged: (dndUntil: string | null) => void;
+  /** Answers what loading the page read of your hush, which shows only if nothing was heard since the page asked for it, as the workspace's answers do. */
+  askForDnd: () => (dndUntil: string | null) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -119,7 +121,7 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
  * once, through the workspace socket, as they reach the rail.
  */
-export function ProfilePage({ me, rooms, askForRoom, dndUntil, onDndChanged, onSignOut, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndChanged, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -159,6 +161,9 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, onDndChanged, onS
 
   useEffect(() => {
     let stopped = false;
+    // What the page reads of the hush shows only if nothing was heard since it asked, as the account's
+    // answers do, since the profile may have read before a change made meanwhile.
+    const heard = askForDnd();
     fetchProfile().then(
       (answer) => {
         if (stopped) return;
@@ -172,9 +177,9 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, onDndChanged, onS
         // The same goes for the Apps section, which signing out there changes.
         setApps(answer.profile.apps);
         setOutsideAi(answer.profile.outsideAi);
-        // The hush too, which the section saves, and the rail shows by its crescent. A profile from
-        // before the hush answers without one, which is none.
-        onDndChanged(answer.profile.dndUntil ?? null);
+        // The hush too, which the section saves, and the rail shows by its crescent, unless one was
+        // heard while the page was loading, which may have read before it did.
+        heard(answer.profile.dndUntil ?? null);
       },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
@@ -182,7 +187,7 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, onDndChanged, onS
       },
     );
     return () => void (stopped = true);
-  }, [onFailed, onDndChanged]);
+  }, [askForDnd, onFailed, onDndChanged]);
 
   // The picked photo's address is let go of once the saved one takes its place.
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);

@@ -1,4 +1,4 @@
-import { type DndAnswer, type Involvement, type NewWorkspace, type ProfileAnswer, type RoomId } from "@ember/protocol";
+import { type DndAnswer, type Involvement, type NewWorkspace, type ProfileAnswer, type RoomId, type WorkspaceServerFrame } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoomEvent } from "../src/room-log";
@@ -8,6 +8,7 @@ import {
   direct,
   freshDeploy,
   freshRoom,
+  openWorkspaceSocket,
   pushBrowser,
   signIn,
   type Session,
@@ -138,6 +139,25 @@ describe("Do not disturb", () => {
     expect(labelsOf(await pushesFor(room, [message(ada, "Through again")]))).toEqual(["grace"]);
     // Lifting it again when there's none answers none hushed all the same.
     expect(await letThrough(grace)).toEqual({ dndUntil: null });
+  });
+
+  it("tells your own tabs when your hush begins and ends, and nobody else's", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace Hopper");
+    const tabs = [await openWorkspaceSocket(ada), await openWorkspaceSocket(ada)];
+    const gracesTab = await openWorkspaceSocket(grace);
+
+    const until = new Date(Date.now() + 20 * 60_000).toISOString();
+    await hush(ada, until);
+    const hushed: WorkspaceServerFrame = { type: "dnd.changed", dndUntil: until };
+    for (const tab of tabs) expect(await tab.next()).toEqual(hushed);
+    // Grace hears nothing of it, and her tab stays answered.
+    expect(await gracesTab.answers()).toBe(true);
+
+    await letThrough(ada);
+    const lifted: WorkspaceServerFrame = { type: "dnd.changed", dndUntil: null };
+    for (const tab of tabs) expect(await tab.next()).toEqual(lifted);
+    expect(await gracesTab.answers()).toBe(true);
   });
 
   it("says when your push notifications are hushed until, on your profile, as they are then", async () => {
