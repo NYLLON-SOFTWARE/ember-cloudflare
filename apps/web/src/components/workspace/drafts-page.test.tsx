@@ -141,6 +141,10 @@ describe("Drafts & sent", () => {
     link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
     const sheet = await screen.findByRole("dialog", { name: "for soon" });
     expect(within(sheet).getAllByRole("button").map((button) => button.textContent)).toEqual(["Send now", "Edit time", "Delete", "Cancel"]);
+    // Focus goes into the sheet, not to Send now, which a ring would mark though no key chose it (SC-2).
+    expect(sheet).toHaveFocus();
+    await userEvent.setup().tab();
+    expect(within(sheet).getByRole("button", { name: "Send now" })).toHaveFocus();
     await userEvent.setup().click(within(sheet).getByRole("button", { name: "Delete" }));
     expect(changeScheduled).toHaveBeenLastCalledWith("general", { type: "delete", id: "s1" });
     expect(await screen.findByText("Scheduled message deleted")).toBeInTheDocument();
