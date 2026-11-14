@@ -57,14 +57,21 @@ export function choiceOf(clearAt: string, now = new Date()): ClearChoice {
   // Today is the choice a mood that comes off at a midnight was made by, whatever the hours left since
   // it was saved, so it reads back as Today past midnight the day it was saved for too.
   if (until === midnightOf(until)) return "today";
+  const dayEnd = new Date(now);
+  dayEnd.setHours(23, 59, 59, 999);
+  const weekEnd = new Date(dayEnd);
+  weekEnd.setDate(weekEnd.getDate() + ((6 - weekEnd.getDay() + 7) % 7));
+  // "This week" comes off at Saturday's end and Today at the day's, by this clock, as clearAtOf makes
+  // them. They're told by the instant they name before the hours left to it, which a Saturday evening's
+  // week counts a few of; Saturday's end is told first, since on that day it is the day's end too.
+  if (until === weekEnd.getTime()) return "week";
+  if (until === dayEnd.getTime()) return "today";
   const hours = (until - now.getTime()) / 3_600_000;
   if (hours <= 2) return "hour";
   if (hours <= 8) return "four";
-  // "Today" ends the day, and "This week" Saturday's end, by this clock, as clearAtOf makes them.
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  if (until <= end.getTime()) return "today";
-  end.setDate(end.getDate() + ((6 - end.getDay() + 7) % 7));
-  if (until <= end.getTime()) return "week";
+  // Whatever else comes off by the day's end was made by Today, and anything on through Saturday's
+  // end, by This week.
+  if (until <= dayEnd.getTime()) return "today";
+  if (until <= weekEnd.getTime()) return "week";
   return "never";
 }
