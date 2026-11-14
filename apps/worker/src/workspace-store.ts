@@ -1012,6 +1012,7 @@ const roomsChange = (agentId: UserId, rooms: RoomId[] | null, now: string): Stat
         statement(`UPDATE agents SET every_open_room = 0 WHERE user_id = ?`, agentId),
         statement(LEAVE_UNPICKED_ROOMS, agentId, JSON.stringify(rooms)),
         statement(GRANT_PICKED_ROOMS, agentId, JSON.stringify(rooms), now),
+        statement(LEAVE_SUB_ROOMS_OUTSIDE_PARENT, agentId),
       ];
 
 const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
@@ -2535,6 +2536,9 @@ const outsidersOut = (scope: string): [string, string] => [
   `DELETE FROM memberships WHERE room_id IN (SELECT id FROM rooms WHERE ${scope} AND parent_id IS NOT NULL) AND ${OUTSIDE_PARENT}
   RETURNING room_id, user_id`,
 ];
+
+/** Takes ?1 out of the sub-rooms whose parent it isn't in, as it leaves a parent. */
+const LEAVE_SUB_ROOMS_OUTSIDE_PARENT = `DELETE FROM memberships WHERE user_id = ?1 AND room_id IN (SELECT id FROM rooms WHERE parent_id IS NOT NULL) AND ${OUTSIDE_PARENT}`;
 
 /** For sub-room ?1, its own, and for room ?1, its sub-rooms'. */
 const [QUEUE_OUTSIDERS_REVOCATIONS, OUTSIDERS_LEAVE] = outsidersOut("id = ?1");

@@ -7,6 +7,7 @@ import {
   type NewWorkspace,
   type PersonAnswer,
   type RoomId,
+  type SharedRoom,
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -728,6 +729,19 @@ describe("AI agents", () => {
 
       expect(await agentOf(await changeAgent(administrator, recap.id, { rooms: null }))).toMatchObject({ rooms: null });
       expect(await roomsOf(recap.id)).toEqual([...(await openRooms()), leads.id].sort());
+    });
+
+    it("takes it out of the sub-rooms of a parent it leaves, as one picked alone isn't joined", async () => {
+      const administrator = await setUp();
+      const parent = await createRoom("Support", { as: administrator });
+      const response = await api("/api/rooms", { method: "POST", headers: as(administrator), body: JSON.stringify({ kind: "open", name: "Billing", parentId: parent.id }) });
+      const { room: child } = (await response.json()) as { room: SharedRoom };
+      const recap = await made(administrator, { rooms: [parent.id, child.id] });
+      expect(await roomsOf(recap.id)).toEqual([parent.id, child.id].sort());
+
+      await agentOf(await changeAgent(administrator, recap.id, { rooms: [child.id] }));
+      expect(await roomsOf(recap.id)).toEqual([]);
+      expect(await roomsOf((await made(administrator, { name: "Juniper", rooms: [child.id] })).id)).toEqual([]);
     });
 
     it("saves nothing once the agent was changed while its new model answered", async () => {
