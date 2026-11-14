@@ -131,26 +131,28 @@ describe("useReminders", () => {
   it("ignores an older answer that lands after a newer one", async () => {
     const waiting = reminder("waiting", new Date(Date.now() + 60_000).toISOString());
     const due = reminder("due", new Date().toISOString());
-    let answer: (reminders: Reminder[]) => void = () => {};
-    fetchRemindersMock.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const answers: Array<(reminders: Reminder[]) => void> = [];
+    fetchRemindersMock.mockImplementation(() => new Promise((resolve) => { answers.push(resolve); }));
     const { result } = renderHook(() => useReminders());
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     act(() => result.current.cameDue(due));
 
-    // A second load goes out; the newer one answers first, and the older one lands after it.
+    // A second load goes out, so two hang at once; the newer one answers first, and the older one lands after it.
     await act(async () => {
       window.dispatchEvent(new Event("online"));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const newer = answer;
+    const [older = () => {}, newer = () => {}] = answers;
     await act(async () => {
       newer([waiting, due]);
     });
     await waitFor(() => expect(result.current.reminders?.map((r) => r.id)).toEqual(["waiting", "due"]));
+
+    // The older answer was taken before the notice came due, and has no `due` in it.
     await act(async () => {
-      answer([waiting]);
+      older([waiting]);
     });
     // The older answer's list is stale, and the notice the newer one brought stays.
     expect(result.current.reminders?.map((r) => r.id)).toEqual(["waiting", "due"]);
