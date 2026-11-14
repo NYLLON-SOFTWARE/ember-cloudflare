@@ -10,17 +10,20 @@ export interface MenuItem {
   icon?: ReactNode;
   /** For a menu of choices, whether this is the one chosen, which makes the items radio items. */
   checked?: boolean;
+  /** For an item that turns something on and off, whether it's on, which makes it a checkbox item. */
+  pressed?: boolean;
+  disabled?: boolean;
   className?: string;
   onSelect: () => void;
 }
 
 /** One of the menu's items, which Up and Down Arrow move between, as a menu's do. */
 const ITEM =
-  "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm outline-none select-none hover:bg-accent focus-visible:bg-accent touch:min-h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
+  "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm outline-none select-none hover:bg-accent focus-visible:bg-accent touch:min-h-11 disabled:pointer-events-none disabled:opacity-35 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
 
 /** Moves focus to the next item, or the previous, wrapping round, or to the first or last: from the menu itself, the first or the last. */
 function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
-  const items = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-menu-item]")];
+  const items = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-menu-item]:not(:disabled)")];
   const at = items.indexOf(document.activeElement as HTMLElement);
   const next = { ArrowDown: at + 1, ArrowUp: at === -1 ? items.length - 1 : at - 1, Home: 0, End: items.length - 1 }[event.key];
   if (next === undefined || items.length === 0) return;
@@ -62,14 +65,15 @@ export function PopoverMenu({ trigger, label, heading = false, items, more, side
     setOpen(next);
     onOpenChange?.(next);
   };
-  const item = ({ label, name, icon, checked, className, onSelect }: MenuItem, index: number) => (
+  const item = ({ label, name, icon, checked, pressed, disabled, className, onSelect }: MenuItem, index: number) => (
     <button
       key={index}
       type="button"
       data-menu-item
-      role={checked === undefined ? "menuitem" : "menuitemradio"}
-      aria-checked={checked}
+      role={checked !== undefined ? "menuitemradio" : pressed !== undefined ? "menuitemcheckbox" : "menuitem"}
+      aria-checked={checked ?? pressed}
       aria-label={name}
+      disabled={disabled}
       onClick={() => {
         change(false);
         onSelect();
@@ -95,7 +99,7 @@ export function PopoverMenu({ trigger, label, heading = false, items, more, side
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           const menu = event.currentTarget as HTMLElement;
-          (byKeyboard.current ? (menu.querySelector<HTMLElement>("[data-menu-item]") ?? menu) : menu).focus();
+          (byKeyboard.current ? (menu.querySelector<HTMLElement>("[data-menu-item]:not(:disabled)") ?? menu) : menu).focus();
         }}
         onCloseAutoFocus={(event) => {
           if (!onCloseFocus) return;
