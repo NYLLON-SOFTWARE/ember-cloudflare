@@ -269,6 +269,7 @@ pnpm seed       # in a second terminal: the made-up Fernwood team sets Ember up 
 - [Slack-compatible webhooks](docs/slack-webhooks.md): what bots can post, and how it looks.
 - [Development](docs/development.md): the code's layout, running Ember locally, tests and performance.
 - [The database](docs/database.md): Ember's schema beside Campfire's.
+- [Security policy](SECURITY.md): how to report a vulnerability privately.
 
 ## Credits
 
