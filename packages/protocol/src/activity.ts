@@ -73,13 +73,14 @@ export function parseActivityMarks(data: unknown): ActivityMarks | string {
   if (all === true) return read === true ? { all: true, read: true } : "Only marking read can mark every item";
   if (typeof read !== "boolean") return "read must be true or false";
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_ACTIVITY_MARKS) return `ids must list 1 to ${MAX_ACTIVITY_MARKS} items`;
-  if (!ids.every((id) => Number.isSafeInteger(id) && id > 0)) return "ids must be item ids";
+  // Items filled in from before Activity began are numbered below zero (activity-backfill.ts).
+  if (!ids.every((id) => Number.isSafeInteger(id) && id !== 0)) return "ids must be item ids";
   return { ids: [...new Set(ids as number[])], read };
 }
 
 /** The item id `before` names in a page's address, or null for the newest page, or for one that names none. */
 export function parseActivityCursor(before: string | null): number | null {
-  if (before === null || !/^\d{1,15}$/.test(before)) return null;
+  if (before === null || !/^-?\d{1,15}$/.test(before)) return null;
   const id = Number(before);
-  return id > 0 ? id : null;
+  return id !== 0 ? id : null;
 }

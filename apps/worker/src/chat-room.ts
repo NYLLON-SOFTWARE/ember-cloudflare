@@ -81,6 +81,7 @@ import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
 import { urlOf } from "./request-url";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
+import type { RoomHistory } from "./activity-backfill";
 import { RoomLog, type RoomEvent } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, closeTooLarge, isTooLarge, MAX_ROOM_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
@@ -593,6 +594,11 @@ export class ChatRoom extends DurableObject<Env> {
   /** Everyone who wrote or reacted in the room, for the Workspace to keep when it registers a legacy room. */
   async authors(roomId: RoomId): Promise<User[]> {
     return this.serially(() => this.storeFor(roomId).authors());
+  }
+
+  /** Room `roomId`'s messages and reactions since `since`, which the Workspace fills in Activity from once. */
+  async activityHistory(roomId: RoomId, since: string): Promise<RoomHistory> {
+    return this.serially(() => this.storeFor(roomId).history(since));
   }
 
   /**

@@ -1,5 +1,6 @@
 import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import { hasLinkable, type PreparedBody } from "@ember/richtext";
+import { roomHistory, type RoomHistory } from "./activity-backfill";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
 import { deletingAllFiles, deletingFilesOf, type AttachedFile } from "./files/blobs";
@@ -576,6 +577,11 @@ export class MessageStore {
   }
 
   /** Everyone who wrote or reacted here, under each name they did it with. */
+  /** The room's messages and reactions since `since`, for the Workspace's Activity backfill. */
+  history(since: string): Promise<RoomHistory> {
+    return roomHistory(this.db, this.roomId, since);
+  }
+
   async authors(): Promise<User[]> {
     return this.db.all<User>(
       `SELECT creator_id AS id, creator_name AS name FROM messages WHERE room_id = ?

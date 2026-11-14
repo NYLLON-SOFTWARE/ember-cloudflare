@@ -7,8 +7,8 @@ import { statement, type Db, type Statement } from "./db";
 // added to private rooms, which it records as they happen.
 
 /** Users' `status` for someone active, and `role` for a bot, as workspace-store.ts numbers them. */
-const ACTIVE = 0;
-const BOT = 2;
+export const ACTIVE = 0;
+export const BOT = 2;
 
 /** An item's columns, as `itemOf` reads them. */
 const COLUMNS = `id, kind, room_id, message_id, parent_id, actor_id, preview, content, created_at, read_at`;
@@ -153,12 +153,14 @@ const MARK_ALL = `UPDATE activity SET read_at = ?2 WHERE user_id = ?1 AND read_a
 
 /**
  * Records a reaction, ?5, by ?4 to message ?2 in room ?1, written by ?3, whose text starts ?6, for its
- * author, unless they reacted themselves, are a bot or aren't active, or aren't in the room any more.
+ * author, unless they reacted themselves, are a bot or aren't active, or aren't in the room any more, or
+ * it's recorded already, as the Activity backfill may have just done.
  */
 const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_id, actor_id, preview, content, created_at)
   SELECT users.id, 'reaction', ?1, ?2, ?4, ?6, ?5, ?7 FROM users
   WHERE users.id = ?3 AND users.id <> ?4 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = ?3)
+    AND NOT EXISTS (SELECT 1 FROM activity WHERE message_id = ?2 AND kind = 'reaction' AND actor_id = ?4 AND content = ?5 AND user_id = ?3)
   RETURNING user_id, ${COLUMNS}`;
 
 /** Removes the item for reaction ?3 by ?2 to message ?1, answering it. */

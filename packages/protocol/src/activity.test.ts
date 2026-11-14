@@ -30,8 +30,12 @@ describe("parseActivityMarks", () => {
     expect(parseActivityMarks({ all: true, read: false })).toBeTypeOf("string");
   });
 
+  it("takes items filled in from before Activity began, numbered below zero", () => {
+    expect(parseActivityMarks({ ids: [-3, 2], read: true })).toEqual({ ids: [-3, 2], read: true });
+  });
+
   it("refuses anything else", () => {
-    for (const data of [null, "x", { ids: [], read: true }, { ids: [1.5], read: true }, { ids: [-1], read: true }, { ids: ["1"], read: true }, { ids: [1] }]) {
+    for (const data of [null, "x", { ids: [], read: true }, { ids: [1.5], read: true }, { ids: [0], read: true }, { ids: ["1"], read: true }, { ids: [1] }]) {
       expect(parseActivityMarks(data), JSON.stringify(data)).toBeTypeOf("string");
     }
     expect(parseActivityMarks({ ids: Array.from({ length: MAX_ACTIVITY_MARKS + 1 }, (_, i) => i + 1), read: true })).toBeTypeOf("string");
@@ -39,8 +43,9 @@ describe("parseActivityMarks", () => {
 });
 
 describe("parseActivityCursor", () => {
-  it("reads a positive item id, or null", () => {
+  it("reads an item id, below zero for one filled in from before Activity began, or null", () => {
     expect(parseActivityCursor("42")).toBe(42);
-    for (const before of [null, "", "0", "-1", "1e3", "abc", "9".repeat(20)]) expect(parseActivityCursor(before), String(before)).toBeNull();
+    expect(parseActivityCursor("-7")).toBe(-7);
+    for (const before of [null, "", "0", "--1", "1e3", "abc", "9".repeat(20)]) expect(parseActivityCursor(before), String(before)).toBeNull();
   });
 });

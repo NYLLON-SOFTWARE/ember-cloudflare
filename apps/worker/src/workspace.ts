@@ -142,6 +142,7 @@ import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import { ActivityStore, type RecordedItems, type RemovedItems } from "./activity";
+import { BACKFILL_DAYS, capped, itemsOf, recipientsOf, recordBackfill, type BackfillItem } from "./activity-backfill";
 import type { RoomEvent } from "./room-log";
 import { RoomTabStore, type KeptTab, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
 import type { Canvas, CanvasSave, FileMark, FileMarks } from "@ember/protocol/library";
@@ -218,6 +219,11 @@ const SETUP_TRIES = 10;
 const SETUP_TRY_WINDOW_MS = 10 * 60 * 1000;
 const SETUP_TRY_WINDOW = "setupTryWindow";
 /** Where the Workspace's storage keeps the models file it last read, and Workers AI's models the model search last listed (see assistant/offered.ts). */
+/** What the Workspace keeps in its own storage once Activity is filled in from every room, and the rooms it's filled in from so far. */
+const ACTIVITY_BACKFILLED = "activityBackfilled";
+const ACTIVITY_BACKFILLED_ROOMS = "activityBackfilledRooms";
+/** How many rooms the Activity backfill asks at a time. */
+const ROOMS_BACKFILLED_AT_ONCE = 8;
 const KEPT_MODELS_FILE = "keptModelsFile";
 const KEPT_WORKERS_AI_MODELS = "keptWorkersAiModels";
 /**
@@ -971,6 +977,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly outside: OutsideStore;
   /** Everyone's Activity, beside their memberships. */
   private readonly activity: ActivityStore;
+  /** The Activity backfill this object has under way, or has finished, which Activity's pages wait for. */
+  private activityBackfill: Promise<void> | null = null;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /**
    * The account once it exists. Renaming it and regenerating its join code keep this current, and
@@ -4653,7 +4661,55 @@ export class Workspace extends DurableObject<Env> {
   /** A page of the Activity of the person `credentials` signs in, older than item `before`, or the newest, or null without a valid session. */
   async activityPage(credentials: Credentials, before: number | null): Promise<ActivityPage | null> {
     const user = await this.authenticate(credentials);
-    return user && this.activity.page(user.id, before);
+    if (!user) return null;
+    await this.backfillActivity();
+    return this.activity.page(user.id, before);
+  }
+
+  /**
+   * Fills in Activity from every room's last `BACKFILL_DAYS` (activity-backfill.ts), once, as the first
+   * page anyone loads asks. A room that fails is tried again by the next page, and the rest aren't.
+   */
+  private backfillActivity(): Promise<void> {
+    this.activityBackfill ??= this.fillActivity().then(
+      (complete) => {
+        if (!complete) this.activityBackfill = null;
+      },
+      (error: unknown) => {
+        console.error("Activity backfill failed:", error);
+        this.activityBackfill = null;
+      },
+    );
+    return this.activityBackfill;
+  }
+
+  /** Fills in Activity from the rooms not filled in from yet, answering whether every room is. */
+  private async fillActivity(): Promise<boolean> {
+    if (await this.ctx.storage.get<boolean>(ACTIVITY_BACKFILLED)) return true;
+    const filled = new Set((await this.ctx.storage.get<RoomId[]>(ACTIVITY_BACKFILLED_ROOMS)) ?? []);
+    const now = Date.now();
+    const since = new Date(now - BACKFILL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const roomIds = (await this.db.all<{ id: RoomId }>(`SELECT id FROM rooms ORDER BY id`)).map((row) => row.id).filter((id) => !filled.has(id));
+    const items: BackfillItem[] = [];
+    const answered: RoomId[] = [];
+    for (let start = 0; start < roomIds.length; start += ROOMS_BACKFILLED_AT_ONCE) {
+      await Promise.all(
+        roomIds.slice(start, start + ROOMS_BACKFILLED_AT_ONCE).map(async (roomId) => {
+          try {
+            const [history, recipients] = await Promise.all([this.env.CHAT_ROOM.getByName(roomId).activityHistory(roomId, since), recipientsOf(this.db, roomId)]);
+            items.push(...itemsOf(roomId, recipients, history));
+            answered.push(roomId);
+          } catch (error) {
+            console.error(`Activity backfill will try room ${roomId} again:`, error);
+          }
+        }),
+      );
+    }
+    await recordBackfill(this.db, capped(items), new Date(now).toISOString());
+    await this.ctx.storage.put(ACTIVITY_BACKFILLED_ROOMS, [...filled, ...answered]);
+    const complete = answered.length === roomIds.length;
+    if (complete) await this.ctx.storage.put(ACTIVITY_BACKFILLED, true);
+    return complete;
   }
 
   /**
