@@ -14,7 +14,7 @@ import {
 import type { Env } from "../env";
 import { isLoopback } from "../loopback";
 import { isMessages, isObject, isResponses } from "./formats";
-import { goingOn, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, ToolError, toolsIn, withRoom, writtenIn, type EmberTool } from "./tool-calls";
+import { decided, goingOn, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, ToolError, toolsIn, withRoom, writtenIn, type EmberTool, type Round, type ToolResult } from "./tool-calls";
 
 export { isObject };
 
@@ -232,6 +232,42 @@ export interface Answered {
 }
 
 /**
+ * An answer waiting at a call of a tool that asks first, as JSON, for its room to keep until someone
+ * allows the call or doesn't: the model and format it's asked in, the question, as it was asked, without
+ * its tools, which its room gives it again, the request the model answered `body` to, with its calls,
+ * what those before the one that waits came to, and how far the answer had got: the calls it had made,
+ * the tokens it had left, what Messages' model had said in the turns before, and what Grok's searches
+ * of the web with Ember's own tool had found.
+ */
+export interface PausedAnswer {
+  model: string;
+  format: ModelFormat;
+  question: Omit<Question, "tools">;
+  request: Record<string, unknown>;
+  body: Record<string, unknown>;
+  results: ToolResult[];
+  called: number;
+  tokensLeft: number;
+  saidBefore: unknown[];
+  searches?: WebSearches;
+}
+
+/** What an answer's searches of the web with Ember's own tool have come to: the pages each found, and why one was refused, if one was. */
+interface WebSearches {
+  found: Source[][];
+  refused?: GatewayRefusal;
+}
+
+/** A model's call of a tool that asks first, which waits to be allowed, and its answer as it waits. */
+export interface Asking {
+  asks: NonNullable<Round["asks"]>;
+  paused: PausedAnswer;
+}
+
+/** What asking a model comes to: its answer, why it didn't answer, or the call its answer waits at. */
+type Asked = Answered | GatewayRefusal | Asking;
+
+/**
  * What the model `gateway` names answers `question` in its format, or why it didn't, waiting at most
  * `timeoutMs` for it all. The model is told to think as much as the question asks, or as near to that as
  * the levels it takes allow, or not told, when it takes none (`thinkingTaken`). One that doesn't take
@@ -240,32 +276,58 @@ export interface Answered {
  * without the one for reading pages, which AI Gateway may not have for every model, then without them,
  * told it can't use them, and last without the tools Ember runs, which every model Ember gives them
  * takes as far as its provider says. One refused only once it has called one of those isn't asked again
- * here: `askOnce` has it answer without them in what's left of the answer's tokens.
+ * here: `askOnce` has it answer without them in what's left of the answer's tokens. None of the
+ * question's tools may ask first: nothing here waits for a call to be allowed (`askWaiting`).
  */
 export async function ask(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<Answered | GatewayRefusal> {
+  return unasked(await askWaiting(env, gateway, question, timeoutMs));
+}
+
+/**
+ * What the model `gateway` names answers `question`, as `ask` asks it, or the call of a tool that asks
+ * first its answer waits at, which `goOn` goes on from once someone allows it or doesn't.
+ */
+export async function askWaiting(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<Asked> {
   const signal = AbortSignal.timeout(timeoutMs);
   let asked = withThinkingTaken(question, gateway.thinkingLevels);
-  let answered = await askOnce(env, gateway, asked, signal);
+  let answered = await answering(env, gateway, asked, signal);
   if (isWrongFormat(answered) && asked.thinking !== undefined) {
     console.error(`Asking ${gateway.model} again without a thinking level, which it didn't take: ${answered.refusal}`);
     const { thinking: _, ...unthinking } = asked;
     asked = unthinking;
-    answered = await askOnce(env, gateway, asked, signal);
+    answered = await answering(env, gateway, asked, signal);
   }
   const searching = asked.webTools?.filter((tool) => tool !== "read") ?? [];
   if (isWrongFormat(answered) && asked.webTools?.includes("read") && toolsFor(gateway.format, searching).length > 0) {
     console.error(`Asking ${gateway.model} to search again without reading pages, as AI Gateway didn't take that: ${answered.refusal}`);
     asked = { ...asked, instructions: asked.instructionsWithoutReading ?? asked.instructions, webTools: searching };
-    answered = await askOnce(env, gateway, asked, signal);
+    answered = await answering(env, gateway, asked, signal);
   }
   if (isWrongFormat(answered) && toolsFor(gateway.format, asked.webTools).length > 0) {
     console.error(`Asking ${gateway.model} again without the web, whose tools AI Gateway didn't take: ${answered.refusal}`);
     asked = { ...asked, instructions: asked.instructionsWithoutWeb ?? asked.instructions, webTools: [] };
-    answered = await askOnce(env, gateway, asked, signal);
+    answered = await answering(env, gateway, asked, signal);
   }
   if (!isWrongFormat(answered) || !asked.tools || asked.tools.length === 0) return answered;
   console.error(`Asking ${gateway.model} again without Ember's tools, which it didn't take: ${answered.refusal}`);
-  return askOnce(env, gateway, { ...asked, tools: [] }, signal);
+  return answering(env, gateway, { ...asked, tools: [] }, signal);
+}
+
+/**
+ * What the model `gateway` names answers once the call its answer `paused` at is `allowed` or isn't,
+ * with `tools`, the question's as they are by then, waiting at most `timeoutMs`: its answer, why it
+ * didn't, or the next call it waits at. The gateway has to name the model the answer was asked of.
+ */
+export async function goOn(env: Env, gateway: Gateway, tools: readonly EmberTool[], paused: PausedAnswer, allowed: boolean, timeoutMs: number): Promise<Asked> {
+  const waiting = toolCallsIn(paused.format, paused.body)[paused.results.length];
+  const results = waiting ? [...paused.results, await decided(tools, waiting, allowed)] : paused.results;
+  return answering(env, gateway, { ...paused.question, tools }, AbortSignal.timeout(timeoutMs), { ...paused, results });
+}
+
+/** `answered`, which is an answer or why there's none, as no tool of its question's asks first. */
+function unasked(answered: Asked): Answered | GatewayRefusal {
+  if (!("asks" in answered)) return answered;
+  throw new Error(`${answered.asks.name} asks first, in an answer nothing waits for`);
 }
 
 /** `question`, asking for the level of thinking a model that takes `taken` is asked for in place of its own (`thinkingTaken`), or for none. */
@@ -299,47 +361,74 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
  * as many calls as an answer may make, and then told to answer. All its turns share the answer's tokens,
  * and its provider's tools the uses an answer allows, and one that calls a tool with too few tokens left
  * to go on took every token it could. One that's refused going on from a call answers without Ember's
- * tools (`withoutTools`).
+ * tools (`withoutTools`). None of the question's tools may ask first, as for `ask`.
  */
 export async function askOnce(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
+  return unasked(await answering(env, gateway, question, signal));
+}
+
+/**
+ * What `askOnce` answers, or the call of a tool that asks first the answer waits at, going on `from`
+ * where an answer paused, if it did: with the round of calls it waited in, as far as they're done.
+ */
+async function answering(env: Env, gateway: Gateway, question: Question, signal: AbortSignal, from?: PausedAnswer): Promise<Asked> {
   if (gateway.format === "workers") return askWorkersAi(env, gateway, question, signal);
   const { format } = gateway;
-  const web = searchingInChat(env, gateway, question, signal);
+  const web = searchingInChat(env, gateway, question, signal, from?.searches);
   const tools = [...(question.tools ?? []), ...(web ? [web.tool] : [])];
   const answered = (said: unknown) => (web ? web.sourced(answeredIn(format, said)) : answeredIn(format, said));
-  const saidBefore: unknown[] = [];
-  let request = requestOf(gateway, question);
-  let tokensLeft = question.maxTokens;
-  let called = 0;
+  const saidBefore = [...(from?.saidBefore ?? [])];
+  let request = from?.request ?? requestOf(gateway, question);
+  let tokensLeft = from?.tokensLeft ?? question.maxTokens;
+  let called = from?.called ?? 0;
+  let round = from && { body: from.body, done: from.results };
   for (;;) {
-    const turn = await turnOf(env, gateway, question, request, tokensLeft, signal);
-    if ("refused" in turn) {
-      if (!(called > 0 && turn.refused.wrongFormat)) return turn.refused;
-      const unaided = await withoutTools(env, gateway, question, request, turn.tokensLeft, turn.refused, signal);
-      return web ? web.sourced(unaided) : unaided;
+    if (!round) {
+      const turn = await turnOf(env, gateway, question, request, tokensLeft, signal);
+      if ("refused" in turn) {
+        if (!(called > 0 && turn.refused.wrongFormat)) return turn.refused;
+        const unaided = await withoutTools(env, gateway, question, request, turn.tokensLeft, turn.refused, signal);
+        return web ? web.sourced(unaided) : unaided;
+      }
+      tokensLeft = turn.tokensLeft;
+      const calls = called < TOOL_CALLS_PER_ANSWER ? toolCallsIn(format, turn.body) : [];
+      // Messages' sources are in what the model said in any turn, and its answer in what it said after its last call.
+      const said = isMessages(format) && isObject(turn.body) ? { ...turn.body, content: [...saidBefore, ...listOf(turn.body.content)] } : turn.body;
+      if (tools.length === 0 || calls.length === 0 || !isObject(turn.body)) return answered(said);
+      if (tokensLeft < LEAST_TOKENS) return { status: 502, reason: "out of room", refusal: OUT_OF_ROOM, field: "model" };
+      round = { body: turn.body, done: [] };
     }
-    tokensLeft = turn.tokensLeft;
-    const calls = called < TOOL_CALLS_PER_ANSWER ? toolCallsIn(format, turn.body) : [];
-    // Messages' sources are in what the model said in any turn, and its answer in what it said after its last call.
-    const said = isMessages(format) && isObject(turn.body) ? { ...turn.body, content: [...saidBefore, ...listOf(turn.body.content)] } : turn.body;
-    if (tools.length === 0 || calls.length === 0 || !isObject(turn.body)) return answered(said);
-    if (tokensLeft < LEAST_TOKENS) return { status: 502, reason: "out of room", refusal: OUT_OF_ROOM, field: "model" };
-    const results = await resultsOf(tools, calls, TOOL_CALLS_PER_ANSWER - called);
+    const { body } = round;
+    const calls = toolCallsIn(format, body);
+    const { results, asks } = await resultsOf(tools, calls, TOOL_CALLS_PER_ANSWER - called, round.done);
+    if (asks) {
+      const { tools: _, ...asked } = question;
+      return { asks, paused: { model: gateway.model, format, question: asked, request, body, results, called, tokensLeft, saidBefore, ...(web && { searches: web.searches() }) } };
+    }
     called += calls.length;
-    request = withRoom(format, goingOn(format, sparing(format, request, turn.body), turn.body, results), tokensLeft, called >= TOOL_CALLS_PER_ANSWER);
-    saidBefore.push(...listOf(turn.body.content));
+    request = withRoom(format, goingOn(format, sparing(format, request, body), body, results), tokensLeft, called >= TOOL_CALLS_PER_ANSWER);
+    saidBefore.push(...listOf(body.content));
+    round = undefined;
   }
 }
 
 /**
  * Ember's own tool for searching the web, as one of the tools it runs, for a model in Chat Completions,
- * Grok, that may search the web for `question`, and what an answer comes to with the pages its searches
- * found (`withSearches`), as it can't cite them; or null for one in any other format, or that may not.
+ * Grok, that may search the web for `question`, what an answer comes to with the pages its searches
+ * found (`withSearches`), as it can't cite them, and those searches, which an answer that waits keeps;
+ * or null for one in any other format, or that may not. An answer that waited goes on from its searches
+ * `before`.
  */
-function searchingInChat(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): { tool: EmberTool; sourced: (answered: Answered | GatewayRefusal) => Answered | GatewayRefusal } | null {
+function searchingInChat(
+  env: Env,
+  gateway: Gateway,
+  question: Question,
+  signal: AbortSignal,
+  before?: WebSearches,
+): { tool: EmberTool; sourced: (answered: Answered | GatewayRefusal) => Answered | GatewayRefusal; searches: () => WebSearches } | null {
   if (gateway.format !== "chat" || toolsFor(gateway.format, question.webTools).length === 0) return null;
-  const found: Source[][] = [];
-  let searchRefused: GatewayRefusal | undefined;
+  const found: Source[][] = [...(before?.found ?? [])];
+  let searchRefused: GatewayRefusal | undefined = before?.refused;
   const { name, description, parameters } = WEB_SEARCH_FUNCTION.function;
   const tool: EmberTool = {
     name,
@@ -358,7 +447,7 @@ function searchingInChat(env: Env, gateway: Gateway, question: Question, signal:
       return whatWasFound(result);
     },
   };
-  return { tool, sourced: (answered) => withSearches(answered, found, searchRefused) };
+  return { tool, sourced: (answered) => withSearches(answered, found, searchRefused), searches: () => ({ found, ...(searchRefused && { refused: searchRefused }) }) };
 }
 
 /** What a model is told when Cloudflare's Web Search API refused its search. */
@@ -626,7 +715,7 @@ function webSearchRefusalOf(status: number, body: unknown): GatewayRefusal {
 }
 
 /** Whether `answered` is a refusal that a model asked another way might not give. */
-const isWrongFormat = (answered: Answered | GatewayRefusal): answered is GatewayRefusal => "refusal" in answered && answered.wrongFormat === true;
+const isWrongFormat = (answered: Answered | GatewayRefusal | Asking): answered is GatewayRefusal => "refusal" in answered && answered.wrongFormat === true;
 
 /** What AI Gateway answers `request`, which asks `question` of the model `gateway` names, or why it refused, by `signal`. */
 async function send(env: Env, gateway: Gateway, question: Question, request: Record<string, unknown>, signal: AbortSignal): Promise<{ body: unknown } | GatewayRefusal> {
