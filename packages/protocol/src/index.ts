@@ -175,7 +175,7 @@ export {
   type SearchResults,
   type SearchSort,
 } from "./search.ts";
-export { parseSave, type SavedItem, type SavedItems, type SavedMessage, type SaveMade } from "./saves.ts";
+export { MAX_SAVES, parseSave, type SavedItem, type SavedItems, type SavedMessage, type SaveMade } from "./saves.ts";
 
 export type UserId = string;
 export type RoomId = string;

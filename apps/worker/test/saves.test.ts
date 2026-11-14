@@ -1,4 +1,5 @@
 import type { Message, RoomId, SavedItem, SavedMessage } from "@ember/protocol";
+import { MAX_SAVES } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { api, connect, createRoom, direct, freshDeploy, post, settle, signIn, workspaceSql, type Session, type Socket } from "./support";
 
@@ -235,6 +236,31 @@ describe("The Saved pane's answer", () => {
     const saves = await savesOf(ada);
     expect(saves.map(({ messageId }) => messageId)).toEqual([reply.id]);
     expect(await storedSaves(ada)).toEqual([kept.id]);
+  });
+
+  it("keeps the newest MAX_SAVES, forgetting the oldest as saving on goes past them", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await createRoom("Design");
+    const writer = await connect(room.id, grace);
+    const older: Message[] = [];
+    for (let i = 0; i < MAX_SAVES; i++) older.push(await post(writer, `Saved long ago ${i}`));
+    await settle(writer);
+    // The MAX_SAVES saves as they'd have been made long ago, the oldest first, in the table.
+    for (const [i, message] of older.entries()) {
+      await workspaceSql("INSERT INTO saves (id, user_id, room_id, message_id, created_at) VALUES (?, ?, ?, ?, ?)", crypto.randomUUID(), ada.user.id, room.id, message.id, 1000 + i);
+    }
+    const fresh = await messageIn(room.id, grace, "Saved just now");
+    const mine = await saved(save(ada, room.id, fresh.message.id));
+    await fresh.done();
+    await writer.close();
+
+    const saves = await savesOf(ada);
+    expect(saves).toHaveLength(MAX_SAVES);
+    expect(saves[0]).toMatchObject({ id: mine.id, messageId: fresh.message.id });
+    // The oldest of those long ago is the one that went.
+    expect(saves.slice(1).map(({ messageId }) => messageId)).toEqual(older.slice(1).reverse().map(({ id }) => id));
+    expect(await storedSaves(ada)).toHaveLength(MAX_SAVES);
   });
 });
 

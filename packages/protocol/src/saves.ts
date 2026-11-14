@@ -4,6 +4,13 @@ import { MAX_ID_LENGTH } from "./pages.ts";
 // Saving messages for later: what Slack's Saved items keeps, a person's own list of messages, in
 // whatever rooms they live in.
 
+/**
+ * How many messages one person keeps saved for later: the ones they saved most recently. Keeping any
+ * number, and fetching each one's message to answer the list whenever the page loads, would have
+ * opening chat cost more the more one person saves, whether the Saved pane is open or not.
+ */
+export const MAX_SAVES = 50;
+
 /** A message someone saved for later: the ids it's kept by, and when it was saved, in milliseconds since the epoch. */
 export interface SavedMessage {
   /** The save's own id, which removing it names. */

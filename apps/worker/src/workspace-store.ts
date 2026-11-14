@@ -4,6 +4,7 @@ import {
   MAX_FAVORITES,
   MAX_OTHER_ADDRESSES,
   MAX_PUSH_SUBSCRIPTIONS,
+  MAX_SAVES,
   MAX_SHARED_ORDER,
   NAVIGATION_SLOTS,
   PASSWORD_RESET_CODE_TRIES,
@@ -2310,8 +2311,8 @@ const FORGET_SESSION_PUSH_ENDPOINT = `DELETE FROM push_subscriptions
 
 /**
  * Saves a message for later for someone, unless they have it saved already, which the WHERE leaves
- * alone. In one batch with the count of what it added, since the two read each other's writes and D1
- * has no other kind of transaction.
+ * alone. In one batch with the count of what it added and the trim that keeps no more than the newest
+ * MAX_SAVES, since they read each other's writes and D1 has no other kind of transaction.
  */
 const SAVE_MESSAGE = `INSERT INTO saves (id, user_id, room_id, message_id, created_at)
   SELECT ?1, ?2, ?3, ?4, ?5
@@ -2320,8 +2321,8 @@ const SAVE_MESSAGE = `INSERT INTO saves (id, user_id, room_id, message_id, creat
 /** How many rows the statement before it added: 1 when it saved the message, 0 when it was saved already. */
 const SAVE_MESSAGE_COUNT = `SELECT changes() AS inserted`;
 
-/** Someone's saves, newest save first, as the index on (user_id, created_at) reads them. */
-const SAVES_FOR_USER = `SELECT id, room_id, message_id, created_at FROM saves WHERE user_id = ? ORDER BY created_at DESC`;
+/** Someone's saves, newest save first, at most the MAX_SAVES they saved most recently, as the index on (user_id, created_at) reads them. */
+const SAVES_FOR_USER = `SELECT id, room_id, message_id, created_at FROM saves WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`;
 
 /** Deletes someone's save ?2, if it's theirs. */
 const FORGET_SAVE = `DELETE FROM saves WHERE id = ?1 AND user_id = ?2`;
@@ -2331,6 +2332,10 @@ const FORGET_SAVE_COUNT = `SELECT changes() AS gone`;
 
 /** Deletes the saves `ids` name, which an answer about someone's saves has dropped: the messages are gone, or their rooms are. */
 const FORGET_SAVES = `DELETE FROM saves WHERE id IN (SELECT value FROM json_each(?))`;
+
+/** Forgets someone's saves past the ?2 they saved most recently, so that saving on can't have the list every page load asks for grow without end. */
+const TRIM_SAVES = `DELETE FROM saves WHERE user_id = ?1
+  AND id NOT IN (SELECT id FROM saves WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2)`;
 
 /** Gives someone a role and records when. */
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
@@ -3971,8 +3976,8 @@ export class WorkspaceStore {
   async clearDnd(userId: UserId): Promise<void> {
     await this.db.run(CLEAR_DND, userId);
    * Saves the message `messageId` of room `roomId` for later for someone, answering the save, or null
-   * once they have it saved already. The insert and its count run as one batch, so two asks at once
-   * save it once.
+   * once they have it saved already. The insert, its count and the trim that keeps no more than the
+   * newest MAX_SAVES run as one batch, so two asks at once save it once.
    */
   async saveMessage(userId: UserId, roomId: RoomId, messageId: string, now: number): Promise<SavedMessage | null> {
     const id = crypto.randomUUID();
@@ -3980,13 +3985,14 @@ export class WorkspaceStore {
     const [, [{ inserted }]] = (await this.db.batch([
       statement(SAVE_MESSAGE, id, userId, roomId, messageId, now),
       statement(SAVE_MESSAGE_COUNT),
+      statement(TRIM_SAVES, userId, MAX_SAVES),
     ])) as [[], [{ inserted: number }]];
     return inserted === 1 ? { id, roomId, messageId, createdAt: now } : null;
   }
 
-  /** The messages someone has saved for later, newest save first. */
+  /** The messages someone has saved for later, newest save first, at most the MAX_SAVES they saved most recently. */
   async savesOf(userId: UserId): Promise<SavedMessage[]> {
-    const rows = await this.db.all<{ id: string; room_id: RoomId; message_id: string; created_at: number }>(SAVES_FOR_USER, userId);
+    const rows = await this.db.all<{ id: string; room_id: RoomId; message_id: string; created_at: number }>(SAVES_FOR_USER, userId, MAX_SAVES);
     return rows.map(({ id, room_id, message_id, created_at }) => ({ id, roomId: room_id, messageId: message_id, createdAt: created_at }));
   }
 
