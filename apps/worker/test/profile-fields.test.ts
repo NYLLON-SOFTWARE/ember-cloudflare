@@ -2,6 +2,7 @@ import {
   MAX_PROFILE_FIELD_VALUE_LENGTH,
   MAX_PROFILE_FIELDS,
   PROFILE_FIELD_NAME_REFUSED,
+  PROFILE_FIELD_NAME_TAKEN,
   PROFILE_FIELD_ORDER_REFUSED,
   PROFILE_FIELD_UNKNOWN,
   PROFILE_FIELD_VALUE_NOT_A_CHOICE,
@@ -123,12 +124,22 @@ describe("Profile fields", () => {
     const administrator = await setUp();
     expect(await (await add(administrator, { name: "  " })).json()).toEqual({ error: PROFILE_FIELD_NAME_REFUSED });
     expect((await add(administrator, { name: `${"x".repeat(101)} ` })).status).toBe(422);
+    expect((await add(administrator, { name: "Choices", options: [] })).status).toBe(422);
     expect((await add(administrator, { name: "Choices", options: ["", "  "] })).status).toBe(422);
     expect((await add(administrator, { name: "Choices", options: ["ok", `${"x".repeat(MAX_PROFILE_FIELD_VALUE_LENGTH + 1)}`] })).status).toBe(422);
     expect((await add(administrator, { name: "Choices", options: Array.from({ length: 11 }, (_, n) => `Choice ${n}`) })).status).toBe(422);
     expect((await add(administrator, { name: "Choices", options: "Free text" })).status).toBe(422);
     expect((await change(administrator, "none", { name: "Choices", options: [42] })).status).toBe(404);
     expect(await fieldsOf(administrator)).toEqual([]);
+  });
+
+  it("refuses a field named as one it has, whatever its case or the spaces around it", async () => {
+    const administrator = await setUp();
+    await add(administrator, { name: "Title" });
+    expect(await (await add(administrator, { name: "Title" })).json()).toEqual({ error: PROFILE_FIELD_NAME_TAKEN });
+    expect(await (await add(administrator, { name: "  title " })).json()).toEqual({ error: PROFILE_FIELD_NAME_TAKEN });
+    expect((await add(administrator, { name: "Tïtle" })).status).toBe(200);
+    expect((await fieldsOf(administrator)).map((field) => field.name)).toEqual(["Title", "Tïtle"]);
   });
 
   it("saves choices without the spaces at their ends, as it saves the name", async () => {
@@ -224,6 +235,23 @@ describe("Profile fields", () => {
     ]);
     // Their profile, which they save, is told the same.
     expect((await profileOf(grace)).fields).toEqual(fields);
+  });
+
+  it("keeps what someone saved when a field's choices change, even when it stops being one of them", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    await add(administrator, { name: "Pronouns", options: ["she/her", "they/them"] });
+    const [field] = await fieldsOf(administrator);
+    expect((await save(grace, { fieldValues: { [field!.id]: "she/her" } })).status).toBe(200);
+
+    expect((await change(administrator, field!.id, { name: "Pronouns", options: ["they/them"] })).status).toBe(200);
+    // What she saved stays, on her profile and her page, until she saves one of the choices as they are now.
+    const asAsked = { ...field, options: ["they/them"], value: "she/her" };
+    expect((await profileOf(grace)).fields).toEqual([asAsked]);
+    expect((await personOf(administrator, grace.user.id)).fields).toEqual([asAsked]);
+    expect(await values()).toEqual([{ field_id: field!.id, user_id: grace.user.id, value: "she/her" }]);
+    expect((await save(grace, { fieldValues: { [field!.id]: "she/her" } })).status).toBe(422);
+    expect((await save(grace, { fieldValues: { [field!.id]: "they/them" } })).status).toBe(200);
   });
 
   it("answers a save of the profile that names no fields without touching any", async () => {

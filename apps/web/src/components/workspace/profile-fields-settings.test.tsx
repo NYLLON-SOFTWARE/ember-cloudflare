@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_PROFILE_FIELDS, PROFILE_FIELDS_FULL, type ProfileField } from "@ember/protocol";
+import { MAX_PROFILE_FIELD_NAME_LENGTH, MAX_PROFILE_FIELDS, PROFILE_FIELD_OPTIONS_REFUSED, PROFILE_FIELDS_FULL, type ProfileField } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { CONFIRM_REMOVE_FIELD, ProfileFieldsSettings } from "./profile-fields-settings";
@@ -143,6 +143,22 @@ describe("Profile fields on workspace settings", () => {
     await user.click(screen.getByRole("button", { name: "Add field" }));
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: PROFILE_FIELDS_FULL })));
     expect(screen.getByLabelText("Name")).toHaveValue("Phone");
+  });
+
+  it("refuses Set choices without a choice in the box, sending nothing, saying so instead", async () => {
+    const { user } = show();
+    await shown();
+    await user.type(screen.getByLabelText("Name"), "Shirt size");
+    await user.selectOptions(screen.getByLabelText("Kind"), "Set choices");
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(PROFILE_FIELD_OPTIONS_REFUSED);
+    expect(sent()).toEqual([]);
+    expect(screen.getByLabelText("Name")).toHaveValue("Shirt size");
+    // Once a choice is typed, it goes.
+    await user.type(screen.getByLabelText("Choices, one per line"), "S");
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    await waitFor(() => expect(listed()).toEqual(["Title", "Pronouns", "Shirt size"]));
+    expect(sent()).toEqual([{ path: "/api/account/profile_fields", method: "POST", body: { name: "Shirt size", options: ["S"] } }]);
   });
 
   it("renames a field with its pencil, and its choices stay", async () => {
