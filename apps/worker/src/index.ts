@@ -765,7 +765,6 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   if (yours === "unknown field") return problem(422, PROFILE_FIELD_UNKNOWN);
   if (yours === "not a choice") return problem(422, PROFILE_FIELD_VALUE_NOT_A_CHOICE);
-  return profileAnswer(yours, env);
   return profileAnswer(yours, env, memberfulSite);
 }
 

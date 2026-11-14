@@ -116,6 +116,7 @@ describe("Chat bots page", () => {
   });
 });
 
+>>>>>>> bd7b6d9d (Keep a field added while the fields load, though the load answers after the change)
 describe("Ember AI", () => {
   it("links administrators to AI assistant, after Chat bots, and members not at all", () => {
     const { rerender } = render(<SettingsNavigation section="assistant-settings" administrator />);
@@ -161,7 +162,7 @@ describe("Custom domain", () => {
     const domain = screen.getByRole("link", { name: "Domain settings" });
     expect(domain).toHaveAttribute("href", "/account/edit#domain-settings");
     expect(domain.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(links()[4]).toBe(domain);
+    expect(links()[5]).toBe(domain);
     expect(current()).toBe(domain);
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Domain settings" })).not.toBeInTheDocument();
