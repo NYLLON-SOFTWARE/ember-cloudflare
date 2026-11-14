@@ -1,8 +1,8 @@
-import { useContext, useEffect, useState, type FormEvent } from "react";
+import { useContext, useEffect, useEffectEvent, useState, type FormEvent } from "react";
 import { MAX_GROUP_MEMBERS, MAX_GROUP_NAME_LENGTH, type GroupId, type UserGroup, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { EditPencil, Minus, Plus } from "@/components/icons/iconoir";
-import { DirectoryLoaded, DirectoryReloading, PeopleContext } from "@/hooks/use-directory";
+import { DirectoryLoaded, DirectoryReloading, DirectoryStale, PeopleContext } from "@/hooks/use-directory";
 import { ApiError, changeUserGroup, createUserGroup, deleteUserGroup, fetchUserGroups, isSignedOut } from "@/lib/api";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
@@ -90,7 +90,7 @@ export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
           </button>
         )}
       </div>
-      {editing === "new" && <GroupForm group={null} onSaved={saved} onCancel={() => setEditing(null)} onFailed={onFailed} />}
+      {editing === "new" && <GroupForm group={null} onSaved={saved} onCancel={() => setEditing(null)} reloadDirectory={reloadDirectory} onFailed={onFailed} />}
       <ul aria-labelledby="user-groups-heading" className="flex flex-col">
         {groups?.map((group) => (
           <li key={group.id} className="flex items-center gap-x-[1.5ch] border-t py-3 last:pb-0">
@@ -111,7 +111,7 @@ export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
         ))}
       </ul>
       {/* Keyed by the group's id, so Edit on another group opens with its name and members, not the last form's. */}
-      {editingGroup && <GroupForm key={editingGroup.id} group={editingGroup} onSaved={saved} onCancel={() => setEditing(null)} onFailed={onFailed} />}
+      {editingGroup && <GroupForm key={editingGroup.id} group={editingGroup} onSaved={saved} onCancel={() => setEditing(null)} reloadDirectory={reloadDirectory} onFailed={onFailed} />}
     </section>
   );
 }
@@ -137,6 +137,8 @@ interface GroupFormProps {
   onSaved: (group: UserGroup) => void;
   /** Closes the form, keeping the group as it was. */
   onCancel: () => void;
+  /** Loads the people directory again, which a save its last load failed under waits for. */
+  reloadDirectory: () => void;
   /** Says why saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -146,30 +148,36 @@ interface GroupFormProps {
  * and Create group or Save changes beside Cancel under them. Saving sends the name and the members
  * together, and shows what the server refused them with, as a name another group has, however it's
  * capitalised. A member the directory lists gone, as a deactivated one's id is, is let go of, for no
- * checkbox offers them to be unchecked.
+ * checkbox offers them to be unchecked — once the directory has come and stayed come, which a load
+ * under way or one that has failed may yet correct.
  */
-function GroupForm({ group, onSaved, onCancel, onFailed }: GroupFormProps) {
+function GroupForm({ group, onSaved, onCancel, reloadDirectory, onFailed }: GroupFormProps) {
   const directory = useContext(PeopleContext);
   const loaded = useContext(DirectoryLoaded);
+  const stale = useContext(DirectoryStale);
   const reloading = useContext(DirectoryReloading);
   const people = byName([...directory.values()].filter((person) => person.status === "active" && person.role !== "bot"));
   const [name, setName] = useState(group?.name ?? "");
   const [members, setMembers] = useState<ReadonlySet<UserId>>(() => new Set(group?.memberIds ?? []));
   const [saving, setSaving] = useState(false);
+  // A save the directory's last load failed under, which waits for a load that comes.
+  const [waiting, setWaiting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
 
   // A group keeps the id of a member the directory lists gone, whom the checkboxes offer no line to
-  // uncheck: once the directory has loaded and any load of it since has settled, let them go, so a
-  // save keeps only who's checked, and can't be refused for the one it would otherwise send back
-  // unseen. A load still under way may have a member back whom this listing doesn't, as one another
-  // administrator has just added is, so the letting go waits for it.
+  // uncheck: once the directory has loaded and any load of it since has settled and come, let them
+  // go, so a save keeps only who's checked, and can't be refused for the one it would otherwise send
+  // back unseen. A load still under way may have a member back whom this listing doesn't, as one
+  // another administrator has just added is, and one that has failed leaves the directory as it was
+  // before it, which may list gone a member who's here: the letting go waits for either to be
+  // answered, rather than let a member go for such a listing alone.
   useEffect(() => {
-    if (!loaded || reloading) return;
+    if (!loaded || stale || reloading) return;
     setMembers((members) => {
       const next = [...members].filter((id) => directory.get(id)?.status === "active");
       return next.length === members.size ? members : new Set(next);
     });
-  }, [loaded, reloading, directory]);
+  }, [loaded, stale, reloading, directory]);
 
   const toggle = (userId: UserId, checked: boolean) =>
     setMembers((members) => {
@@ -179,11 +187,13 @@ function GroupForm({ group, onSaved, onCancel, onFailed }: GroupFormProps) {
       return next;
     });
 
-  const save = (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setRefused(null);
-    const memberIds = [...members];
+  // Sends the name and the members, which are the ones checked of those the directory lists active
+  // once it has come — as the letting go above has made of them, and as this does besides for the
+  // save it ran for as it went, whose letting go has yet to render — and shows what the server
+  // refused them with. Before it has come, the members go as the group has them, whom no checkbox
+  // has let go of.
+  const send = useEffectEvent(() => {
+    const memberIds = loaded ? [...members].filter((id) => directory.get(id)?.status === "active") : [...members];
     const change = group ? changeUserGroup(group.id, { name, memberIds }) : createUserGroup({ name, memberIds });
     change.then(
       onSaved,
@@ -193,7 +203,30 @@ function GroupForm({ group, onSaved, onCancel, onFailed }: GroupFormProps) {
         setRefused(sayWhy(error));
       },
     );
+  });
+
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setRefused(null);
+    // The directory's last load has failed, which leaves it listing people as it did before it: a
+    // member it lists gone may be back, whom letting go would drop for that listing alone. The card
+    // loads it again, as it does once a change has saved, and the save waits for a load that comes,
+    // as the letting go waits for the one under way.
+    if (stale) {
+      setWaiting(true);
+      reloadDirectory();
+      return;
+    }
+    send();
   };
+
+  // The save a failed load held goes once a load of the directory has come, and none is under way.
+  useEffect(() => {
+    if (!waiting || stale || reloading) return;
+    setWaiting(false);
+    send();
+  }, [waiting, stale, reloading]);
 
   return (
     <form noValidate onSubmit={save} className="flex flex-col gap-4 border-t pt-4">
