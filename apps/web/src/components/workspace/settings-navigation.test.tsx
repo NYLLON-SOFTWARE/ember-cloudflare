@@ -2,7 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routeOf } from "@/hooks/use-route";
-import { SettingsNavigation, settingsSectionOf, workspaceSectionOf, workspaceSectionPath, type SettingsSection } from "./settings-navigation";
+import { SettingsNavigation } from "./settings-links";
+import { settingsSectionOf, workspaceSectionOf, workspaceSectionPath, type SettingsSection } from "./settings-navigation";
 
 /** The links the navigation shows, by their labels, top to bottom. */
 const links = () => within(screen.getByRole("navigation", { name: "Community settings" })).getAllByRole("link");

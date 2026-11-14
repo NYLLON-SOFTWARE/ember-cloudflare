@@ -58,6 +58,8 @@ export { ActionSheet } from "../mobile/action-sheet";
 export { RoomDetailsSheet } from "../mobile/room-details-sheet";
 export { MessageSheets } from "../mobile/message-sheets";
 export { CustomReaction } from "./custom-reaction";
+export { LinkForm } from "./link-form";
+export { SettingsNavigation } from "./settings-links";
 export { AppearanceChoices } from "./appearance-choices";
 export { MovedBanner } from "./moved-banner";
 export { YouSheet } from "../mobile/you-sheet-content";
