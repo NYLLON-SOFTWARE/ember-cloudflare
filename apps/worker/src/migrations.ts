@@ -52,12 +52,9 @@ import huddles from "../migrations/0051_huddles.sql";
 import agentPromptTemplates from "../migrations/0052_agent_prompt_templates.sql";
 import unbannedOpenRooms from "../migrations/0053_unbanned_open_rooms.sql";
 import agentThinkingLevels from "../migrations/0054_agent_thinking_levels.sql";
-<<<<<<< HEAD
 import apps from "../migrations/0055_apps.sql";
 import agentTools from "../migrations/0056_agent_tools.sql";
-=======
-import reminders from "../migrations/0055_reminders.sql";
->>>>>>> 72545336 (Remind a message to come back, protocol, store and Workspace first)
+import reminders from "../migrations/0061_reminders.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -136,12 +133,9 @@ export const MIGRATIONS: Migration[] = [
   { name: "0052_agent_prompt_templates.sql", scope: "workspace", sql: agentPromptTemplates },
   { name: "0053_unbanned_open_rooms.sql", scope: "workspace", sql: unbannedOpenRooms },
   { name: "0054_agent_thinking_levels.sql", scope: "workspace", sql: agentThinkingLevels },
-<<<<<<< HEAD
   { name: "0055_apps.sql", scope: "workspace", sql: apps },
   { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
-=======
-  { name: "0055_reminders.sql", scope: "workspace", sql: reminders },
->>>>>>> 72545336 (Remind a message to come back, protocol, store and Workspace first)
+  { name: "0061_reminders.sql", scope: "workspace", sql: reminders },
 ];
 
 /**
