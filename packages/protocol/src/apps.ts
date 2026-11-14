@@ -48,14 +48,30 @@ export interface App {
   toolsLeftOut: number;
   toolsReadAt: string;
   connectedBy: { id: UserId; name: string } | null;
+  setAside: SetAsideTool[];
 }
 
-/** An app as the AI assistant tab lists it: its name, its server's address and how many tools Ember read from it. */
+/**
+ * An app as the AI assistant tab lists it: its name, its server's address, how many tools Ember read
+ * from it, and how many of them are set aside for an agent that had them (`SetAsideTool`).
+ */
 export interface AppSummary {
   id: AppId;
   name: string;
   url: string;
   toolCount: number;
+  setAside: number;
+}
+
+/**
+ * A tool picked for agents that none of them is given any more, by its name at its app, with the
+ * agents that had it: its server describes it another way than when it was picked, so it waits for an
+ * administrator to pick it again on each agent's page, or its server no longer has it, `gone`.
+ */
+export interface SetAsideTool {
+  name: string;
+  gone: boolean;
+  agents: Array<{ id: UserId; name: string }>;
 }
 
 /** What `GET /api/account/apps` answers: the apps, by name. */
@@ -151,7 +167,8 @@ const isLoopback = (hostname: string) => LOOPBACK_HOST.test(hostname);
 
 // The tools an agent may use. An administrator picks them, for @ember and for each agent, from the
 // tools Ember read from the connected apps. Each one an agent has rides with every question it's asked,
-// and whoever asked is shown each call of one before Ember makes it.
+// and whoever asked is shown each call of one before Ember makes it, unless the administrator has that
+// agent's calls of it always allowed, which the room is shown as they're made.
 
 /** The most tools of connected apps one agent may use, as each rides with every question it's asked. */
 export const MAX_AGENT_TOOLS = 20;
@@ -170,17 +187,21 @@ export interface ToolPick {
   appId: AppId;
   name: string;
   fingerprint: string;
+  /** Whether the agent's calls of it are made without asking first. */
+  alwaysAllowed?: true;
 }
 
 /**
  * A connected app's tool as an agent's page offers it: the fingerprint of how its server describes it,
- * which a pick of it carries, whether the agent may use it, and whether its server has described it
- * another way since it was picked, which sets it aside until it's picked again.
+ * which a pick of it carries, whether the agent may use it, whether its server has described it
+ * another way since it was picked, which sets it aside until it's picked again, and whether the agent's
+ * calls of it are made without asking first, which only a tool it may use has.
  */
 export interface OfferedTool extends AppTool {
   fingerprint: string;
   picked: boolean;
   changed: boolean;
+  alwaysAllowed: boolean;
 }
 
 /** A connected app as an agent's page offers its tools. */
@@ -200,7 +221,7 @@ export interface AgentToolPicks {
   tools: ToolPick[];
 }
 
-const NOT_A_PICK = "Expected each tool's app, name and fingerprint";
+const NOT_A_PICK = "Expected each tool's app, name and fingerprint, and whether it's always allowed";
 
 /** Parses untrusted picks of an agent's tools, each once, or says why they're refused. */
 export function parseToolPicks(data: unknown): ToolPick[] | AppRefused {
@@ -211,10 +232,11 @@ export function parseToolPicks(data: unknown): ToolPick[] | AppRefused {
   const picks = new Map<string, ToolPick>();
   for (const tool of tools as unknown[]) {
     if (typeof tool !== "object" || tool === null) return { error: NOT_A_PICK };
-    const { appId, name, fingerprint } = tool as Record<string, unknown>;
+    const { appId, name, fingerprint, alwaysAllowed } = tool as Record<string, unknown>;
     if (typeof appId !== "string" || typeof name !== "string" || appId === "" || name === "") return { error: NOT_A_PICK };
     if (typeof fingerprint !== "string" || fingerprint === "" || fingerprint.length > MAX_FINGERPRINT_LENGTH) return { error: NOT_A_PICK };
-    picks.set(`${appId}\n${name}`, { appId, name, fingerprint });
+    if (alwaysAllowed !== undefined && typeof alwaysAllowed !== "boolean") return { error: NOT_A_PICK };
+    picks.set(`${appId}\n${name}`, { appId, name, fingerprint, ...(alwaysAllowed && { alwaysAllowed }) });
   }
   return [...picks.values()];
 }

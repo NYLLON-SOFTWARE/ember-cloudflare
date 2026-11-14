@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { Me } from "@ember/protocol";
-import { APPS_FORBIDDEN, MAX_APP_NAME_LENGTH, MAX_APP_TOKEN_LENGTH, MAX_APP_TOOLS, MAX_APP_URL_LENGTH, type App, type AppChanges, type AppId, type AppRefused, type NewApp } from "@ember/protocol/apps";
+import { APPS_FORBIDDEN, MAX_APP_NAME_LENGTH, MAX_APP_TOKEN_LENGTH, MAX_APP_TOOLS, MAX_APP_URL_LENGTH, type App, type AppChanges, type AppId, type AppRefused, type NewApp, type SetAsideTool } from "@ember/protocol/apps";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { RefreshDouble } from "@/components/icons/iconoir";
+import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
-import { appSettingsPath, navigate } from "@/hooks/use-route";
+import { agentSettingsPath, appSettingsPath, navigate } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, changeApp, connectApp, disconnectApp, fetchApp, fetchApps, isSignedOut, readAppTools } from "@/lib/api";
 import { dateTimeLabel } from "@/lib/messages";
@@ -409,10 +410,49 @@ function Under({ id, field, refusal, children }: { id: string; field: AppField; 
 /** What the Tools card says of how many of an app's tools Ember keeps, when it has more. */
 export const toolsLeftOut = (count: number) => `It has ${count} more that Ember leaves out: it keeps ${MAX_APP_TOOLS} at most, and none whose name or inputs it can't give a model.`;
 
+/** What the Tools card says over the tools set aside for agents that had them. */
+export const SET_ASIDE_EXPLAINED = "Set aside, as this app changed them after they were picked. No agent is given one until you pick it again on the agent's page, as it's described now:";
+
+/** What the Tools card says of a picked tool its app no longer has. */
+export const TOOL_IS_GONE = "the app no longer has it";
+
+/**
+ * The tools of an app set aside for agents that had them: each by its name there, with the agents,
+ * linked to their pages, where an administrator picks it again.
+ */
+function SetAside({ tools }: { tools: SetAsideTool[] }) {
+  return (
+    <div role="group" aria-labelledby="app-set-aside-heading" className="rounded-[10px] border border-negative px-[1.5ch] py-2.5">
+      <p id="app-set-aside-heading" className={NOTE}>
+        {SET_ASIDE_EXPLAINED}
+      </p>
+      <ul className="flex flex-col">
+        {tools.map(({ name, gone, agents }) => (
+          <li key={name} className="flex flex-wrap items-baseline gap-x-[1ch]">
+            <code className="font-mono text-[0.9em] font-semibold wrap-anywhere">{name}</code>
+            <span className={NOTE}>
+              {gone ? `${TOOL_IS_GONE}, ` : ""}picked for{" "}
+              {agents.map(({ id, name }, index) => (
+                <Fragment key={id}>
+                  {index > 0 && ", "}
+                  <PageLink href={agentSettingsPath(id)} className="underline">
+                    {name}
+                  </PageLink>
+                </Fragment>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /**
  * The Tools card: what the app's server calls itself, when Ember last read its tools and who connected
- * it, Read its tools again, with why that failed, if it did, and each tool by its name there, with what
- * it's called, if that's something else, and what its server says it does, which is the server's word.
+ * it, Read its tools again, with why that failed, if it did, the tools set aside for agents that had
+ * them, and each tool by its name there, with what it's called, if that's something else, and what
+ * its server says it does, which is the server's word.
  */
 function Tools({ app, busy, unread, onReadAgain }: { app: App; busy: Busy; unread: string | null; onReadAgain: () => void }) {
   const read = `Read ${dateTimeLabel(new Date(app.toolsReadAt))}`;
@@ -435,6 +475,7 @@ function Tools({ app, busy, unread, onReadAgain }: { app: App; busy: Busy; unrea
         {busy === "reading" ? READING_TOOLS : unread}
       </p>
       <p className={NOTE}>Each description is the app's own. Pick the tools an agent may use on the agent's page.</p>
+      {app.setAside.length > 0 && <SetAside tools={app.setAside} />}
       {app.tools.length > 0 && (
         <ul aria-labelledby="app-tools-heading" className="flex max-h-[28em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background">
           {app.tools.map(({ name, title, description }) => (

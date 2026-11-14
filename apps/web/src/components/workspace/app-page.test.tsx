@@ -6,9 +6,9 @@ import { APPS_FORBIDDEN, APPS_FULL, type App, type AppAnswer } from "@ember/prot
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
-import { appSettingsPath, NEW_APP_PATH } from "@/hooks/use-route";
+import { agentSettingsPath, appSettingsPath, NEW_APP_PATH } from "@/hooks/use-route";
 import { AGENTS_PATH } from "./agent-list";
-import { AppSettingsPage, changesOf, CONFIRM_REMOVE_APP, NewAppPage, READING_TOOLS, TOKEN_EXPLAINED, TOKEN_KEPT, toolsLeftOut, URL_EXPLAINED } from "./app-page";
+import { AppSettingsPage, changesOf, CONFIRM_REMOVE_APP, NewAppPage, READING_TOOLS, SET_ASIDE_EXPLAINED, TOKEN_EXPLAINED, TOKEN_KEPT, TOOL_IS_GONE, toolsLeftOut, URL_EXPLAINED } from "./app-page";
 import { CHANGES_SAVED } from "./settings-page";
 
 const ada: Me = { id: "0mgk3x2a9b4c5d", name: "Ada Lovelace", administrator: true };
@@ -26,6 +26,7 @@ const LINEAR: App = {
   toolsLeftOut: 0,
   toolsReadAt: "2026-11-13T10:30:00.000Z",
   connectedBy: { id: ada.id, name: ada.name },
+  setAside: [],
 };
 
 const answer = (app: App, status = 200) => Response.json({ app } satisfies AppAnswer, { status });
@@ -207,6 +208,26 @@ describe("A connected app's page", () => {
     expect(create).toHaveTextContent("Creates an issue in a team. It needs a title.");
     expect(list).toHaveTextContent(/^list_issues$/);
     expect(tools()).not.toHaveTextContent("Ember leaves out");
+    expect(within(tools()).queryByRole("group")).toBeNull();
+  });
+
+  it("says which tools are set aside for the agents that had them, as the app changed them or no longer has them, with a link to each agent's page", async () => {
+    const setAside = [
+      { name: "close_issue", gone: true, agents: [{ id: "0mgk3x2a9b4c81", name: "Recap" }] },
+      { name: "create_issue", gone: false, agents: [{ id: "ember", name: "Ember" }, { id: "0mgk3x2a9b4c81", name: "Recap" }] },
+    ];
+    serve({ loaded: () => answer({ ...LINEAR, setAside }) });
+    showSettings();
+    await nameField();
+
+    const group = within(tools()).getByRole("group", { name: SET_ASIDE_EXPLAINED });
+    const [closed, created] = within(group).getAllByRole("listitem");
+    expect(closed).toHaveTextContent(`close_issue${TOOL_IS_GONE}, picked for Recap`);
+    expect(created).toHaveTextContent("create_issuepicked for Ember, Recap");
+    expect(within(created!).getByRole("link", { name: "Ember" })).toHaveAttribute("href", agentSettingsPath("ember"));
+    expect(within(created!).getByRole("link", { name: "Recap" })).toHaveAttribute("href", agentSettingsPath("0mgk3x2a9b4c81"));
+    // The tools themselves are listed under it as ever.
+    expect(within(tools()).getAllByRole("listitem")).toHaveLength(4);
   });
 
   it("says how many tools Ember left out, when the server has more than it keeps", async () => {

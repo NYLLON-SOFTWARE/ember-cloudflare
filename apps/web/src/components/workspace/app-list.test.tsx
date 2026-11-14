@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { APPS_FULL, MAX_APPS, type AppSummary } from "@ember/protocol/apps";
 import { appSettingsPath, NEW_APP_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
-import { addressOf, AppList, APPS_EXPLAINED, NO_APPS, toolsOf } from "./app-list";
+import { addressOf, AppList, APPS_EXPLAINED, NO_APPS, setAsideOf, toolsOf } from "./app-list";
 
-const LINEAR: AppSummary = { id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23 };
-const NOTES: AppSummary = { id: "0mgk3x2a9b4c71", name: "Notes", url: "https://notes.example/", toolCount: 1 };
+const LINEAR: AppSummary = { id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0 };
+const NOTES: AppSummary = { id: "0mgk3x2a9b4c71", name: "Notes", url: "https://notes.example/", toolCount: 1, setAside: 0 };
 
 /** Answers listing the apps with `apps`, or as `listed` says. */
 const serve = (listed: () => Response | Promise<Response> = () => Response.json({ apps: [LINEAR, NOTES] })) =>
@@ -35,9 +35,21 @@ describe("The Apps card", () => {
     const rows = within(card()).getAllByRole("listitem");
     expect(rows.map((row) => within(row).getByText(/./, { selector: "strong" }).textContent)).toEqual(["Linear", "Notes"]);
     expect(rows[0]).toHaveTextContent("mcp.linear.example/mcp · 23 tools");
+    expect(card()).not.toHaveTextContent("set aside");
     expect(rows[1]).toHaveTextContent("notes.example · 1 tool");
     expect(within(rows[0]!).getByRole("link", { name: "Edit Linear" })).toHaveAttribute("href", appSettingsPath(LINEAR.id));
     expect(within(rows[1]!).getByRole("link", { name: "Edit Notes" })).toHaveAttribute("href", appSettingsPath(NOTES.id));
+  });
+
+  it("says on an app's row how many of its tools are set aside for an agent that had them, and nothing of that on any other", async () => {
+    serve(() => Response.json({ apps: [{ ...LINEAR, setAside: 2 }, { ...NOTES, setAside: 1 }] }));
+    showList();
+    await loaded();
+    const [linear, notes] = within(card()).getAllByRole("listitem");
+    expect(linear).toHaveTextContent(setAsideOf(2));
+    expect(setAsideOf(2)).toContain("2 picked tools are set aside");
+    expect(notes).toHaveTextContent(setAsideOf(1));
+    expect(setAsideOf(1)).toContain("1 picked tool is set aside");
   });
 
   it("says what apps are, with Connect an app, which goes to its page", async () => {

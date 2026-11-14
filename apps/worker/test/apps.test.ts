@@ -194,9 +194,10 @@ describe("Connecting an app", () => {
       toolsLeftOut: 0,
       toolsReadAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as string,
       connectedBy: administrator.user,
+      setAside: [],
     });
     expect(await appOf(await show(administrator, app.id))).toEqual(app);
-    expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([{ id: app.id, name: "Tracker", url: LOCAL, toolCount: 2 }]);
+    expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([{ id: app.id, name: "Tracker", url: LOCAL, toolCount: 2, setAside: 0 }]);
 
     // Ember asks as the protocol has it, at the address it was given, and follows no redirect.
     expect(asked.filter(({ rpc }) => rpc !== undefined).map(({ rpc }) => rpc)).toEqual(["initialize", "notifications/initialized", "tools/list"]);
@@ -517,7 +518,7 @@ describe("An agent's tools", () => {
     expect(made.status, await made.clone().text()).toBe(201);
     const { agent } = (await made.json()) as { agent: AgentSettings };
 
-    const unpicked = { picked: false, changed: false };
+    const unpicked = { picked: false, changed: false, alwaysAllowed: false };
     const kept = await fingerprintOf({ name: "search_issues", title: "Search issues", description: "Finds issues by their words.", takes: SEARCH_ISSUES.inputSchema as Record<string, unknown> });
     const apps = await offeredBy(await offered(administrator, ASSISTANT_ID));
     expect(apps).toEqual([
@@ -629,6 +630,72 @@ describe("An agent's tools", () => {
     expect(pickedIn(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toEqual([]);
   });
 
+  it("keeps which of an agent's tools are always allowed, for that agent alone, until the tool is taken away or set aside", async () => {
+    const administrator = await setUp();
+    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    const made = await api("/api/account/agents", { method: "POST", headers: as(administrator), body: JSON.stringify(RECAP) });
+    const { agent } = (await made.json()) as { agent: AgentSettings };
+    const [search, create] = (await picksNow(administrator, "search_issues", "create_issue")) as [ToolPick, ToolPick];
+    const always = (apps: OfferedApp[]) => apps.flatMap(({ tools }) => tools.filter(({ alwaysAllowed }) => alwaysAllowed).map(({ name }) => name));
+
+    expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, [{ ...search, alwaysAllowed: true }, { ...create, alwaysAllowed: false }])))).toEqual(["search_issues"]);
+    expect(always(await offeredBy(await pick(administrator, agent.id, [search, create])))).toEqual([]);
+    expect(always(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toEqual(["search_issues"]);
+    expect(await workspaceSql("SELECT tools FROM agent_tools WHERE agent_id = ?", ASSISTANT_ID)).toEqual([{ tools: JSON.stringify([{ ...search, alwaysAllowed: true }, create]) }]);
+
+    // Saved without it, it asks first again, and one taken away and picked again does too.
+    expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, [search, { ...create, alwaysAllowed: true }])))).toEqual(["create_issue"]);
+    expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, [search])))).toEqual([]);
+    expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, [search, create])))).toEqual([]);
+
+    // Its server describing it another way sets it aside, which ends it: it was said of the tool as it was.
+    expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, [search, { ...create, alwaysAllowed: true }])))).toEqual(["create_issue"]);
+    server.pages = [[SEARCH_ISSUES, { ...CREATE_ISSUE, description: "Opens an issue, and emails everyone." }]];
+    await appOf(await readAgain(administrator, tracker.id));
+    expect(always(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toEqual([]);
+    expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, [search])))).toEqual([]);
+    expect(await workspaceSql("SELECT tools FROM agent_tools WHERE agent_id = ?", ASSISTANT_ID)).toEqual([{ tools: JSON.stringify([search, { ...create, setAside: true }]) }]);
+    expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, await picksNow(administrator, "search_issues", "create_issue"))))).toEqual([]);
+  });
+
+  it("says on an app's page, and in the list, which of its tools are set aside for the agents that had them: changed by its server, or gone from it", async () => {
+    const administrator = await setUp();
+    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    server = { pages: [[{ name: "send_email", description: "Sends an email." }]] };
+    const mail = await appOf(await connect(administrator, { name: "Mail", url: TRACKER }), 201);
+    const made = await api("/api/account/agents", { method: "POST", headers: as(administrator), body: JSON.stringify(RECAP) });
+    const { agent } = (await made.json()) as { agent: AgentSettings };
+    const everything = await offeredBy(await offered(administrator, ASSISTANT_ID));
+    await offeredBy(await pick(administrator, ASSISTANT_ID, picksOf(everything, "search_issues", "create_issue", "send_email")));
+    await offeredBy(await pick(administrator, agent.id, picksOf(everything, "create_issue")));
+    const setAside = async () => ((await (await listApps(administrator)).json()) as Apps).apps.map(({ name, setAside }) => [name, setAside]);
+    expect(await setAside()).toEqual([["Mail", 0], ["Tracker", 0]]);
+    expect((await appOf(await show(administrator, tracker.id))).setAside).toEqual([]);
+
+    // Tracker's server describes one tool another way, and drops the other.
+    server.pages = [[{ ...CREATE_ISSUE, description: "Opens an issue, and emails everyone." }]];
+    const read = await appOf(await readAgain(administrator, tracker.id));
+    const ember = { id: ASSISTANT_ID, name: "Ember" };
+    const recap = { id: agent.id, name: "Recap" };
+    expect(read.setAside).toEqual([
+      { name: "create_issue", gone: false, agents: [ember, recap] },
+      { name: "search_issues", gone: true, agents: [ember] },
+    ]);
+    expect((await appOf(await show(administrator, tracker.id))).setAside).toEqual(read.setAside);
+    expect((await appOf(await show(administrator, mail.id))).setAside).toEqual([]);
+    expect(await setAside()).toEqual([["Mail", 0], ["Tracker", 2]]);
+
+    // Picked again for one agent, it's still set aside for the other, and picks saved for an agent forget what's gone.
+    await offeredBy(await pick(administrator, agent.id, await picksNow(administrator, "create_issue")));
+    expect((await appOf(await show(administrator, tracker.id))).setAside).toEqual([
+      { name: "create_issue", gone: false, agents: [ember] },
+      { name: "search_issues", gone: true, agents: [ember] },
+    ]);
+    await offeredBy(await pick(administrator, ASSISTANT_ID, await picksNow(administrator, "create_issue", "send_email")));
+    expect((await appOf(await show(administrator, tracker.id))).setAside).toEqual([]);
+    expect(await setAside()).toEqual([["Mail", 0], ["Tracker", 0]]);
+  });
+
   it("refuses a tool no connected app has, more tools than an agent uses, and anything that isn't picks, keeping what was picked", async () => {
     const administrator = await setUp();
     server = { pages: [Array.from({ length: MAX_AGENT_TOOLS + 1 }, (_, index) => ({ name: `tool_${index}` }))] };
@@ -641,7 +708,7 @@ describe("An agent's tools", () => {
     expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ ...first, name: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
     expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ ...first, appId: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
     expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ ...first, fingerprint: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
-    for (const tools of ["tool_0", [{ appId: tracker.id }], [{ appId: tracker.id, name: "tool_0" }], [{ ...first, fingerprint: "f".repeat(129) }], [null], undefined]) {
+    for (const tools of ["tool_0", [{ appId: tracker.id }], [{ appId: tracker.id, name: "tool_0" }], [{ ...first, fingerprint: "f".repeat(129) }], [{ ...first, alwaysAllowed: "yes" }], [null], undefined]) {
       expect((await pick(administrator, ASSISTANT_ID, tools)).status, JSON.stringify(tools)).toBe(422);
     }
     expect(pickedIn(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toHaveLength(MAX_AGENT_TOOLS);

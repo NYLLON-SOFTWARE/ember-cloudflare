@@ -6,7 +6,8 @@ import { FILE_QUESTION, FILED, startFakeGateway, type FakeGateway } from "./fake
 import { calledWith, MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
 
 // The Apps card on the AI assistant tab, Connect an app, a connected app's page, the Tools card on
-// @ember's page, and @ember calling a picked tool once it's allowed, on the second test server, with an
+// @ember's page, and @ember calling a picked tool once it's allowed, or at once where an administrator
+// always allows it, on the second test server, with an
 // MCP server this spec fakes on this machine. Each test leaves the workspace as a new one is: no apps,
 // and Ember AI off.
 
@@ -145,7 +146,7 @@ test.describe("Apps", () => {
     const tools = page.getByRole("region", { name: "Tools", exact: true });
     await expect(tools.getByRole("group", { name: "Tracker" }).getByRole("checkbox")).toHaveCount(2);
     const search = tools.getByRole("checkbox", { name: "search_issues, Search issues" });
-    const create = tools.getByRole("checkbox", { name: "create_issue" });
+    const create = tools.getByRole("checkbox", { name: "create_issue", exact: true });
     await expect(search).toHaveAccessibleDescription("Finds issues by their words.");
 
     // A pick is saved as it's made.
@@ -231,6 +232,71 @@ test.describe("Apps", () => {
     await denied.getByRole("button", { name: "Deny" }).click();
     await expect(denied).toContainText("Not allowed by Ada Lovelace.");
     await expect(page.getByRole("article").filter({ hasText: `${FILED} Not run: the person you're answering was asked to allow this call, and didn't.` })).toBeVisible();
+    expect(mcp.calls).toHaveLength(1);
+  });
+  test("the administrator always allows @ember a tool, whose calls are then made at once and shown on a card, until its app changes it, which the app's row and page say", async ({ page, request }) => {
+    mcp.tools.splice(0, mcp.tools.length, ...TOOLS.map((tool) => ({ ...tool })));
+    mcp.calls.length = 0;
+    const headers = await asAdministrator(request);
+    const connected = await request.post("/api/account/apps", { data: { name: "Tracker", url: mcp.url, token: MCP_TOKEN }, headers });
+    expect(connected.status(), await connected.text()).toBe(201);
+    const created = await request.post("/api/rooms", { data: { kind: "open", name: `Triage ${crypto.randomUUID().slice(0, 8)}` }, headers });
+    expect(created.status(), await created.text()).toBe(201);
+    const { room } = (await created.json()) as { room: { id: string; name: string } };
+
+    // Picked, a tool has a box under it that always allows it, saved as it's checked.
+    await useOwnAddress(page);
+    await page.goto("/account/agents/ember/edit");
+    await signInAsAdministrator(page);
+    const tools = page.getByRole("region", { name: "Tools", exact: true });
+    const create = tools.getByRole("checkbox", { name: "create_issue", exact: true });
+    const always = tools.getByRole("checkbox", { name: "Always allow create_issue" });
+    await expect(always).toHaveCount(0);
+    await create.check();
+    await always.check();
+    await expect(tools).toHaveAttribute("aria-busy", "false");
+    await page.reload();
+    await expect(always).toBeChecked();
+
+    // Its call is made at once, with nobody asked, and the room is shown what it was called with.
+    await page.goto(`/rooms/${room.id}`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
+    const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
+    await askEmber(page, `${FILE_QUESTION} ${title}`);
+    const used = page.getByRole("article", { name: "Ember used Tracker" }).filter({ hasText: title });
+    await expect(used).toContainText("create_issue, with:");
+    await expect(used).toContainText("An administrator always allows Ember this tool, so nobody was asked first.");
+    await expect(used.getByRole("button")).toHaveCount(0);
+    await expect(page.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
+    expect(mcp.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
+
+    // Its app describes the tool another way, which Ember finds as it goes to call it: the call isn't made.
+    mcp.tools[1]!.description = "Opens an issue, and emails everyone.";
+    const other = `Logout fails ${crypto.randomUUID().slice(0, 8)}`;
+    await askEmber(page, `${FILE_QUESTION} ${other}`);
+    await expect(page.getByRole("article").filter({ hasText: `${FILED} Not run: create_issue has changed since an administrator looked at it.` })).toBeVisible();
+    expect(mcp.calls).toHaveLength(1);
+
+    // The app's row says a picked tool is set aside, and its page which, and for whom, with a link to the agent's page.
+    await page.goto("/account/edit#assistant-settings");
+    const apps = page.getByRole("region", { name: "Apps", exact: true });
+    await expect(apps.getByRole("listitem")).toContainText("1 picked tool is set aside");
+    await apps.getByRole("link", { name: "Edit Tracker" }).click();
+    const setAside = page.getByRole("region", { name: /^Tools/ }).getByRole("group");
+    await expect(setAside).toContainText("create_issue");
+    await setAside.getByRole("link", { name: "Ember" }).click();
+
+    // Picked again there, as it's described now, it asks first: Always allow was of the tool as it was.
+    await expect(create).toHaveAccessibleDescription(/^Opens an issue, and emails everyone\..*Pick it again to keep it\.$/);
+    await expect(create).not.toBeChecked();
+    await create.check();
+    await expect(always).not.toBeChecked();
+    await expect(tools).toHaveAttribute("aria-busy", "false");
+    await page.goto(`/rooms/${room.id}`);
+    const third = `Signup fails ${crypto.randomUUID().slice(0, 8)}`;
+    await askEmber(page, `${FILE_QUESTION} ${third}`);
+    const asks = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: third });
+    await expect(asks.getByRole("button", { name: "Allow once" })).toBeVisible();
     expect(mcp.calls).toHaveLength(1);
   });
 });

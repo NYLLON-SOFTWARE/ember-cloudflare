@@ -62,7 +62,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import type { AgentProfile, AgentRoom } from "@ember/protocol/agents";
-import type { AppId, AppSummary } from "@ember/protocol/apps";
+import type { AppId } from "@ember/protocol/apps";
 import type { LiveHuddle } from "@ember/protocol/huddles";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
@@ -2432,13 +2432,21 @@ export interface AppChange {
 /**
  * A connected app's tool as it was picked for an agent: its app, its name there, and its fingerprint
  * then. One set aside was found described another way when picks were saved, and stays set aside, the
- * agent without it, however its server describes it later, until it's picked again.
+ * agent without it, however its server describes it later, until it's picked again. One always allowed
+ * is called without asking first, which one set aside never is.
  */
 export interface StoredToolPick {
   appId: AppId;
   name: string;
   fingerprint: string;
   setAside?: true;
+  alwaysAllowed?: true;
+}
+
+/** The tools picked for one agent, with what it's called: @ember's name before it has answered, as it has no user till then. */
+export interface AgentToolPicks {
+  agent: { id: UserId; name: string };
+  picks: StoredToolPick[];
 }
 
 interface AppRow {
@@ -3821,12 +3829,13 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** The connected apps, by name, as the AI assistant tab lists them. */
-  async appSummaries(): Promise<AppSummary[]> {
-    const rows = await this.db.all<{ id: AppId; name: string; url: string; tool_count: number }>(
-      `SELECT id, name, url, json_array_length(tools) AS tool_count FROM apps ORDER BY name COLLATE NOCASE, id`,
+  /** The tools picked for every agent that has any, @ember among them, by the agents' names: at most one row an agent. */
+  async everyAgentsToolPicks(): Promise<AgentToolPicks[]> {
+    const rows = await this.db.all<{ agent_id: UserId; name: string | null; tools: string }>(
+      `SELECT agent_tools.agent_id, users.name, agent_tools.tools FROM agent_tools LEFT JOIN users ON users.id = agent_tools.agent_id
+       ORDER BY users.name COLLATE NOCASE, agent_tools.agent_id`,
     );
-    return rows.map(({ id, name, url, tool_count }) => ({ id, name, url, toolCount: tool_count }));
+    return rows.map(({ agent_id, name, tools }) => ({ agent: { id: agent_id, name: name ?? ASSISTANT_NAME }, picks: JSON.parse(tools) as StoredToolPick[] }));
   }
 
   /** Every connected app, by name, with its sealed token and the tools read from it. */
