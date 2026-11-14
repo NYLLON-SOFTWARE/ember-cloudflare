@@ -7,6 +7,7 @@ import {
   EMAIL_SIGN_UP_PATH,
   GROUP_MEMBER_UNKNOWN,
   GROUP_NAME_TAKEN,
+  GROUPS_FULL,
   GROUP_TOO_BIG,
   INVITATION_PATH,
   LOGO_PATH,
@@ -852,10 +853,11 @@ async function deleteUserGroup(request: Request, env: Env, groupId: string): Pro
 }
 
 /** What the User groups section shows of an answer: the group, or what the Workspace refused it with. */
-function groupAnswer(group: UserGroup | "forbidden" | "not found" | "too big" | "member unknown" | "name taken" | null, created?: number): Response {
+function groupAnswer(group: UserGroup | "forbidden" | "not found" | "full" | "too big" | "member unknown" | "name taken" | null, created?: number): Response {
   if (!group) return problem(401, "Not signed in");
   if (group === "forbidden") return problem(403, "Only administrators can manage user groups");
   if (group === "not found") return problem(404, "Not found");
+  if (group === "full") return problem(422, GROUPS_FULL);
   if (group === "too big") return problem(422, GROUP_TOO_BIG);
   if (group === "member unknown") return problem(422, GROUP_MEMBER_UNKNOWN);
   if (group === "name taken") return problem(422, GROUP_NAME_TAKEN);

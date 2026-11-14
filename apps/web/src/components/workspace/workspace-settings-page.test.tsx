@@ -250,6 +250,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ assistant });
       case "GET /api/account/agents":
         return Response.json({ agents: [RECAP] } satisfies Agents);
+      case "GET /api/user_groups":
+        return Response.json({ groups: [] });
       case "PUT /api/account/huddles":
         huddles = { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId };
         return Response.json({ huddles });

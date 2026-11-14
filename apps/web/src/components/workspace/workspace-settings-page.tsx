@@ -557,7 +557,12 @@ export function WorkspaceSettingsPage({
         <PageHeading id="user-groups-settings-heading" title="User groups" className={SECTION_HEADING}>
           Name groups of people a mention stands for.
         </PageHeading>
-        {settings && (settings.canAdminister ? <UserGroups onSaved={() => flash("notice", CHANGES_SAVED)} onFailed={onFailed} /> : <p className="text-muted-foreground">Community admins manage user groups.</p>)}
+        {settings &&
+          (settings.canAdminister ? (
+            <UserGroups onSaved={() => flash("notice", CHANGES_SAVED)} reloadDirectory={listPeople} onFailed={onFailed} />
+          ) : (
+            <p className="text-muted-foreground">Community admins manage user groups.</p>
+          ))}
       </Panel>
       <Panel id="domain-settings" hidden={section !== "domain-settings"} aria-labelledby="domain-settings-heading" className="flex flex-col gap-6">
         <PageHeading id="domain-settings-heading" title="Domain settings" className={SECTION_HEADING}>

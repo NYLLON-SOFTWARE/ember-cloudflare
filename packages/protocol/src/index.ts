@@ -232,6 +232,8 @@ export const GROUP_NAME_TAKEN = "A group is already named that.";
 export const GROUP_MEMBER_UNKNOWN = "A group's members are people in the workspace.";
 /** The most groups a workspace keeps, as one settings list shows. */
 export const MAX_GROUPS = 1_000;
+/** Why a group is refused once the workspace keeps as many as it can. */
+export const GROUPS_FULL = `The workspace can have at most ${MAX_GROUPS.toLocaleString("en-US")} groups. Delete one first.`;
 
 export type RoomKind = "open" | "closed" | "direct";
 

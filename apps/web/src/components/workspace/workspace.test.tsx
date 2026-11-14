@@ -65,7 +65,7 @@ const workspaceSettings: WorkspaceSettings = {
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
-    "GET /api/users": () => Response.json({ users: [] }),
+    "GET /api/users": () => Response.json({ users: [], groups: [] }),
     ...responses,
   };
   vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json(roomList(rooms))))());
@@ -685,7 +685,7 @@ describe("New direct message dialog", () => {
   const newDirect = () => screen.queryByRole("dialog", { name: "New direct message" });
   const dms = () => within(screen.getByRole("navigation", { name: "Workspace", hidden: true })).getByRole("link", { name: "DMs", hidden: true });
 
-  beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
+  beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people, groups: [] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
 
   it("opens over the page from the rail's DMs and the sidebar's New direct message, turning Activity off, and closes back on the link", async () => {
     const { user } = showWorkspace("/rooms/general");
@@ -751,7 +751,7 @@ describe("New direct message dialog", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
-      "GET /api/users": () => Response.json({ users: people }),
+      "GET /api/users": () => Response.json({ users: people, groups: [] }),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/d1");
@@ -767,7 +767,7 @@ describe("New direct message dialog", () => {
 
   it("asks before leaving a room's unsaved settings for the DM, keeping the people picked to come back to", async () => {
     serve({
-      "GET /api/users": () => Response.json({ users: people }),
+      "GET /api/users": () => Response.json({ users: people, groups: [] }),
       "GET /api/rooms/general/settings": () => Response.json(generalSettings),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
@@ -849,7 +849,7 @@ describe("Remove someone from the workspace", () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serve({
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [withGrace.members[1]] }),
-      "GET /api/users": () => Response.json({ users: [grace] }),
+      "GET /api/users": () => Response.json({ users: [grace], groups: [] }),
     });
     showWorkspace("/rooms/general");
     await roomHeading();

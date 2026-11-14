@@ -186,7 +186,7 @@ function serve({
       account = { ...account, huddles: true };
       return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId } });
     }
-    if (route === "GET /api/users") return Response.json({ users: [] });
+    if (route === "GET /api/users") return Response.json({ users: [], groups: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
     if (route === "PATCH /api/account") {
       const { name = account.name, tagline = account.tagline, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;

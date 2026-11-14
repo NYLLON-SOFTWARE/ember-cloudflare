@@ -2243,8 +2243,8 @@ export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT v
 /** The same, as the people directory lists them. */
 const DIRECTORY_WITH_IDS = `SELECT ${DIRECTORY_COLUMNS} FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
-/** The active people with the ids in a JSON array, to check a group's members are all people it can keep. */
-const ACTIVE_PEOPLE_WITH_IDS = `SELECT id FROM users WHERE status = ${ACTIVE} AND id IN (SELECT value FROM json_each(?))`;
+/** The active people with the ids in a JSON array, with whether each is a bot, to check a group's members. */
+const ACTIVE_PEOPLE_WITH_IDS = `SELECT id, role FROM users WHERE status = ${ACTIVE} AND id IN (SELECT value FROM json_each(?))`;
 
 /** The workspace's groups, by name, which is lowercased as it's kept, so the order is theirs already. */
 const GROUPS = `SELECT id, name FROM user_groups ORDER BY lower(name), id`;
@@ -2259,6 +2259,9 @@ const GROUP_MEMBERS = `SELECT user_group_members.group_id AS groupId, users.id A
 
 /** The group named `name`, which is kept lowercased, as a mention names it. */
 const GROUP_NAMED = `SELECT id FROM user_groups WHERE name = ?`;
+
+/** The group with the id in ?1, named to change or delete it without reading everyone in it. */
+const GROUP_WITH_ID = `SELECT id FROM user_groups WHERE id = ?`;
 
 /** How many people the mentions prompt offers: the first page of them, the only one Lexxy asks for. */
 export const MENTIONABLE_PAGE = 20;
@@ -3538,10 +3541,17 @@ export class WorkspaceStore {
     return row?.id ?? null;
   }
 
-  /** The ids of the active people of `ids`, to check a group's members are all people it can keep. */
-  async activePeopleWithIds(ids: UserId[]): Promise<string[]> {
+  /** The id of the group `id`, or null while none has it, as changing or deleting one finds it. */
+  async userGroupWithId(id: GroupId): Promise<GroupId | null> {
+    const [row] = await this.db.all<{ id: GroupId }>(GROUP_WITH_ID, id);
+    return row?.id ?? null;
+  }
+
+  /** The active people of `ids`, once each, with whether each is a bot, to check a group's members. */
+  async activePeopleWithIds(ids: UserId[]): Promise<Array<{ id: UserId; bot: boolean }>> {
     if (ids.length === 0) return [];
-    return (await this.db.all<{ id: string }>(ACTIVE_PEOPLE_WITH_IDS, JSON.stringify(ids))).map((row) => row.id);
+    const rows = await this.db.all<{ id: string; role: number }>(ACTIVE_PEOPLE_WITH_IDS, JSON.stringify(ids));
+    return rows.map((row) => ({ id: row.id, bot: row.role === BOT }));
   }
 
   /** Adds a group, with its members, in one batch. The name is given lowercased, as it's kept. */
@@ -3552,17 +3562,13 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** Renames the group `id`, recording when. The name is given lowercased, as it's kept. */
-  async renameUserGroup(id: GroupId, name: string, now: string): Promise<void> {
-    await this.db.run(`UPDATE user_groups SET name = ?, updated_at = ? WHERE id = ?`, name, now, id);
-  }
-
-  /** Makes the people `memberIds` names the group `id`'s only members, recording when, in one batch. */
-  async changeUserGroupMembers(id: GroupId, memberIds: UserId[], now: string): Promise<void> {
+  /** Changes the group `id`, in one batch: its name, its members, either or both, recording when. The name is given lowercased, as it's kept. */
+  async changeUserGroup(id: GroupId, { name, memberIds }: { name?: string; memberIds?: UserId[] }, now: string): Promise<void> {
     await this.db.batch([
-      statement(`UPDATE user_groups SET updated_at = ? WHERE id = ?`, now, id),
-      statement(`DELETE FROM user_group_members WHERE group_id = ?`, id),
-      ...memberIds.map((userId) => statement(`INSERT INTO user_group_members (group_id, user_id) VALUES (?, ?)`, id, userId)),
+      statement(`UPDATE user_groups SET name = coalesce(?1, name), updated_at = ?2 WHERE id = ?3`, name ?? null, now, id),
+      ...(memberIds === undefined
+        ? []
+        : [statement(`DELETE FROM user_group_members WHERE group_id = ?`, id), ...memberIds.map((userId) => statement(`INSERT INTO user_group_members (group_id, user_id) VALUES (?, ?)`, id, userId))]),
     ]);
   }
 

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState, type FormEvent } from "react";
-import { MAX_GROUP_MEMBERS, type GroupId, type UserGroup, type UserId } from "@ember/protocol";
+import { MAX_GROUP_MEMBERS, MAX_GROUP_NAME_LENGTH, type GroupId, type UserGroup, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { EditPencil, Minus, Plus } from "@/components/icons/iconoir";
 import { PeopleContext } from "@/hooks/use-directory";
@@ -13,7 +13,8 @@ import { ROUND_BUTTON } from "./link-buttons";
 // The User groups card on workspace settings, for administrators: New group, then each group, by name,
 // with how many people a mention of it stands for, and buttons to change its name and members, and to
 // delete it. A mention of the group notifies everyone in it, so its members are the workspace's active
-// people, which the form's checkboxes list.
+// people, which the form's checkboxes list. Each change loads the people directory again, which a
+// message's showing and naming read, so it says whom a group stands for as it now does.
 
 /** What the card says of groups. */
 export const GROUPS_EXPLAINED = `People mention a group by name, and everyone in it is notified. A group can have up to ${MAX_GROUP_MEMBERS} members.`;
@@ -27,12 +28,14 @@ const sayWhy = (error: unknown) => (error instanceof ApiError ? error.message : 
 interface Props {
   /** Called once a change has saved, for the page to flash its notice. */
   onSaved: () => void;
+  /** Loads the people directory again, whose groups a mention's showing and naming read, as a change here has them now. */
+  reloadDirectory: () => void;
   /** Says why loading or saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
 
 /** The User groups card: New group, then the groups, by name, each with how many it stands for and its buttons. */
-export function UserGroups({ onSaved, onFailed }: Props) {
+export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
   const [groups, setGroups] = useState<UserGroup[] | null>(null);
   // The group whose form is open, or "new" for one it's making, or null while the card lists only.
   const [editing, setEditing] = useState<GroupId | "new" | null>(null);
@@ -53,6 +56,7 @@ export function UserGroups({ onSaved, onFailed }: Props) {
   const saved = (group: UserGroup) => {
     setGroups((groups) => (groups?.some((listed) => listed.id === group.id) ? groups.map((listed) => (listed.id === group.id ? group : listed)) : [...(groups ?? []), group]));
     setEditing(null);
+    reloadDirectory();
     onSaved();
   };
 
@@ -60,7 +64,10 @@ export function UserGroups({ onSaved, onFailed }: Props) {
   const remove = (group: UserGroup) => {
     if (!confirm(CONFIRM_DELETE)) return;
     deleteUserGroup(group.id).then(
-      () => setGroups((groups) => groups?.filter((listed) => listed.id !== group.id) ?? []),
+      () => {
+        setGroups((groups) => groups?.filter((listed) => listed.id !== group.id) ?? []);
+        reloadDirectory();
+      },
       (error: unknown) => {
         if (isSignedOut(error)) onFailed(error);
       },
@@ -178,7 +185,7 @@ function GroupForm({ group, onSaved, onCancel, onFailed }: GroupFormProps) {
         <Input
           id="user-group-name"
           autoComplete="off"
-          maxLength={100}
+          maxLength={MAX_GROUP_NAME_LENGTH}
           placeholder="Design, On call…"
           value={name}
           onChange={(event) => setName(event.target.value)}
