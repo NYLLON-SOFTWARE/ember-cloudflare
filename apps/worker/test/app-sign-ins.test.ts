@@ -1,10 +1,10 @@
 import { ASSISTANT_ID, type Me, type NewWorkspace } from "@ember/protocol";
-import { APP_SIGN_IN_ENDED, APP_SIGNED_IN, APPS_FORBIDDEN, type AgentTools, type App, type AppAnswer, type Apps, type AppSignedIn, type AppSignInBegun } from "@ember/protocol/apps";
+import { APP_CHANGED, APP_SIGN_IN_ENDED, APP_SIGNED_IN, APPS_FORBIDDEN, type AgentTools, type App, type AppAnswer, type Apps, type AppSignedIn, type AppSignInBegun } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { signInEnded } from "../src/apps/tools";
 import { toBase64url } from "../src/encoding";
-import { api, cookieOf, freshDeploy, origin, shown, workspaceSql, type Session } from "./support";
+import { api, cookieOf, freshDeploy, origin, shown, workspaceSql, workspaceStub, type Session } from "./support";
 
 // Signing in to an app whose server asks for a sign-in, with OAuth as the Model Context Protocol has
 // it. A fake MCP server and its authorization server stand behind `fetch`: the server takes only the
@@ -24,6 +24,7 @@ const AUTH = "https://auth.tracker.example";
 const BACK = `${origin}/account/apps/signed-in`;
 const CLIENT_DOCUMENT = `${origin}/oauth/client.json`;
 
+const CLOSE_ISSUE = { name: "close_issue", description: "Closes an issue.", inputSchema: { type: "object" } };
 const SEARCH_ISSUES = { name: "search_issues", description: "Finds issues by their words.", inputSchema: { type: "object", properties: { query: { type: "string" } } } };
 
 /** A request Ember sent the fake server or its authorization server: its address, method and token, how it's held, and the form it carried, if it carried one. */
@@ -44,9 +45,11 @@ let addresses: Record<string, string[]>;
 /**
  * What the fake authorization server is: whether it reads a client from a document, registers one that
  * asks, and says who it is when it sends a browser back, how long its access tokens last, whether it
- * gives a token to get another with, and what it answers in place of all that, if anything. `codes`
- * are the ones it has sent a browser back with, each with what the browser was sent to it with, and
- * `access` and `refresh` the tokens it gave last, the `issued`th.
+ * gives a token to get another with, and what it answers in place of all that, if anything, once
+ * whatever that does meanwhile is done. `codes` are the ones it has sent a browser back with, each
+ * with what the browser was sent to it with, and `access` and `refresh` the tokens it gave last, the
+ * `issued`th. `tools` are what the fake server lists, and `listing` what happens while it lists them,
+ * if anything, once it has decided what to answer.
  */
 interface AuthorizationServer {
   readsDocuments: boolean;
@@ -56,11 +59,13 @@ interface AuthorizationServer {
   refreshes: boolean;
   metadata: (metadata: Record<string, unknown>) => Record<string, unknown> | null;
   resource: (resource: Record<string, unknown>) => Record<string, unknown> | null;
-  token: (form: Record<string, string>) => Response | null;
+  token: (form: Record<string, string>) => Response | null | Promise<Response | null>;
   codes: Map<string, URLSearchParams>;
   issued: number;
   access: string | null;
   refresh: string | null;
+  tools: unknown[];
+  listing: (() => Promise<unknown>) | undefined;
 }
 let auth: AuthorizationServer;
 
@@ -85,7 +90,7 @@ function nextTokens(scope: string | undefined): Response {
 
 /** What the fake authorization server answers at its token endpoint: tokens for a code it sent a browser back with, proven with its verifier, or for the token it gave last to get another with. */
 async function tokensFor(form: Record<string, string>): Promise<Response> {
-  const instead = auth.token(form);
+  const instead = await auth.token(form);
   if (instead) return instead;
   if (form.grant_type === "refresh_token") return form.refresh_token === auth.refresh && auth.refresh !== null ? nextTokens(undefined) : oauthError("invalid_grant");
   const sent = auth.codes.get(form.code ?? "");
@@ -127,7 +132,7 @@ async function signInAnswer(url: URL, request: Request, sent: Asked): Promise<Re
 function answerTo(message: { id?: number; method?: string; params?: { protocolVersion?: string } }): Response {
   const result = (result: unknown) => Response.json({ jsonrpc: "2.0", id: message.id, result });
   if (message.method === "initialize") return result({ protocolVersion: message.params?.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "Tracker", version: "1.2.3" } });
-  if (message.method === "tools/list") return result({ tools: [SEARCH_ISSUES] });
+  if (message.method === "tools/list") return result({ tools: auth.tools });
   if (message.id === undefined) return new Response(null, { status: 202 });
   return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
 }
@@ -151,6 +156,8 @@ beforeEach(async () => {
     issued: 0,
     access: null,
     refresh: null,
+    tools: [SEARCH_ISSUES],
+    listing: undefined,
   };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
@@ -176,7 +183,13 @@ beforeEach(async () => {
     asked.push(sent);
     if (request.url !== TRACKER) return signInAnswer(url, request, sent);
     if (auth.access === null || sent.authorization !== `Bearer ${auth.access}`) return new Response("Unauthorized", { status: 401, headers: { "WWW-Authenticate": CHALLENGE } });
-    return sent.json ? answerTo(sent.json) : new Response(null, { status: 405 });
+    if (!sent.json) return new Response(null, { status: 405 });
+    const answer = answerTo(sent.json);
+    if (sent.json.method !== "tools/list") return answer;
+    const meanwhile = auth.listing;
+    auth.listing = undefined;
+    await meanwhile?.();
+    return answer;
   });
 });
 afterEach(() => vi.restoreAllMocks());
@@ -238,6 +251,19 @@ async function signedInBy(response: Response, status = 201): Promise<App> {
   const { app, again } = (await response.json()) as AppSignedIn;
   expect(again).toBe(status === 200);
   return app;
+}
+
+/** Signs in again to the connected app `id` as `administrator`. */
+const signInAgain = async (administrator: Session, id: string) => signedInBy(await finish(administrator, comeBack(await sentTo(await beginAgain(administrator, id)))), 200);
+
+/** What @ember's page offers of the connected apps' tools now. */
+const offered = async (administrator: Session) => ((await (await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { headers: as(administrator) })).json()) as AgentTools).apps;
+
+/** Has every tool @ember's page offers now be picked for it, or none. */
+async function pick(administrator: Session, every: boolean): Promise<void> {
+  const tools = every ? (await offered(administrator)).flatMap(({ id, tools }) => tools.map(({ name, fingerprint }) => ({ appId: id, name, fingerprint }))) : [];
+  const saved = await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify({ tools }) });
+  expect(saved.status, await saved.clone().text()).toBe(200);
 }
 
 /** Connects the fake server by signing in to it as `administrator`. */
@@ -438,9 +464,7 @@ describe("Signing in to an app", () => {
     const administrator = await setUp();
     auth.expiresIn = 30;
     const app = await signIn(administrator);
-    const offered = ((await (await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { headers: as(administrator) })).json()) as AgentTools).apps;
-    const picks = offered.flatMap(({ id, tools }) => tools.map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
-    expect((await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify({ tools: picks }) })).status).toBe(200);
+    await pick(administrator, true);
     vi.spyOn(console, "error").mockImplementation(() => {});
     auth.token = () => oauthError("invalid_grant");
     asked = [];
@@ -466,8 +490,7 @@ describe("Signing in to an app", () => {
     expect(again.signIn).toMatchObject({ by: administrator.user, ended: false });
     expect(((await (await api("/api/account/apps", { headers: as(administrator) })).json()) as Apps).apps).toMatchObject([{ id: app.id, signInEnded: false }]);
     expect((await readAgain(administrator, app.id)).status).toBe(200);
-    const after = ((await (await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { headers: as(administrator) })).json()) as AgentTools).apps;
-    expect(after[0]!.tools.map(({ picked }) => picked)).toEqual([true]);
+    expect((await offered(administrator))[0]!.tools.map(({ picked }) => picked)).toEqual([true]);
   });
 
   it("ends with its access token when the authorization server gave none to get another with", async () => {
@@ -494,6 +517,66 @@ describe("Signing in to an app", () => {
     expect(tokenRequests()).toHaveLength(1);
     expect(asked.filter(({ url }) => url === TRACKER).every(({ authorization }) => authorization === "Bearer access-1")).toBe(true);
     expect((await appOf(await show(administrator, app.id))).signIn?.ended).toBe(false);
+  });
+
+  it("asks an app as it's signed in to by then, when an administrator signs in again while Ember gets the last sign-in's next token", async () => {
+    const administrator = await setUp();
+    auth.expiresIn = 30;
+    const app = await signIn(administrator);
+    // The administrator is at the authorization server, and comes back just as Ember asks it for the last sign-in's next token,
+    // which it refuses: it has given the next sign-in's tokens since.
+    const back = comeBack(await sentTo(await beginAgain(administrator, app.id)));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let again: App | undefined;
+    auth.token = async ({ grant_type: grant }) => {
+      if (grant !== "refresh_token" || again) return null;
+      auth.expiresIn = 3600;
+      again = await signedInBy(await finish(administrator, back), 200);
+      return null;
+    };
+    asked = [];
+
+    expect((await readAgain(administrator, app.id)).status).toBe(200);
+    expect(tokenRequests().map(({ grant_type: grant }) => grant)).toEqual(["refresh_token", "authorization_code"]);
+    // The refusal ends nothing, as the sign-in it was for is no longer the app's: the server is asked with the next one's token.
+    const tools = asked.filter(({ url, json }) => url === TRACKER && json?.method === "tools/list");
+    expect(tools.map(({ authorization }) => authorization)).toEqual([`Bearer ${auth.access}`, `Bearer ${auth.access}`]);
+    expect((await appOf(await show(administrator, app.id))).signIn).toEqual({ ...again!.signIn, ended: false });
+    expect((await readAgain(administrator, app.id)).status).toBe(200);
+    expect(tokenRequests()).toHaveLength(2);
+  });
+
+  it("doesn't keep what a server answered one account, once an administrator has signed in to it again as it answered", async () => {
+    const administrator = await setUp();
+    const app = await signIn(administrator);
+    // The read that's under way was answered with one tool, and the sign-in made meanwhile reads two.
+    auth.listing = async () => {
+      auth.tools = [SEARCH_ISSUES, CLOSE_ISSUE];
+      await signInAgain(administrator, app.id);
+    };
+
+    expect(await refusalOf(await readAgain(administrator, app.id), 409)).toEqual({ error: APP_CHANGED });
+    expect((await appOf(await show(administrator, app.id))).tools.map(({ name }) => name)).toEqual(["search_issues", "close_issue"]);
+  });
+
+  it("doesn't send a call of a tool that's taken from its agent, or whose app is removed, while Ember gets the sign-in's next token", async () => {
+    const administrator = await setUp();
+    auth.expiresIn = 30;
+    const app = await signIn(administrator);
+    await pick(administrator, true);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const tool = { appId: app.id, name, fingerprint };
+    const called = () => workspaceStub().appToolCall(ASSISTANT_ID, tool, false);
+    expect(await called()).toMatchObject({ url: TRACKER, key: { token: "access-2", signedIn: true }, signedIn: true });
+
+    auth.token = async () => (await pick(administrator, false), null);
+    expect(await called()).toBeNull();
+    auth.token = () => null;
+    await pick(administrator, true);
+    expect(await called()).toMatchObject({ key: { token: "access-4" } });
+
+    auth.token = async () => (expect((await disconnect(administrator, app.id)).status).toBe(204), null);
+    expect(await called()).toBeNull();
   });
 
   it("keeps a signed-in app's address, and takes no token for it, as its sign-in is to the server there", async () => {
@@ -530,6 +613,10 @@ describe("Signing in to an app", () => {
     auth.resource = (resource) => resource;
     auth.metadata = (metadata) => ({ ...metadata, authorization_endpoint: "http://auth.tracker.example/authorize" });
     expect(await refusalOf(await begin(administrator))).toEqual(elsewhere);
+    // One that would send the administrator's browser to a private network, which Ember looks up as it does what it asks itself.
+    auth.metadata = (metadata) => ({ ...metadata, authorization_endpoint: "https://auth.internal.example/authorize" });
+    expect(await refusalOf(await begin(administrator))).toEqual(elsewhere);
+    expect(asked.some(({ url }) => url.startsWith("https://auth.internal.example"))).toBe(false);
 
     // One that says it's another service's, or is for another server.
     auth.metadata = (metadata) => ({ ...metadata, issuer: "https://auth.elsewhere.example" });

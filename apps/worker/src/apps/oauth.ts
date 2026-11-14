@@ -91,14 +91,15 @@ export const isDue = ({ expiresAt }: SignIn, now: number) => expiresAt != null &
 export async function startSignIn(url: string, redirectUrl: string, clientUrl: string | null, send: Send = fetch): Promise<StartedSignIn | AppRefused> {
   const address = new URL(url);
   const held: Held = { deadline: AbortSignal.timeout(READ_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
-  const asked = guarded(address, held, send);
+  const guard = guarded(address, held, send);
   const session = new Session({ redirectUrl, clientUrl }, toHex(crypto.getRandomValues(new Uint8Array(32))));
   try {
-    const { resourceMetadataUrl, scope } = await challengeOf(address, asked, held);
-    await auth(session, { serverUrl: address, resourceMetadataUrl, scope, fetchFn: asked });
+    const { resourceMetadataUrl, scope } = await challengeOf(address, guard.send, held);
+    await auth(session, { serverUrl: address, resourceMetadataUrl, scope, fetchFn: guard.send });
     const { authorizationUrl, signIn } = session;
     if (!authorizationUrl || !signIn.discovery?.authorizationServerMetadata) return noSignIn(address.host);
-    if (!mayAsk(authorizationUrl, address)) throw new GuardError(`A sign-in at ${authorizationUrl.protocol}//${authorizationUrl.host}`);
+    // The browser is sent only where Ember itself would ask: not into whatever network the administrator is on.
+    await guard.allows(authorizationUrl);
     if (JSON.stringify(signIn).length > MAX_SIGN_IN_LENGTH) return { error: saidTooMuch(address.host), field: "url" };
     return { authorizationUrl: authorizationUrl.href, state: session.stateId, signIn };
   } catch (error) {
@@ -125,7 +126,7 @@ export async function finishSignIn(url: string, signIn: SignIn, code: string, is
       codeVerifier,
       redirectUri: redirectUrl,
       resource,
-      fetchFn: guarded(address, held, send),
+      fetchFn: guarded(address, held, send).send,
     });
     const { codeVerifier: _, ...kept } = signIn;
     return signedIn(kept, tokens, address);
@@ -150,7 +151,7 @@ export async function refreshSignIn(url: string, signIn: SignIn, send: Send = fe
       clientInformation: client,
       refreshToken: tokens.refresh,
       resource,
-      fetchFn: guarded(address, held, send),
+      fetchFn: guarded(address, held, send).send,
     });
     const refreshed = signedIn(signIn, fresh, address);
     return "error" in refreshed ? "lapsed" : refreshed;
@@ -238,23 +239,33 @@ async function challengeOf(address: URL, send: Send, held: Held): Promise<Return
 /** Whether Ember may ask `url` about a sign-in to the app at `address`: over https, or on this machine when the app is. */
 const mayAsk = (url: URL, address: URL) => (isLoopback(url) ? isLoopback(address) && /^https?:$/.test(url.protocol) : url.protocol === "https:");
 
+/** What asks about a sign-in: `send`, guarded, and `allows`, which throws a GuardError for an address a sign-in mustn't go to. */
+interface Guard {
+  send: Send;
+  allows(url: URL): Promise<void>;
+}
+
 /**
  * `send`, held, for asking about a sign-in to the app at `address`, whose server names where: each
  * request goes only where Ember may ask (`mayAsk`), a name that resolves only to public addresses, and
  * a redirect comes back as it is. The protocol's client follows one that stays at its host, through this.
  */
-function guarded(address: URL, held: Held, send: Send): Send {
+function guarded(address: URL, held: Held, send: Send): Guard {
   const within = heldTo(held, send);
   const checked = new Map<string, Promise<void>>();
   const check = (host: string) => checkHost(host, (name) => resolveOverHttps(name, (request) => within(request)));
-  return async (input, init) => {
-    const url = new URL(input instanceof Request ? input.url : input);
+  const allows = async (url: URL) => {
     if (!mayAsk(url, address)) throw new GuardError(`A sign-in at ${url.protocol}//${url.host}`);
-    if (!isLoopback(url)) {
-      if (!checked.has(url.hostname)) checked.set(url.hostname, check(url.hostname));
-      await checked.get(url.hostname);
-    }
-    return within(input, { ...init, redirect: "manual" });
+    if (isLoopback(url)) return;
+    if (!checked.has(url.hostname)) checked.set(url.hostname, check(url.hostname));
+    await checked.get(url.hostname);
+  };
+  return {
+    allows,
+    send: async (input, init) => {
+      await allows(new URL(input instanceof Request ? input.url : input));
+      return within(input, { ...init, redirect: "manual" });
+    },
   };
 }
 

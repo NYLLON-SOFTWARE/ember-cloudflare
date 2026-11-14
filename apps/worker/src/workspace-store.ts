@@ -4012,24 +4012,25 @@ export class WorkspaceStore {
 
   /**
    * Keeps what was read from the server of the app `appId` again, with the agents' `picks` that
-   * changes, in one batch, while it's still asked at `url` with `sealedToken`, changing nothing else of it.
+   * changes, in one batch, while it's still asked at `url` with `sealedToken`, signed in to when it
+   * was, if it was, changing nothing else of it.
    */
   async keepAppRead(
     appId: AppId,
     { serverName, tools, toolsLeftOut }: StoredAppRead,
     picks: ChangedPicks[],
-    { url, sealedToken }: { url: string; sealedToken: string | null },
+    { url, sealedToken, signedInAt }: { url: string; sealedToken: string | null; signedInAt: string | null },
     now: string,
   ): Promise<void> {
-    const asked = [appId, url, sealedToken];
+    const asked = [appId, url, sealedToken, signedInAt];
     await this.db.batch([
       statement(
-        `UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ? AND url = ? AND token IS ?`,
+        `UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ? AND url = ? AND token IS ? AND signed_in_at IS ?`,
         ...[serverName, JSON.stringify(tools), toolsLeftOut, now, ...asked],
       ),
       ...picks.map(({ agentId, stored, picks: changed }) =>
         statement(
-          `UPDATE agent_tools SET tools = ? WHERE agent_id = ? AND tools = ? AND EXISTS (SELECT 1 FROM apps WHERE id = ? AND url = ? AND token IS ?)`,
+          `UPDATE agent_tools SET tools = ? WHERE agent_id = ? AND tools = ? AND EXISTS (SELECT 1 FROM apps WHERE id = ? AND url = ? AND token IS ? AND signed_in_at IS ?)`,
           ...[JSON.stringify(changed), agentId, stored, ...asked],
         ),
       ),
