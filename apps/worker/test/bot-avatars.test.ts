@@ -109,7 +109,7 @@ describe("Add and edit a bot", () => {
     expect(changed.avatarUrl).not.toBe(bot.avatarUrl);
     expect(await workspace.next()).toEqual({
       type: "user.updated",
-      user: { id: bot.id, name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: changed.avatarUrl },
+      user: { id: bot.id, name: "Build Bot", bio: null, mood: null, role: "bot", status: "active", avatarUrl: changed.avatarUrl },
     });
     expect((await avatar(changed.avatarUrl, member)).headers.get("Content-Type")).toBe("image/webp");
     const first = (await avatarKeyOf(bot.id))!;

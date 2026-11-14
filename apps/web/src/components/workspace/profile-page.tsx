@@ -8,8 +8,10 @@ import {
   MAX_USER_NAME_LENGTH,
   MEMBERFUL_DISCONNECTED_NOTICE,
   MIN_PASSWORD_LENGTH,
+  sameMood,
   type Me,
   type MemberfulStatus,
+  type PersonMood,
   type Profile,
   type ProfileAnswer,
   type ProfileChanges,
@@ -139,6 +141,12 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [assistant, setAssistant] = useState<Profile["assistant"]>(null);
   /** The mood you wear beside your name, or null while you wear none. */
   const [mood, setMood] = useState<Profile["mood"]>(null);
+  /**
+   * The mood this page last saved, once a save of it or its clearing has answered, and nothing before
+   * that: an answer that read the profile before the save says the mood it read, and would take the
+   * save off again, so it's only shown while it says the mood saved here.
+   */
+  const savedMood = useRef<PersonMood | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -190,7 +198,9 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     const { memberful } = profile;
     setMemberful(disconnectedMemberful.current && memberful?.connected ? (memberful.membersOnly ? { membersOnly: true, connected: null } : null) : memberful);
     setMembershipNeeded(profile.membershipNeeded);
-    setMood(profile.mood);
+    // A mood this page has saved answers for itself, so another answer shows the mood it read only
+    // while that's still the one saved here, as a field typed since keeps what was typed.
+    if (savedMood.current === undefined || sameMood(profile.mood, savedMood.current)) setMood(profile.mood);
     setTransferId(transferId);
   }
 
@@ -203,6 +213,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
 
   /** Shows your mood as a save of it or its clearing answered it, with the notice. */
   function answered(answer: ProfileAnswer) {
+    savedMood.current = answer.profile.mood;
     showAnswer(answer);
     flash("notice", "✓");
   }

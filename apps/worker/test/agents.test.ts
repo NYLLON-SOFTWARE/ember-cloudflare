@@ -369,6 +369,7 @@ describe("AI agents", () => {
         id: expect.any(String) as string,
         name: "Recap",
         bio: null,
+        mood: null,
         role: "bot",
         status: "active",
         avatarUrl: expect.stringMatching(/^\/users\/[^/]+\/avatar\?v=\d{14}$/) as string,
@@ -400,9 +401,9 @@ describe("AI agents", () => {
         { role: 2, bot_token: null, email_address: null, password_digest: null },
       ]);
       const { id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, rooms } = recap;
-      expect(await listed(administrator)).toEqual([{ id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, rooms }]);
+      expect(await listed(administrator)).toEqual([{ id, name, bio, mood: null, role, status, avatarUrl, agent, description, model, modelName, webTools, rooms }]);
       expect(await shownAgent(administrator, recap.id)).toEqual(recap);
-      const asListed = { id, name, bio, role, status, avatarUrl, agent };
+      const asListed = { id, name, bio, mood: null, role, status, avatarUrl, agent };
       expect(await inDirectory(administrator, recap.id)).toEqual(asListed);
       expect(await tab.next()).toEqual({ type: "user.updated", user: asListed });
     });

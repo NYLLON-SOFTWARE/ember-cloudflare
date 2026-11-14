@@ -1044,4 +1044,23 @@ describe("Your mood", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
     await waitFor(() => expect(field("Words")).toHaveValue("Sailing the seas"));
   });
+
+  it("keeps the mood it just saved when a save that read the older one answers after", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Emoji"), "😌");
+    await user.type(field("Words"), "Pairing on the compiler");
+    await user.selectOptions(field("Clear at"), "hour");
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(field("Clear at")).toHaveValue("hour");
+
+    // A save of the profile sent before the mood was, answering after it, says the mood it read.
+    serve({ saved: () => Response.json({ profile: { ...profile, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer) });
+    await user.click(saveButton());
+    await waitFor(() => expect(field("Name")).toHaveValue("Ada King"));
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    expect(field("Clear at")).toHaveValue("hour");
+  });
 });
