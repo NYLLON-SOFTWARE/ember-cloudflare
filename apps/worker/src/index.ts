@@ -3,6 +3,7 @@ import {
   CloseCode,
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
+  CUSTOM_EMOJI_API_PATH,
   EMAIL_DOMAIN_NEEDS_EMAIL,
   EMAIL_SIGN_UP_PATH,
   INVITATION_PATH,
@@ -114,6 +115,7 @@ import {
   saveAssistant,
 } from "./assistant/settings";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
+import { addCustomEmoji, customEmojiKeyOf, customEmojiNameOfPath, listCustomEmoji, removeCustomEmoji, showCustomEmoji } from "./custom-emoji";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
@@ -1168,6 +1170,10 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
   if (pathname === "/api/users/me/skin_tone" && request.method === "PUT") return () => setSkinTone(request, env);
+  if (pathname === CUSTOM_EMOJI_API_PATH && request.method === "GET") return () => listCustomEmoji(request, env);
+  if (pathname === CUSTOM_EMOJI_API_PATH && request.method === "POST") return () => addCustomEmoji(request, env);
+  const customEmojiName = request.method === "DELETE" ? customEmojiNameOfPath(pathname) : null;
+  if (customEmojiName !== null) return () => removeCustomEmoji(request, env, customEmojiName);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "POST") return () => connectMemberful(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "DELETE") return () => disconnectMemberful(request, env);
   if (pathname === AVATAR_PATH && request.method === "PUT") return () => changeAvatar(request, env);
@@ -1294,6 +1300,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   const avatarToken = avatarTokenOf(pathname);
   if (avatarToken !== null) return showAvatar(request, env, avatarToken);
   if (isAccountLogoPath(pathname)) return showAccountLogo(request, env);
+  const customEmojiKey = customEmojiKeyOf(pathname);
+  if (customEmojiKey !== null) return showCustomEmoji(request, env, customEmojiKey);
   const page = write ? null : workspacePageOf(pathname);
   if (page?.page === "person") return personPage(request, env, pathname, page.userId);
   if (page?.page === "bot-settings") return botPage(request, env, pathname, page.userId);

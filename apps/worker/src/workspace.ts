@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  MAX_CUSTOM_EMOJI,
   ASSISTANT_ID,
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
@@ -32,6 +33,7 @@ import {
   type Bot,
   type BotChanges,
   type BotSettings,
+  type CustomEmoji,
   type CustomStyles,
   type DirectoryUser,
   type DirectRoom,
@@ -3560,6 +3562,70 @@ export class Workspace extends DurableObject<Env> {
     const dueAt = Date.now() + PICTURE_RESERVATION_MS;
     await this.store.reservePicture(key, dueAt);
     await this.wakeAt(dueAt);
+  }
+
+  /** Every custom emoji, by name, for the person `credentials` signs in, or null without a valid session. */
+  async customEmoji(credentials: Credentials): Promise<CustomEmoji[] | null> {
+    return (await this.authenticate(credentials)) && this.store.customEmoji();
+  }
+
+  /**
+   * Reserves `objectKey` for the picture of a custom emoji to be named `name`, as `reservePicture`
+   * reserves one, if the person `credentials` signs in could add it now: "taken" when another custom
+   * emoji has the name, "full" when the workspace has as many as it can, or null without a valid session.
+   */
+  async reserveCustomEmoji(credentials: Credentials, name: string, objectKey: string): Promise<"reserved" | "taken" | "full" | null> {
+    if (!(await this.authenticate(credentials))) return null;
+    const unavailable = await this.customEmojiUnavailable(name);
+    if (unavailable) return unavailable;
+    await this.reservePicture(objectKey);
+    return "reserved";
+  }
+
+  /** Why no custom emoji can be named `name` now, or null if one can. */
+  private async customEmojiUnavailable(name: string): Promise<"taken" | "full" | null> {
+    if (await this.store.customEmojiNamed(name)) return "taken";
+    return (await this.store.customEmojiCount()) >= MAX_CUSTOM_EMOJI ? "full" : null;
+  }
+
+  /**
+   * Adds the custom emoji `name`, whose picture R2 has stored at `objectKey`, which `reserveCustomEmoji`
+   * reserved, as the person `credentials` signs in, answering it: "taken" or "full" as there, if that
+   * changed while the picture was stored, or null without a valid session. Everyone's workspace sockets
+   * hear of it.
+   */
+  async addCustomEmoji(credentials: Credentials, name: string, key: string, objectKey: string, contentType: string): Promise<CustomEmoji | "taken" | "full" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      const unavailable = await this.customEmojiUnavailable(name);
+      if (unavailable) return unavailable;
+      const emoji: CustomEmoji = { name, key, creatorId: user.id, createdAt: new Date().toISOString() };
+      await this.store.addCustomEmoji(emoji, objectKey, contentType);
+      this.broadcast({ type: "emoji.added", emoji });
+      return emoji;
+    });
+  }
+
+  /**
+   * Removes the custom emoji named `name`, as the person `credentials` signs in: "forbidden" unless they
+   * added it or are an administrator, "not found" if there's none, or null without a valid session. R2
+   * deletes its picture, and everyone's workspace sockets hear of it. Messages and boosts keep its code,
+   * which shows as text from then on.
+   */
+  async removeCustomEmoji(credentials: Credentials, name: string): Promise<"removed" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      const emoji = await this.store.customEmojiNamed(name);
+      if (!emoji) return "not found";
+      if (emoji.creatorId !== user.id && !(await this.store.isAdministrator(user.id))) return "forbidden";
+      const now = Date.now();
+      await this.store.removeCustomEmoji(name, now);
+      await this.wakeAt(now);
+      this.broadcast({ type: "emoji.removed", name });
+      return "removed";
+    });
   }
 
   /**
