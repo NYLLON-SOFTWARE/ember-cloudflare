@@ -1,8 +1,8 @@
-import { Suspense, useContext, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
+import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Message } from "@ember/protocol";
 import { editableBody, groupIdsIn } from "@ember/richtext/dom";
 import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
-import { DirectoryLoaded, GroupsContext, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { DirectoryLoaded, GroupsContext, ReloadDirectory, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
@@ -44,15 +44,32 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const people = useContext(PeopleContext);
   const groups = useContext(GroupsContext);
   const directoryLoaded = useContext(DirectoryLoaded);
+  const reloadDirectory = useContext(ReloadDirectory);
+  const groupIds = groupIdsIn(message.body);
+  // The groups the body names, which it knows once the directory lists each of them.
+  const knowsGroups = groupIds.every((groupId) => groups.has(groupId));
+  const [refreshed, setRefreshed] = useState(false);
   // The editable body: its mentions as the editor draws them, of the people and the groups as they are
   // now, and its link previews as the message shows them here. It drops a mention of no one, and a
   // message from before messages named the people they mention knows them only from the directory, so
   // for such a message the editor waits for the directory to load, when it lists everyone. A body
   // naming a group waits for it too, whose groups the directory loads with it: opened before, the
-  // editor would know no group to draw the mention by, and keep none once the groups arrived.
+  // editor would know no group to draw the mention by, and keep none once the groups arrived. And a
+  // group the directory doesn't list, as one another administrator has made since this tab loaded, has
+  // the directory asked for again, once: opened without waiting for its answer, the editor would open
+  // knowing no group for the mention, and keep none.
+  useEffect(() => {
+    if (!directoryLoaded || knowsGroups || refreshed) return;
+    let stopped = false;
+    reloadDirectory()
+      .catch(() => {})
+      .finally(() => !stopped && setRefreshed(true));
+    return () => void (stopped = true);
+  }, [directoryLoaded, knowsGroups, refreshed, reloadDirectory]);
   const knowsMentions =
-    (directoryLoaded || groupIdsIn(message.body).length === 0) &&
-    (directoryLoaded || message.mentions.every((person) => person.name !== ""));
+    (directoryLoaded || groupIds.length === 0) &&
+    (directoryLoaded || message.mentions.every((person) => person.name !== "")) &&
+    (knowsGroups || refreshed);
   const editableNow = () =>
     editableBody(
       message.body,

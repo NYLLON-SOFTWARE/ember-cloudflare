@@ -2,7 +2,7 @@ import { useContext, useEffect, useState, type FormEvent } from "react";
 import { MAX_GROUP_MEMBERS, MAX_GROUP_NAME_LENGTH, type GroupId, type UserGroup, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { EditPencil, Minus, Plus } from "@/components/icons/iconoir";
-import { DirectoryLoaded, PeopleContext } from "@/hooks/use-directory";
+import { DirectoryLoaded, DirectoryReloading, PeopleContext } from "@/hooks/use-directory";
 import { ApiError, changeUserGroup, createUserGroup, deleteUserGroup, fetchUserGroups, isSignedOut } from "@/lib/api";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
@@ -151,6 +151,7 @@ interface GroupFormProps {
 function GroupForm({ group, onSaved, onCancel, onFailed }: GroupFormProps) {
   const directory = useContext(PeopleContext);
   const loaded = useContext(DirectoryLoaded);
+  const reloading = useContext(DirectoryReloading);
   const people = byName([...directory.values()].filter((person) => person.status === "active" && person.role !== "bot"));
   const [name, setName] = useState(group?.name ?? "");
   const [members, setMembers] = useState<ReadonlySet<UserId>>(() => new Set(group?.memberIds ?? []));
@@ -158,15 +159,17 @@ function GroupForm({ group, onSaved, onCancel, onFailed }: GroupFormProps) {
   const [refused, setRefused] = useState<string | null>(null);
 
   // A group keeps the id of a member the directory lists gone, whom the checkboxes offer no line to
-  // uncheck: once the directory has loaded, let them go, so a save keeps only who's checked, and can't
-  // be refused for the one it would otherwise send back unseen.
+  // uncheck: once the directory has loaded and any load of it since has settled, let them go, so a
+  // save keeps only who's checked, and can't be refused for the one it would otherwise send back
+  // unseen. A load still under way may have a member back whom this listing doesn't, as one another
+  // administrator has just added is, so the letting go waits for it.
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || reloading) return;
     setMembers((members) => {
       const next = [...members].filter((id) => directory.get(id)?.status === "active");
       return next.length === members.size ? members : new Set(next);
     });
-  }, [loaded, directory]);
+  }, [loaded, reloading, directory]);
 
   const toggle = (userId: UserId, checked: boolean) =>
     setMembers((members) => {
