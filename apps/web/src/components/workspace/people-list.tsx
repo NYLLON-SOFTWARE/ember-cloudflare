@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { DirectoryUser, PersonRole, UserId } from "@ember/protocol";
-import { Crown, EditPencil, Minus, Prohibition } from "@/components/icons/iconoir";
+import { EditPencil, Minus } from "@/components/icons/iconoir";
+import { Crown, Prohibition } from "@/components/icons/iconoir-more";
 import { PageLink } from "@/components/page-link";
 import type { People } from "@/hooks/use-directory";
 import { PROFILE_PATH } from "@/hooks/use-route";
