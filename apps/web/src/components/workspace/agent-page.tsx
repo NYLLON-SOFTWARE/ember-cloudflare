@@ -352,7 +352,7 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
   const offered = offeredModelOf(model, setup.offered.models);
   const nameOfModel = sameModel ? saved.modelName : (offered?.name ?? modelName(model));
   const format: ModelFormat = sameModel ? saved.format : (offered?.format ?? formatOf(model));
-  // The format it searches in, as Grok does only in xAI's own Responses, and what it may do on the web there, of what that allows,
+  // The format it searches in, as one of Workers AI's kept in Chat Completions does in theirs, and what it may do on the web there, of what that allows,
   // where one of Workers AI's searches only while the model search lists it, as it lists those that take tools.
   const searchFormat = searchFormatOf(model, format);
   const searchIn = searchFormat === "workers" && offered?.format !== "workers" ? null : searchFormat;

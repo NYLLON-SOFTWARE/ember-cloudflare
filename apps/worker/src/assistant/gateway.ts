@@ -14,25 +14,26 @@ import {
 import type { Env } from "../env";
 import { isLoopback } from "../loopback";
 import { isMessages, isObject, isResponses } from "./formats";
-import { goingOn, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, withRoom, writtenIn, type EmberTool } from "./tool-calls";
+import { goingOn, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, ToolError, toolsIn, withRoom, writtenIn, type EmberTool } from "./tool-calls";
 
 export { isObject };
 
 // Asking a model through Cloudflare's AI Gateway: Claude and GPT, of the models Ember offers, through the
 // gateway's endpoints for Anthropic and OpenAI on gateway.ai.cloudflare.com, which pass on each provider's
 // own API as it is (https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/, …/openai/),
-// and Grok there through xAI's (…/grok/) only to search the web, as the gateway's credits pay for it there
-// only with no key of xAI's; otherwise Grok, and the models kept before Ember offered only its own as they
-// were kept, through the REST API on api.cloudflare.com, in whichever of its three formats the model took
+// and Grok, Workers AI's models and those kept before Ember offered only its own as they were kept,
+// through the REST API on api.cloudflare.com, in whichever of its three formats the model took
 // (https://developers.cloudflare.com/ai-gateway/usage/rest-api/), which takes Grok's requests only in Chat
-// Completions. Every request goes through the account's default gateway, whose logs, caching, rate limits
-// and spend limits apply, and which Cloudflare makes on the account's first request. A model that may use
-// the web is given its provider's own tools for it, which AI Gateway passes on and the provider runs
-// (https://developers.cloudflare.com/ai-gateway/usage/web-search/): Anthropic's web search and web fetch
-// in Messages, OpenAI's web search in Responses, and xAI's in its own. Chat Completions has none, but
-// Workers AI's models that take tools are given Ember's own for searching the web, in Workers AI's format,
-// which is Chat Completions on the REST API, and Ember runs their searches with Cloudflare's Web Search
-// API (https://developers.cloudflare.com/web-search/how-to-use/#use-web-search-as-a-tool).
+// Completions, where the gateway's credits pay for it as they don't at its xAI endpoint (…/grok/), which
+// only a Grok saved there before is asked at still. Every request goes through the account's default
+// gateway, whose logs, caching, rate limits and spend limits apply, and which Cloudflare makes on the
+// account's first request. A model that may use the web is given its provider's own tools for it, which
+// AI Gateway passes on and the provider runs (https://developers.cloudflare.com/ai-gateway/usage/web-search/):
+// Anthropic's web search and web fetch in Messages, OpenAI's web search in Responses, and xAI's in its
+// own. Chat Completions has none, so Grok, and Workers AI's models that take tools, in Workers AI's
+// format, which is Chat Completions on the REST API too, are given Ember's own for searching the web, and
+// Ember runs their searches with Cloudflare's Web Search API, through the same gateway
+// (https://developers.cloudflare.com/web-search/how-to-use/#use-web-search-as-a-tool).
 // A model in any other format may be given tools Ember runs as well (tool-calls.ts).
 
 /** Where Cloudflare's API is. */
@@ -80,7 +81,7 @@ const MAX_RESULT_LENGTH = 2_000;
 /** The longest search Cloudflare's Web Search API takes. */
 const MAX_QUERY_LENGTH = 1_024;
 
-/** Ember's own tool for searching the web, which Workers AI's models take as a function, and Ember runs with Cloudflare's Web Search API (`searchedFor`). */
+/** Ember's own tool for searching the web, which Grok and Workers AI's models take as a function, and Ember runs with Cloudflare's Web Search API (`searchedFor`). */
 const WEB_SEARCH_FUNCTION = {
   type: "function",
   function: {
@@ -303,19 +304,25 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
 export async function askOnce(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
   if (gateway.format === "workers") return askWorkersAi(env, gateway, question, signal);
   const { format } = gateway;
-  const tools = question.tools ?? [];
+  const web = searchingInChat(env, gateway, question, signal);
+  const tools = [...(question.tools ?? []), ...(web ? [web.tool] : [])];
+  const answered = (said: unknown) => (web ? web.sourced(answeredIn(format, said)) : answeredIn(format, said));
   const saidBefore: unknown[] = [];
   let request = requestOf(gateway, question);
   let tokensLeft = question.maxTokens;
   let called = 0;
   for (;;) {
     const turn = await turnOf(env, gateway, question, request, tokensLeft, signal);
-    if ("refused" in turn) return called > 0 && turn.refused.wrongFormat ? withoutTools(env, gateway, question, request, turn.tokensLeft, turn.refused, signal) : turn.refused;
+    if ("refused" in turn) {
+      if (!(called > 0 && turn.refused.wrongFormat)) return turn.refused;
+      const unaided = await withoutTools(env, gateway, question, request, turn.tokensLeft, turn.refused, signal);
+      return web ? web.sourced(unaided) : unaided;
+    }
     tokensLeft = turn.tokensLeft;
     const calls = called < TOOL_CALLS_PER_ANSWER ? toolCallsIn(format, turn.body) : [];
     // Messages' sources are in what the model said in any turn, and its answer in what it said after its last call.
     const said = isMessages(format) && isObject(turn.body) ? { ...turn.body, content: [...saidBefore, ...listOf(turn.body.content)] } : turn.body;
-    if (tools.length === 0 || calls.length === 0 || !isObject(turn.body)) return answeredIn(format, said);
+    if (tools.length === 0 || calls.length === 0 || !isObject(turn.body)) return answered(said);
     if (tokensLeft < LEAST_TOKENS) return { status: 502, reason: "out of room", refusal: OUT_OF_ROOM, field: "model" };
     const results = await resultsOf(tools, calls, TOOL_CALLS_PER_ANSWER - called);
     called += calls.length;
@@ -323,6 +330,43 @@ export async function askOnce(env: Env, gateway: Gateway, question: Question, si
     saidBefore.push(...listOf(turn.body.content));
   }
 }
+
+/**
+ * Ember's own tool for searching the web, as one of the tools it runs, for a model in Chat Completions,
+ * Grok, that may search the web for `question`, and what an answer comes to with the pages its searches
+ * found (`withSearches`), as it can't cite them; or null for one in any other format, or that may not.
+ */
+function searchingInChat(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): { tool: EmberTool; sourced: (answered: Answered | GatewayRefusal) => Answered | GatewayRefusal } | null {
+  if (gateway.format !== "chat" || toolsFor(gateway.format, question.webTools).length === 0) return null;
+  const found: Source[][] = [];
+  let searchRefused: GatewayRefusal | undefined;
+  const { name, description, parameters } = WEB_SEARCH_FUNCTION.function;
+  const tool: EmberTool = {
+    name,
+    description,
+    takes: parameters,
+    async run({ query }) {
+      const asked = typeof query === "string" ? query.trim().slice(0, MAX_QUERY_LENGTH) : "";
+      if (asked === "") throw new ToolError("Say what to search for.");
+      const result = await searchedFor(env, gateway, question, asked, signal);
+      if ("refusal" in result) {
+        searchRefused ??= result;
+        console.error(`${gateway.model}'s search of the web failed: ${result.refusal}`);
+        throw new ToolError(SEARCH_FAILED);
+      }
+      found.push(result);
+      return whatWasFound(result);
+    },
+  };
+  return { tool, sourced: (answered) => withSearches(answered, found, searchRefused) };
+}
+
+/** What a model is told when Cloudflare's Web Search API refused its search. */
+const SEARCH_FAILED = "The search failed, so you can't search the web now. Answer without it, and say that you couldn't search.";
+
+/** What a model reads of the pages a search of the web found, `result`. */
+const whatWasFound = (result: (Source & { text: string })[]) =>
+  result.length > 0 ? result.map(({ url, title, text }, n) => `${n + 1}. ${title || url}\n${url}\n${text}`).join("\n\n") : "The search found nothing.";
 
 /**
  * What the model `gateway` names answers `question` without Ember's tools, once it was `refused` going on
@@ -341,7 +385,8 @@ async function withoutTools(
   signal: AbortSignal,
 ): Promise<Answered | GatewayRefusal> {
   console.error(`Asking ${gateway.model} again without Ember's tools, as it was refused going on from a call of one: ${refused.refusal}`);
-  const asked = { ...question, tools: [], maxTokens: tokensLeft };
+  // Ember's own tool for searching the web, in Chat Completions, is one of the tools it runs too.
+  const asked = { ...question, tools: [], maxTokens: tokensLeft, ...(gateway.format === "chat" && { webTools: [] }) };
   const turn = await turnOf(env, gateway, asked, withUsesOf(gateway.format, requestOf(gateway, asked), request), tokensLeft, signal);
   if (!("refused" in turn)) return answeredIn(gateway.format, turn.body);
   const { wrongFormat: _, ...unanswered } = turn.refused;
@@ -474,10 +519,10 @@ async function askWorkersAi(env: Env, gateway: Gateway, question: Question, sign
       if ("refusal" in result) {
         searchRefused ??= result;
         console.error(`${gateway.model}'s search of the web failed: ${result.refusal}`);
-        return "The search failed, so you can't search the web now. Answer without it, and say that you couldn't search.";
+        return SEARCH_FAILED;
       }
       found.push(result);
-      return result.length > 0 ? result.map(({ url, title, text }, n) => `${n + 1}. ${title || url}\n${url}\n${text}`).join("\n\n") : "The search found nothing.";
+      return whatWasFound(result);
     });
     // Each turn of calls counts as a search at least, so that calls of no search still end.
     searched += searches.filter((query) => query !== null).length || 1;
@@ -522,7 +567,7 @@ function jsonIn(text: string): unknown {
 const completionTokensIn = (body: unknown) => (isObject(body) && isObject(body.usage) && typeof body.usage.completion_tokens === "number" ? body.usage.completion_tokens : 0);
 
 /**
- * `answered`, a Workers AI model's answer, with the pages its searches, `found`, found, the first of each
+ * `answered`, a Workers AI model's answer, or Grok's, with the pages its searches, `found`, found, the first of each
  * search's, then the second of each, and so on, each once, no more than an answer names, or else, when
  * none found any as Cloudflare's Web Search API refused them, why, `searchRefused`.
  */
@@ -700,12 +745,12 @@ export function modelIn(format: ModelFormat, model: string): string {
 /**
  * The tools that let a model in `format` do on the web what `webTools` says it may, of what the format
  * has tools for: Anthropic's basic web search and web fetch, which every Claude model takes, each used no
- * more than an answer allows, or OpenAI's web search, or xAI's, which has its name, or Ember's own for
- * Workers AI's.
+ * more than an answer allows, or OpenAI's web search, or xAI's, which has its name, or Ember's own, in
+ * Chat Completions and Workers AI's format.
  */
 export function toolsFor(format: ModelFormat, webTools: readonly WebTool[] = []): Record<string, unknown>[] {
   const may = (tool: WebTool) => webTools.includes(tool) && WEB_TOOLS_IN[format].includes(tool);
-  if (format === "workers") return may("search") ? [WEB_SEARCH_FUNCTION] : [];
+  if (format === "workers" || format === "chat") return may("search") ? [WEB_SEARCH_FUNCTION] : [];
   if (!isMessages(format)) return may("search") ? [{ type: "web_search" }] : [];
   return [
     ...(may("search") ? [{ type: "web_search_20250305", name: "web_search", max_uses: WEB_SEARCHES_PER_ANSWER }] : []),

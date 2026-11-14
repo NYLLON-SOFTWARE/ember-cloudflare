@@ -156,8 +156,8 @@ export async function changeAgent(request: Request, env: Env, agentId: UserId): 
  * to the agent directly, through Ember AI's account, answering what it said, as a message of its would
  * show it, but for a preview of its first link, and how long its model took. Nobody else sees either,
  * and nothing is saved. A saved agent with the same model answers in the format, and with the web tools,
- * its tests found, but for Grok searching the web, which only xAI's own Responses lets it do, and any
- * other model, which has to be one Ember offers, in the format Ember asks it in (`triedAnswer`). As with
+ * its tests found, but for one that searches the web in another format, as Grok saved in xAI's own
+ * Responses does in Chat Completions now, and any other model, which has to be one Ember offers, in the format Ember asks it in (`triedAnswer`). As with
  * changing an agent, someone who isn't an administrator hears so first, then that Ember AI is off, then
  * that the agent isn't there, before anything that was sent is read, and a field that can't be what it's
  * for, or that AI Gateway refuses, is refused on that field, as Search the web is for a model that can't
@@ -191,8 +191,9 @@ export async function tryAgent(request: Request, env: Env, agentId: UserId | nul
  * the administrator who tries it, in the format of the agent as it's saved, while it has the same model,
  * or else the one Ember offers the model in, `offered`, at the levels of thinking Cloudflare's model
  * search lists for one of Workers AI's, and what it may do on the web there, or why it didn't answer.
- * Grok searches the web only in xAI's own Responses, so while it's to, it's asked there, and one of
- * Workers AI's saved before Ember gave them its tool for searching the web is asked in Workers AI's format.
+ * One that searches the web in another format while it's to is asked there, as a Grok saved in xAI's own
+ * Responses is in Chat Completions, and one of Workers AI's saved before Ember gave them its tool for
+ * searching the web is in Workers AI's format.
  */
 async function triedAnswer(
   env: Env,
@@ -240,7 +241,7 @@ export async function deleteAgent(request: Request, env: Env, agentId: UserId): 
  * the model an agent has, or else for one Ember `offered`, in the format Ember offers it in, at the
  * levels Cloudflare's model search lists for one of Workers AI's, and, while it's to search the web
  * (`webSearch`), what it may do there, in the format it searches in, which it's asked in from then on, as
- * Grok is in xAI's own Responses (`searchingFormatOf`), with the levels of thinking it takes there, or else
+ * one of Workers AI's kept in Chat Completions is in theirs (`searchingFormatOf`), with the levels of thinking it takes there, or else
  * why it can't, on the field it's about.
  */
 async function askedModel(

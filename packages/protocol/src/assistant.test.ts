@@ -144,7 +144,7 @@ describe("Set up Ember AI", () => {
     expect(formatOf("openai/gpt-6.1-sol")).toBe("openai");
     expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["anthropic", "openai", "workers"]);
     expect([formatOf("xai/grok-4.7"), formatOf("xai/grok-5")]).toEqual(["chat", "chat"]);
-    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"], anthropic: ["search", "read"], openai: ["search"], workers: ["search"] });
+    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: ["search"], xai: ["search"], anthropic: ["search", "read"], openai: ["search"], workers: ["search"] });
   });
 
   it("asks Claude and GPT in their providers' own formats, and anyone else's model, Grok's among them, through the REST API alone", () => {
@@ -153,14 +153,15 @@ describe("Set up Ember AI", () => {
     expect(MODEL_FORMATS.filter(isProviderFormat)).toEqual(["xai", "anthropic", "openai"]);
   });
 
-  it("searches the web in a model's own format if it can, or else, for Grok, in xAI's own Responses, and for Workers AI's with Ember's own tool", () => {
+  it("searches the web in a model's own format if it can, but Grok, with Ember's own tool in Chat Completions, as Workers AI's do in theirs, and no one else in Chat Completions", () => {
     expect([isXaiModel("xai/grok-4.7"), isXaiModel("@cf/xai/grok"), isXaiModel("openai/gpt-7")]).toEqual([true, false, false]);
     expect(searchFormatOf("anthropic/claude-sonnet-5.5", "messages")).toBe("messages");
     expect(searchFormatOf("anthropic/claude-sonnet-5.5", "anthropic")).toBe("anthropic");
     expect(searchFormatOf("openai/gpt-7", "openai")).toBe("openai");
     expect(searchFormatOf("openai/gpt-7", "responses")).toBe("responses");
-    expect(searchFormatOf("xai/grok-4.7", "chat")).toBe("xai");
-    expect(searchFormatOf("xai/grok-4.7", "xai")).toBe("xai");
+    expect(searchFormatOf("xai/grok-4.7", "chat")).toBe("chat");
+    // One saved in xAI's own Responses before searches in Chat Completions too, where AI Gateway's credits pay for it.
+    expect(searchFormatOf("xai/grok-4.7", "xai")).toBe("chat");
     expect(searchFormatOf("google/gemini-5", "chat")).toBeNull();
     expect(searchFormatOf("@cf/meta/llama-5", "chat")).toBe("workers");
     expect(searchFormatOf("@cf/meta/llama-5", "workers")).toBe("workers");
@@ -245,13 +246,19 @@ describe("The models file", () => {
     expect(webToolsOf("@cf/zai-org/glm-5.2", "workers", offered)).toEqual(["search"]);
   });
 
-  it("lists Grok in Chat Completions, with what it may do on the web in xAI's own Responses, where it searches", () => {
+  it("lists Grok in Chat Completions, where it searches with Ember's own tool, with what it may do on the web there", () => {
     const grok = { id: "xai/grok-5", name: "Grok 5", price: { input: 2, output: 6 } };
     const [searching] = parseModelsFile(fileOf({ ...grok, web: ["search"] }))!.models;
     expect(searching).toEqual({ ...grok, format: "chat" });
-    expect(webToolsOf(grok.id, "xai", [searching!])).toEqual(["search"]);
+    expect(webToolsOf(grok.id, "chat", [searching!])).toEqual(["search"]);
     const [unsearching] = parseModelsFile(fileOf({ ...grok, web: [] }))!.models;
     expect(unsearching).toEqual({ ...grok, format: "chat", webTools: [] });
+    expect(webToolsOf(grok.id, "chat", [unsearching!])).toEqual([]);
+    // No one else's model takes Ember's tool in Chat Completions.
+    expect(webToolsOf("deepseek/deepseek-v4-pro", "chat", [])).toEqual([]);
+    expect(webToolsOf(grok.id, "chat", [])).toEqual(["search"]);
+    // One saved in xAI's own Responses while it searched there still does, until Search the web moves it.
+    expect(webToolsOf(grok.id, "xai", [])).toEqual(["search"]);
     expect(webToolsOf(grok.id, "xai", [unsearching!])).toEqual([]);
   });
 });

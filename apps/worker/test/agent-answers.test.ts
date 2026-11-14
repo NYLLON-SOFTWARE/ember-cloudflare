@@ -5,7 +5,6 @@ import { unknownPlaceholder } from "@ember/protocol/prompts";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_NOTES, NOTES } from "../src/assistant/answers";
-import { XAI_TOKEN_REFUSED } from "../src/assistant/gateway";
 import { agentWithKeptModel, answerWithKeptModel, api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, settle, shown, startDirect, workspaceSql, type Client, type KeptModel, type Session } from "./support";
 
 // What AI agents answer when someone mentions them in a room they're in, or writes to them directly: as
@@ -16,9 +15,10 @@ import { agentWithKeptModel, answerWithKeptModel, api, connect, cookieOf, create
 const EMBER: User = { id: ASSISTANT_ID, name: ASSISTANT_NAME };
 const SETUP = { accountId: "0123456789abcdef0123456789abcdef", apiToken: "an-api-token-with-ai-gateway-run_0123456" };
 const CLOUDFLARE_API = `https://api.cloudflare.com/client/v4/accounts/${SETUP.accountId}/ai/v1`;
-/** Where the account's default gateway passes requests on to Anthropic's own Messages, and to xAI's own Responses, where Grok searches the web. */
+/** Where the account's default gateway passes requests on to Anthropic's own Messages. */
 const ANTHROPIC_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${SETUP.accountId}/default/anthropic/v1/messages`;
-const XAI_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${SETUP.accountId}/default/grok/v1/responses`;
+/** Cloudflare's Web Search API, which Ember searches with for a model given its own tool. */
+const WEB_SEARCH = `https://api.cloudflare.com/client/v4/accounts/${SETUP.accountId}/ai/websearch/`;
 /** Workers AI's models, which take Chat Completions, whose turns AI Gateway is sent as they are, and Anthropic's, which take Messages and can search the web. */
 const [GLM, GEMMA, GPT_OSS, HAIKU, SONNET] = ["@cf/zai-org/glm-4.7-flash", "@cf/google/gemma-4-26b-a4b-it", "@cf/openai/gpt-oss-120b", "anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5"];
 /** xAI's model that takes Chat Completions but no thinking level. */
@@ -686,25 +686,20 @@ describe("Try it", () => {
     expect(questions.map(({ body }) => body.reasoning_effort)).toEqual(["low", undefined]);
   });
 
-  it("tries Grok searching the web through AI Gateway's xAI endpoint alone, saying what the API token lacks while it doesn't take it", async () => {
+  it("tries Grok searching the web with Ember's own tool in Chat Completions, which Ember runs with Cloudflare's Web Search API", async () => {
     const { ada } = await setUp();
     const trial = { ...TRIAL, name: "Grok", model: "xai/grok-4.7", thinking: "low", webSearch: true, question: "who won the latest Packers game?" };
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const unauthorized = internet(() => Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 }), true);
-    const refused = await tryIt(ada, null, trial);
-    expect(refused.status).toBe(422);
-    expect(await refused.json()).toEqual({ error: `${XAI_TOKEN_REFUSED} Cloudflare says: Unauthorized` });
-    expect(unauthorized.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
-    // Nothing else is asked, so the Worker's log doesn't say Grok is asked through Cloudflare's REST API instead.
-    expect(errors).not.toHaveBeenCalledWith(expect.stringContaining("through Cloudflare's REST API"));
-    vi.restoreAllMocks();
-
-    const questions = internet(() => Response.json({ object: "response", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "The Packers won." }] }] }), true);
+    const questions = internet((asked) => {
+      if (asked.url === WEB_SEARCH) return Response.json({ success: true, result: { items: [{ ...DOCS, description: "The Packers won." }] } });
+      if (asked.body.messages.at(-1)?.role === "tool") return chatAnswer("The Packers won.");
+      const call = { id: "call_0", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "Packers" }) } };
+      return Response.json({ choices: [{ message: { role: "assistant", content: null, tool_calls: [call] }, finish_reason: "tool_calls" }], usage: { completion_tokens: 20 } });
+    });
     const tried = await tryIt(ada, null, trial);
     expect(tried.status, await tried.clone().text()).toBe(200);
-    expect(((await tried.json()) as AgentTrialAnswer).body).toBe("<p>The Packers won.</p>");
-    expect(questions.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
-    expect(questions[0]!.body).toMatchObject({ model: "grok-4.7", tools: [{ type: "web_search" }], max_turns: WEB_SEARCHES_PER_ANSWER, parallel_tool_calls: false, store: false });
+    expect(((await tried.json()) as AgentTrialAnswer).body).toBe(`<p>The Packers won.</p><p>Sources: <a href="${DOCS.url}">${DOCS.title}</a></p>`);
+    expect(questions.map(({ url }) => url)).toEqual([`${CLOUDFLARE_API}/chat/completions`, WEB_SEARCH, `${CLOUDFLARE_API}/chat/completions`]);
+    expect(questions[0]!.body).toMatchObject({ model: "xai/grok-4.7", reasoning_effort: "low", tools: [{ type: "function", function: expect.objectContaining({ name: "web_search" }) }] });
   });
 
   it("refuses Search the web for a model kept from before that can't search, as saving would, and says on the model's field why it didn't answer", async () => {

@@ -261,6 +261,52 @@ describe("A tool Ember runs", () => {
       expect(asked.map(({ body }) => [body.max_turns, body.tool_choice])).toEqual([[5, undefined], [4, undefined]]);
     });
 
+    it("runs Grok's searches of the web in Chat Completions with the room's, through Cloudflare's Web Search API, and lists the pages they found", async () => {
+      const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
+      const call = (id: string, name: string, args: Record<string, string>) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+      const turn = (message: Record<string, unknown>) => ({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }], usage: { completion_tokens: 50 } });
+      const answers = [
+        turn({ role: "assistant", content: null, tool_calls: [call("call_1", "web_search", { query: "launch date" }), call("call_2", "search_messages", { words: "launch" })] }),
+        turn({ role: "assistant", content: "It's on March 3." }),
+      ];
+      refusing = ({ url }) => Response.json(url.endsWith("/ai/websearch/") ? { success: true, result: { items: [page] } } : answers.shift());
+
+      const answered = await askOnce(bindings, gatewayFor(GROK, "chat"), question, AbortSignal.timeout(5_000));
+      expect(answered).toMatchObject({ text: "It's on March 3.", sources: [{ url: page.url, title: page.title }] });
+      expect(asked.map(({ url }) => new URL(url).pathname)).toEqual([
+        `/client/v4/accounts/${ACCOUNT_ID}/ai/v1/chat/completions`,
+        `/client/v4/accounts/${ACCOUNT_ID}/ai/websearch/`,
+        `/client/v4/accounts/${ACCOUNT_ID}/ai/v1/chat/completions`,
+      ]);
+      // Only Ember's tool for searching the web is given, as Chat Completions has no tool for reading pages.
+      expect((asked[0]!.body.tools as Array<{ function: { name: string } }>).map(({ function: { name } }) => name)).toEqual(["web_search", "search_messages"]);
+      expect(asked[1]!.body).toMatchObject({ query: "launch date", options: { gateway: { id: "default" } } });
+      expect(asked[2]!.body.messages!.slice(-2)).toEqual([
+        { role: "tool", tool_call_id: "call_1", content: expect.stringContaining(`1. Launch day\n${page.url}\nThe launch is on March 3.`) as string },
+        { role: "tool", tool_call_id: "call_2", content: "Nothing." },
+      ]);
+    });
+
+    it("asks Grok once more without Ember's tool for searching the web too, when it's refused going on from a call, listing what its searches found before", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
+      const searching = { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"launch"}' } }] };
+      const turn = (message: Record<string, unknown>) => Response.json({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "stop" }], usage: { completion_tokens: 50 } });
+      const answers = [
+        () => turn(searching),
+        () => Response.json({ success: false, errors: [{ code: 7001, message: "Unexpected tool message" }] }, { status: 400 }),
+        () => turn({ role: "assistant", content: "It's on March 3." }),
+      ];
+      refusing = ({ url }) => (url.endsWith("/ai/websearch/") ? Response.json({ success: true, result: { items: [page] } }) : answers.shift()!());
+
+      const answered = await askOnce(bindings, gatewayFor(GROK, "chat"), question, AbortSignal.timeout(5_000));
+      expect(answered).toMatchObject({ text: "It's on March 3.", sources: [{ url: page.url, title: page.title }] });
+      expect(asked).toHaveLength(4);
+      const last = asked.at(-1)!.body;
+      expect(last).not.toHaveProperty("tools");
+      expect(last).toMatchObject({ max_completion_tokens: question.maxTokens - 50, messages: asked[0]!.body.messages });
+    });
+
     it("leaves a model refused going on from a call the searches and tokens its turns didn't use, as it's asked again without Ember's tools", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       const refusal = () => Response.json({ type: "error", error: { type: "invalid_request_error", message: "messages.2: unexpected `tool_result`" } }, { status: 400 });

@@ -7,7 +7,8 @@ import { isMessages, isObject, isResponses } from "./formats";
 // Anthropic's Messages (https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview), OpenAI's
 // Responses, which xAI's has too (https://developers.openai.com/api/docs/guides/function-calling), and
 // Chat Completions, which Cloudflare's REST API takes Grok's requests in. Workers AI's models, asked in a
-// format of their own, are given none of them (`takesEmbersTools`).
+// format of their own, are given none of them (`takesEmbersTools`), and Grok, in Chat Completions, is given
+// Ember's own for searching the web among them, while it may search (gateway.ts).
 
 /** The most calls of Ember's tools one answer makes, as the model reads the conversation again after each round of them. */
 export const TOOL_CALLS_PER_ANSWER = 5;

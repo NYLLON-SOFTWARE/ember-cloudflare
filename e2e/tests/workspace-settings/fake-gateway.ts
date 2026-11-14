@@ -184,10 +184,10 @@ const SEARCH_CALL = {
   ],
 };
 
-/** What a Workers AI model says in Chat Completions once Ember has told it what its search found. */
+/** What Grok or a Workers AI model says in Chat Completions once Ember has told it what its search found. */
 const FOUND_IN_CHAT = answersSaying(FOUND)["chat/completions"];
 
-/** Whether `body` gives a Workers AI model Ember's own tool for searching the web, a function. */
+/** Whether `body` gives Grok or a Workers AI model Ember's own tool for searching the web, a function. */
 const takesSearchFunction = (body: Record<string, unknown>) =>
   Array.isArray(body.tools) && body.tools.some((tool: { type?: unknown; function?: { name?: unknown } }) => tool.type === "function" && tool.function?.name === "web_search");
 

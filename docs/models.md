@@ -3,8 +3,7 @@
 `models.json`, at the root of Ember's repository, lists the models [Ember AI](self-hosting.md#ember-ai)
 offers besides Workers AI's: Anthropic's Claude and OpenAI's GPT, each asked through AI Gateway's
 endpoint for its provider, in the provider's own API, and xAI's Grok, asked through Cloudflare's REST
-API, as AI Gateway's credits don't pay for it at the xAI endpoint, where it searches the web only with an
-xAI key on the gateway. Every copy of Ember reads it from the
+API through the same gateway, as AI Gateway's credits don't pay for it at the xAI endpoint. Every copy of Ember reads it from the
 main branch once a day, at
 
 ```
@@ -41,14 +40,14 @@ the file, and 50 models.
 - `models` lists each model on a line of its own, in the order the menus show each maker's:
   - `id` is the model's ID as AI Gateway lists it, its provider's name and then the model's, such as
     `anthropic/claude-sonnet-5.5`. Ember asks Anthropic's endpoint for `claude-sonnet-5-5`, with the
-    dots turned into dashes, as Anthropic names its models, and OpenAI's and xAI's for the part after
-    the slash as it is, and the REST API for Grok by the whole ID.
+    dots turned into dashes, as Anthropic names its models, OpenAI's for the part after the slash as
+    it is, and the REST API for Grok by the whole ID.
   - `name` is what the menus call it, at most 100 characters.
   - `price` is what a million tokens read, `input`, and a million written, `output`, cost in US dollars
     at the provider's prices, which AI Gateway's credits pay: from 0 to 1,000 each.
   - `web` is what the model may do on the web while Search the web is on, of what its provider's API
-    has tools for: `"search"`, and for Claude `"read"` too, for reading pages, and for Grok what it
-    may do at xAI's endpoint, where it searches. Leave one out for a
+    has tools for: `"search"`, and for Claude `"read"` too, for reading pages. Grok searches with Ember's
+    own tool, which Cloudflare's Web Search API runs, so `"search"` is all it can take. Leave one out for a
     model that doesn't take it through AI Gateway, or write `[]` for one that can't search at all.
   - `until`, which can be left out, is the day the model's maker stops running it, as YYYY-MM-DD. The
     menus say so beforehand, and Ember offers it until the day before.
