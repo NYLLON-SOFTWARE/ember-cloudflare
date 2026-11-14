@@ -25,6 +25,7 @@ import {
   SET_ASIDE_EXPLAINED,
   SIGN_IN_EXPLAINED,
   SIGN_IN_HAS_ENDED,
+  SIGN_IN_STAYS,
   signedInBy,
   TOKEN_EXPLAINED,
   TOKEN_KEPT,
@@ -281,6 +282,16 @@ describe("Connect an app", () => {
     await user.type(urlField(), "/v2");
     expect(screen.queryByLabelText("Client ID")).toBeNull();
     expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+
+    // What was typed for the last one doesn't follow the form there, should that service ask who Ember is too.
+    answers.push(() => refused(422, ASKS_FOR_SIGN_IN, "token", true), asksForClient, begun);
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    await user.click(await screen.findByRole("button", { name: "Sign in to mcp.linear.example" }));
+    await waitFor(() => expect(clientIdField()).toHaveValue(""));
+    expect(clientSecretField()).toHaveValue("");
+    await user.type(clientIdField(), "ember-two");
+    await user.click(screen.getByRole("button", { name: "Sign in to mcp.linear.example" }));
+    await waitFor(() => expect(requests.at(-1)).toEqual({ request: "POST /api/account/app-sign-ins", body: { name: "Linear", url: `${LINEAR.url}/v2`, clientId: "ember-two" } }));
   });
 
   it("says so, as the workspace's alerts do, when as many apps are connected as can be", async () => {
@@ -415,6 +426,31 @@ describe("A connected app's page", () => {
       { request: SIGN_IN, body: undefined },
       { request: SIGN_IN, body: { clientId: "ember-at-linear" } },
     ]);
+  });
+
+  it("signs in again as the client another administrator signed in as since, once its tools are read again, rather than as none", async () => {
+    const answers = [() => answer(SIGNED_IN_AS_CLIENT), begun];
+    const requests = serve({ loaded: () => answer(SIGNED_IN), sent: () => answers.shift()!() });
+    const { user } = showSettings();
+    await nameField();
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(clientIdField()).toHaveValue("ember-at-linear"));
+    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "ember-at-linear" } });
+  });
+
+  it("keeps the client ID that's typed once its tools are read again, whatever another administrator signed in as since", async () => {
+    serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: () => answer({ ...SIGNED_IN_AS_CLIENT, signIn: { ...SIGNED_IN.signIn!, clientId: "ember-three" } }) });
+    const { user } = showSettings();
+    await nameField();
+    await user.clear(clientIdField());
+    await user.type(clientIdField(), "ember-two");
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(clientSecretField()).toHaveAttribute("placeholder", "None"));
+    expect(clientIdField()).toHaveValue("ember-two");
   });
 
   it("says why signing in again couldn't begin, under Sign in again", async () => {
@@ -563,6 +599,20 @@ describe("A connected app's page", () => {
     await waitFor(() => expect(within(tools()).getByRole("status")).toHaveTextContent(why));
     expect(within(tools()).getAllByRole("listitem")).toHaveLength(2);
     expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("offers no sign-in while the form has another address than the app's, which is where Ember would sign in, and says so", async () => {
+    const elsewhere = "https://mcp.eu.linear.example/mcp";
+    serve({ sent: () => refused(422, "mcp.eu.linear.example didn't take that token.", "token", true) });
+    const { user } = showSettings();
+    await nameField();
+    await user.clear(urlField());
+    await user.type(urlField(), elsewhere);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(tokenField()).toHaveAccessibleDescription("mcp.eu.linear.example didn't take that token."));
+    expect(screen.getByText(SIGN_IN_STAYS)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
   });
 
   it("offers to sign in to an app whose server takes its token no longer, once its tools couldn't be read again for that", async () => {

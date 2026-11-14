@@ -966,7 +966,9 @@ app's page says who signed in, and when, in place of a token.
   is said once your browser is back, and changes nothing.
 - **An app that has a token can be signed in to instead.** When its server takes the token no
   longer, saving it or reading its tools again says so and offers **Sign in to** its host. The
-  sign-in then takes the token's place.
+  sign-in then takes the token's place. Ember signs in at the address the app is connected at, so
+  nothing is offered while the form has another: to sign in to an app somewhere else, remove it
+  and connect it there.
 - **Every address in it is checked** as the server's own is: `https` only, unless the server is one
   you're developing on `localhost`, each looked up first and refused where it resolves to a private
   address, with no redirect followed. An authorization server that says it's another service's, or

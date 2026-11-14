@@ -304,7 +304,6 @@ const appOf = async (response: Response) => {
   return ((await response.json()) as AppAnswer).app;
 };
 
-/** The requests Ember sent the fake authorization server's token endpoint. */
 /** What a service that doesn't come to know Ember by itself is refused with, which has the form ask for a client ID. */
 const UNREGISTERED = {
   error: "mcp.tracker.example has a sign-in, but doesn't let Ember register itself for it. Register Ember there yourself and give its client ID, or give a token, if it has one.",
@@ -312,6 +311,7 @@ const UNREGISTERED = {
   client: true,
 };
 
+/** The requests Ember sent the fake authorization server's token endpoint. */
 const tokenRequests = () => asked.filter(({ url }) => url === `${AUTH}/token`).map(({ form }) => form!);
 
 describe("Signing in to an app", () => {

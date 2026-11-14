@@ -62,6 +62,9 @@ export const ADDRESS_KEPT = "This app signs in to its server there, so its addre
 export const SIGN_IN_EXPLAINED = "Ember keeps the sign-in encrypted, and gets itself a new token from it as each one ends.";
 export const SIGN_IN_HAS_ENDED = "Its sign-in has ended, so Ember doesn't ask its server, and no agent can use its tools. Sign in to it again.";
 
+/** What the form says in place of offering a sign-in, while it has another address than the app's. */
+export const SIGN_IN_STAYS = "Ember signs in to an app at the address it's connected at. To sign in at another, remove this app and connect it there.";
+
 /** What the form says of what it asks for once a service doesn't come to know Ember by itself: the address to register Ember there with, the client ID that gets, and its secret. */
 export const REDIRECT_EXPLAINED = "Register Ember with the service as an OAuth app, and give it this as the address it sends people back to, which it may call a redirect or callback URL.";
 export const CLIENT_ID_EXPLAINED = "The client ID the service gave Ember when you registered it there.";
@@ -96,7 +99,10 @@ interface Fields {
 
 const NO_FIELDS: Fields = { name: "", url: "", token: "", noToken: false, clientId: "", clientSecret: "" };
 
-const fieldsOf = (app: App): Fields => ({ ...NO_FIELDS, name: app.name, url: app.url, clientId: app.signIn?.clientId ?? "" });
+/** The client ID `app` signed in with, as its field shows it: none is an empty field. */
+const clientIdOf = (app: App) => app.signIn?.clientId ?? "";
+
+const fieldsOf = (app: App): Fields => ({ ...NO_FIELDS, name: app.name, url: app.url, clientId: clientIdOf(app) });
 
 /**
  * Why what the form sends is refused, said on the field it's about, or else, with none, under its
@@ -211,8 +217,10 @@ export function NewAppPage({ me, onFailed }: PageProps) {
             saved={null}
             fields={fields}
             onChange={(typed) => {
-              if (typed.url !== fields.url) setAsksClient(false);
-              setFields(typed);
+              // A client is one service's, so what's typed of it doesn't follow the form to another address.
+              const moved = typed.url !== fields.url;
+              if (moved) setAsksClient(false);
+              setFields(moved ? { ...typed, clientId: "", clientSecret: "" } : typed);
               setRefusal(null);
             }}
             refusal={refusal}
@@ -319,9 +327,9 @@ export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & 
     send(
       "reading",
       () => readAppTools(appId),
-      // What's typed stays as it is, and a field left as the app had it follows what another administrator has saved since, so that the next save doesn't put the old back. Sending no token is switched back off once the app keeps none, as the switch isn't shown then.
+      // What's typed stays as it is, and a field left as the app had it follows what another administrator has saved since, or signed in as, so that the next save or sign-in doesn't put the old back. Sending no token is switched back off once the app keeps none, as the switch isn't shown then.
       (read) => {
-        if (app) setFields((typed) => ({ ...typed, ...(typed.name.trim() === app.name && { name: read.name }), ...(typed.url.trim() === app.url && { url: read.url }), ...(!read.hasToken && { noToken: false }) }));
+        if (app) setFields((typed) => ({ ...typed, ...(typed.name.trim() === app.name && { name: read.name }), ...(typed.url.trim() === app.url && { url: read.url }), ...(typed.clientId.trim() === clientIdOf(app) && { clientId: clientIdOf(read) }), ...(!read.hasToken && { noToken: false }) }));
         setApp(read);
       },
       ({ error, signIn }) => {
@@ -408,7 +416,9 @@ function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onS
   const refused = (field: AppField) => (refusal?.field === field ? true : undefined);
   const describedBy = (id: string, field: AppField) => (refusal?.field === field ? `${id}-refusal` : `${id}-description`);
   const signedIn = saved?.signIn ?? null;
-  const client = asksClient && <Client kept={signedIn?.clientId ?? null} fields={fields} onChange={onChange} refusal={refusal} busy={busy} onSignIn={onSignIn} />;
+  // A sign-in is to the address the app has, so it's offered, and its client asked for, only while the form has that one.
+  const moved = saved !== null && fields.url.trim() !== saved.url;
+  const client = asksClient && !moved && <Client kept={signedIn?.clientId ?? null} fields={fields} onChange={onChange} refusal={refusal} busy={busy} onSignIn={onSignIn} />;
 
   return (
     <form onSubmit={save} className={AUTH_FORM}>
@@ -459,9 +469,10 @@ function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onS
         </SignedIn>
       ) : (
         <>
-          <Token saved={saved} fields={fields} onChange={onChange} refusal={refusal} busy={busy} offersSignIn={offersSignIn && !asksClient} onSignIn={onSignIn} />
+          <Token saved={saved} fields={fields} onChange={onChange} refusal={refusal} busy={busy} offersSignIn={offersSignIn && !asksClient && !moved} onSignIn={onSignIn} />
+          {offersSignIn && moved && <p className={NOTE}>{SIGN_IN_STAYS}</p>}
           {client}
-          {asksClient && (
+          {asksClient && !moved && (
             <button type="button" disabled={busy} onClick={onSignIn} className={cn(BUTTON, "self-start")}>
               {signInTo(fields.url)}
             </button>
