@@ -26,4 +26,12 @@ describe("drafts", () => {
     expect(localStorage.getItem("composer-draft-u1-general")).toBeNull();
     expect(draftsOf("u1")).toHaveLength(1);
   });
+
+  it("keeps a draft changed since it was read, as in another tab, rather than discard what it says now", () => {
+    localStorage.setItem("composer-draft-u1-general", "<p>one</p>");
+    const [read] = draftsOf("u1");
+    localStorage.setItem("composer-draft-u1-general", "<p>one, and more</p>");
+    expect(discardDraft(read!)).toBe(false);
+    expect(localStorage.getItem("composer-draft-u1-general")).toBe("<p>one, and more</p>");
+  });
 });

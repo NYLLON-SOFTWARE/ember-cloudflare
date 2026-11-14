@@ -39,12 +39,18 @@ export function draftsOf(userId: UserId): Draft[] {
   }
 }
 
-/** Forgets a draft, as sending it would. */
-export function discardDraft(draft: Draft): void {
+/**
+ * Forgets a draft, as sending it would, if it still says what it did when it was read: one changed since,
+ * as in another tab, is kept. Answers whether it was forgotten.
+ */
+export function discardDraft(draft: Draft): boolean {
   try {
+    if (localStorage.getItem(draft.key) !== draft.body) return false;
     localStorage.removeItem(draft.key);
     tellDraftsChanged();
+    return true;
   } catch {
     // Storage that can't be reached holds nothing to forget.
+    return false;
   }
 }

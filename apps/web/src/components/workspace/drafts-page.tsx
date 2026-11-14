@@ -7,7 +7,7 @@ import { PageLink } from "@/components/page-link";
 import { useMounted } from "@/hooks/use-mounted";
 import { DRAFTS_PATH, permalinkOf, roomPath, SENT_PATH, threadPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { fetchSearch, isSignedOut } from "@/lib/api";
+import { DRAFTS_CHANGED } from "@/lib/draft-keys";
 import { discardDraft, draftsOf, type Draft } from "@/lib/drafts";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { activityLabel } from "@/lib/direct-list";
@@ -67,9 +67,22 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
   );
 }
 
-/** Your drafts in the rooms you're still in, each with its room and its text, opening where it was written, with a button that discards it. */
+/**
+ * Your drafts in the rooms you're still in, each with its room and its text, opening where it was written,
+ * with a button that discards it, read again as the composer keeps or forgets one here or in another tab.
+ */
 function Drafts({ me, names }: { me: Me; names: SearchNames }) {
   const [drafts, setDrafts] = useState(() => draftsOf(me.id));
+  useEffect(() => {
+    const reread = () => setDrafts(draftsOf(me.id));
+    reread();
+    window.addEventListener(DRAFTS_CHANGED, reread);
+    window.addEventListener("storage", reread);
+    return () => {
+      window.removeEventListener(DRAFTS_CHANGED, reread);
+      window.removeEventListener("storage", reread);
+    };
+  }, [me.id]);
   const shown = useMemo(
     () => drafts.flatMap((draft) => {
       const room = names.room(draft.roomId);
@@ -78,9 +91,10 @@ function Drafts({ me, names }: { me: Me; names: SearchNames }) {
     }),
     [drafts, names],
   );
+  // One changed since it was read, as in another tab, is kept, and shows what it says now.
   const discard = (draft: Draft) => {
     discardDraft(draft);
-    setDrafts((drafts) => drafts.filter((d) => d.key !== draft.key));
+    setDrafts(draftsOf(me.id));
   };
   if (shown.length === 0) return <Nothing title="No drafts" />;
   return (

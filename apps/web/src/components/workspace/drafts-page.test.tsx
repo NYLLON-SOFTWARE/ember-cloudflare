@@ -1,6 +1,6 @@
 import type { Me, Message, Room, SearchResults } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
@@ -58,6 +58,22 @@ describe("Drafts & sent", () => {
     await userEvent.click(screen.getByRole("button", { name: "Delete draft in general" }));
     expect(screen.queryByRole("link", { name: /half a thought/ })).not.toBeInTheDocument();
     expect(localStorage.getItem("composer-draft-u1-general")).toBeNull();
+  });
+
+  it("reads the drafts again as another tab changes one, and keeps one changed since it was shown", async () => {
+    localStorage.setItem("composer-draft-u1-general", "<p>half a thought</p>");
+    showPage("drafts");
+    expect(screen.getByRole("link", { name: /half a thought/ })).toBeInTheDocument();
+    // Another tab writes more, which this tab hears of from storage.
+    localStorage.setItem("composer-draft-u1-general", "<p>a whole thought</p>");
+    act(() => void window.dispatchEvent(new StorageEvent("storage", { key: "composer-draft-u1-general" })));
+    expect(await screen.findByRole("link", { name: /a whole thought/ })).toBeInTheDocument();
+
+    // Changed again, by a tab this one hasn't heard from yet: Delete keeps what it says now.
+    localStorage.setItem("composer-draft-u1-general", "<p>a whole thought, and more</p>");
+    await userEvent.click(screen.getByRole("button", { name: "Delete draft in general" }));
+    expect(localStorage.getItem("composer-draft-u1-general")).toBe("<p>a whole thought, and more</p>");
+    expect(await screen.findByRole("link", { name: /and more/ })).toBeInTheDocument();
   });
 
   it("says when there are no drafts", () => {
