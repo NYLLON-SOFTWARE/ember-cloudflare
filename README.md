@@ -156,6 +156,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Search** | ✅ every message in your rooms and DMs, with Slack's filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |
 | **Unread, Activity, starred rooms, per-room notifications** | ✅ | ✅ |
 | **Do not disturb** | ✅ hush your push notifications for a while, from your profile or the rail, until the time you pick | ✅ |
+| **Saved items** | ✅ save a message for later, in a pane of your own | ✅ |
 | **Phones** | ✅ installable web app with push notifications | ✅ native iPhone and Android apps |
 | **Computers** | ✅ any modern browser, or installed as an app | ✅ native Mac, Windows and Linux apps, or the browser |
 | **Light and dark** | ✅ | ✅ |
