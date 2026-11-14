@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { subRoomName, type SharedRoom } from "@ember/protocol";
 import { Trash } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
-import { deleteRoom, fetchRoomsElsewhere } from "@/lib/api";
+import { deleteRoom, fetchRoomsElsewhere } from "@/lib/api-pages";
 import { useConfirm } from "./confirm-dialog";
 import { SLOT_CONTROL } from "./room-order";
 import { confirmDelete, roomLabel } from "./room-settings-page";

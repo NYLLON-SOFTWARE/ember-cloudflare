@@ -4,7 +4,8 @@ import { ArrowRight, Headset } from "@/components/icons/iconoir";
 import { SetupCard, STEP_BUTTON } from "@/components/setup-card";
 import { Button } from "@/components/ui/button";
 import { HuddlesSteps, useHuddlesKeys } from "@/components/workspace/huddles-steps";
-import { ApiError, fetchWorkspaceSettings, isSignedOut } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { fetchWorkspaceSettings } from "@/lib/api-pages";
 import { HUDDLE_CHAT } from "@/lib/huddle-chat";
 import { cn } from "@/lib/utils";
 

@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { WorkspaceSettings } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
-import { forgetTurnstileKeys, isSignedOut } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { forgetTurnstileKeys } from "@/lib/api-pages";
 import { useConfirm } from "./confirm-dialog";
 import { BUTTON } from "./email-settings";
 

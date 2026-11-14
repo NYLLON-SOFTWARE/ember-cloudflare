@@ -24,7 +24,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenu
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, pageMark, permalinkOf, SEARCHES_PATH, useQuery, useVisit } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { clearSearches, fetchSearch, isSignedOut } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { clearSearches, fetchSearch } from "@/lib/api-pages";
 import { dateLabel, dateTimeLabel } from "@/lib/messages";
 import { FLAG_LABELS, marksFor, takeAnswer } from "@/lib/search";
 import { cn } from "@/lib/utils";

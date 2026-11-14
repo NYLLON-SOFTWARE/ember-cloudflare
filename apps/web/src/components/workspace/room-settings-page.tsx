@@ -6,7 +6,8 @@ import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-r
 import { useTitle } from "@/hooks/use-title";
 import { Trash } from "@/components/icons/iconoir";
 import { LogOut } from "@/components/icons/iconoir-more";
-import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut, leaveRoom } from "@/lib/api";
+import { ApiError, fetchRoomSettings, isSignedOut } from "@/lib/api";
+import { changeRoom, deleteRoom, leaveRoom } from "@/lib/api-pages";
 import type { RoomAnswer } from "@/lib/room-list";
 import { leavingFor, peopleIn } from "@/lib/sub-rooms";
 import { useConfirm } from "./confirm-dialog";

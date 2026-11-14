@@ -18,7 +18,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { useOfferedModels } from "@/hooks/use-offered-models";
-import { ApiError, isSignedOut, saveAssistant } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { saveAssistant } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 

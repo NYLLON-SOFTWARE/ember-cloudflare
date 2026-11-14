@@ -2,7 +2,8 @@ import { useMemo, useRef, useState } from "react";
 import type { Me, RoomId, SharedRoom } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { useRoomDrag, type OrderStatus } from "@/hooks/use-room-drag";
-import { isSignedOut, setSharedOrder } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { setSharedOrder } from "@/lib/api-pages";
 import { inSidebarOrder } from "@/lib/room-list";
 import { flattened, roomTree, type RoomBranch } from "@/lib/sub-rooms";
 

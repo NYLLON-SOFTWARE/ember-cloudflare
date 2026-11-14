@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Account, EmailSettings as Email } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
-import { ApiError, changeAccount, isSignedOut, sendTestEmail } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { changeAccount, sendTestEmail } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "./confirm-dialog";
 

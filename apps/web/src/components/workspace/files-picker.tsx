@@ -3,7 +3,7 @@ import { reachesMore, type Message, type Room, type RoomId, type ShareWidening, 
 import { Lock, Page, Search, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
-import { fetchSearch } from "@/lib/api";
+import { fetchSearch } from "@/lib/api-pages";
 import type { EmberFile } from "@/lib/uploads";
 import { roomName } from "@/lib/directs";
 import { cn } from "@/lib/utils";

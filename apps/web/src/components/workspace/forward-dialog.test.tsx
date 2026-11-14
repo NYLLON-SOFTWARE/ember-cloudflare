@@ -3,12 +3,14 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
-import { ApiError, checkShare, forwardMessage } from "@/lib/api";
+import { ApiError, checkShare } from "@/lib/api";
+import { forwardMessage } from "@/lib/api-pages";
 import { tellMessageDeleted } from "@/lib/room-changes";
 import { ForwardDialog, matching, threadOfLink, type Destination } from "./forward-dialog";
 import { ConversationsContext } from "./quote-cite";
 
-vi.mock("@/lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api")>()), checkShare: vi.fn(), forwardMessage: vi.fn() }));
+vi.mock("@/lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api")>()), checkShare: vi.fn() }));
+vi.mock("@/lib/api-pages", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api-pages")>()), forwardMessage: vi.fn() }));
 
 const portside: Room = { id: "portside", kind: "open", name: "Portside", icon: null };
 const general: Room = { id: "general", kind: "open", name: "general", icon: null };

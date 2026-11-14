@@ -3,7 +3,8 @@ import { modelName, type AssistantField, type AssistantSettings, type OfferedMod
 import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useMounted } from "@/hooks/use-mounted";
-import { addAssistantModel, ApiError, isSignedOut } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { addAssistantModel } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { Actions } from "./assistant-setup";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./dialog-styles";

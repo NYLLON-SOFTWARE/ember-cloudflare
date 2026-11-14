@@ -19,7 +19,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { afterNavigating, navigate, pageMark } from "@/hooks/use-route";
-import { clearSearches, fetchSearch, isSignedOut, recordSearch } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { clearSearches, fetchSearch, recordSearch } from "@/lib/api-pages";
 import { opensFind } from "@/lib/keyboard";
 import { FLAG_LABELS, keepAnswer, modifierTyped, withoutFlag, withoutFromMe, withTypedFilters, type TypedModifier } from "@/lib/search";
 import { cn } from "@/lib/utils";
