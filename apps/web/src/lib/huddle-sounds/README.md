@@ -7,7 +7,7 @@ sounds of their own.
 |---|---|---|
 | `joined.mp3` | As someone joins the huddle, the tab's own person included | Two marimba notes a fourth apart, rising (E5, A5): 0.7 s, mono |
 | `left.mp3` | As someone leaves it, the tab's own person included | The same two notes, falling |
-| `music.mp3` | To whoever is the only one in the huddle, from five seconds after they find themselves alone until someone joins them | "Glass and Granite", jazz to wait to: 2 min 38 s, stereo, 1.7 MB, played on a loop. It opens softly and fades to silence over its last eighteen seconds, so the loop turns over on a rest |
+| `music.mp3` | To whoever is the only one in the huddle, from five seconds after they find themselves alone until someone joins them | "The Rotary Dial Shuffle", music to wait to: 2 min 50 s, stereo, 1.9 MB, played on a loop. It starts from silence and ends on a fade into two seconds of it, so the loop turns over on a rest |
 
 The two short sounds were written for Ember and are under its license (`LICENSE`): nobody is owed a
 royalty or a credit for them, and nothing in them is sampled from anyone's recording. FluidSynth
@@ -32,6 +32,6 @@ on a rest turns over cleanly, and the page fetches the whole file before playing
 starts sooner. For a piece of music, ffmpeg does both:
 
 ```sh
-ffmpeg -i piece.mp3 -af ebur128 -f null -   # prints its loudness: "I: -12.2 LUFS"
-ffmpeg -i piece.mp3 -af volume=-17.8dB -codec:a libmp3lame -q:a 6 -map_metadata -1 music.mp3   # -30 less that
+ffmpeg -i piece.mp3 -af ebur128 -f null -   # prints its loudness: "I: -12.7 LUFS"
+ffmpeg -i piece.mp3 -af volume=-17.3dB -codec:a libmp3lame -q:a 6 -map_metadata -1 music.mp3   # -30 less that
 ```
