@@ -3,6 +3,7 @@ import type { Account, EmailSettings as Email } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeAccount, isSignedOut, sendTestEmail } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 
 // The Email card in Membership, for administrators: what Ember sends email with, and from, and Send me a
 // test email, which says where it went, or why it wasn't sent. Until Ember can send email, it says so,
@@ -11,8 +12,7 @@ import { cn } from "@/lib/utils";
 // Custom domain's card is: what it says, then its buttons in a row.
 
 /** What Stop sending email asks first, since what Ember emails stops until email is set up again. */
-export const CONFIRM_STOP_EMAIL =
-  "Are you sure you want Ember to stop sending email? It will forget its From address, and won't email invitations, the links people at your email domains join with, or codes to reset a forgotten password, until email is set up again.";
+export const CONFIRM_STOP_EMAIL = { title: "Stop sending email", body: "Invitations, join links and password reset codes won’t be emailed until email is set up again." };
 
 /** The card's buttons, as Custom domain's are. */
 export const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";
@@ -47,9 +47,10 @@ export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFail
   const sends = sendsEmail(email);
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_EMAIL)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_EMAIL.title, { body: CONFIRM_STOP_EMAIL.body, confirm: "Stop sending", destructive: true }))) return;
     setStopping(true);
     const answered = askForAccount();
     changeAccount({ emailFrom: null }).then(
@@ -99,6 +100,7 @@ export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFail
           </button>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }

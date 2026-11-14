@@ -30,7 +30,7 @@ export const mobileProjects: MobileProject[] = [
   phone("Pixel 8", devices["Pixel 8"]!, ANDROID_EDGE_TO_EDGE),
   phone("iPhone 17 Pro Max", devices["iPhone 17 Pro Max"]!, IPHONE_PORTRAIT),
   // With viewport-fit=cover a landscape page spans the whole screen, notch side included, so these
-  // use the screen width rather than Playwright's letterboxed one. 874px still gets the drawer layout;
+  // use the screen width rather than Playwright's letterboxed one. 874px still gets the phone layout;
   // 956px is past the 900px breakpoint, so it is the desktop layout on a touch screen.
   phone("iPhone 17 landscape", devices["iPhone 17 landscape"]!, IPHONE_LANDSCAPE, { width: 874, height: 352 }),
   phone("iPhone 17 Pro Max landscape", devices["iPhone 17 Pro Max landscape"]!, IPHONE_LANDSCAPE, { width: 956, height: 390 }),

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CANT_SEND_EMAIL, type EmailSettings as Email } from "@ember/protocol";
 import { ApiError } from "@/lib/api";
+import { answerConfirm } from "@/test-confirm";
 import { CONFIRM_STOP_EMAIL, EmailSettings } from "./email-settings";
 
 /** How a new workspace sends email: with the binding wrangler.jsonc declares, from no address yet. */
@@ -93,13 +94,14 @@ describe("Sending email", () => {
   it("takes the From address away once the administrator confirms Stop sending email", async () => {
     const answer = held(() => Response.json({ account: { name: "Ember" } }));
     const fetch = serve(undefined, answer.answered);
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user, answered, onStopped } = showCard({ ...NEW_EMAIL, from: "Ember <ember@example.com>" });
     await user.click(stopButton()!);
-    expect(sure).toHaveBeenCalledWith(CONFIRM_STOP_EMAIL);
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
 
     await user.click(stopButton()!);
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Stop sending");
     expect(fetch).toHaveBeenCalledWith("/api/account", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ emailFrom: null }) }));
     expect(stopButton()).toBeDisabled();
     expect(screen.getByRole("button", { name: "Change" })).toBeDisabled();
@@ -107,13 +109,14 @@ describe("Sending email", () => {
     expect(answered).toHaveBeenCalledWith({ name: "Ember" });
     expect(onStopped).toHaveBeenCalledOnce();
     expect(stopButton()).toBeEnabled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("leaves Stop sending email that failed to the page's alerts", async () => {
     serve(undefined, () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user, onStopped, onFailed } = showCard({ ...NEW_EMAIL, from: "Ember <ember@example.com>" });
     await user.click(stopButton()!);
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Stop sending");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
     expect(onStopped).not.toHaveBeenCalled();
     expect(stopButton()).toBeEnabled();

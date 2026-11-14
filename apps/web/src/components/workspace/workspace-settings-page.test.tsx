@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -35,6 +35,7 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { timeLabel } from "@/lib/messages";
+import { answerConfirm } from "@/test-confirm";
 // Ember's own Update Ember workflow, which the card offers a copy without one: the copy beside the deploy
 // script, which CI keeps the same as .github's, since a copy's .github keeps its own workflow, or none.
 import EMBERS_WORKFLOW from "../../../../worker/scripts/update-ember.yml?raw";
@@ -48,10 +49,12 @@ import {
   HOW_TO_ADD_THE_BETA_WORKFLOW,
   HOW_TO_ADD_THE_WORKFLOW,
 } from "./ember-version";
-import { AGENTS_ANSWER, ASSISTANT_EXPLAINED } from "./assistant-settings";
-import { CONFIRM_REMOVE } from "./people-list";
+import { AGENTS_ANSWER, ASSISTANT_EXPLAINED, CONFIRM_STOP_ASSISTANT } from "./assistant-settings";
+import { CONFIRM_STOP_EMAIL } from "./email-settings";
+import { CONFIRM_STOP_HUDDLES } from "./huddles-settings";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
 import { CHANGES_SAVED } from "./settings-page";
+import { CONFIRM_STOP_TURNSTILE } from "./turnstile-settings";
 import { CONFIRM_MEMBERS_ONLY, CONFIRM_OPEN } from "./ways-to-join";
 import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
@@ -1212,7 +1215,7 @@ describe("Sign in with Memberful", () => {
 
   it("makes it members only once they confirm, saved at once with no notice, which turns the join link off and greys out Open", async () => {
     serve(withMemberful(withKeys));
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { onAccountChanged, user } = showPage();
     expect(await memberfulSwitch()).toBeChecked();
     const membersOnly = membersOnlySwitch()!;
@@ -1222,7 +1225,7 @@ describe("Sign in with Memberful", () => {
     );
 
     await user.click(membersOnly);
-    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_MEMBERS_ONLY);
+    await answerConfirm(user, CONFIRM_MEMBERS_ONLY.title, "Turn on");
     expect(membersOnly).toBeChecked();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, memberfulJoin: true, memberfulSignIn: true }));
     expect(saved()).toEqual([{ settings: { memberfulSignIn: true } }]);
@@ -1233,15 +1236,16 @@ describe("Sign in with Memberful", () => {
       expect(way).toHaveAccessibleDescription("Off while Memberful is members only.");
     }
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("leaves it open to everyone else unless they confirm", async () => {
     serve(withMemberful(withKeys));
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const { user } = showPage();
     await memberfulSwitch();
     const membersOnly = membersOnlySwitch()!;
     await user.click(membersOnly);
+    await answerConfirm(user, CONFIRM_MEMBERS_ONLY.title, "Cancel");
     expect(membersOnly).not.toBeChecked();
     expect(saved()).toEqual([]);
   });
@@ -1280,7 +1284,6 @@ describe("Sign in with Memberful", () => {
   it("greys out each of its two switches while the other's move is saved, since saving either changes the other", async () => {
     let answer = (_: Response) => {};
     serve(withKeys, { saved: () => new Promise((resolve) => (answer = resolve)) });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const on = await memberfulSwitch();
     await user.click(on);
@@ -1291,6 +1294,7 @@ describe("Sign in with Memberful", () => {
 
     // Were turning Memberful off saved before turning Members only on, Members only would turn it back on.
     await user.click(membersOnly);
+    await answerConfirm(user, CONFIRM_MEMBERS_ONLY.title, "Turn on");
     expect(membersOnly).toBeChecked();
     expect(on).toBeDisabled();
     await act(async () => answer(Response.json({ account: { ...withKeys.account, memberfulJoin: true, memberfulSignIn: true } })));
@@ -1383,11 +1387,11 @@ describe("Ways to join", () => {
 
   it("turns Open on once you confirm, saved at once with no notice, showing its address and setting the others aside", async () => {
     serve(withKeys);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { onAccountChanged, user } = showPage();
     const open = await way("Open");
     await user.click(open);
-    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_OPEN);
+    await answerConfirm(user, CONFIRM_OPEN.title, "Turn on");
     expect(open).toBeChecked();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, openSignUp: true }));
     expect(saved()).toEqual([{ settings: { openSignUp: true } }]);
@@ -1403,13 +1407,14 @@ describe("Ways to join", () => {
     expect(await way("Join link")).toBeChecked();
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("leaves Open off unless you confirm", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const { user } = showPage();
     const open = await way("Open");
     await user.click(open);
+    await answerConfirm(user, CONFIRM_OPEN.title, "Cancel");
     expect(open).not.toBeChecked();
     expect(saved()).toEqual([]);
   });
@@ -1445,11 +1450,12 @@ describe("Ways to join", () => {
   it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
     let answer = (_: Response) => {};
     serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onFailed, user } = showPage();
     const open = await way("Open");
     await user.click(open);
+    await answerConfirm(user, CONFIRM_OPEN.title, "Turn on");
     await user.click(open);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(open).toBeChecked();
     expect(saved()).toEqual([{ settings: { openSignUp: true } }]);
 
@@ -1532,7 +1538,6 @@ describe("Ways to join", () => {
 
   it("keeps Memberful beside the join link and Open, set aside while Open is on", async () => {
     serve(withAccount(withKeys, { memberfulJoin: true, joinLink: false }));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const link = await way("Join link");
     expect(link).toBeEnabled();
@@ -1541,6 +1546,7 @@ describe("Ways to join", () => {
 
     const open = await way("Open");
     await user.click(open);
+    await answerConfirm(user, CONFIRM_OPEN.title, "Turn on");
     await waitFor(async () => expect(await way("Memberful")).toBeDisabled());
     expect(saved()).toEqual([{ settings: { joinLink: true } }, { settings: { openSignUp: true } }]);
     const memberful = await way("Memberful");
@@ -1875,10 +1881,10 @@ describe("Sending email", () => {
       emailDomains: ["example.org"],
       email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" },
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const email = await screen.findByRole("region", { name: "Email" });
     await user.click(within(email).getByRole("button", { name: "Stop sending email" }));
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Stop sending");
     expect(await within(email).findByRole("button", { name: "Set up email" })).toBeInTheDocument();
     expect(saved()).toEqual([{ emailFrom: null }]);
     expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
@@ -1931,10 +1937,10 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
 
   it("turns Turnstile off once the administrator confirms, as Who can join then says", async () => {
     serve(open("saved"));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const turnstile = await screen.findByRole("region", { name: "Turnstile" });
     await user.click(within(turnstile).getByRole("switch", { name: "Turnstile" }));
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Turn off");
     await waitFor(() => expect(within(turnstile).queryByRole("button", { name: "Change keys" })).not.toBeInTheDocument());
     expect(within(turnstile).getByRole("switch", { name: "Turnstile" })).not.toBeChecked();
     expect(within(turnstile).getByRole("switch", { name: "Turnstile" })).toBeEnabled();
@@ -2015,12 +2021,12 @@ describe("Ember AI", () => {
 
   it("turns Ember AI off once the administrator confirms, taking the agents away", async () => {
     serve({ ...asAdministrator, assistant: ON });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const card = await screen.findByRole("region", { name: "Ember AI" });
     expect(card).toHaveTextContent(AGENTS_ANSWER);
     expect(agentsCard()).toBeInTheDocument();
     await user.click(within(card).getByRole("switch", { name: "Ember AI" }));
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Turn off");
     await waitFor(() => expect(within(card).queryByRole("button", { name: "Change" })).not.toBeInTheDocument());
     expect(within(card).getByRole("switch", { name: "Ember AI" })).not.toBeChecked();
     expect(card).toHaveTextContent(ASSISTANT_EXPLAINED);
@@ -2079,11 +2085,11 @@ describe("Set up huddles", () => {
 
   it("turns huddles off once the administrator confirms", async () => {
     serve({ ...asAdministrator, huddles: { appId: APP.appId } });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const card = await huddlesCard();
     expect(card).toHaveTextContent(`Huddles run through the Realtime SFU app ${APP.appId} in your Cloudflare account.`);
     await user.click(within(card).getByRole("switch", { name: "Audio and video chat" }));
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES.title, "Turn off");
     await waitFor(() => expect(within(card).queryByRole("button", { name: "Change keys" })).not.toBeInTheDocument());
     expect(within(card).getByRole("switch", { name: "Audio and video chat" })).not.toBeChecked();
     expect(within(card).getByRole("switch", { name: "Audio and video chat" })).toBeEnabled();
@@ -2179,13 +2185,28 @@ describe("Join link", () => {
 describe("Regenerate the join link", () => {
   showingSection("membership-settings");
 
-  it("lets an administrator regenerate the link at once, with no notice", async () => {
+  it("lets an administrator regenerate the link once they confirm, with no notice", async () => {
     const { onJoinCodeChanged, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
+    const asked = await screen.findByRole("alertdialog", { name: "Regenerate join link" });
+    expect(asked).toHaveAccessibleDescription("The current link will stop working.");
+    expect(within(asked).getByRole("button", { name: "Regenerate" })).toHaveClass("bg-negative-button");
+    await answerConfirm(user, "Regenerate join link", "Regenerate");
     await waitFor(async () => expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${NEW_JOIN_CODE}`));
     expect(fetch).toHaveBeenCalledWith("/api/account/join_code", expect.objectContaining({ method: "POST" }));
     expect(onJoinCodeChanged).toHaveBeenLastCalledWith(NEW_JOIN_CODE);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the link unless they confirm, handing focus back to Regenerate join link", async () => {
+    const { onJoinCodeChanged, user } = showPage();
+    const regenerate = await screen.findByRole("button", { name: "Regenerate join link" });
+    await user.click(regenerate);
+    await answerConfirm(user, "Regenerate join link", "Cancel");
+    await waitFor(() => expect(regenerate).toHaveFocus());
+    expect(fetch).not.toHaveBeenCalledWith("/api/account/join_code", expect.anything());
+    expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
+    expect(onJoinCodeChanged).toHaveBeenCalledOnce();
   });
 
   it("can't regenerate it again until the last is answered", async () => {
@@ -2194,7 +2215,8 @@ describe("Regenerate the join link", () => {
     const { user } = showPage();
     const regenerate = await screen.findByRole("button", { name: "Regenerate join link" });
     await user.click(regenerate);
-    expect(regenerate).toBeDisabled();
+    await answerConfirm(user, "Regenerate join link", "Regenerate");
+    await waitFor(() => expect(regenerate).toBeDisabled());
     answer(Response.json({ joinCode: NEW_JOIN_CODE }));
     await waitFor(() => expect(regenerate).toBeEnabled());
   });
@@ -2203,6 +2225,7 @@ describe("Regenerate the join link", () => {
     serve(asAdministrator, { regenerated: () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }) });
     const { onFailed, onJoinCodeChanged, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
+    await answerConfirm(user, "Regenerate join link", "Regenerate");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
     expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
     expect(screen.getByRole("button", { name: "Regenerate join link" })).toBeEnabled();
@@ -2293,11 +2316,11 @@ describe("Only administrators create rooms (setting)", () => {
 });
 
 describe("Shared room order", () => {
-  const HELP = "Drag a room to reorder your community sidebar. Click a room to set its permissions.";
+  const HELP = "Drag a room, or press Alt and Up or Down, to reorder the sidebar.";
   const orderList = () => screen.getByRole("list", { name: "Room order" });
   const orderRows = () => within(orderList()).getAllByRole("listitem");
   /** The room a row is for, by the name its link to the room's settings has. */
-  const roomOf = (row: HTMLElement) => within(row).getByRole("link").getAttribute("aria-label")!.replace("Settings for ", "");
+  const roomOf = (row: HTMLElement) => within(row).getByRole("link", { name: /^Settings for / }).getAttribute("aria-label")!.replace("Settings for ", "");
   /** The rooms the list shows, top to bottom. */
   const ordered = () => orderRows().map(roomOf);
   const orderRow = (name: string) => orderRows().find((row) => roomOf(row) === name)!;
@@ -2320,7 +2343,7 @@ describe("Shared room order", () => {
     act(() => sidebarSays(adasRooms, ["random", "general"]));
     expect(ordered()).toEqual(["random", "general", "Design"]);
 
-    expect(screen.getByText(HELP)).toBeInTheDocument();
+    expect(screen.getByText(HELP)).toHaveClass("sr-only");
     for (const row of orderRows()) {
       expect(row).toHaveAccessibleDescription(HELP);
       expect(row).toHaveAttribute("tabindex", "0");
@@ -2860,7 +2883,11 @@ const removals = () =>
     .mocked(fetch)
     .mock.calls.filter(([, init]) => init?.method === "DELETE")
     .map(([input]) => String(input).split("/").at(-1));
-const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
+/** Presses Delete on `name`'s row and answers what it asks with Delete, or else Cancel. */
+async function pressRemove(user: UserEvent, name: string, confirm = true) {
+  await user.click((await deleteOf(name))!);
+  await answerConfirm(user, `Delete ${name}`, confirm ? "Delete" : "Cancel");
+}
 
 describe("Remove someone from the workspace", () => {
   showingSection("membership-settings");
@@ -2885,32 +2912,31 @@ describe("Remove someone from the workspace", () => {
   });
 
   it("removes someone once you confirm, with no notice, and they leave the list", async () => {
-    const confirm = confirmed(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { onPersonChanged, user } = showPage();
-    await user.click((await deleteOf("linus Torvalds"))!);
-    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_REMOVE);
+    await pressRemove(user, "linus Torvalds");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...linus, status: "deactivated" }));
     expect(removals()).toEqual(["u3"]);
     expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper"], ["Mallory"]]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("removes nobody unless you confirm", async () => {
-    confirmed(false);
     const { user } = showPage();
-    await user.click((await deleteOf("linus Torvalds"))!);
+    await pressRemove(user, "linus Torvalds", false);
     expect(removals()).toEqual([]);
     expect((await readList()).flat()).toContain("linus Torvalds");
   });
 
   it("can't be pressed again until the removal is answered", async () => {
-    confirmed(true);
     let answer = (_: Response) => {};
     serve(asAdministrator, { removed: () => new Promise((resolve) => (answer = resolve)) });
     const { user } = showPage();
     const remove = (await deleteOf("linus Torvalds"))!;
     await user.click(remove);
-    expect(remove).toBeDisabled();
+    await answerConfirm(user, "Delete linus Torvalds", "Delete");
+    await waitFor(() => expect(remove).toBeDisabled());
     await user.click(remove);
     expect(removals()).toEqual(["u3"]);
     answer(Response.json({ user: { ...linus, status: "deactivated" } }));
@@ -2918,27 +2944,25 @@ describe("Remove someone from the workspace", () => {
   });
 
   it("needs no answer the workspace socket has already brought", async () => {
-    confirmed(true);
     let answer = (_: Response) => {};
     serve(asAdministrator, { removed: () => new Promise((resolve) => (answer = resolve)) });
     const { onPersonChanged, reloadPeople, user } = showPage();
-    await user.click((await deleteOf("linus Torvalds"))!);
+    await pressRemove(user, "linus Torvalds");
     act(() => socketSays({ ...linus, status: "deactivated" }));
     expect((await readList()).flat()).not.toContain("linus Torvalds");
     answer(Response.json({ user: { ...linus, status: "deactivated" } }));
     // Answered after Linus's, Grace's removal shows his answer has been heard.
     serve(asAdministrator);
-    await user.click((await deleteOf("Grace Hopper"))!);
+    await pressRemove(user, "Grace Hopper");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...grace, status: "deactivated" }));
     expect(onPersonChanged).toHaveBeenCalledOnce();
     expect(reloadPeople).toHaveBeenCalledOnce();
   });
 
   it("says why a removal was refused, keeping them listed, to be tried again", async () => {
-    confirmed(true);
     serve(asAdministrator, { removed: () => Response.json({ error: "Only administrators can remove people" }, { status: 403 }) });
     const { onFailed, onPersonChanged, user } = showPage();
-    await user.click((await deleteOf("linus Torvalds"))!);
+    await pressRemove(user, "linus Torvalds");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
     expect(await deleteOf("linus Torvalds")).toBeEnabled();
     expect((await readList()).flat()).toContain("linus Torvalds");

@@ -13,9 +13,27 @@ import {
   type Ref,
   type RefObject,
 } from "react";
-import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
+import { QUICK_REACTION_COUNT, REACTIONS, type Message, type SavedList, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
+import { useOptionalFlash } from "@/components/flash";
+import {
+  ArrowRight,
+  Bookmark,
+  BookmarkSolid,
+  ChatPlusIn,
+  CheckCircle,
+  CheckCircleSolid,
+  Copy,
+  Download,
+  Edit,
+  Emoji,
+  Link,
+  MessageText,
+  MoreHoriz,
+  QuoteMessage,
+  ShareAndroid,
+  Trash,
+} from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -23,14 +41,16 @@ import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { permalinkOf } from "@/hooks/use-route";
 import { copyWithSuccess } from "@/lib/clipboard";
-import { replyQuote } from "@/lib/messages";
+import { hasEditableText, replyQuote } from "@/lib/messages";
+import { toggleKept, useSavedMark } from "@/lib/saved";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
 import { UNKNOWN_PERSON } from "./message-body";
+import { RarePage } from "./rare-pages";
 
 /** With a mouse, the bar overlaps its message. */
-const OVERLAPPING = "(hover: hover) and (pointer: fine)";
+export const OVERLAPPING = "(hover: hover) and (pointer: fine)";
 
 /** How long a bar that hovering opened stays after the pointer leaves it, so the pointer can cross to it. */
 const LEAVE_DELAY_MS = 180;
@@ -45,7 +65,7 @@ const ACTION =
   "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-[0.8rem] font-medium text-message-muted transition-colors duration-150 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:size-11 [&_svg]:size-4";
 
 /** The bar and the tray of more reactions. */
-const PANEL = "rounded-[11px] border border-message-border bg-background shadow-[0_1px_3px_#0000001a]";
+export const PANEL = "rounded-[11px] border border-message-border bg-background shadow-[0_1px_3px_#0000001a]";
 
 /** An item of More actions: its icon, as the bar draws it, then its name, the panel's whole width. */
 const ITEM =
@@ -74,22 +94,19 @@ interface Props {
   onDelete: () => boolean;
   /** Opens the message's Custom reaction form, from New boost. */
   onNewBoost: () => void;
+  /** Opens Forward message for the message, given what opened it, or left out where it can't be forwarded. */
+  onForward?: (opener: HTMLElement) => void;
   ref?: Ref<MessageActionsHandle>;
 }
 
 export interface MessageActionsHandle {
-  /**
-   * Opens the bar with More reactions showing and focuses the first of them, as Add a boost does.
-   * Clicking `from` again leaves the bar open, and Escape hands focus back to it.
-   */
-  openReactions: (from: HTMLElement) => void;
   /** Focuses Message options, as sending a reaction does. */
   focus: () => void;
 }
 
 /**
  * The message actions: Message options, which opens a bar of three quick reactions, More reactions, whose
- * tray holds the other reactions and New boost, Reply in thread, a file message's Download, and Edit, in the
+ * tray holds the emoji picker and New boost, Reply in thread, Forward message, a file message's Download, and Edit, in the
  * order Slack's bar has them. With a mouse, hovering the message opens the bar too, laid over the message's
  * top edge at the timeline's right, with Message options pinned as its last button, and each button names
  * itself in a tooltip as the pointer reaches it. On touch screens it opens beside Message options, with
@@ -99,7 +116,7 @@ export interface MessageActionsHandle {
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Quote, Copy text,
  * Copy link, and on messages you can change, Edit message and Delete message.
  */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, onForward, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -107,9 +124,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // Whether hovering opened the bar, which leaving then closes, unless Message options pinned it.
   const hoverOpened = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // The Add a boost that opened the bar, if one did and More actions hasn't opened since.
-  const boostTrigger = useRef<HTMLElement | null>(null);
-  // Whether the tray's first reaction is still to be focused, as Add a boost or More reactions opens it.
+  // Whether the tray's first reaction is still to be focused, as More reactions opens it.
   const focusingTray = useRef(false);
   // Whether More actions' first item is still to be focused, as it opens.
   const focusingActions = useRef(false);
@@ -126,6 +141,9 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // What Copy text copies: the message's plain text, which holds a bot's cards' too. A file message has none
   // but its file's name.
   const text = message.attachment ? null : message.plainText;
+  // Where you keep the message, if you do, which Add to to-dos and Save say.
+  const kept = useSavedMark(message.id)?.list;
+  const flash = useOptionalFlash();
 
   const show = (byHovering: boolean) => {
     hoverOpened.current = byHovering;
@@ -136,7 +154,6 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const close = () => {
     clearTimeout(leaveTimer.current);
     hoverOpened.current = false;
-    boostTrigger.current = null;
     setOpen(false);
     setTrayOpen(false);
     setActionsOpen(false);
@@ -165,23 +182,43 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     onEdit();
   };
 
+  // Forward message closes the bar too, and the dialog it opens takes focus, handing it back to Message
+  // options as it closes.
+  const forward = () => {
+    close();
+    onForward?.(trigger.current!);
+  };
+
+  // Add to to-dos and Save keep the message, or take it out of the list it's in, leaving the bar open.
+  const keep = (list: SavedList) => {
+    toggleKept(list, message.roomId, message.id).catch((error: unknown) => flash?.("alert", error instanceof Error ? error.message : String(error)));
+  };
+
   // New boost closes the bar too, and the form it opens takes focus.
   const newBoost = () => {
     close();
     onNewBoost();
   };
 
-  // Delete message asks first, as the editor's does. The composer takes focus as the message goes, or Message
-  // options does where the deletion can't be sent.
+  // Delete message asks first, in the app's own dialog. The composer takes focus as the message goes, or
+  // Message options does where the deletion can't be sent, or the dialog's cancelled.
+  const [deleting, setDeleting] = useState(false);
+  const confirmed = useRef(false);
   const deleteMessage = () => {
-    if (!confirm("Are you sure you want to delete this message?")) return;
     close();
-    if (!onDelete()) trigger.current?.focus({ preventScroll: true });
+    setDeleting(true);
+  };
+  // Once the dialog has closed, as focus can't leave it while it's open.
+  const closedDialog = () => {
+    const sent = confirmed.current && onDelete();
+    confirmed.current = false;
+    if (!sent) trigger.current?.focus({ preventScroll: true });
   };
 
+  // With a mouse, the picker's search, or else its first emoji, so a touch screen's keyboard stays down.
   const focusFirstReaction = () => {
     focusingTray.current = false;
-    tray.current?.querySelector("button")?.focus({ preventScroll: true });
+    tray.current?.querySelector<HTMLElement>(overlapping ? "input" : "button[data-emoji]")?.focus({ preventScroll: true });
   };
 
   const focusFirstAction = () => {
@@ -190,39 +227,46 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   };
 
   // The tray and More actions open in the same place, under the bar, so one shuts as the other opens. The
-  // tray's first reaction takes focus as it opens, as More actions' first item does, since Tab from More
-  // reactions reaches the rest of the bar first.
+  // tray's picker takes focus as it opens, as More actions' first item does, since Tab from More reactions
+  // reaches the rest of the bar first.
   const toggleTray = () => {
+    if (!trayOpen && !overlapping && trayTooShort()) {
+      close();
+      setReactionSheetOpen(true);
+      return;
+    }
     focusingTray.current = !trayOpen;
     setActionsOpen(false);
     setTrayOpen(!trayOpen);
   };
 
-  // Opening More actions keeps the bar open and makes it Message options' bar, so Escape shuts More
-  // actions first even where Add a boost opened the bar.
+  // On a touch screen whose timeline can't hold the bar and enough of the tray to use, as a phone's held
+  // sideways, More reactions opens the reactions sheet a phone's Add reaction does instead, over everything.
+  const [reactionSheetOpen, setReactionSheetOpen] = useState(false);
+  const [reactionSheetShown, reactionSheetFailed] = [reactionSheetOpen, () => setReactionSheetOpen(false)] as const;
+  const trayTooShort = () => {
+    const timeline = row.current?.closest('[role="log"]')?.getBoundingClientRect();
+    if (!timeline?.height) return false;
+    const screen = window.visualViewport?.height || window.innerHeight;
+    const height = Math.min(timeline.bottom, screen) - Math.max(timeline.top, 0) - 16;
+    return height - (bar.current?.getBoundingClientRect().height ?? 0) - 6 < MIN_SHORT_PANEL_HEIGHT;
+  };
+  // Focus goes back to Message options, unless what was picked, as New boost's form, took it.
+  const reactionSheetClosed = (event: Event) => {
+    event.preventDefault();
+    if (document.activeElement === document.body || document.activeElement === null) trigger.current?.focus({ preventScroll: true });
+  };
+
+  // Opening More actions keeps the bar open.
   const toggleActions = () => {
     clearTimeout(leaveTimer.current);
     hoverOpened.current = false;
-    boostTrigger.current = null;
     focusingActions.current = !actionsOpen;
     setTrayOpen(false);
     setActionsOpen(!actionsOpen);
   };
 
   useImperativeHandle(ref, () => ({
-    // As the controller's click on `.message__boost-inline .boost__action` does.
-    openReactions: (from) => {
-      clearTimeout(leaveTimer.current);
-      hoverOpened.current = false;
-      boostTrigger.current = from;
-      focusingTray.current = true;
-      setRendered(true);
-      setOpen(true);
-      setActionsOpen(false);
-      setTrayOpen(true);
-      // An open bar with its tray showing doesn't render again, so its reaction is focused here.
-      if (open && trayOpen) focusFirstReaction();
-    },
     focus: () => trigger.current?.focus({ preventScroll: true }),
   }));
 
@@ -237,10 +281,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     // The bar can leave the page, with its message or as the message's editor opens, a moment before what
     // watches the page for it stops.
     if (!open || !container.current) return;
-    // Add a boost goes if the message's last reaction does while the bar is open.
-    const anchor = boostTrigger.current?.isConnected ? boostTrigger.current : trigger.current!;
     const panel = actionsOpen ? actionsPanel.current! : tray.current!;
-    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, anchor, menu: menu.current!, bar: bar.current!, panel, overlapping })) close();
+    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, menu: menu.current!, bar: bar.current!, panel, overlapping })) close();
   };
 
   const hovered = useEffectEvent((event: PointerEvent) => {
@@ -274,8 +316,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   }, [row]);
 
   const clickedElsewhere = useEffectEvent((event: Event) => {
-    const target = event.target as Node;
-    if (!container.current?.contains(target) && !boostTrigger.current?.contains(target)) close();
+    if (!container.current?.contains(event.target as Node)) close();
   });
 
   // Focus leaving the bar closes it, rather than focus landing anywhere else, which would shut a bar the
@@ -284,18 +325,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     if (event.relatedTarget && !container.current?.contains(event.relatedTarget as Node)) close();
   });
 
-  // Escape closes a bar Add a boost opened, handing focus back to it. Otherwise it closes the tray first,
-  // handing focus to More reactions, or More actions, handing it to Message options, then the bar, handing
-  // it to Message options. While you're elsewhere, as in the composer under a bar the pointer opened, it
-  // only closes the bar.
+  // Escape closes the tray first, handing focus to More reactions, or More actions, handing it to Message
+  // options, then the bar, handing it to Message options. While you're elsewhere, as in the composer under a
+  // bar the pointer opened, it only closes the bar.
   const keyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
-    const from = boostTrigger.current;
-    if (from) {
-      event.preventDefault();
-      close();
-      return (from.isConnected ? from : trigger.current)?.focus({ preventScroll: true });
-    }
     if (!container.current?.contains(document.activeElement)) return close();
     event.preventDefault();
     if (trayOpen) {
@@ -324,7 +358,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     document.addEventListener("click", (event) => clickedElsewhere(event), options);
     container.current!.addEventListener("focusout", (event) => focusLeft(event), options);
     document.addEventListener("keydown", (event) => keyDown(event), options);
-    document.addEventListener("scroll", () => moved(), { ...options, capture: true, passive: true });
+    // Scrolling the tray's emoji moves nothing.
+    const scrolled = (event: Event) => {
+      if (!menu.current?.contains(event.target as Node)) moved();
+    };
+    document.addEventListener("scroll", scrolled, { ...options, capture: true, passive: true });
     window.addEventListener("resize", () => moved(), options);
     window.visualViewport?.addEventListener("resize", () => moved(), options);
     const resized = new ResizeObserver(() => moved());
@@ -392,6 +430,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
           hidden={!open}
           onPointerEnter={() => clearTimeout(leaveTimer.current)}
           onPointerLeave={() => left()}
+          // A mouse's press on a button or link keeps focus where it is. Safari focuses no button it clicks,
+          // but the timeline around it, so focus leaving the bar would shut it before the click lands.
+          onMouseDown={(event) => {
+            if ((event.target as Element).closest("button, a")) event.preventDefault();
+          }}
           className="group/menu fixed z-30 grid w-max min-w-0 gap-[7px]"
         >
           <div
@@ -427,6 +470,17 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </PageLink>
               </ActionTooltip>
             )}
+            {/* Slack's order after the reactions: Forward message, then Add to to-dos. */}
+            {onForward && (
+              <ActionTooltip label="Forward message…">
+                <button type="button" aria-label="Forward message…" className={ACTION} onClick={forward}>
+                  <ArrowRight />
+                </button>
+              </ActionTooltip>
+            )}
+            {/* After Forward message, as Slack's bar has it, and a file's Save, as a file's own save is in Slack. */}
+            <KeepButton list="todo" kept={kept} onKeep={keep} />
+            {message.attachment && <KeepButton list="saved" kept={kept} onKeep={keep} />}
             {/* More actions holds Quote and Copy link with a mouse. */}
             {message.attachment ? (
               <FileActions file={message.attachment} />
@@ -442,15 +496,22 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             {!overlapping && (
               <ActionTooltip label="Copy link">
                 <button type="button" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
-                  <Copy />
+                  <Link />
                 </button>
               </ActionTooltip>
             )}
-            {/* As Campfire's `.message__edit-btn` shows (messages.css). */}
-            {editable && (
+            {/* Without a mouse, which More actions opens for, Edit and Delete message are the bar's. */}
+            {!overlapping && editable && hasEditableText(message) && (
               <ActionTooltip label="Edit">
                 <button type="button" aria-label="Edit" className={ACTION} onClick={edit}>
                   <Edit />
+                </button>
+              </ActionTooltip>
+            )}
+            {!overlapping && editable && (
+              <ActionTooltip label="Delete message">
+                <button type="button" aria-label="Delete message" className={cn(ACTION, "text-negative")} onClick={deleteMessage}>
+                  <Trash />
                 </button>
               </ActionTooltip>
             )}
@@ -461,19 +522,22 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             role="group"
             aria-label="More reactions"
             hidden={!trayOpen}
-            className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-2 group-data-[panel-above]/menu:-order-1")}
+            className={cn(PANEL, "flex w-max max-w-full flex-col justify-self-end overflow-y-auto overscroll-contain group-data-[panel-above]/menu:-order-1")}
           >
-            <span className="mx-[3px] mb-[5px] block text-[11px] leading-normal font-medium text-muted-foreground">More reactions</span>
-            <div className="flex flex-wrap">
-              {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
-                <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
-              ))}
-              <ActionTooltip label="New boost">
-                <button type="button" className={ACTION} onClick={newBoost}>
-                  <ChatPlusIn />
-                  <span className="sr-only">New boost</span>
-                </button>
-              </ActionTooltip>
+            {/* The emoji picker, which loads with the pages few visits need, opens afresh each time. */}
+            {trayOpen && (
+              <RarePage
+                // It gives up height for the tray to fit, down to its search, categories and two rows of emoji,
+                // below which the tray scrolls, New boost and all.
+                show={({ EmojiPicker }) => <EmojiPicker onPick={react} autoFocus={overlapping} className="min-h-[12.5rem] touch:min-h-[15.5rem]" />}
+                loading={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}
+              />
+            )}
+            <div className="flex-none border-t border-message-border p-1">
+              <button type="button" className={ITEM} onClick={newBoost}>
+                <ChatPlusIn />
+                New boost
+              </button>
             </div>
           </div>
           <div
@@ -497,14 +561,21 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               </button>
             )}
             <button type="button" className={ITEM} onClick={(event) => void copyLink(event, message)}>
-              <Copy />
+              <Link />
               Copy link
             </button>
+            {/* The bar has Add to to-dos, and a file's Save. */}
+            {!message.attachment && (
+              <button type="button" className={ITEM} onClick={() => keep("saved")}>
+                {kept === "saved" ? <BookmarkSolid /> : <Bookmark />}
+                {kept === "saved" ? "Remove from saved" : "Save"}
+              </button>
+            )}
             {editable && (
               <>
                 <hr className="my-1 border-message-border" />
-                {/* The text of a file message, or of a bot's cards, can't be changed, so only the bar's Edit opens their editor. */}
-                {!message.attachment && !message.cards && (
+                {/* The text of a file message, of a bot's cards, or of a forward's quote, can't be changed. */}
+                {hasEditableText(message) && (
                   <button type="button" className={ITEM} onClick={edit}>
                     <Edit />
                     Edit message
@@ -518,6 +589,31 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             )}
           </div>
         </div>
+      )}
+      {reactionSheetShown && (
+        <RarePage
+          show={({ ReactionSheet }) => (
+            <ReactionSheet open={reactionSheetOpen} onOpenChange={setReactionSheetOpen} onCloseAutoFocus={reactionSheetClosed} onReact={onReact} onNewBoost={onNewBoost} />
+          )}
+          loading={null}
+          onFailed={reactionSheetFailed}
+        />
+      )}
+      {deleting && (
+        <RarePage
+          show={({ DeleteMessageDialog }) => (
+            <DeleteMessageDialog
+              message={message}
+              onDelete={() => {
+                confirmed.current = true;
+                setDeleting(false);
+              }}
+              onCancel={() => setDeleting(false)}
+              onClosed={closedDialog}
+            />
+          )}
+          loading={null}
+        />
       )}
     </div>
   );
@@ -537,6 +633,43 @@ function ActionTooltip({ label, children }: { label: string; children: ReactElem
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** The words for keeping a message in `list`, or taking it out, by whether it's kept there now. */
+const KEEP_LABELS = {
+  todo: { add: "Add to to-dos", remove: "Remove from to-dos" },
+  saved: { add: "Save", remove: "Remove from saved" },
+} as const satisfies Record<SavedList, { add: string; remove: string }>;
+
+/** The bar's Add to to-dos, or Save, which is pressed while the message is kept in its list. */
+function KeepButton({ list, kept, onKeep }: { list: SavedList; kept: SavedList | undefined; onKeep: (list: SavedList) => void }) {
+  const pressed = kept === list;
+  const label = KEEP_LABELS[list][pressed ? "remove" : "add"];
+  const Icon = list === "todo" ? (pressed ? CheckCircleSolid : CheckCircle) : pressed ? BookmarkSolid : Bookmark;
+  return (
+    <ActionTooltip label={label}>
+      <button type="button" aria-label={label} className={ACTION} onClick={() => onKeep(list)}>
+        <Icon />
+      </button>
+    </ActionTooltip>
+  );
+}
+
+/** Reactions to choose from, then New boost, which opens the Custom reaction form: the picker a message's Add reaction opens with a mouse. */
+export function ReactionChoices({ reactions, onReact, onNewBoost }: { reactions: readonly (readonly [string, string])[]; onReact: (emoji: string) => void; onNewBoost: () => void }) {
+  return (
+    <div className="flex flex-wrap">
+      {reactions.map(([emoji, title]) => (
+        <Reaction key={emoji} emoji={emoji} title={title} onClick={() => onReact(emoji)} />
+      ))}
+      <ActionTooltip label="New boost">
+        <button type="button" className={ACTION} onClick={onNewBoost}>
+          <ChatPlusIn />
+          <span className="sr-only">New boost</span>
+        </button>
+      </ActionTooltip>
+    </div>
   );
 }
 
@@ -585,26 +718,51 @@ interface QuoteButtonProps extends ComponentProps<"button"> {
 }
 
 /**
- * Quote, which writes a reply quoting the message in the composer. It reads the people directory only
- * while the bar's in the page, so a change to the directory doesn't render every message's actions again.
- * As a tooltip's trigger, it's handed the tooltip's `onClick`, which a click calls first.
+ * Writes a quote of the message for a reply, citing its author, and those it mentions, as the people
+ * directory lists them now. Only what's in the page while its actions are reads the directory, so a change
+ * to the directory doesn't render every message's actions again.
  */
-function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButtonProps) {
+export function useQuote(message: Message, nodes: DisplayNode[]): () => string {
   const people = useContext(PeopleContext);
   const nameOf = useNameOf();
+  return () => {
+    const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
+    return replyQuote(nodes, { author: nameOf(message.creator), createdAt: message.createdAt, link: messageAddress(message) }, mentioned);
+  };
+}
+
+/**
+ * Quote, which writes a reply quoting the message in the composer. As a tooltip's trigger, it's handed the
+ * tooltip's `onClick`, which a click calls first.
+ */
+function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButtonProps) {
+  const quoted = useQuote(message, nodes);
   const quote = (event: MouseEvent<HTMLButtonElement>) => {
     onClick?.(event);
-    const link = new URL(permalinkOf(message), document.baseURI).href;
-    const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
-    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned));
+    onQuote(quoted());
   };
   return <button type="button" onClick={quote} {...props} />;
 }
 
-/** Copies the message's address, as Copy link does. Pages carry only the path, made absolute against the page. */
+/** The message's address, as Copy link copies it. Pages carry only the path, made absolute against the page. */
+export const messageAddress = (message: Message) => new URL(permalinkOf(message), document.baseURI).href;
+
+/** Copies the message's address, as Copy link does. */
 function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
-  return copyWithSuccess(event.currentTarget, new URL(permalinkOf(message), document.baseURI).href);
+  return copyWithSuccess(event.currentTarget, messageAddress(message));
 }
+
+/**
+ * The least height the tray or More actions keeps where it gives some up to open below or above Message
+ * options rather than beside it: the picker's search, its categories, two rows of emoji and New boost.
+ */
+const MIN_PANEL_HEIGHT = 5 * 44 + 16;
+
+/**
+ * The least of the tray a touch screen's timeline must have room for beside the bar, or More reactions
+ * opens a sheet instead: the search, the categories and a row of emoji.
+ */
+const MIN_SHORT_PANEL_HEIGHT = 3 * 44 + 8;
 
 /** The top of the highest of `row`'s Copy code buttons between `left` and `right`, or Infinity. */
 function copyCodeTop(row: HTMLElement, left: number, right: number): number {
@@ -620,8 +778,6 @@ interface Placed {
   row: HTMLElement;
   container: HTMLElement;
   trigger: HTMLElement;
-  /** What the bar opens beside for fingers: Message options, or Add a boost when that opened it. */
-  anchor: HTMLElement;
   menu: HTMLElement;
   bar: HTMLElement;
   /** What opens under the bar, or over it: More actions while it's open, or else the tray of more reactions. */
@@ -634,13 +790,13 @@ interface Placed {
  * mouse, it overlaps the row, its top 17px above the row's, or higher to keep clear of a code block's
  * Copy code, and its right 16px in from the timeline's,
  * with Message options pinned as its last button, and the tray or More actions opens below it, or above
- * when there's more room there. For fingers, it opens 6px below its anchor, lined up with its right
- * edge, or above when it doesn't fit, or beside it when it fits neither, so it doesn't cover what opened
- * it, nor Message options. Its buttons then go in two rows of four, where a row of them would wrap or
- * doesn't fit beside its anchor. Answers false, placing nothing, once the row is out of the timeline's
+ * when there's more room there. For fingers, it opens 6px below Message options, lined up with its right
+ * edge, or above when it doesn't fit, or beside it when it fits neither, so it doesn't cover Message
+ * options. Its buttons then go in two rows of four, where a row of them would wrap or doesn't fit beside
+ * Message options. Answers false, placing nothing, once the row is out of the timeline's
  * sight, when the bar should close.
  */
-function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapping }: Placed): boolean {
+function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: Placed): boolean {
   const viewport = window.visualViewport;
   const top = viewport?.offsetTop || 0;
   const left = viewport?.offsetLeft || 0;
@@ -683,29 +839,45 @@ function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapp
     right = bounds.right - 8;
   } else {
     menu.removeAttribute("data-panel-above");
-    const anchorBox = anchor.getBoundingClientRect();
-    // Beside Add a boost, it keeps clear of Message options at the message's right too.
-    const rightmost = anchor === trigger ? bounds.right : Math.min(bounds.right, triggerBox.left - 6);
     const spotFor = ({ width, height }: DOMRect) => {
-      const below = anchorBox.bottom + 6;
-      const above = anchorBox.top - height - 6;
-      if (below + height <= bounds.bottom) return { y: below, right: anchorBox.right, fits: true };
-      if (above >= bounds.top) return { y: above, right: anchorBox.right, fits: true };
+      const below = triggerBox.bottom + 6;
+      const above = triggerBox.top - height - 6;
+      if (below + height <= bounds.bottom) return { y: below, right: triggerBox.right, fits: true, beside: false };
+      if (above >= bounds.top) return { y: above, right: triggerBox.right, fits: true, beside: false };
       // With room neither below nor above, as on a phone held sideways with the tray open, it opens to the
-      // left of its anchor, clear of Message options, or to its right where only that has room.
-      const roomLeft = anchorBox.left - 6 - bounds.left >= width;
-      const roomRight = rightmost - anchorBox.right - 6 >= width;
+      // left of Message options, or to its right where only that has room.
+      const roomLeft = triggerBox.left - 6 - bounds.left >= width;
+      const roomRight = bounds.right - triggerBox.right - 6 >= width;
       return {
-        y: Math.max(bounds.top, Math.min(anchorBox.top, bounds.bottom - height)),
-        right: roomRight && !roomLeft ? anchorBox.right + 6 + width : anchorBox.left - 6,
+        y: Math.max(bounds.top, Math.min(triggerBox.top, bounds.bottom - height)),
+        right: roomRight && !roomLeft ? triggerBox.right + 6 + width : triggerBox.left - 6,
         fits: roomLeft || roomRight,
+        beside: true,
       };
     };
+    // The tray or More actions gives up height to fit: first to the larger room below or above Message
+    // options, where it keeps enough to use, or else to the timeline's height, beside it.
+    const fitPanel = (room: number) => {
+      const others = menu.getBoundingClientRect().height - panel.getBoundingClientRect().height;
+      panel.style.maxHeight = `${Math.max(0, room - others)}px`;
+      return menu.getBoundingClientRect();
+    };
     let spot = spotFor(menuBox);
+    if (spot.beside && !panel.hidden) {
+      const room = Math.max(bounds.bottom - triggerBox.bottom - 6, triggerBox.top - 6 - bounds.top);
+      if (room - (menuBox.height - panel.getBoundingClientRect().height) >= MIN_PANEL_HEIGHT) {
+        menuBox = fitPanel(room);
+        spot = spotFor(menuBox);
+      }
+    }
     const [first, last] = [bar.firstElementChild as HTMLElement, bar.lastElementChild as HTMLElement];
     if (!spot.fits || last.offsetTop > first.offsetTop) {
       menu.setAttribute("data-two-rows", "");
       menuBox = menu.getBoundingClientRect();
+      spot = spotFor(menuBox);
+    }
+    if (!panel.hidden && menuBox.height > bounds.bottom - bounds.top) {
+      menuBox = fitPanel(bounds.bottom - bounds.top);
       spot = spotFor(menuBox);
     }
     ({ y, right } = spot);

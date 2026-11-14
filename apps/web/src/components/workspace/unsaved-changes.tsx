@@ -27,8 +27,15 @@ export const DIALOG = cn(
 /** What's laid over the page behind the dialog. */
 export const DIALOG_BACKDROP = "bg-dialog-backdrop backdrop-blur-[3px]";
 export const DIALOG_TITLE = "mb-2.5 text-[22px] leading-[1.25] font-bold";
-/** The button in the dialog's corner that closes it. */
-export const DIALOG_CLOSE = "absolute end-3 top-3 inline-flex cursor-pointer items-center justify-center rounded-[9px] px-[1.1em] py-[0.5em] touch:min-h-11 disabled:cursor-default";
+/**
+ * The button in the dialog's corner that closes it: square, 44px for fingers, and centred on the title's
+ * first line, which starts at the dialog's padding and is 27.5px tall, with its centre as far in from the
+ * side as the padding.
+ */
+export const DIALOG_CLOSE = cn(
+  "absolute end-3 top-[calc(1.75rem+13.75px)] inline-flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-[9px] disabled:cursor-default",
+  "upto-480px:top-[calc(1.5rem+13.75px)] touch:end-1.5 touch:size-11",
+);
 
 interface Props<T> {
   /** Whether the page holds changes that leaving would lose. */
@@ -64,6 +71,10 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   // Save found a field the form won't accept, which the browser points at once the dialog has closed.
   const invalid = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
+  // What had focus as it asked, the link that was followed, say, which keeping editing hands focus back to.
+  const opener = useRef<Element | null>(null);
+  // Whether it closed to keep editing, where the page stays, rather than to leave it.
+  const kept = useRef(false);
   const mounted = useMounted();
 
   useEffect(() => {
@@ -77,6 +88,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
       // The page's own dialogs, such as its icon pickers, are native ones, which would stay above this
       // one and keep it from being answered. They close first.
       for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
+      opener.current = document.activeElement;
       setAsking(true);
       return true;
     });
@@ -96,6 +108,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   const keepEditing = () => {
     if (saving) return;
     proceed.current = null;
+    kept.current = true;
     setAsking(false);
   };
 
@@ -146,11 +159,16 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           saveButton.current?.focus();
         }}
         onInteractOutside={(event) => event.preventDefault()}
+        // Radix would focus the trigger a dialog opens from, which this one hasn't, leaving focus on the page's body.
         onCloseAutoFocus={(event) => {
-          if (!invalid.current) return;
-          invalid.current = false;
           event.preventDefault();
-          form?.current?.reportValidity();
+          const back = kept.current ? opener.current : null;
+          kept.current = false;
+          opener.current = null;
+          if (invalid.current) {
+            invalid.current = false;
+            form?.current?.reportValidity();
+          } else if (back instanceof HTMLElement && back.isConnected) back.focus();
         }}
         className={DIALOG}
       >

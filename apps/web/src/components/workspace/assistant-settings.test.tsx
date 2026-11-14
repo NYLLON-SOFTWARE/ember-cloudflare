@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSettings } from "@ember/protocol";
 import { TOP_LEVELS, type AssistantSettings as Assistant } from "@ember/protocol/assistant";
 import { ApiError } from "@/lib/api";
+import { answerConfirm } from "@/test-confirm";
 import { AGENTS_ANSWER, ASSISTANT_EXPLAINED, AssistantSettings, CONFIRM_STOP_ASSISTANT, WHAT_AGENTS_SEND } from "./assistant-settings";
 
 /** Ember AI on GLM-4.7 Flash. */
@@ -69,14 +70,15 @@ describe("Ember AI", () => {
   it("turns Ember AI off once the administrator confirms turning its switch off", async () => {
     let answer = () => {};
     const fetch = serve(() => new Promise((resolve) => (answer = () => resolve(Response.json({ assistant: null })))));
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user, onStopped } = showCard(ON);
     await user.click(assistantSwitch());
-    expect(sure).toHaveBeenCalledWith(CONFIRM_STOP_ASSISTANT);
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
     expect(assistantSwitch()).toBeChecked();
 
     await user.click(assistantSwitch());
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Turn off");
     expect(fetch).toHaveBeenCalledWith("/api/account/assistant", expect.objectContaining({ method: "DELETE" }));
     expect(assistantSwitch()).not.toBeChecked();
     expect(assistantSwitch()).toBeDisabled();
@@ -84,13 +86,14 @@ describe("Ember AI", () => {
     await act(async () => answer());
     expect(onStopped).toHaveBeenCalledOnce();
     expect(assistantSwitch()).toBeEnabled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("leaves turning it off that failed to the page's alerts, its switch back on", async () => {
     serve(() => Response.json({ error: "Only administrators can set up Ember AI" }, { status: 403 }));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user, onStopped, onFailed } = showCard(ON);
     await user.click(assistantSwitch());
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Turn off");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can set up Ember AI")));
     expect(onStopped).not.toHaveBeenCalled();
     expect(assistantSwitch()).toBeChecked();

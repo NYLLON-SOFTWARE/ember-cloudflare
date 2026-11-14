@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, EMAIL_LINK_GONE, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
 import type { HuddlesSetup } from "@ember/protocol/huddles";
 import { QUESTION } from "@/components/setup-huddles";
@@ -9,6 +9,7 @@ import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
 import { CHROME_MAC } from "@/test-platforms";
 import { App } from "./App";
+import { loadPageAhead } from "./components/workspace/workspace";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
@@ -76,7 +77,7 @@ class WorkspaceSocket extends QuietSocket {
 
   constructor(url: string) {
     super();
-    if (url.endsWith("/api/socket")) WorkspaceSocket.all.push(this);
+    if (new URL(url).pathname === "/api/socket") WorkspaceSocket.all.push(this);
   }
 
   receive(frame: object) {
@@ -187,6 +188,7 @@ function serve({
       return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId } });
     }
     if (route === "GET /api/users") return Response.json({ users: [] });
+    if (route === "GET /api/activity") return Response.json({ items: [], unread: 0, more: false });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
     if (route === "PATCH /api/account") {
       const { name = account.name, tagline = account.tagline, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
@@ -234,6 +236,10 @@ async function openYourProfile() {
 }
 
 const logOut = () => userEvent.setup().click(screen.getByRole("button", { name: "Log out" }));
+
+// The pages few visits need load apart from the app, and transforming them cold takes seconds on a busy
+// machine, past findByRole's one: load them once, before the tests that open one.
+beforeAll(() => loadPageAhead("/account/edit"), 30_000);
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);
@@ -507,7 +513,7 @@ describe("Rename the workspace", () => {
     serve({ signedIn: true });
     render(<App />);
     const user = userEvent.setup();
-    const name = await screen.findByRole("textbox", { name: "Community name" });
+    const name = await screen.findByRole("textbox", { name: "Community name" }, { timeout: 10_000 });
     expect(name).toHaveValue("Ember");
     await user.clear(name);
     await user.type(name, "Analytical Engines{Enter}");
@@ -533,7 +539,7 @@ describe("Rename the workspace", () => {
     sendSettings();
 
     // The field too, which follows the workspace until it's typed in.
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Community name" })).toHaveValue("Analytical Engines"));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Community name" })).toHaveValue("Analytical Engines"), { timeout: 10_000 });
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
   });
 
@@ -546,7 +552,7 @@ describe("Rename the workspace", () => {
     await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
     act(() => WorkspaceSocket.all[0]!.welcome(ada));
     const user = userEvent.setup();
-    const name = await screen.findByRole("textbox", { name: "Community name" });
+    const name = await screen.findByRole("textbox", { name: "Community name" }, { timeout: 10_000 });
     await waitFor(() => expect(name).toHaveValue("Ember"));
     await user.clear(name);
     await user.type(name, "Difference Engines{Enter}");
@@ -561,10 +567,10 @@ describe("Rename the workspace", () => {
 
 describe("Workspace tagline", () => {
   const TAGLINE = "Engines for every occasion";
-  /** The sidebar's heading, with the tagline under the name, if there is one. */
-  const sidebarHeading = () => screen.getByRole("heading", { level: 2, name: "Ember" }).closest("hgroup");
+  /** The sidebar's heading, the workspace's name alone. */
+  const sidebarHeading = () => screen.getByRole("heading", { level: 2, name: "Ember" });
 
-  it("takes a tagline saved in another tab at once, as the workspace socket says", async () => {
+  it("heads the sidebar with the workspace's name alone, whatever tagline another tab saves", async () => {
     WorkspaceSocket.all = [];
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serve({ signedIn: true });
@@ -575,12 +581,11 @@ describe("Workspace tagline", () => {
     expect(sidebarHeading()).toHaveTextContent(/^Ember$/);
 
     act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, tagline: TAGLINE } }));
-    expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`);
-    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: EMBER }));
     expect(sidebarHeading()).toHaveTextContent(/^Ember$/);
+    expect(screen.queryByText(TAGLINE)).not.toBeInTheDocument();
   });
 
-  it("gives the workspace a tagline from its settings, which the sidebar shows under the name", async () => {
+  it("saves the workspace's tagline from its settings, which the sidebar leaves out", async () => {
     history.replaceState(null, "", "/account/edit");
     serve({ signedIn: true });
     render(<App />);
@@ -590,7 +595,8 @@ describe("Workspace tagline", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
     // Community settings take the sidebar's place.
     await user.click(screen.getByRole("link", { name: "Go Back" }));
-    await waitFor(() => expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`));
+    await waitFor(() => expect(sidebarHeading()).toHaveTextContent(/^Ember$/));
+    expect(screen.queryByText(TAGLINE)).not.toBeInTheDocument();
   });
 });
 
@@ -1187,10 +1193,11 @@ describe("Saved notices", () => {
   });
 
   it("centers a flash over the page beside the rail and sidebar in the workspace", async () => {
-    history.replaceState(null, "", "/rooms/nowhere");
+    // A room someone can't open says so in its place, so this is one the page before kept.
+    flashOnNextPage({ kind: "alert", text: "Something went wrong" });
     serve({ signedIn: true });
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
     expect(await placement()).toHaveClass(BESIDE_THE_RAIL);
   });
 

@@ -10,7 +10,8 @@ import {
   type SetupPlaceholders,
 } from "@ember/protocol";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
-import { ArrowRight, Camera, Eye, Lock, Mail, User as UserIcon, type IconoirIconProps } from "@/components/icons/iconoir";
+import { ArrowRight, Lock, type IconoirIconProps, User as UserIcon } from "@/components/icons/iconoir";
+import { Camera, Eye, Mail } from "@/components/icons/iconoir-more";
 import { SETUP_TITLE, SetupCard, STEP_BUTTON } from "@/components/setup-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

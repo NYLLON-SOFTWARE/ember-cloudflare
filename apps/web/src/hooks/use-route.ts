@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import {
+  ACTIVITY_PATH,
   EMAIL_SIGN_UP_PATH,
   INVITATION_PATH,
   KIND_SEGMENTS,
@@ -17,7 +18,8 @@ import {
 // Worker too: a small typed router over the History API rather than a library. A page with changes to
 // lose can hold the app on it by guarding against leaving.
 
-export { BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { ACTIVITY_PATH, BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SAVED_PATH, SEARCHES_PATH, threadPath, TODOS_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { dmPath, DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;
@@ -33,7 +35,18 @@ export const messagePath = (roomId: RoomId, messageId: string) => `${roomPath(ro
 /** Where a message's time and Copy link go: its permalink, or a reply's in its thread, which opens the thread at it. */
 export const permalinkOf = ({ roomId, id, parentId }: Pick<Message, "roomId" | "id" | "parentId">) =>
   parentId === undefined ? messagePath(roomId, id) : threadPath(roomId, parentId, id);
+/**
+ * Activity with a conversation open beside it, as `place` says, a room's address after its own: at its
+ * thread, or a reply there, when one's open, or else at its message, if it names one.
+ */
+export function activityPath(place: { roomId: RoomId; messageId?: string; threadId?: string; replyId?: string } | null): string {
+  if (!place) return ACTIVITY_PATH;
+  const room = place.threadId !== undefined ? threadPath(place.roomId, place.threadId, place.replyId) : place.messageId !== undefined ? messagePath(place.roomId, place.messageId) : roomPath(place.roomId);
+  return ACTIVITY_PATH + room;
+}
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
+/** New room, for a sub-room of room `parentId`. */
+export const newSubRoomPath = (parentId: RoomId) => `${newRoomPath("open")}?parent=${encodeURIComponent(parentId)}`;
 /** A room's settings page, at the address for its kind. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
 /** A bot's settings page, as Campfire's `edit_account_bot_path` gives it. */
@@ -145,6 +158,10 @@ let followUp: (() => void) | null = null;
 let returning = false;
 let proceeding = false;
 
+// The overlay open over the page, such as the image viewer on a phone, with the history entry it added,
+// which Back leaves, closing it, without going to another page.
+let overlay: { position: number; close: () => void } | null = null;
+
 window.addEventListener("popstate", (event) => {
   if (returning) {
     returning = false;
@@ -152,6 +169,16 @@ window.addEventListener("popstate", (event) => {
     return;
   }
   const next = positionOf(event.state);
+  if (overlay && (next === null || next < overlay.position)) {
+    const { close } = overlay;
+    overlay = null;
+    close();
+    // Back from the overlay to the page under it shows that page as it is.
+    if (currentAddress() === shown) {
+      if (next !== null) position = next;
+      return;
+    }
+  }
   const distance = next === null ? 0 : next - position;
   const proceed = () => {
     proceeding = true;
@@ -178,6 +205,7 @@ window.addEventListener("popstate", (event) => {
 export function navigate(path: string, { replace = false } = {}): void {
   const navigation = ++asked;
   followUp = null;
+  overlay = null;
   if (shownAddress() + location.hash === path) {
     gone = navigation;
     notify();
@@ -198,12 +226,77 @@ export function navigate(path: string, { replace = false } = {}): void {
 }
 
 /**
+ * Shows `path` in place of the page shown: by going back, as Back would, when the app opened this page
+ * from it, so Back doesn't return to what it closes, or else in the current entry's place.
+ */
+export function returnTo(path: string): void {
+  if (openedFrom(history.state) === path) history.back();
+  else navigate(path, { replace: true });
+}
+
+/**
  * Calls `then` once the app shows the page `navigate` was last asked for: now, if it does already, or
  * when the page's guard lets it go there, but never if the person stays or another page is asked for.
  */
 export function afterNavigating(then: () => void): void {
   if (gone === asked) then();
   else followUp = then;
+}
+
+/** An address's path, without its query string or fragment. */
+const pathOf = (address: string) => address.split(/[?#]/, 1)[0]!;
+
+/** The conversation a room's or DM's own page shows, but not its thread's or huddle's, or null. */
+function conversationOf(path: string): RoomId | null {
+  const page = workspacePageOf(path);
+  if (page?.page === "room" && page.threadId === undefined && !page.huddle) return page.roomId;
+  return page?.page === "dms" ? (page.roomId ?? null) : null;
+}
+
+/**
+ * Whether `address` is a page under `page`: further down its path, as a room's thread is under the room,
+ * or another of the conversation's pages, as a DM's thread and settings are under the DM.
+ */
+export function isUnder(address: string, page: string): boolean {
+  const path = pathOf(address);
+  const top = pathOf(page);
+  if (path === top) return false;
+  if (path.startsWith(top.endsWith("/") ? top : `${top}/`)) return true;
+  const conversation = conversationOf(top);
+  const inner = workspacePageOf(path);
+  return conversation !== null && inner !== null && "roomId" in inner && inner.roomId === conversation;
+}
+
+/**
+ * Goes back the way the person came, as a phone's Back button does: to the entry before this one, when the
+ * app opened this one from a page that isn't under it, or else up to `fallback`, the page this one sits
+ * under, such as a thread's room, in this one's place. Going up never returns to a page under the one it
+ * leaves, so Back from a thread opened by a link goes to its room and then home, rather than back and
+ * forth between the two.
+ */
+export function goBack(fallback: string): void {
+  const from = openedFrom(history.state);
+  if (from !== null && !isUnder(from, shownAddress())) history.back();
+  else navigate(fallback, { replace: true });
+}
+
+/**
+ * Adds an entry to the history for an overlay that covers the page, such as the image viewer on a phone,
+ * so that Back closes it, calling `close`, rather than leaving the page. The function returned closes it
+ * from the overlay itself, going back past its entry while that's the one shown.
+ */
+export function openOverlay(close: () => void): () => void {
+  history.pushState({ position: ++position, from: shownAddress() + location.hash, overlay: true }, "");
+  const opened = { position, close };
+  overlay = opened;
+  return () => {
+    if (overlay !== opened) return;
+    if (positionOf(history.state) === opened.position) history.back();
+    else {
+      overlay = null;
+      close();
+    }
+  };
 }
 
 /** The room id in a /rooms/:id path, or null. */
@@ -238,6 +331,11 @@ export function useVisit(): number {
 export function useRoute(): Route {
   const pathname = useSyncExternalStore(subscribe, shownPath);
   return useMemo(() => routeOf(pathname), [pathname]);
+}
+
+/** The path of the page shown, without its query string, re-rendering when it changes. */
+export function usePath(): string {
+  return useSyncExternalStore(subscribe, shownPath);
 }
 
 /** The address's fragment, from its "#", or nothing, re-rendering when it changes. */

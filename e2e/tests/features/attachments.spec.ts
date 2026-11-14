@@ -330,19 +330,19 @@ test.describe("Image viewer", () => {
 });
 
 test.describe("Delete a message", () => {
-  test("deletes a file message from its editor, which shows its file where a message's text would be", async ({ members, request, rooms }) => {
+  test("deletes a file message from More actions, which has no Edit message for it, as its text can't change", async ({ members, request, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await upload(request, ada, rooms.general.id, "Draft.txt", "Not yet");
     await expect(grace.message("Draft.txt")).toBeVisible();
 
-    await (await ada.actions("Draft.txt")).getByRole("button", { name: "Edit" }).click();
-    await expect(ada.page.getByRole("button", { name: "Delete message" })).toBeFocused();
-    await expect(ada.editor()).toHaveCount(0);
-    await expect(downloadLink(ada, "Draft.txt")).toBeVisible();
-
-    ada.page.once("dialog", (dialog) => void dialog.accept());
-    await ada.page.getByRole("button", { name: "Delete message" }).click();
+    await expect((await ada.actions("Draft.txt")).getByRole("button", { name: /Edit/ })).toHaveCount(0);
+    const panel = await ada.moreActions("Draft.txt");
+    await expect(panel.getByRole("button")).toHaveText(["Copy link", "Delete message"]);
+    await panel.getByRole("button", { name: "Delete message" }).click();
+    // The dialog shows the file's name where a message's text would be.
+    await expect(ada.deleteDialog()).toContainText("Draft.txt");
+    await ada.deleteDialog().getByRole("button", { name: "Delete", exact: true }).click();
     await expect(grace.message("Draft.txt")).toHaveCount(0);
     await expect(ada.message("Draft.txt")).toHaveCount(0);
   });

@@ -3,6 +3,7 @@ import type { WorkspaceSettings } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
 import { forgetHuddles, isSignedOut } from "@/lib/api";
+import { useConfirm } from "./confirm-dialog";
 import { HUDDLE_CHAT_TITLE } from "@/lib/huddle-chat";
 import { BUTTON } from "./email-settings";
 
@@ -19,7 +20,7 @@ export const HUDDLES_EXPLAINED =
   "Huddles let people in a room talk to each other live. They run through Cloudflare's Realtime SFU, with an app in your Cloudflare account.";
 
 /** What turning huddles off asks first. */
-export const CONFIRM_STOP_HUDDLES = "Are you sure you want to turn off huddles? Any huddle going on will end, and Ember will forget the SFU app's keys.";
+export const CONFIRM_STOP_HUDDLES = { title: "Turn off huddles", body: "Any huddle going on will end, and Ember will forget the SFU app’s keys." };
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -37,9 +38,10 @@ interface Props {
 export function HuddlesSettings({ huddles, onSetUp, onStopped, onFailed }: Props) {
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_HUDDLES)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_HUDDLES.title, { body: CONFIRM_STOP_HUDDLES.body, confirm: "Turn off", destructive: true }))) return;
     setStopping(true);
     forgetHuddles().then(
       () => {
@@ -86,6 +88,7 @@ export function HuddlesSettings({ huddles, onSetUp, onStopped, onFailed }: Props
           </button>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }

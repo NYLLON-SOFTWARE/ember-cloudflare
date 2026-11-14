@@ -13,6 +13,7 @@ import { PageLink } from "@/components/page-link";
 import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 import { EmailDomainSettings } from "./email-domain-settings";
 import { sendsEmail } from "./email-settings";
 import { InviteLink, ShareableLink } from "./invite-link";
@@ -28,11 +29,13 @@ import { SetUpTurnstile } from "./turnstile-settings";
 // settings for when it's off. Members see the links that let people in.
 
 /** What turning on Open asks first, since it lets anyone in. */
-export const CONFIRM_OPEN = "Are you sure you want to let anyone create an account? Ember doesn't check that the email addresses people sign up with are theirs.";
+export const CONFIRM_OPEN = { title: "Turn on Open", body: "Anyone will be able to sign up, with an email address Ember doesn’t check." };
 
 /** What turning on Memberful's Members only asks first, since it keeps everyone but administrators, and the people they invite, from signing in with a password. */
-export const CONFIRM_MEMBERS_ONLY =
-  "Are you sure only Memberful's members should sign in? Everyone but administrators and the people they invite will need a Memberful membership to sign in.";
+export const CONFIRM_MEMBERS_ONLY = {
+  title: "Turn on Members only",
+  body: "Everyone but administrators and the people they invite will need a Memberful membership to sign in.",
+};
 
 /** Why a way is greyed out while Open is on. */
 const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
@@ -45,7 +48,7 @@ const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
 type WaySetting = keyof Pick<AccountSettings, "openSignUp" | "joinLink" | "emailDomainSignUp" | "memberfulJoin" | "memberfulSignIn">;
 
-const ASKS_FIRST: Partial<Record<WaySetting, string>> = { openSignUp: CONFIRM_OPEN, memberfulSignIn: CONFIRM_MEMBERS_ONLY };
+const ASKS_FIRST: Partial<Record<WaySetting, { title: string; body: string }>> = { openSignUp: CONFIRM_OPEN, memberfulSignIn: CONFIRM_MEMBERS_ONLY };
 
 interface Props {
   settings: WorkspaceSettings;
@@ -71,6 +74,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   if (account.emailDomainSignUp && account.emailDomains !== keptDomains) setKeptDomains(account.emailDomains);
   // Where each switch was moved to, while that's saved.
   const [moved, setMoved] = useState<Pick<AccountSettings, WaySetting>>({});
+  const [confirmFirst, confirmation] = useConfirm();
   const open = moved.openSignUp ?? account.openSignUp;
   const link = moved.joinLink ?? account.joinLink;
   const emailDomain = moved.emailDomainSignUp ?? account.emailDomainSignUp;
@@ -82,10 +86,10 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   const openOverrides = open || account.openSignUp;
   const membersOnlyOverrides = membersOnly || account.memberfulSignIn;
 
-  const switchTo = (setting: WaySetting) => (on: boolean) => {
+  const switchTo = (setting: WaySetting) => async (on: boolean) => {
     if (moved[setting] !== undefined) return;
     const question = on ? ASKS_FIRST[setting] : undefined;
-    if (question && !confirm(question)) return;
+    if (question && !(await confirmFirst(question.title, { body: question.body, confirm: "Turn on" }))) return;
     setMoved((moved) => ({ ...moved, [setting]: on }));
     saveSwitch({ [setting]: on }, () => setMoved(({ [setting]: _, ...others }) => others));
   };
@@ -158,6 +162,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         membersOnlySaving={moved.memberfulSignIn !== undefined}
         setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
       />
+      {confirmation}
     </section>
   );
 }

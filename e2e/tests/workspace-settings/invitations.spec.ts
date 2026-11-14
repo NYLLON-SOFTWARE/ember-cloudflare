@@ -1,7 +1,7 @@
 import { INVITATION_GONE, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, administratorSession, cookieHeader, SAME_ORIGIN, sentFrom, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, administratorSession, answerConfirm, cookieHeader, SAME_ORIGIN, sentFrom, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
 
 // Membership's Invite by email card, and the page an invitation's link opens, on the second test server,
@@ -125,8 +125,8 @@ test.describe("Invite people by email", () => {
     expect(await works(request, linkIn(resend.sent.at(-1)!))).toBe(true);
     await expect(pending.first()).toHaveText(new RegExp(`^${hal}Emailed · `));
 
-    page.once("dialog", (dialog) => void dialog.accept());
     await card.getByRole("button", { name: `Revoke the invitation for ${ida}` }).click();
+    await answerConfirm(page, `Revoke invitation for ${ida}`, "Revoke");
     await expect(pending).toHaveText([new RegExp(`^${hal}`)]);
     expect(await works(request, idasLink!)).toBe(false);
   });

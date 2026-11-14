@@ -17,7 +17,8 @@ import {
   type SearchResults,
   type SearchSort,
 } from "@ember/protocol";
-import { ArrowLeft, ClockRotateRight, NavArrowRight, Search as SearchIcon, Sort, Trash, User as UserIcon, Xmark } from "@/components/icons/iconoir";
+import { ArrowLeft, NavArrowRight, Search as SearchIcon, Trash, User as UserIcon, Xmark } from "@/components/icons/iconoir";
+import { ClockRotateRight, Sort } from "@/components/icons/iconoir-more";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -28,6 +29,7 @@ import { clearSearches, fetchSearch, isSignedOut } from "@/lib/api";
 import { dateLabel, dateTimeLabel } from "@/lib/messages";
 import { FLAG_LABELS, marksFor, takeAnswer } from "@/lib/search";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 import { MessageItem, type MessageEditors } from "./message-item";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { Chip, CHIPS_ROW, CONFIRM_CLEAR_SEARCHES, FLAG_ICONS, OpenSearchContext, RoomMark, searchLabel, SearchLine, useSearchNames, type SearchNames } from "./search-box";
@@ -94,6 +96,7 @@ export function SearchPage({ me, rooms, back, onFailed }: Props) {
   const names = useSearchNames(me, rooms);
   const openSearch = useContext(OpenSearchContext);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   // The page as last drawn: the visit it was drawn for, and what that visit's search found, or null if it failed.
   const [page, setPage] = useState<{ visit: number; found: Found | null } | null>(null);
   // The page whose next page is loading.
@@ -162,8 +165,8 @@ export function SearchPage({ me, rooms, back, onFailed }: Props) {
   };
 
   // Asked first, then the page without a search.
-  const clear = () => {
-    if (!confirm(CONFIRM_CLEAR_SEARCHES)) return;
+  const clear = async () => {
+    if (!(await confirmFirst(CONFIRM_CLEAR_SEARCHES, { confirm: "Clear", destructive: true }))) return;
     const mark = pageMark();
     clearSearches().then(
       () => mounted.current && pageMark() === mark && navigate(SEARCHES_PATH),
@@ -279,6 +282,7 @@ export function SearchPage({ me, rooms, back, onFailed }: Props) {
           ) : null}
         </section>
       </MainContent>
+      {confirmation}
     </>
   );
 }

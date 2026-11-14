@@ -18,7 +18,7 @@ import {
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { LogOut } from "@/components/icons/iconoir";
+import { LogOut } from "@/components/icons/iconoir-more";
 import { Input } from "@/components/ui/input";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";

@@ -4,7 +4,7 @@ import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type Bot, type BotChanges, type
 import { AUTH_FORM } from "@/components/auth-page";
 import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Camera, RefreshDouble } from "@/components/icons/iconoir";
+import { Camera, RefreshDouble } from "@/components/icons/iconoir-more";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useMounted } from "@/hooks/use-mounted";
@@ -13,17 +13,18 @@ import { useTitle } from "@/hooks/use-title";
 import { changeBot, createBot, deleteBot, fetchBot, isSignedOut, resetBotKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PostingCommands, useAdministratorsOnly } from "./bots-page";
+import { useConfirm } from "./confirm-dialog";
 import { DeleteButton, isMissing, NEGATIVE_BUTTON } from "./room-settings-page";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 // The pages for adding a bot and changing one, which share the bot form and go back to the bots page
 // once they've saved.
 
-/** What Delete bot asks first, in the browser's own dialog. */
-export const CONFIRM_DELETE_BOT = "Are you sure you want to permanently remove this bot from the account? This can’t be undone.";
+/** What Delete bot asks first, of the bot called `name`. */
+export const confirmDeleteBot = (name: string) => ({ title: `Delete ${name}`, body: "This can’t be undone." });
 
 /** What Generate a new key asks first. */
-export const CONFIRM_NEW_KEY = "Are you sure you want to change the bot key? All usage of this bot must be updated.";
+export const CONFIRM_NEW_KEY = { title: "Generate a new key", body: "The bot’s current key will stop working." };
 
 /** The bot form's fields as typed: the bot's name, and where its webhook delivers, "" for nowhere. */
 interface Fields {
@@ -118,6 +119,7 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
   const administratorsOnly = useAdministratorsOnly(onFailed);
   const failed = (error: unknown) => (isMissing(error) ? onMissing() : administratorsOnly.failed(error));
   const [busy, send] = useSending(failed);
+  const [confirmFirst, confirmation] = useConfirm();
   useTitle("Edit bot");
 
   useEffect(() => {
@@ -138,11 +140,13 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
     return () => void (stopped = true);
   }, [botId, onMissing, administratorsOnly]);
 
-  const remove = () => {
-    if (confirm(CONFIRM_DELETE_BOT)) send(() => deleteBot(botId));
+  const remove = async () => {
+    if (!bot) return;
+    const { title, body } = confirmDeleteBot(bot.name);
+    if (await confirmFirst(title, { body, confirm: "Delete", destructive: true })) send(() => deleteBot(botId));
   };
-  const newKey = () => {
-    if (confirm(CONFIRM_NEW_KEY)) send(() => resetBotKey(botId));
+  const newKey = async () => {
+    if (await confirmFirst(CONFIRM_NEW_KEY.title, { body: CONFIRM_NEW_KEY.body, confirm: "Generate key", destructive: true })) send(() => resetBotKey(botId));
   };
   return (
     <SettingsPage back={BOTS_PATH}>
@@ -169,6 +173,7 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
           </>
         )}
       </Panel>
+      {confirmation}
     </SettingsPage>
   );
 }

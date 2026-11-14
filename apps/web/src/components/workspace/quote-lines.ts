@@ -1,9 +1,10 @@
-import { Lexical, type LexicalEditor, type LexicalNode, type ParagraphNode } from "@37signals/lexxy";
+import { Lexical, type LexicalEditor, type LexicalNode, type ParagraphNode, type TextNode } from "@37signals/lexxy";
 
-// Quotes line by line, as Slack's composer has them. Shift+Enter breaks a line within its paragraph, so a
-// message written before it's sent is one paragraph of lines, and Lexical's > shortcut, which quotes a
-// paragraph, quoted the first of them and every line after it. Typing > and a space at the start of any line
-// quotes just that line, and Backspace on an empty line in a quote takes the line out of it, splitting the
+// Quotes and lists line by line, as Slack's composer has them. Shift+Enter breaks a line within its
+// paragraph, so a message written before it's sent is one paragraph of lines, and Lexical's > shortcut, which
+// quotes a paragraph, quoted the first of them and every line after it, while its - shortcut only starts a
+// list at a paragraph's start. Typing >, -, * or 1. and a space at the start of any line quotes that line, or
+// starts a list with it, and Backspace on an empty line in a quote takes the line out of it, splitting the
 // quote around it, so a quote can be followed by what's said about it.
 
 const { $copyNode, $createParagraphNode, $getSelection, $isLineBreakNode, $isParagraphNode, $isRangeSelection, $isTextNode, COMMAND_PRIORITY_HIGH, KEY_BACKSPACE_COMMAND, KEY_SPACE_COMMAND } = Lexical;
@@ -60,12 +61,61 @@ export function $unquoteEmptyLine(): boolean {
 }
 
 /**
- * Quotes the line the caret is on, as typing > and a space at its start does in Slack, where a line is a line
- * whichever paragraph it's in: gives the line a paragraph of its own, between the lines before and after it,
- * has Lexxy quote it, as its Quote button does, and takes the > out. Answers whether it did, which it doesn't
- * but just after a > at the start of a line outside a quote.
+ * Gives the line the caret is on, in a paragraph of lines that Shift+Enter broke, a paragraph of its own,
+ * between the lines before and after it, keeping the caret where it was in it, so what turns a paragraph into
+ * a list or a quote turns just that line, as Slack's buttons do. Answers whether it did, which it doesn't in a
+ * paragraph of one line, outside the root, or without a caret.
  */
-export function $quoteLineAfterMarker(editor: LexicalEditor): boolean {
+export function $isolateCaretLine(): boolean {
+  const caret = caretInParagraph();
+  if (!caret) return false;
+  const { paragraph, index, offset } = caret;
+  if (paragraph.getParent()?.getType() !== "root") return false;
+  const children = paragraph.getChildren();
+  if (!children.some((node) => $isLineBreakNode(node))) return false;
+  const textCaret = caretIsInText();
+  let start = index;
+  while (start > 0 && !$isLineBreakNode(children[start - 1])) start--;
+  let end = index;
+  while (end < children.length && !$isLineBreakNode(children[end])) end++;
+  const before = start > 0 ? children[start - 1]! : null;
+  const after = end < children.length ? children[end]! : null;
+  const line = children.slice(start, end);
+  const following = after ? children.slice(end + 1) : [];
+  before?.remove();
+  after?.remove();
+  for (const node of [...line, ...following]) node.remove();
+  const own = $createParagraphNode().append(...line);
+  paragraph.insertAfter(own);
+  if (following.length > 0) own.insertAfter($createParagraphNode().append(...following));
+  if (before === null) paragraph.remove();
+  if (textCaret) (children[index] as TextNode).select(offset, offset);
+  else own.select(index - start, index - start);
+  return true;
+}
+
+/** Whether the selection's caret is in text, rather than between a paragraph's children. */
+function caretIsInText(): boolean {
+  const selection = $getSelection();
+  return $isRangeSelection(selection) && selection.anchor.type === "text";
+}
+
+/** The marks that, with a space after them at a line's start, quote it or start a list with it, and Lexxy's command for each. */
+const LINE_MARKERS = [
+  { marker: ">", command: "insertQuoteBlock" },
+  { marker: "-", command: "insertUnorderedList" },
+  { marker: "*", command: "insertUnorderedList" },
+  { marker: "1.", command: "insertOrderedList" },
+];
+
+/**
+ * Quotes the line the caret is on, or starts a list with it, as typing >, -, * or 1. and a space at its start
+ * does in Slack, where a line is a line whichever paragraph it's in: gives the line a paragraph of its own,
+ * between the lines before and after it, has Lexxy quote it or list it, as its buttons do, and takes the mark
+ * out. Answers whether it did, which it doesn't but just after a mark at the start of a line outside a quote or
+ * a list.
+ */
+export function $formatLineAfterMarker(editor: LexicalEditor): boolean {
   const caret = caretInParagraph();
   if (!caret) return false;
   const { paragraph, index, offset } = caret;
@@ -73,7 +123,10 @@ export function $quoteLineAfterMarker(editor: LexicalEditor): boolean {
   const children = paragraph.getChildren();
   const text = children[index];
   const lineStart = index === 0 ? null : children[index - 1];
-  if (!$isTextNode(text) || offset !== 1 || !text.getTextContent().startsWith(">")) return false;
+  if (!$isTextNode(text)) return false;
+  const typed = text.getTextContent().slice(0, offset);
+  const found = LINE_MARKERS.find(({ marker }) => typed === marker);
+  if (!found) return false;
   if (lineStart !== null && !$isLineBreakNode(lineStart)) return false;
 
   const nextBreak = children.findIndex((node, i) => i > index && $isLineBreakNode(node));
@@ -88,9 +141,10 @@ export function $quoteLineAfterMarker(editor: LexicalEditor): boolean {
   if (following.length > 0) quoted.insertAfter($createParagraphNode().append(...following));
   if (lineStart === null) paragraph.remove();
 
-  text.select(1, 1);
-  editor.dispatchCommand(QUOTE_COMMAND, undefined);
-  const rest = text.getTextContent().slice(1);
+  const length = found.marker.length;
+  text.select(length, length);
+  editor.dispatchCommand(found.command, undefined);
+  const rest = text.getTextContent().slice(length);
   if (rest === "") {
     const holder = text.getParent();
     text.remove();
@@ -101,9 +155,6 @@ export function $quoteLineAfterMarker(editor: LexicalEditor): boolean {
   }
   return true;
 }
-
-/** Lexxy's Quote button's command, which quotes the lines the selection is on. */
-const QUOTE_COMMAND = "insertQuoteBlock";
 
 /** Has `editor` quote line by line, answering what stops it. */
 export function registerQuoteLines(editor: LexicalEditor): () => void {
@@ -116,11 +167,11 @@ export function registerQuoteLines(editor: LexicalEditor): () => void {
     },
     COMMAND_PRIORITY_HIGH,
   );
-  // The space after the > only quotes, as Slack's does.
+  // The space after the mark only quotes or lists, as Slack's does.
   const unregisterSpace = editor.registerCommand(
     KEY_SPACE_COMMAND,
     (event: KeyboardEvent) => {
-      if (!$quoteLineAfterMarker(editor)) return false;
+      if (!$formatLineAfterMarker(editor)) return false;
       event.preventDefault();
       return true;
     },
