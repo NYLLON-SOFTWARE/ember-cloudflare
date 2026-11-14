@@ -539,9 +539,13 @@ export interface AgentTrialAccess {
   saved: Pick<StoredAgentSettings, "id" | "model" | "modelName" | "format" | "thinkingLevels" | "webTools"> | null;
 }
 
-/** The same, as the bot API has it, with Ember's custom domain, which the API's links name, or null while it has none. */
+/**
+ * The same, as the bot API has it, with Ember's custom domain, which the API's links name, or null while it
+ * has none, and whether the bot has a webhook, where the room reports clicks on its cards' buttons that act.
+ */
 export interface BotKeyAccess extends BotAccess {
   customDomain: string | null;
+  takesClicks: boolean;
 }
 
 /**
@@ -552,6 +556,12 @@ export interface BotKeyAccess extends BotAccess {
 export interface WebhookAccess extends BotAccess {
   url: string;
   key: string;
+}
+
+/** A bot's webhook as a click's delivery finds it, with who clicked, by their name now, and the room's name, or null for a DM's. */
+export interface ClickAccess extends WebhookAccess {
+  clicker: User;
+  roomName: string | null;
 }
 
 /**
@@ -3573,7 +3583,7 @@ export class Workspace extends DurableObject<Env> {
     const authorizedAt = Date.now();
     const [found, account] = await Promise.all([this.store.activeBotKey(botId, roomId), this.joinableAccount()]);
     if (!found || !(isBotToken(token, found.token) || (await this.isWebhookToken(token, roomId, found)))) return null;
-    return found.member ? { bot: found.bot, authorizedAt, customDomain: account?.customDomain ?? null } : "not found";
+    return found.member ? { bot: found.bot, authorizedAt, customDomain: account?.customDomain ?? null, takesClicks: found.webhook !== null } : "not found";
   }
 
   /** Whether `token` is the one a delivery to the webhook of the bot `found` gives it in room `roomId`, as the webhook is now. */
@@ -3597,6 +3607,21 @@ export class Workspace extends DurableObject<Env> {
     if (!webhook) return null;
     const { bot, url } = webhook;
     return { bot, url, key: botKeyOf(bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, webhook)), authorizedAt };
+  }
+
+  /**
+   * The webhook of the bot `botId` in room `roomId` as the delivery of a click by `clickerId` finds it, as
+   * `botWebhook` finds it for a message's, with who clicked and the room's name: null as `botWebhook`
+   * answers it, and once whoever clicked isn't an active member of the room, so that a click waiting its
+   * turn goes nowhere once they're taken out.
+   */
+  async clickWebhook(roomId: RoomId, botId: UserId, clickerId: UserId): Promise<ClickAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.clickWebhook(roomId, botId, clickerId);
+    if (!found) return null;
+    const { bot, url, clicker, roomName } = found;
+    return { bot, url, key: botKeyOf(bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, found)), authorizedAt, clicker, roomName };
   }
 
   /**

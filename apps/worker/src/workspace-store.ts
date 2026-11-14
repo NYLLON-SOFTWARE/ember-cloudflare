@@ -1732,6 +1732,14 @@ export const BOT_WEBHOOK = `SELECT users.name, users.bot_token, webhooks.url, we
   WHERE users.id = ?2 AND users.role = ${BOT} AND users.status = ${ACTIVE}
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
 
+/**
+ * Who clicked a button in room ?1, ?2, by their name now, with the room's name, but a DM's, as a click's
+ * delivery names them: nothing once they aren't an active member of the room.
+ */
+const CLICKER = `SELECT users.name, (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name FROM users
+  WHERE users.id = ?2 AND users.status = ${ACTIVE}
+    AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
+
 /** Whether a room's event is a new message: anyone's, or a bot's reply to a webhook delivery. */
 const isNewMessage = ({ kind }: RoomEvent) => kind !== "read";
 
@@ -3562,6 +3570,20 @@ export class WorkspaceStore {
   async botWebhook(roomId: RoomId, botId: UserId): Promise<BotWebhook | null> {
     const [row] = await this.db.all<{ name: string; bot_token: string | null; url: string; updated_at: string }>(BOT_WEBHOOK, roomId, botId);
     return row ? { bot: { id: botId, name: row.name }, token: row.bot_token, url: row.url, savedAt: row.updated_at } : null;
+  }
+
+  /**
+   * Bot `botId`'s webhook as a delivery to it in room `roomId` finds it now, with who clicked, `clickerId`,
+   * and the room's name, or null for a DM's: null unless the bot has one there and whoever clicked is an
+   * active member of the room.
+   */
+  async clickWebhook(roomId: RoomId, botId: UserId, clickerId: UserId): Promise<(BotWebhook & { clicker: User; roomName: string | null }) | null> {
+    const [[bot], [clicker]] = (await this.db.batch([statement(BOT_WEBHOOK, roomId, botId), statement(CLICKER, roomId, clickerId)])) as [
+      Array<{ name: string; bot_token: string | null; url: string; updated_at: string }>,
+      Array<{ name: string; room_name: string | null }>,
+    ];
+    if (!bot || !clicker) return null;
+    return { bot: { id: botId, name: bot.name }, token: bot.bot_token, url: bot.url, savedAt: bot.updated_at, clicker: { id: clickerId, name: clicker.name }, roomName: clicker.room_name };
   }
 
   /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
