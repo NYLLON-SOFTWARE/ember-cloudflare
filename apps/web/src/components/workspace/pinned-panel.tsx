@@ -43,11 +43,17 @@ export function PinnedPanel({ room, name, me, pins, messages, onUnpin, refresh, 
   const nameOf = useNameOf();
   const direct = room.kind === "direct";
 
-  // The room is asked again while any pin's time waits for its listing, which opening asks for.
-  const unlisted = pins?.some(({ at }) => at === null) ?? false;
+  // The room is asked again whenever the pins whose times wait for their listing change, which
+  // opening asks for. Their ids, not a whether-any one, or a listing and a new pin taken in
+  // together, both waiting before and after, would go unasked.
+  const waiting = pins
+    ?.filter(({ at }) => at === null)
+    .map(({ messageId }) => messageId)
+    .sort()
+    .join(" ");
   useEffect(() => {
-    if (unlisted) refresh();
-  }, [unlisted, refresh]);
+    if (waiting) refresh();
+  }, [waiting, refresh]);
 
   return (
     <aside
