@@ -111,6 +111,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
+import type { Command, Commands, NewCommand } from "@ember/protocol/bots";
 import {
   MAX_APP_SCOPE_LENGTH,
   MAX_APPS,
@@ -725,6 +726,20 @@ export interface WebhookAccess extends BotAccess {
 /** A bot's webhook as a click's delivery finds it, with who clicked, by their name now, and the room's name, or null for a DM's. */
 export interface ClickAccess extends WebhookAccess {
   clicker: User;
+  roomName: string | null;
+}
+
+/**
+ * The command `name` names, as its delivery in a room finds it: the command, or null when no command has
+ * that name; the bot that invokes it, by its name now, or null with the command; and its webhook as
+ * `WebhookAccess` is, or null once the bot isn't an active one in the room with one, with whoever typed
+ * it, by their name now, and the room's name, or null for a DM's.
+ */
+export interface CommandAccess {
+  command: { id: string; name: string } | null;
+  bot: User | null;
+  webhook: WebhookAccess | null;
+  sender: User;
   roomName: string | null;
 }
 
@@ -3919,6 +3934,79 @@ export class Workspace extends DurableObject<Env> {
     return bot && this.shownBotSettings(bot);
   }
 
+  /**
+   * The workspace's commands, each with its bot, and which of the bots are on which rooms' message
+   * events, for the person `credentials` signs in: they're what the composer's menu offers and the bots
+   * page ticks, which everyone signed in reads, though only administrators change them. Null without a
+   * valid session.
+   */
+  async commands(credentials: Credentials): Promise<Commands | null> {
+    const user = await this.authenticate(credentials);
+    return user ? this.store.commands() : null;
+  }
+
+  /**
+   * Registers a command with `name` and what it's for, invoking the active bot `botId`, as the person
+   * `credentials` signs in asks. Answers it as the bots page lists it: "forbidden" unless that's an
+   * administrator, "not found" unless `botId` is an active bot, "taken" for a name one of the
+   * workspace's commands has already, or null without a valid session.
+   */
+  async registerCommand(credentials: Credentials, botId: UserId, { name, description }: NewCommand): Promise<Command | "forbidden" | "not found" | "taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.activeBot(botId))) return "not found";
+      if (await this.store.commandTaken(name)) return "taken";
+      const id = sortableId();
+      await this.store.registerCommand({ id, name, description: description ?? null, botId }, new Date().toISOString());
+      return (await this.store.command(id))!;
+    });
+  }
+
+  /**
+   * Forgets the command `id`, whose name is free again, as the person `credentials` signs in asks:
+   * "forbidden" unless they're an administrator, "not found" unless there is one, or null without a
+   * valid session.
+   */
+  async removeCommand(credentials: Credentials, commandId: string): Promise<"removed" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return (await this.store.removeCommand(commandId)) ? "removed" : "not found";
+  }
+
+  /**
+   * Puts the active bot `botId` on room `roomId`'s message events, as the person `credentials` signs in
+   * ticks it: every message written in the room by someone else is delivered to the bot's webhook, as a
+   * command's delivery is. Answers "subscribed", or that again for a tick of one it's on already:
+   * "forbidden" unless that's an administrator, "not found" unless `botId` is an active bot, "not in
+   * room" unless the room has it, or null without a valid session.
+   */
+  async subscribeToMessages(credentials: Credentials, botId: UserId, roomId: RoomId): Promise<"subscribed" | "forbidden" | "not found" | "not in room" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    if (!(await this.store.activeBot(botId))) return "not found";
+    // A subscription is for the messages a room sends the bot, which it hears of only in the room.
+    if (!(await this.store.isMember(roomId, botId))) return "not in room";
+    await this.store.subscribeToMessages(botId, roomId, new Date().toISOString());
+    return "subscribed";
+  }
+
+  /**
+   * Takes the bot `botId` off room `roomId`'s message events, as the person `credentials` signs in
+   * unticks it, answering whether it did: "forbidden" unless that's an administrator, or null without a
+   * valid session. Off when it wasn't on them, as lifting a hush is when there's none.
+   */
+  async unsubscribeFromMessages(credentials: Credentials, botId: UserId, roomId: RoomId): Promise<"unsubscribed" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    await this.store.unsubscribeFromMessages(botId, roomId);
+    return "unsubscribed";
+  }
+
   /** Bots as administrators see them: with their avatars' addresses, and their keys in place of their tokens. */
   private async shownBots(bots: StoredBot[]): Promise<Bot[]> {
     return (await directoryOf(bots, this.env.SESSION_SECRET)).map(({ token, ...bot }) => ({ ...bot, key: botKeyOf(bot.id, token) }));
@@ -5449,6 +5537,30 @@ export class Workspace extends DurableObject<Env> {
     if (!found) return null;
     const { bot, url, clicker, roomName } = found;
     return { bot, url, key: botKeyOf(bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, found)), authorizedAt, clicker, roomName };
+  }
+
+  /**
+   * The command `name` names, as its delivery in room `roomId` by `senderId` finds it, when its turn
+   * comes: null once whoever typed it isn't an active member of the room, so that a command waiting its
+   * turn goes nowhere once they're taken out. Within that, the command null once no command has the
+   * name, and the webhook null as `botWebhook` answers it, so that deleting a bot, taking it out of the
+   * room or removing its webhook stops what's on its way to it, and a new URL or key takes effect at
+   * once.
+   */
+  async commandWebhook(roomId: RoomId, senderId: UserId, name: string): Promise<CommandAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.commandWebhook(roomId, senderId, name);
+    if (!found) return null;
+    const { command, bot, sender, roomName, webhook } = found;
+    const access =
+      webhook && {
+        bot: webhook.bot,
+        url: webhook.url,
+        key: botKeyOf(webhook.bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, webhook.bot.id, webhook)),
+        authorizedAt,
+      };
+    return { command, bot, webhook: access || null, sender, roomName };
   }
 
   /**

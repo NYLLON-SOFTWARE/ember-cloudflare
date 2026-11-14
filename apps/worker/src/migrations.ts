@@ -70,6 +70,7 @@ import statuses from "../migrations/0069_statuses.sql";
 import saves from "../migrations/0070_saves.sql";
 import guests from "../migrations/0071_guests.sql";
 import reminderPushes from "../migrations/0074_reminder_pushes.sql";
+import commands from "../migrations/0072_commands.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -166,6 +167,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0070_saves.sql", scope: "workspace", sql: saves },
   { name: "0071_guests.sql", scope: "workspace", sql: guests },
   { name: "0074_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
+  { name: "0072_commands.sql", scope: "workspace", sql: commands },
 ];
 
 /**

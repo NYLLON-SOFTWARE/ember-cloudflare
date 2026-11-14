@@ -485,6 +485,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "pins.listed":
     case "pin.created":
     case "pin.deleted":
+    case "command.ran":
     case "pong":
       return state;
   }

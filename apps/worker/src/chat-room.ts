@@ -68,7 +68,8 @@ import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/wait
 import { JobQueue } from "./at-once";
 import { actingButton, clickPayload } from "./bots/clicks";
 import { payloadOf, slackMessage, type SlackMessage, type SlackPayload } from "./bots/slack";
-import { postClick, postWebhook, WebhookError, webhookPayload, type ClickAnswer, type Reply } from "./bots/webhooks";
+import { commandPayload, eventPayload } from "./bots/commands";
+import { postClick, postCommand, postWebhook, WebhookError, webhookPayload, type ClickAnswer, type Reply } from "./bots/webhooks";
 import { keptCards } from "./cards";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
@@ -139,7 +140,7 @@ const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
  */
 const BANNED = "Request failed (429)";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "card.click", "pin.create", "pin.delete"]);
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "card.click", "pin.create", "pin.delete", "command.run"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -195,12 +196,26 @@ const THREAD_GONE = "the thread's message has been deleted";
 
 /** How many clicks on bots' buttons each person can have waiting in a room, so that no one fills its webhook queue. */
 const CLICKS_WAITING_EACH = 3;
+/** How many commands each person can have waiting in a room, as clicks are. */
+const COMMANDS_WAITING_EACH = 3;
 /** Why a click goes nowhere: its message, or the button on it, went before the click's turn came. */
 const BUTTON_GONE = "That button is no longer there";
 const TOO_MANY_CLICKS = "Wait for your earlier clicks to be answered";
+const TOO_MANY_COMMANDS = "Wait for your earlier commands to be answered";
 const WEBHOOKS_FULL = "Too much is waiting for bots here. Try again in a moment.";
 /** What whoever clicked is told when the click's delivery fails without saying why. */
 const CLICK_FAILED = "That click couldn't be delivered";
+const COMMAND_FAILED = "That command couldn't be delivered";
+
+/** Why a command went nowhere, as what the room tells whoever typed it, and what it logs. */
+class CommandError extends WebhookError {
+  constructor(
+    readonly told: string,
+    logged: string,
+  ) {
+    super(logged);
+  }
+}
 
 /** Why a click came to nothing: what the room tells whoever clicked, and what it logs. */
 class ClickError extends WebhookError {
@@ -214,6 +229,9 @@ class ClickError extends WebhookError {
 
 /** A click on a button that acts, as a socket sends it. */
 type CardClick = Extract<ClientFrame, { type: "card.click" }>;
+
+/** A slash command typed in the room, as a socket sends it. */
+type CommandRun = Extract<ClientFrame, { type: "command.run" }>;
 
 /** The button `click` says was clicked, as a card names one. */
 const clickedIn = ({ actionId, blockId, value }: CardClick): CardAction => ({ id: actionId, blockId, value });
@@ -316,6 +334,8 @@ export class ChatRoom extends DurableObject<Env> {
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
   /** How many clicks each person has waiting on bots' webhooks. */
   private readonly clicking = new Map<UserId, number>();
+  /** How many commands each person has waiting on bots' webhooks, as clicks are. */
+  private readonly commanding = new Map<UserId, number>();
   private readonly answers = new JobQueue(ANSWERS_AT_ONCE, ANSWERS_WAITING);
   /** The tools' cards a click's call is being made for, by their messages' ids: one at a time each, as what it answers takes the card's place. */
   private readonly calling = new Set<string>();
@@ -916,7 +936,8 @@ export class ChatRoom extends DurableObject<Env> {
         const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
         const clientMessageIds = frame.type === "message.check" ? frame.clientMessageIds : undefined;
         const clickId = frame.type === "card.click" ? frame.clickId : undefined;
-        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, clientMessageIds, clickId, failed: frame.type });
+        const commandId = frame.type === "command.run" ? frame.commandId : undefined;
+        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, clientMessageIds, clickId, commandId, failed: frame.type });
       }
     });
   }
@@ -948,7 +969,8 @@ export class ChatRoom extends DurableObject<Env> {
     if (CHANGES.has(frame.type) && (ws.deserializeAttachment() as Attachment).banned) {
       const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
       const clickId = frame.type === "card.click" ? frame.clickId : undefined;
-      return this.send(ws, { type: "error", message: BANNED, clientMessageId, clickId, failed: frame.type });
+      const commandId = frame.type === "command.run" ? frame.commandId : undefined;
+      return this.send(ws, { type: "error", message: BANNED, clientMessageId, clickId, commandId, failed: frame.type });
     }
 
     switch (frame.type) {
@@ -1052,6 +1074,15 @@ export class ChatRoom extends DurableObject<Env> {
         this.clicking.set(user.id, waiting + 1);
         // The bot answers in its own time, which nothing else in the room waits for. A click that calls an app's tool waits on the app, as an answer does, not among the bots' deliveries.
         this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame, button && toolCallOf(button.action) ? this.answers : this.webhooks));
+        return;
+      }
+      case "command.run": {
+        // Whoever typed it is here, as the room has their socket, and a ban blocked from changing anything above.
+        const waiting = this.commanding.get(user.id) ?? 0;
+        if (waiting >= COMMANDS_WAITING_EACH) return this.send(ws, { type: "error", message: TOO_MANY_COMMANDS, commandId: frame.commandId, failed: frame.type });
+        this.commanding.set(user.id, waiting + 1);
+        // The bot answers in its own time, among the room's other deliveries, as it answers a message.
+        this.ctx.waitUntil(this.deliverCommand(store.roomId, ws, user, frame));
         return;
       }
       case "ping":
@@ -1388,8 +1419,13 @@ export class ChatRoom extends DurableObject<Env> {
         if (!message) throw new WebhookError("the message is gone");
         const webhook = await workspace(this.env).botWebhook(roomId, delivery.botId);
         if (!webhook) throw new WebhookError(NO_WEBHOOK);
+        // A message event's payload says who wrote what, where, as a command's does; a mention's, as a
+        // delivery always has. Whatever the shape, the bot answers as it answers any delivery.
+        const payload = delivery.subscribed
+          ? eventPayload(roomId, delivery.author, delivery.roomName, message)
+          : webhookPayload(roomId, delivery, webhook, message);
         const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
-        const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, delivery, webhook, message), keep);
+        const { status, reply } = await postWebhook(webhook.url, payload, keep);
         const refused = reply && (await this.postReply(roomId, webhook, reply, message.parentId));
         if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
         console.log(`${job} performed: ${status ?? "no answer in time"}`);
@@ -1398,6 +1434,89 @@ export class ChatRoom extends DurableObject<Env> {
       }
     });
     if (!ran) console.error(`${job} dropped: the room's webhook queue is full`);
+  }
+
+  /**
+   * Delivers the command `command`, which `user` sent on `ws`, to the webhook of the bot it invokes, in
+   * its turn among the room's deliveries, and posts what the bot answers as its own message, then tells
+   * `ws` it's done, or why it came to nothing. Each is logged as a delivery is, without its URL or the
+   * bot's key, and one the queue has no room for is dropped, as a click's is.
+   */
+  private async deliverCommand(roomId: RoomId, ws: WebSocket, user: User, command: CommandRun): Promise<void> {
+    const job = `Bot::WebhookJob of ${user.id}'s /${command.name} in room ${roomId}`;
+    let failed: string | null = null;
+    try {
+      const ran = await this.webhooks.run(async () => {
+        try {
+          console.log(`${job} performed: ${await this.reportCommand(roomId, user, command)}`);
+        } catch (error) {
+          console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+          failed = error instanceof CommandError ? error.told : COMMAND_FAILED;
+        }
+      });
+      if (!ran) {
+        console.error(`${job} dropped: the room's queue is full`);
+        failed = WEBHOOKS_FULL;
+      }
+    } finally {
+      const waiting = (this.commanding.get(user.id) ?? 1) - 1;
+      if (waiting > 0) this.commanding.set(user.id, waiting);
+      else this.commanding.delete(user.id);
+      this.send(ws, failed === null ? { type: "command.ran", commandId: command.commandId } : { type: "error", message: failed, commandId: command.commandId, failed: command.type });
+    }
+  }
+
+  /**
+   * Delivers `user`'s command to the bot's webhook, as `deliver` delivers a message: to the webhook as
+   * the Workspace finds it then, for whoever typed it, while they're in the room, and posts what the bot
+   * says back, text, a file or a payload of blocks, as it posts what it answers a click with. Answers the
+   * webhook's status, or throws why the command came to nothing, which whoever typed it is told.
+   */
+  private async reportCommand(roomId: RoomId, sender: User, command: CommandRun): Promise<number | string> {
+    const found = await workspace(this.env).commandWebhook(roomId, sender.id, command.name);
+    if (!found) throw new CommandError(COMMAND_FAILED, `${NO_WEBHOOK}, or whoever typed it has left the room`);
+    if (!found.command) throw new CommandError(`There's no /${command.name} command here`, "no command by that name");
+    if (!found.webhook || !found.bot) throw new CommandError(`${found.bot?.name ?? "That bot"} isn't taking commands here`, NO_WEBHOOK);
+    const { webhook } = found;
+    const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
+    const payload = commandPayload(roomId, found.sender, found.roomName, found.command, command.text);
+    const { status, answer } = await postCommand(webhook.url, payload, keep);
+    if (status === null) throw new CommandError(`${webhook.bot.name} didn't answer in time`, "no answer in time");
+    if (status < 200 || status > 299) throw new CommandError(`${webhook.bot.name} couldn't take that command`, `its webhook answered ${status}`);
+    const refused = answer && (await this.postCommandAnswer(roomId, webhook, answer));
+    if (refused) throw new CommandError(`${webhook.bot.name}'s answer couldn't be posted`, `its answer wasn't kept: ${refused}`);
+    return status;
+  }
+
+  /**
+   * Posts what a bot answers a command with: what it says back, text or a file, is its reply, as
+   * `postReply` posts one to a delivery, and a payload of blocks is a new message of its with the cards
+   * the blocks make, as a click's payload takes the clicked card's place. A payload that shows nothing
+   * does nothing, as an answer without one does, and as blank text does, which is a webhook's bare 200.
+   * Answers why the room keeps nothing of it, if it doesn't.
+   */
+  private async postCommandAnswer(roomId: RoomId, webhook: WebhookAccess, answer: ClickAnswer<KeptFile>): Promise<string | null> {
+    // Blank text is a webhook's bare 200, which says nothing, as an answer without a payload doesn't.
+    if (!("payload" in answer)) return "text" in answer && answer.text.trim() === "" ? null : this.postReply(roomId, webhook, answer);
+    if (answer.payload.trim() === "") return null;
+    const payload = payloadOf(answer.payload);
+    if (!payload) return "it isn't a JSON object";
+    const posted = payload.delete_original === true ? null : slackMessage(payload, true);
+    if (posted === "no_text") return null;
+    if (typeof posted === "string") return posted;
+    // delete_original has nothing of the command's to take down, so nothing is posted.
+    if (!posted) return null;
+    const found = await workspace(this.env).botWebhook(roomId, webhook.bot.id);
+    const access = found?.url === webhook.url ? found : null;
+    return this.serially(async () => {
+      if (await this.isDeleted()) return "the room is gone";
+      if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return WEBHOOK_CHANGED;
+      const body = await this.prepareWithCards(posted.markup, posted.cards);
+      if (typeof body === "string") return body;
+      // A command's answer is the bot's own, as any reply is: no delivery is sent for it.
+      await this.create(this.storeFor(roomId), access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply" });
+      return null;
+    });
   }
 
   /**

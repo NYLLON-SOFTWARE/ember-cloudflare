@@ -337,7 +337,7 @@ describe("Webhooks", () => {
 
   it("takes only the bot's own @mentions out of the plain text, case for case, then whitespace at either end", () => {
     const space = String.fromCodePoint(0xa0, 0x2003, 0x3000);
-    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1" };
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1", subscribed: false };
     const webhook = { bot: { id: "b1", name: "Build Bot" }, key: "b1-AbC123" };
     const plain = (plainText: string, mentions: User[] = []) =>
       (JSON.parse(webhookPayload("r1", delivery, webhook, { id: "m1", body: "", plainText, mentions })) as { message: { body: { plain: string } } }).message.body.plain;
@@ -349,7 +349,7 @@ describe("Webhooks", () => {
   });
 
   it("trims the plain text in a moment, however long a run of whitespace it holds", () => {
-    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1" };
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1", subscribed: false };
     const webhook = { bot: { id: "b1", name: "Build Bot" }, key: "b1-AbC123" };
     const plainText = `a${" ".repeat(300_000)}b`;
     const started = Date.now();
@@ -360,7 +360,7 @@ describe("Webhooks", () => {
   });
 
   it("writes the payload as Campfire does, with HTML's characters escaped, and a DM's name null", () => {
-    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, botId: "b1" };
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, botId: "b1", subscribed: false };
     const webhook = { bot: { id: "b1", name: "Build Bot" }, key: "b1-AbC123" };
     const payload = webhookPayload("r1", delivery, webhook, { id: "m1", body: "<p>A &amp; B</p>", plainText: "A & B", mentions: [] });
 
