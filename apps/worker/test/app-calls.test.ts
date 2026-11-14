@@ -3,8 +3,9 @@ import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type CallDecis
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fromApp, toolCallOf, toolCard, toolCards } from "../src/apps/cards";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
-import { alwaysAllowedFor, CALL_NOT_SHOWN, CALL_OUTCOMES, MAX_SHOWN_INPUT_LENGTH, signInEnded, TOO_LONG_TO_SHOW, unmadeFor } from "../src/apps/tools";
+import { alwaysAllowedFor, CALL_NOT_SHOWN, CALL_OUTCOMES, MAX_SHOWN_INPUT_LENGTH, shownAsCard, signInEnded, TOO_LONG_TO_SHOW, unmadeFor } from "../src/apps/tools";
 import { CALL_WAITS_MS } from "../src/apps/waiting-calls";
 import { CALL_DECLINED } from "../src/assistant/tool-calls";
 import { api, connect, cookieOf, freshDeploy, post, roomSql, roomStub, shown, workspaceSql, type Client, type Session } from "./support";
@@ -28,7 +29,7 @@ const SEARCH_ISSUES = { name: "search_issues", description: "Finds issues.", inp
 interface Rpc {
   id?: number;
   method: string;
-  params?: { protocolVersion?: string; name?: string; arguments?: unknown };
+  params?: { protocolVersion?: string; capabilities?: unknown; name?: string; arguments?: unknown };
   authorization: string | null;
 }
 
@@ -43,16 +44,16 @@ let asked: Asked[];
 let script: Turn[];
 /** What happens while the model works on its next turn, once, if anything. */
 let meanwhile: (() => Promise<unknown>) | undefined;
-/** The tools the fake server lists, the token it takes, and what it answers a call with: a result, or the error it refuses it with. */
+/** The tools the fake server lists, the token it takes, and what it answers a call with, in its own time: a result, or the error it refuses it with. */
 let server: { tools: unknown[]; token: string; result: (call: Rpc) => unknown; refuses?: string };
 
 /** The fake server's answer to `message`. */
-function answerTo(message: Rpc): Response {
+async function answerTo(message: Rpc): Promise<Response> {
   const result = (result: unknown) => Response.json({ jsonrpc: "2.0", id: message.id, result });
   if (message.method === "initialize") return result({ protocolVersion: message.params?.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "Tracker", version: "1.2.3" } });
   if (message.method === "tools/list") return result({ tools: server.tools });
   if (message.method === "tools/call" && server.refuses) return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32602, message: server.refuses } });
-  if (message.method === "tools/call") return result(server.result(message));
+  if (message.method === "tools/call") return result(await server.result(message));
   return message.id === undefined ? new Response(null, { status: 202 }) : Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
 }
 
@@ -707,5 +708,263 @@ describe("A call of a tool an administrator always allows an agent", () => {
     // Its model is given none of them from then on.
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
     expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+  });
+});
+
+describe("A card a connected app's tool answers a call with", () => {
+  const ISSUE = [
+    { type: "header", text: { type: "plain_text", text: "#12 Login fails" } },
+    { type: "section", text: { type: "mrkdwn", text: "*Open*, assigned to nobody" } },
+    {
+      type: "actions",
+      elements: [
+        { type: "button", text: { type: "plain_text", text: "Open in Tracker" }, url: "https://tracker.example.com/issues/12" },
+        { type: "button", text: { type: "plain_text", text: "Close" }, action_id: "tool:close_issue", value: '{"id":12}' },
+      ],
+    },
+  ];
+  const withCard = (blocks: unknown, more: { isError?: boolean } = {}) => ({ content: [{ type: "text", text: "Opened #12." }], _meta: { slack: { blocks } }, ...more });
+  const SHOWN = ["#12 Login fails", "Open, assigned to nobody", "Open in Tracker", fromApp("Tracker", "create_issue")].join("\n");
+
+  it("is shown to the room as the answerer's reply, saying whose it is, once the call is allowed, and the model is told so", async () => {
+    const { inGeneral } = await setUp();
+    server.result = () => withCard(ISSUE);
+    script = [CALL, { text: "It's open." }];
+
+    const asks = await ask(inGeneral);
+    click(inGeneral, asks, "allow");
+    const card = await fromEmber(inGeneral);
+    expect(card.plainText).toBe(SHOWN);
+    expect(card.cards).toEqual([
+      {
+        source: "blocks",
+        parts: [
+          { kind: "header", text: "#12 Login fails" },
+          { kind: "section", html: expect.stringContaining("<strong>Open</strong>") },
+          // A button that calls a tool @ember doesn't have goes, as nothing would take its click.
+          { kind: "buttons", buttons: [{ text: "Open in Tracker", href: "https://tracker.example.com/issues/12" }] },
+          { kind: "context", items: [{ html: expect.stringContaining(fromApp("Tracker", "create_issue")) }] },
+        ],
+      },
+    ]);
+    expect((await fromEmber(inGeneral)).plainText).toBe("It's open.");
+    expect(told()).toEqual([[`Opened #12.\n\n${shownAsCard("Tracker")}`, false]]);
+    // Ember said it takes Slack's Block Kit as it connected, by the name Slack's client gives it.
+    const { capabilities } = rpcs.find(({ method }) => method === "initialize")!.params!;
+    expect(capabilities).toEqual({ extensions: { "io.slack/block-kit": { mimeTypes: ["application/vnd.slack.blocks+json"] } } });
+  });
+
+  it("follows the card of a call made without asking first", async () => {
+    const { inGeneral, ada } = await setUp();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    server.result = () => withCard(ISSUE);
+    script = [CALL, { text: "It's open." }];
+
+    expect((await ask(inGeneral)).plainText).toContain("Ember used Tracker");
+    expect((await fromEmber(inGeneral)).plainText).toBe(SHOWN);
+    expect((await fromEmber(inGeneral)).plainText).toBe("It's open.");
+  });
+
+  it("isn't shown when Ember doesn't draw all of it, or when the call failed, and the model has what the tool said all the same", async () => {
+    const { inGeneral, ada } = await setUp();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    const unshown = [
+      withCard([...ISSUE, { type: "input", label: { type: "plain_text", text: "Title" }, element: { type: "plain_text_input", action_id: "input:title" } }]),
+      withCard(ISSUE, { isError: true }),
+      withCard("not blocks"),
+      withCard([{ type: "divider" }]),
+      // A picture at an address the room doesn't show, by itself or beside a section's text, and a block that shows nothing, would each leave less than the tool's card.
+      withCard([...ISSUE, { type: "image", image_url: "https://203.0.113.7/chart.png", alt_text: "Burndown" }]),
+      withCard([{ type: "section", text: { type: "mrkdwn", text: "*Open*" }, accessory: { type: "image", image_url: "https://203.0.113.7/chart.png", alt_text: "Burndown" } }]),
+      withCard([...ISSUE, { type: "header", text: { type: "plain_text", text: "" } }]),
+    ];
+    for (const result of unshown) {
+      server.result = () => result;
+      script = [CALL, { text: "Done." }];
+      await ask(inGeneral);
+      expect((await fromEmber(inGeneral)).plainText).toBe("Done.");
+      expect(told()).toEqual([["Opened #12.", result.isError === true]]);
+    }
+  });
+
+  const CLOSE_ISSUE = { name: "close_issue", description: "Closes an issue.", inputSchema: { type: "object", properties: { id: { type: "number" } } } };
+  const CLOSED = [{ type: "header", text: { type: "plain_text", text: "#12 Login fails" } }, { type: "section", text: { type: "mrkdwn", text: "*Closed*" } }];
+  const CLOSE = { text: "Close", action: { id: "tool:close_issue", value: '{"id":12}' } };
+
+  /** Sets Ember up as `setUp` does, with Tracker's close_issue @ember's too, and the card create_issue answers with in the room, made without asking first. */
+  async function setUpWithCard() {
+    server.tools.push(CLOSE_ISSUE);
+    server.result = ({ params }) => (params?.name === "close_issue" ? withCard(CLOSED) : withCard(ISSUE));
+    const all = await setUp();
+    await pick(all.ada, ["create_issue", "close_issue"], { always: ["create_issue"] });
+    script = [CALL, { text: "It's open." }];
+    await ask(all.inGeneral);
+    const card = await fromEmber(all.inGeneral);
+    await fromEmber(all.inGeneral);
+    return { ...all, card };
+  }
+
+  /** Clicks the button of `card` that says `text`, as `client`, answering the click's id. */
+  function press(client: Client, card: Message, text: string): string {
+    const { action } = buttonsOf(card.cards).find((button) => button.text === text)!;
+    const clickId = crypto.randomUUID();
+    client.send({ type: "card.click", clickId, messageId: card.id, actionId: action!.id, blockId: action!.blockId, value: action!.value });
+    return clickId;
+  }
+
+  it("has a button that calls a tool of the same app that the answerer has: anyone in the room clicks it, nobody is asked first, and the card the tool answers with takes its place, saying who clicked", async () => {
+    const { general, inGeneral, tracker, card } = await setUpWithCard();
+    expect(buttonsOf(card.cards)).toEqual([{ text: "Open in Tracker", href: "https://tracker.example.com/issues/12" }, { ...CLOSE, action: { ...CLOSE.action, appId: tracker.id } }]);
+    const grace = await join("Grace Hopper");
+    const graceInGeneral = await connect(general, grace);
+    const before = asked.length;
+
+    const clickId = press(graceInGeneral, card, "Close");
+    const closed = await changed(inGeneral, card);
+    expect(closed.plainText).toBe(["#12 Login fails", "Closed", fromApp("Tracker", "close_issue", { who: "Grace Hopper", button: "Close" })].join("\n"));
+    expect(buttonsOf(closed.cards)).toEqual([]);
+    expect(await graceInGeneral.next("card.clicked")).toEqual({ type: "card.clicked", clickId });
+    // The call went to the app with what the button held, and to no model, with nothing waiting to be allowed.
+    expect(calls().at(-1)).toMatchObject({ params: { name: "close_issue", arguments: { id: 12 } }, authorization: `Bearer ${MCP_TOKEN}` });
+    expect(asked).toHaveLength(before);
+    expect(await waiting(general)).toEqual([]);
+  });
+
+  it("has what a tool only says posted beside the card, which stays as it was", async () => {
+    const { inGeneral, card } = await setUpWithCard();
+    server.result = () => ({ content: [{ type: "text", text: "Closed #12, :tada:" }] });
+
+    const clickId = press(inGeneral, card, "Close");
+    const said = await fromEmber(inGeneral);
+    expect(said.plainText).toBe(["Closed #12, :tada:", fromApp("Tracker", "close_issue", { who: "Ada Lovelace", button: "Close" })].join("\n"));
+    expect(await inGeneral.next("card.clicked")).toEqual({ type: "card.clicked", clickId });
+    expect(inGeneral.pending("message.updated")).toEqual([]);
+  });
+
+  it("tells whoever clicked why a click's call came to nothing, and changes nothing", async () => {
+    const { inGeneral, ada, card } = await setUpWithCard();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    /** What `inGeneral` is told of a click on Close. */
+    const toldOfClick = async () => {
+      const clickId = press(inGeneral, card, "Close");
+      const { message, ...rest } = await inGeneral.next("error");
+      expect(rest).toEqual({ type: "error", clickId, failed: "card.click" });
+      return message;
+    };
+
+    server.result = () => ({ content: [{ type: "text", text: "#12 is closed already." }], isError: true });
+    expect(await toldOfClick()).toBe("#12 is closed already.");
+    server.result = () => ({ content: [{ type: "text", text: "x".repeat(400) }], isError: true });
+    expect(await toldOfClick()).toBe(`${"x".repeat(299)}…`);
+    server.refuses = "id is unknown";
+    expect(await toldOfClick()).toBe("close_issue refused the call: id is unknown");
+    // A tool taken from the answerer since isn't called.
+    const made = calls().length;
+    await pick(ada, ["create_issue"]);
+    expect(await toldOfClick()).toBe("Ember no longer has that tool");
+    expect(calls()).toHaveLength(made);
+    // Nor is one the card never had a button for.
+    const clickId = crypto.randomUUID();
+    inGeneral.send({ type: "card.click", clickId, messageId: card.id, actionId: "tool:create_issue", value: "{}" });
+    expect(await inGeneral.next("error")).toEqual({ type: "error", message: "That button is no longer there", clickId, failed: "card.click" });
+    expect(inGeneral.pending("message.updated")).toEqual([]);
+    expect(inGeneral.pending("message.created")).toEqual([]);
+  });
+
+  it("answers one click at a time: another on the same card waits to be tried again", async () => {
+    const { inGeneral, card } = await setUpWithCard();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let held = true;
+    server.result = async () => {
+      while (held) await sleep(10);
+      return withCard(CLOSED);
+    };
+
+    const first = press(inGeneral, card, "Close");
+    while (calls().length < 2) await sleep(10);
+    const second = press(inGeneral, card, "Close");
+    expect(await inGeneral.next("error")).toEqual({ type: "error", message: "That card is answering another click. Try again in a moment", clickId: second, failed: "card.click" });
+    held = false;
+    expect(await inGeneral.next("card.clicked")).toEqual({ type: "card.clicked", clickId: first });
+    expect(calls()).toHaveLength(2);
+  });
+
+  it("keeps only the buttons that link somewhere or call a tool the answerer has, with an object's JSON, and is no card without anything else to show", () => {
+    const text = { type: "plain_text", text: "Go" };
+    const button = (more: Record<string, unknown>) => ({ type: "button", text, ...more });
+    const picked = new Set(["close_issue"]);
+    const card = (blocks: unknown[]) => toolCard({ appName: "Tracker", name: "create_issue" }, JSON.stringify(blocks))!;
+    const section = { type: "section", text: { type: "plain_text", text: "#12" } };
+    const kept = toolCards(
+      card([
+        { ...section, accessory: button({ action_id: "tool:close_issue", value: "{}" }) },
+        { ...section, accessory: button({ action_id: "tool:delete_issue", value: "{}" }) },
+        {
+          type: "actions",
+          block_id: "row",
+          elements: [
+            button({ url: "https://example.com/" }),
+            button({ action_id: "tool:close_issue", value: '{"id":12}' }),
+            button({ action_id: "tool:close_issue", value: "[12]" }),
+            button({ action_id: "tool:close_issue", value: "12" }),
+            button({ action_id: "tool:close_issue" }),
+            button({ action_id: "close_issue", value: "{}" }),
+            button({ action_id: "tool:", value: "{}" }),
+          ],
+        },
+        { type: "actions", elements: [button({ action_id: "approve", value: "{}" })] },
+        { type: "card", title: text, actions: [button({ action_id: "tool:close_issue", value: "{}" }), button({ action_id: "tool:reopen_issue", value: "{}" })] },
+      ]),
+      "app-1",
+      picked,
+    );
+    const calling = (value: string, blockId?: string) => ({ text: "Go", action: { id: "tool:close_issue", ...(blockId && { blockId }), value, appId: "app-1" } });
+    expect(kept!.cards[0]!.parts.slice(0, -1)).toEqual([
+      { kind: "section", html: expect.any(String), button: calling("{}") },
+      { kind: "section", html: expect.any(String) },
+      { kind: "buttons", buttons: [{ text: "Go", href: "https://example.com/" }, calling('{"id":12}', "row")] },
+      { kind: "tiles", tiles: [{ title: "Go", buttons: [calling("{}")] }] },
+    ]);
+    // A card of nothing but buttons nobody can click shows nothing.
+    expect(toolCards(card([{ type: "actions", elements: [button({ action_id: "tool:delete_issue", value: "{}" })] }, { type: "divider" }]), "app-1", picked)).toBeNull();
+
+    // A button calls a tool only on a tool's card, where the room names the app.
+    expect(toolCallOf({ id: "tool:close_issue", value: '{"id":12}', appId: "app-1" })).toEqual({ appId: "app-1", name: "close_issue", input: { id: 12 } });
+    expect(toolCallOf({ id: "tool:close_issue", value: '{"id":12}' })).toBeUndefined();
+  });
+
+  it("is shown whole or not at all: with only blocks Ember draws, whose controls are buttons, and no more of them than Slack takes", () => {
+    const tool = { appName: "Tracker", name: "create_issue" };
+    const text = { type: "plain_text", text: "Hello" };
+    const section = { type: "section", text };
+    const card = { type: "card", title: text, actions: [{ type: "button", text, url: "https://example.com/" }] };
+    const drawn = [
+      [section, { type: "divider" }, { type: "context", elements: [text] }],
+      [{ ...section, accessory: { type: "image", image_url: "https://example.com/a.png", alt_text: "A" } }],
+      [{ ...section, accessory: { type: "button", text, action_id: "tool:close_issue" } }],
+      [{ type: "carousel", elements: [card, card] }],
+      [card],
+      Array.from({ length: 50 }, () => section),
+    ];
+    for (const blocks of drawn) {
+      expect(toolCard(tool, JSON.stringify(blocks)), JSON.stringify(blocks)).toEqual({
+        blocks: [...blocks, { type: "context", elements: [{ type: "plain_text", text: fromApp("Tracker", "create_issue"), emoji: false }] }],
+      });
+    }
+    const select = { type: "static_select", action_id: "tool:set_status", options: [] };
+    const undrawn = [
+      [section, { type: "data_table", rows: [] }],
+      [section, { type: "container", child_blocks: [section] }],
+      [section, { type: "actions", elements: [{ type: "button", text, url: "https://example.com/" }, select] }],
+      [{ ...section, accessory: select }],
+      [{ type: "carousel", elements: [card, section] }],
+      [{ ...card, actions: [select] }],
+      [section, "a block"],
+      Array.from({ length: 51 }, () => section),
+      [],
+    ];
+    for (const blocks of undrawn) expect(toolCard(tool, JSON.stringify(blocks)), JSON.stringify(blocks)).toBeNull();
+    expect(toolCard(tool, "{")).toBeNull();
+    expect(toolCard(tool, '{"type":"section"}')).toBeNull();
   });
 });

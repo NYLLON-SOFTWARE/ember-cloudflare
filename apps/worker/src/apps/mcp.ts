@@ -1,4 +1,5 @@
 import { Client, InsufficientScopeError, ProtocolError, SdkError, SdkErrorCode, SdkHttpError, StreamableHTTPClientTransport, UnauthorizedError } from "@modelcontextprotocol/client";
+import { MAX_MESSAGE_HTML_LENGTH } from "@ember/protocol";
 import { MAX_APP_TOOLS, MAX_TOOL_DESCRIPTION_LENGTH, type AppRefused } from "@ember/protocol/apps";
 import { toHex } from "../encoding";
 import { isLoopback } from "../loopback";
@@ -30,6 +31,13 @@ export const MAX_READ_BYTES = 4_000_000;
 /** The most characters of a call's result a model is given. */
 export const MAX_RESULT_LENGTH = 8_000;
 
+/**
+ * What Ember tells a server it takes besides the protocol's own: Slack's Block Kit in a call's result
+ * (https://docs.slack.dev/ai/slackbot-mcp-client/returning-rich-responses), by the name Slack's client
+ * gives it, as a server built for that one sends its cards only to a client that says so.
+ */
+export const BLOCK_KIT = { name: "io.slack/block-kit", mimeType: "application/vnd.slack.blocks+json" };
+
 /** A tool as Ember keeps it: as its page shows it, with the JSON Schema of what it takes, and a fingerprint of all that. */
 export interface ReadTool {
   name: string;
@@ -56,6 +64,8 @@ export interface CalledTool {
   changed?: true;
   /** The scopes the server asked for, when it refused the call as more than Ember's sign-in to it allows. */
   scope?: string;
+  /** The Block Kit blocks the server answered with beside its text, as JSON, for the room to show as the tool's card. */
+  blocks?: string;
 }
 
 /** Why an app's tools couldn't be read, with the scopes its server asked for, when it refused that as more than Ember's sign-in to it allows. */
@@ -141,7 +151,7 @@ async function connected<T>(address: URL, key: Key | null, send: Send, held: Hel
     requestInit: { redirect: "manual" },
     ...(key !== null && { authProvider: { token: async () => key.token } }),
   });
-  const client = new Client({ name: "Ember", version: VERSION });
+  const client = new Client({ name: "Ember", version: VERSION }, { capabilities: { extensions: { [BLOCK_KIT.name]: { mimeTypes: [BLOCK_KIT.mimeType] } } } });
   try {
     await client.connect(transport, { signal: held.deadline });
     return await ask(client);
@@ -308,14 +318,27 @@ function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL
 
 /**
  * What a model reads of `result`, a server's answer to a call: its text, with anything else it holds
- * named, or what it gives as data when it has no text, cut to as much as a model is given.
+ * named, or what it gives as data when it has no text, cut to as much as a model is given, and the
+ * Block Kit blocks of one that didn't fail, as Slack's client finds them, in `_meta.slack.blocks`.
  */
 function resultOf(result: unknown): CalledTool {
-  const { content, structuredContent, isError } = (typeof result === "object" && result !== null ? result : {}) as Record<string, unknown>;
+  const { content, structuredContent, isError, _meta } = (isObject(result) ? result : {}) as Record<string, unknown>;
   const parts = (Array.isArray(content) ? content : []).map(partOf).filter((part) => part !== "");
   const text = parts.length > 0 ? parts.join("\n\n") : structuredContent === undefined ? "" : JSON.stringify(structuredContent);
-  return { text: text === "" ? "(The tool answered with nothing.)" : cut(text, MAX_RESULT_LENGTH), failed: isError === true };
+  const blocks = isError === true ? undefined : blocksIn(_meta);
+  return { text: text === "" ? "(The tool answered with nothing.)" : cut(text, MAX_RESULT_LENGTH), failed: isError === true, ...(blocks !== undefined && { blocks }) };
 }
+
+/** The Block Kit blocks a result's `meta` holds, as JSON, or undefined when it holds none, or more than a message could keep. */
+function blocksIn(meta: unknown): string | undefined {
+  const slack = isObject(meta) ? meta.slack : undefined;
+  const blocks = isObject(slack) ? slack.blocks : undefined;
+  if (!Array.isArray(blocks) || blocks.length === 0) return undefined;
+  const written = JSON.stringify(blocks);
+  return written.length > MAX_MESSAGE_HTML_LENGTH ? undefined : written;
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** What a model reads of `block`, one piece of a call's result. */
 function partOf(block: unknown): string {

@@ -5,7 +5,8 @@ import type { AddressInfo } from "node:net";
 // A stand-in for an app's MCP server, which the apps spec connects: it speaks the Model Context Protocol
 // over Streamable HTTP as far as Ember asks it (apps/worker/src/apps/mcp.ts), answering `initialize`
 // with what it calls itself, taking the notification that follows, listing its tools, and answering a
-// call of one with `calledWith`, to whoever sends its token. It serves on this machine, where Ember
+// call of one with `calledWith`, and with the Block Kit blocks a spec has it answer with, as a server
+// built for Slack's client does, to whoever sends its token. It serves on this machine, where Ember
 // asks an app over http. Started to sign people in, it takes no token of its own: it's its own OAuth
 // authorization server, as the protocol has one found, which registers whoever asks, shows a page to
 // allow or deny them, and gives short-lived access tokens with a token to get the next one with. A
@@ -44,6 +45,8 @@ export interface FakeMcp {
   asked: string[];
   /** The calls of its tools it ran, in order: each tool's name and what it was called with. */
   calls: Array<{ name: string; arguments: unknown }>;
+  /** The Block Kit blocks it answers a call of `name` with `given` with, beside its text, when a spec has it answer with any. */
+  blocks: ((name: string, given: unknown) => unknown[] | undefined) | null;
   /** Its sign-in, when it signs people in rather than taking its token. */
   signIn: FakeSignIn | null;
   close: () => Promise<void>;
@@ -96,7 +99,8 @@ function resultOf(mcp: FakeMcp, message: Message): unknown {
   if (message.method !== "tools/call" || typeof message.params?.name !== "string") return undefined;
   const { name, arguments: given } = message.params;
   mcp.calls.push({ name, arguments: given });
-  return { content: [{ type: "text", text: calledWith(name, given) }] };
+  const blocks = mcp.blocks?.(name, given);
+  return { content: [{ type: "text", text: calledWith(name, given) }], ...(blocks && { _meta: { slack: { blocks } } }) };
 }
 
 type Reply = (status: number, body?: unknown, headers?: Record<string, string>) => void;
@@ -221,7 +225,7 @@ async function answer(mcp: FakeMcp, request: IncomingMessage, response: ServerRe
  */
 export async function startFakeMcp({ signsIn = false, client = null as FakeClient | null } = {}): Promise<FakeMcp> {
   const signIn: FakeSignIn = { access: null, refresh: null, client, allows: [], needs: null, revoked: [], codes: new Map(), exchanged: 0, refreshed: 0, end: () => void Object.assign(signIn, { access: null, refresh: null }) };
-  const mcp: FakeMcp = { url: "", tools: [...TOOLS], asked: [], calls: [], signIn: signsIn ? signIn : null, close: async () => {} };
+  const mcp: FakeMcp = { url: "", tools: [...TOOLS], asked: [], calls: [], blocks: null, signIn: signsIn ? signIn : null, close: async () => {} };
   const server = createServer((request, response) => {
     answer(mcp, request, response).catch(() => response.destroy());
   });
