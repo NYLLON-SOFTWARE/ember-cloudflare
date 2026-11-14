@@ -23,6 +23,8 @@ const XAI_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${SETUP.accountId}/de
 const [GLM, GEMMA, GPT_OSS, HAIKU, SONNET] = ["@cf/zai-org/glm-4.7-flash", "@cf/google/gemma-4-26b-a4b-it", "@cf/openai/gpt-oss-120b", "anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5"];
 /** xAI's model that takes Chat Completions but no thinking level. */
 const GROK = "xai/grok-4.20-0309-reasoning";
+/** DeepSeek's, which takes Chat Completions and has no tools for the web there, nor Ember's, as Workers AI's do. */
+const DEEPSEEK = "deepseek/deepseek-v4-pro";
 
 /**
  * The models Ember no longer offers that @ember and the agents answer with here, as a copy set up before
@@ -33,6 +35,7 @@ const KEPT: Record<string, KeptModel> = {
   [GEMMA]: { id: GEMMA, name: "Gemma 4 26B", format: "chat", thinkingLevels: [...THINKING_LEVELS] },
   [GPT_OSS]: { id: GPT_OSS, name: "gpt-oss-120b", format: "chat", thinkingLevels: [...THINKING_LEVELS] },
   [GROK]: { id: GROK, name: "Grok 4.20 Reasoning", format: "chat", thinkingLevels: [...THINKING_LEVELS] },
+  [DEEPSEEK]: { id: DEEPSEEK, name: "DeepSeek V4 Pro", format: "chat", thinkingLevels: [...THINKING_LEVELS] },
 };
 
 /** An agent: Scout, on Gemma, made before Ember stopped offering it (`makeAgent`), in every open room, thinking not at all and answering briefly. */
@@ -706,14 +709,14 @@ describe("Try it", () => {
 
   it("refuses Search the web for a model kept from before that can't search, as saving would, and says on the model's field why it didn't answer", async () => {
     const { ada } = await setUp();
-    const scout = await makeAgent(ada, SCOUT);
+    const scout = await makeAgent(ada, { ...SCOUT, model: DEEPSEEK });
     const answers = [() => chatAnswer("Sunny."), () => refusal(403, 5018, "This model isn't available to your account")];
     internet(() => answers.shift()!());
 
-    const searching = await tryIt(ada, scout.id, { ...TRIAL, webSearch: true });
+    const searching = await tryIt(ada, scout.id, { ...TRIAL, model: DEEPSEEK, webSearch: true });
     expect(searching.status).toBe(422);
-    expect(await searching.json()).toEqual({ error: agentCannotSearchWith("Gemma 4 26B"), field: "webSearch" });
-    const refused = await tryIt(ada, scout.id, TRIAL);
+    expect(await searching.json()).toEqual({ error: agentCannotSearchWith("DeepSeek V4 Pro"), field: "webSearch" });
+    const refused = await tryIt(ada, scout.id, { ...TRIAL, model: DEEPSEEK });
     expect(refused.status).toBe(422);
     expect(await refused.json()).toMatchObject({ error: expect.stringContaining("Cloudflare won't run that model for this account."), field: "model" });
   });

@@ -1,4 +1,4 @@
-import { offeredModelOf, type ModelFormat } from "@ember/protocol/assistant";
+import type { ModelFormat } from "@ember/protocol/assistant";
 import { isMessages, isObject, isResponses } from "./formats";
 
 // Tools Ember runs for a model. A model is given each tool's name, what it does and what it takes, and may
@@ -6,14 +6,8 @@ import { isMessages, isObject, isResponses } from "./formats";
 // said and what each call came to, until it answers. Each format writes all of that its own way:
 // Anthropic's Messages (https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview), OpenAI's
 // Responses, which xAI's has too (https://developers.openai.com/api/docs/guides/function-calling), and
-// Chat Completions, which Cloudflare's REST API takes Grok's requests in.
-
-/**
- * Whether `model` is given the tools Ember runs: one Ember offers, each of which takes them in the format
- * Ember asks it in. A model kept from before Ember offered only its own may not, and would be asked every
- * question twice, the second time without them.
- */
-export const takesTools = (model: string) => offeredModelOf(model) !== undefined;
+// Chat Completions, which Cloudflare's REST API takes Grok's requests in. Workers AI's models, asked in a
+// format of their own, are given none of them (`takesEmbersTools`).
 
 /** The most calls of Ember's tools one answer makes, as the model reads the conversation again after each round of them. */
 export const TOOL_CALLS_PER_ANSWER = 5;

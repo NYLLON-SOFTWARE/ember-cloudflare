@@ -28,8 +28,8 @@ const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
 /** Another Cloudflare account, and another API token. */
 const [OTHER_ACCOUNT_ID, OTHER_API_TOKEN] = ["fedcba9876543210fedcba9876543210", "another-api-token-with-ai-gateway-run_01"];
-/** Anthropic's model, which takes Messages, OpenAI's, which takes Responses, and one of Workers AI's, which takes Chat Completions. */
-const [MESSAGES_MODEL, RESPONSES_MODEL, CHAT_MODEL] = ["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"];
+/** Anthropic's model, which takes Messages, OpenAI's, which takes Responses, and DeepSeek's, which takes Chat Completions, where it has no tools for the web. */
+const [MESSAGES_MODEL, RESPONSES_MODEL, CHAT_MODEL] = ["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "deepseek/deepseek-v4-pro"];
 /** xAI's Grok, which searches the web only in xAI's own Responses, through AI Gateway's xAI endpoint, and another of xAI's. */
 const [GROK, OTHER_GROK] = ["xai/grok-4.7", "xai/grok-4.5"];
 /** Another of Anthropic's. */
@@ -192,7 +192,7 @@ const XAI_LEVELS = ["low", "medium", "high"];
 
 /** `model`, called `name`, as a copy set up before Ember asked it through its provider's endpoint keeps it, in `format`, through Cloudflare's REST API. */
 const keptIn = (format: KeptModel["format"], id: string, name: string): KeptModel => ({ id, name, format, thinkingLevels: ALL_LEVELS });
-const KEPT_GLM = keptIn("chat", CHAT_MODEL, "GLM-4.7 Flash");
+const KEPT_DEEPSEEK = keptIn("chat", CHAT_MODEL, "DeepSeek V4 Pro");
 
 /** Sets Ember up with Ada as its administrator, signed in, and Ember AI on with `model`, as `setUpAssistant` sets it up. */
 async function setUp(model = MESSAGES_MODEL): Promise<Session> {
@@ -412,19 +412,19 @@ describe("Search the web", () => {
 
   it("says a model kept from before that takes Chat Completions can't search, by its name, asking it nothing", async () => {
     const ada = await setUp();
-    await answerWithKeptModel(KEPT_GLM);
+    await answerWithKeptModel(KEPT_DEEPSEEK);
     expect((await assistantSettings(ada))!.webTools).toBeNull();
     const requests = fakeGateway(searching);
 
     const response = await turnWebSearch(ada, true);
     expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: cannotSearchWith("GLM-4.7 Flash") });
+    expect(await response.json()).toEqual({ error: cannotSearchWith("DeepSeek V4 Pro") });
     expect(requests).toEqual([]);
     expect(await storedWebTools()).toEqual([]);
 
     // By the name it was kept with, as Cloudflare's catalog named it then.
-    await answerWithKeptModel({ ...KEPT_GLM, name: "glm-4.7-flash" });
-    expect(await (await turnWebSearch(ada, true)).json()).toEqual({ error: cannotSearchWith("glm-4.7-flash") });
+    await answerWithKeptModel({ ...KEPT_DEEPSEEK, name: "deepseek-v4-pro" });
+    expect(await (await turnWebSearch(ada, true)).json()).toEqual({ error: cannotSearchWith("deepseek-v4-pro") });
   });
 
   it("stays off when AI Gateway refuses the model's tools for the web, saying so with Cloudflare's own words", async () => {
@@ -865,7 +865,7 @@ describe("@ember on the web", () => {
     fakeGateway(searching);
     await turnedWebSearch(ada, true);
     await changeModels(ada, "POST", RESPONSES_MODEL);
-    await addKeptModels(KEPT_GLM);
+    await addKeptModels(KEPT_DEEPSEEK);
     vi.restoreAllMocks();
     const client = await connect(await generalRoom(), ada);
     /** The requests for @ember's answer to Ada asking it `question` with `model`, and what it said. */
@@ -889,7 +889,7 @@ describe("@ember on the web", () => {
     expect(unsearchable.map(({ url, body }) => [url.split("/ai/v1/")[1], body.tools])).toEqual([["chat/completions", undefined]]);
     const instructions = unsearchable[0]!.body.messages![0]!.content;
     expect(instructions).toContain("You can't search the web or open links with the model Ada Lovelace picked for your answers to them.");
-    expect(instructions).toContain("they can pick one that can, Anthropic's, OpenAI's or xAI's, under Ember AI on their profile.");
+    expect(instructions).toContain("they can pick one that can under Ember AI on their profile.");
     expect(instructions).not.toContain("an administrator can turn on Search the web");
 
     // And with the one that answers everyone again, once they pick that one.
@@ -942,7 +942,7 @@ describe("What @ember is told of the web", () => {
   it("says, while Search the web is on, that the model the asker picked can't search, and that they can pick one that can", () => {
     const told = questionFor({ ...EMBER, instructions: "", promptTemplate: null }, [QUESTION], ADA, IN_GENERAL, { thinking: "low", length: "medium" }, new Date(), [], true).instructions;
     expect(told).toContain("You can't search the web or open links with the model Ada Lovelace picked for your answers to them.");
-    expect(told).toContain("When they ask you to, say so, and that they can pick one that can, Anthropic's, OpenAI's or xAI's, under Ember AI on their profile.");
+    expect(told).toContain("When they ask you to, say so, and that they can pick one that can under Ember AI on their profile.");
     expect(told).not.toContain("an administrator");
   });
 });

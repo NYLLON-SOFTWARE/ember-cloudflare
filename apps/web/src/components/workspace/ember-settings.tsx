@@ -9,13 +9,14 @@ import {
   MAX_INSTRUCTIONS_LENGTH,
   MODELS_FULL,
   modelName,
-  offeredModelOf,
+  noLongerOffered,
   PAGES_READ_PER_ANSWER,
   WEB_SEARCHES_PER_ANSWER,
   withinMost,
   type AssistantChanges,
   type AssistantModel,
   type AssistantSettings as Assistant,
+  type OfferedModels,
   type WebTool,
 } from "@ember/protocol/assistant";
 import { EMBER_TEMPLATE, promptAround, templateRefusal, webPromptFor, type Prompt } from "@ember/protocol/prompts";
@@ -25,6 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
+import { useOfferedModels } from "@/hooks/use-offered-models";
 import { useTitle } from "@/hooks/use-title";
 import {
   ApiError,
@@ -89,7 +91,7 @@ export const WEB_SEARCH_OFF = `@ember answers from what its model learned in tra
 /** What the page says of Search the web while it's on, letting @ember do `webTools` on the web, while people can pick from `models`. */
 export function webSearchOn(webTools: WebTool[], models: readonly AssistantModel[]): string {
   const reads = webTools.includes("read") ? `, and reads the pages people link to or its searches find, at most ${PAGES_READ_PER_ANSWER}` : "";
-  const picked = models.length > 1 ? " A model someone picks searches too, if it's Anthropic's, OpenAI's or xAI's." : "";
+  const picked = models.length > 1 ? " A model someone picks searches too, if it can." : "";
   return `@ember searches the web when a question needs it, at most ${WEB_SEARCHES_PER_ANSWER} times an answer${reads}, and lists the pages it used under its answer.${picked} AI Gateway's credits pay for each search.`;
 }
 
@@ -211,6 +213,8 @@ export function EmberSettings({ me, assistant, onSetUp, onStopped, onChanged, on
   const [pickedAvatar, setPickedAvatar] = useState<string | null>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const busy = saving || savingAvatar || turningWeb !== null;
+  // The models Ember offers through Ember AI's account, for Add a model and for saying which people can pick that it no longer offers.
+  const offered = useOfferedModels(true, { accountId: assistant.accountId }, onFailed);
   const people = useContext(PeopleContext);
   const community = useAccount().name;
   const flash = useFlash();
@@ -367,6 +371,7 @@ export function EmberSettings({ me, assistant, onSetUp, onStopped, onChanged, on
       />
       <Models
         assistant={assistant}
+        offered={offered}
         disabled={busy}
         onChoose={(model) => change(assistant, { model })}
         onRemove={(model) => remove(assistant, model)}
@@ -380,7 +385,7 @@ export function EmberSettings({ me, assistant, onSetUp, onStopped, onChanged, on
         </div>
         <LevelDials name="assistant-most" levels={assistant.most} disabled={busy} onChange={(changes) => change(assistant, changes)} />
       </div>
-      {adding && <AddAssistantModel assistant={assistant} onAdded={onChanged} onClose={() => setAdding(false)} onFailed={onFailed} />}
+      {adding && <AddAssistantModel assistant={assistant} offered={offered} onAdded={onChanged} onClose={() => setAdding(false)} onFailed={onFailed} />}
     </section>
   );
 }
@@ -540,24 +545,26 @@ function Avatar({ src, uploaded, disabled, onChoose, onRemove }: { src: string; 
 /**
  * The models people can pick, in the order they were added, each a radio button that chooses it to
  * answer everyone else, with a Remove for each but that one, and saying so of one Ember no longer
- * offers, and Add a model under them, until there are as many as there can be, or people can pick every
- * model Ember offers.
+ * offers (`noLongerOffered`), as the Worker lists them, `offered`, once it has, and Add a model under them,
+ * until there are as many as there can be, or people can pick every model Ember offers.
  */
 function Models({
   assistant,
+  offered,
   disabled,
   onChoose,
   onRemove,
   onAdd,
 }: {
   assistant: Assistant;
+  offered: OfferedModels | null;
   disabled: boolean;
   onChoose: (model: string) => void;
   onRemove: (model: string) => void;
   onAdd: () => void;
 }) {
   const full = assistant.models.length >= MAX_ASSISTANT_MODELS;
-  const noneToAdd = modelsToAddTo(assistant).length === 0;
+  const noneToAdd = offered !== null && modelsToAddTo(assistant, offered.models).length === 0;
   const why = full ? MODELS_FULL : noneToAdd ? EVERY_MODEL_ADDED : null;
   return (
     <div className="flex flex-col gap-3 border-t pt-4">
@@ -585,7 +592,7 @@ function Models({
               />
               <span className="min-w-0 wrap-anywhere">
                 {name}
-                {!offeredModelOf(id) && (
+                {offered && noLongerOffered(id, offered.models, offered.workersAi) && (
                   <>
                     {" "}
                     <span className="text-muted-foreground">({NO_LONGER_OFFERED})</span>

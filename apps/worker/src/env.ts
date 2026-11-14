@@ -116,6 +116,13 @@ export interface Env {
    */
   AI_GATEWAY_URL?: string;
   /**
+   * Where Ember reads the models file, which lists the models it offers besides Workers AI's
+   * (docs/models.md): unset, the one on Ember's main branch, or else an https address, or the browser
+   * tests' stand-in's at a loopback one, or nowhere, when it's blank, so that Ember offers only the file
+   * its release shipped with.
+   */
+  EMBER_MODELS_URL?: string;
+  /**
    * Where the Realtime SFU's API is, which huddles run through, for the browser tests' stand-in, which only
    * a loopback address can be: `http://127.0.0.1:8794` has Ember ask
    * `http://127.0.0.1:8794/v1/apps/<id>/...` (huddles/sfu.ts).

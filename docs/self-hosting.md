@@ -575,43 +575,51 @@ on your machine.
 An administrator adds @ember, an AI assistant, on the AI assistant tab of community settings. Turning
 on its Ember AI card opens Set up Ember AI, which takes a Cloudflare account's ID and an API token,
 then a model. Its steps make the token under Account API tokens in the Cloudflare dashboard, as a
-custom token with the account's AI Gateway Run permission, and its Workers AI Read permission for
-Grok, which Ember asks through Cloudflare's REST API. The account's ID starts as the one Ember is
-deployed to, when the deploy gave it, leaving only the token to make, and the dialog's links open that
-account's pages in the dashboard. Ember asks models through the account's default
+custom token with three of the account's permissions: AI Gateway Run, which asking Claude and GPT
+takes, Workers AI Read, which listing and asking Workers AI's models and Grok takes, and AI Gateway
+Read, which searching the web for Workers AI's models takes as well. The account's ID starts as the one Ember is deployed to, when
+the deploy gave it, leaving only the token to make, and the dialog's links open that account's pages in
+the dashboard. Ember asks models through the account's default
 [AI Gateway](https://developers.cloudflare.com/ai-gateway/), whose logs, caching and spend limits
-apply, at the gateway's endpoint for the model's provider,
+apply: Claude and GPT at the gateway's endpoint for the model's provider,
 [Anthropic's](https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/) or
 [OpenAI's](https://developers.cloudflare.com/ai-gateway/usage/providers/openai/), in the provider's own
-API, which has all the model's features and takes only a token with AI Gateway Run. AI Gateway's
-credits don't pay for Grok at the gateway's
+API, which has all the model's features, and Grok and Workers AI's through Cloudflare's
+[REST API](https://developers.cloudflare.com/ai-gateway/usage/rest-api/), in Chat Completions. AI
+Gateway's credits don't pay for Grok at the gateway's
 [xAI endpoint](https://developers.cloudflare.com/ai-gateway/usage/providers/grok/), as xAI answers "No
-credentials presented" there, so Ember asks Grok through Cloudflare's
-[REST API](https://developers.cloudflare.com/ai-gateway/usage/rest-api/) in Chat Completions, where it
-answers but can't search, and at the xAI endpoint only for Search the web, below. Ember tells OpenAI and
-xAI not to keep the conversations, as each otherwise does for 30 days. AI Gateway Run lets the token
-send requests through every gateway on the account, with any provider keys stored on them, so keep it
-as safe as those keys.
+credentials presented" there, so Ember asks it there only for Search the web, below. Ember
+tells OpenAI and xAI not to keep the conversations, as each otherwise does for 30 days. AI Gateway Run
+lets the token send requests through every gateway on the account, with any provider keys stored on
+them, so keep it as safe as those keys.
 
-The model menu lists the models Ember offers, by their makers, each with what a million tokens read and
-a million written cost at its provider's prices, which AI Gateway's credits pay, as
-[What it costs](#what-it-costs) says: Anthropic's Claude Fable 5.2, Claude Opus 5.5, Claude Sonnet 5.5
-and Claude Haiku 5.5, OpenAI's GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra and GPT-6 Luna, and xAI's Grok
-4.7. Ember keeps that list itself, as `ASSISTANT_MODELS` in `packages/protocol/src/assistant.ts`,
-rather than reading Cloudflare's catalog, so that it offers only models whose tools for the web it
-knows, where it can turn them on. The menu starts at Ember AI's model, if
-Ember offers it, or else at Claude Haiku 5.5. The Worker asks the model a test question before keeping
-the setup. @ember then joins every room open to everyone, and turning the card off takes it and the
-[AI agents](#ai-agents) out again and forgets the token. Nobody else can take the name Ember, though
-anyone who had it keeps it.
+The model menu lists the models Ember offers, by their makers, then Workers AI's, each with what a
+million tokens read and a million written cost, as [What it costs](#what-it-costs) says. Claude, GPT
+and Grok come from [the models file](models.md), `models.json` on Ember's main branch, which every copy
+reads once a day, so that a model can be offered, or stop being, without an update: now Anthropic's
+Claude Fable 5.2, Claude Opus 5.5, Claude Sonnet 5.5 and Claude Haiku 5.5, OpenAI's GPT-6 Astra,
+GPT-6.1 Sol, GPT-6.1 Terra and GPT-6 Luna, and xAI's Grok 4.7, at their providers' prices, which AI
+Gateway's credits pay. The file lists only models whose tools for the web Ember knows, where it can turn
+them on, and can change nothing but which models are offered.
+Until a copy has read it, and whenever it can't, the copy offers the file its release shipped with.
+Workers AI's models come from Cloudflare's model search, which the Worker reads once a day for the
+account: the text models that take tools, as Ember's own for searching the web is, at the prices and
+Thinking levels the search lists. While the token lacks Workers AI Read, the menu lists the others and
+says why it can't list those. A model whose maker, or Cloudflare for Workers AI's, plans to stop
+running it says on which day, and Ember stops offering it then. The menu starts at Ember AI's model, if
+Ember offers it, or else at the one the file suggests, Claude Haiku 5.5. The Worker asks the model a
+test question before keeping the setup. @ember then joins every room open to everyone, and turning the
+card off takes it and the [AI agents](#ai-agents) out again and forgets the token. Nobody else can take
+the name Ember, though anyone who had it keeps it.
 
 Ember AI set up before Ember offered only these keeps what it saved, and its models answer as they did:
 the one that answers everyone, the others people can pick, and the agents'. One that Ember doesn't
-offer, such as any Workers AI model, is marked "no longer offered" on @ember's Models list and in its
-agent's model menu, and Ember goes on asking it as it did, through Cloudflare's
-[REST API](https://developers.cloudflare.com/ai-gateway/usage/rest-api/) or its provider's endpoint,
-until it's removed from the list, or its agent is saved with another model, after which nothing offers
-it again. Claude and GPT models that Ember asked through the REST API move at the first answers
+offer, such as one the models file no longer lists, or a Workers AI model the model search doesn't list
+for the account, is marked "no longer offered" on @ember's Models list and in its agent's model menu,
+and Ember goes on asking it as it did, through Cloudflare's REST API or its provider's endpoint, until
+it's removed from the list, or its agent is saved with another model, after which nothing offers it
+again. While Workers AI's models can't be listed, one of theirs isn't marked, as Ember may offer it
+still. Claude and GPT models that Ember asked through the REST API move at the first answers
 after the update: in the background, Ember asks each, the agents' too, its test question through its
 provider's endpoint, at most 8 at an answer, and asks those that answer there from then on, at the
 levels of thinking they take there. The rest stay where they are, as they all do while the token lacks
@@ -645,8 +653,8 @@ Ember AI off forgets the list. When the model someone picked has run out of cred
 question, @ember's note says they can pick another.
 
 Mention @ember in a room or a thread, or write to it in a DM, and it answers there: in the thread when
-it's asked in one, typing while its model answers. It reads the thread, its first message and latest
-50 replies, or else the room's latest 20 messages, each after its writer's name, at most about 40,000
+it's asked in one, typing while its model answers. It reads the thread, its first message and latest 50
+replies, or else the room's latest 20 messages, each after its writer's name, at most about 40,000
 characters of them, and sends them through AI Gateway to the model, whose provider reads them. Its
 answer is a message of its own, in Markdown: links, bold, lists, quotes, code blocks and tables show as
 they do in people's messages, the pictures it links to show in a card under it, and its first web link
@@ -655,12 +663,14 @@ read, not a bot or @ember itself, or of the pages it came from, and a preview is
 pages. Any other address shows only as a link, since one the model made up could carry what it read to
 whoever runs that address the moment a reader's app or the Worker fetched it. An answer longer than a
 message holds is cut to as much as fits, ending with an ellipsis. It reads bots' messages but never
-answers one, so that bots can't keep each other talking. When the model can't answer, as when the
-token is refused or the credits run out, @ember says why in a short note, and the Worker's log has
-Cloudflare's own words. AI Gateway's logs keep each request with the id of whoever asked, as custom
-metadata's `user_id`, and of whoever answers, `ember` for @ember or an AI agent's, as `agent_id`, which
-a spend limit can be split by. An administrator can also turn on the
-gateway's [Guardrails](https://developers.cloudflare.com/ai-gateway/features/guardrails/) or
+answers one, so that bots can't keep each other talking. When the model can't answer, as when the token
+is refused, the credits run out, or Workers AI won't run the model, as it runs some models only for
+accounts on Workers Paid, retires others, and runs them free only for 10,000 Neurons a day, @ember says
+why in a short note, and the Worker's log has Cloudflare's own words. AI Gateway's logs keep each
+request with the id of whoever asked, as custom metadata's `user_id`, and of whoever answers, `ember`
+for @ember or an AI agent's, as `agent_id`, which a spend limit can be split by. An administrator can
+also turn on the gateway's
+[Guardrails](https://developers.cloudflare.com/ai-gateway/features/guardrails/) or
 [Data Loss Prevention](https://developers.cloudflare.com/ai-gateway/features/dlp/) in the Cloudflare
 dashboard, to check the questions, with the messages @ember reads, or the answers. When either blocks
 one, @ember's note says which, and that an administrator can change what it blocks there.
@@ -675,8 +685,9 @@ only crowd out what's older, each with when it was written,
 who wrote it and at most 600 characters of what it says, which the model's provider reads as it does
 the conversation. An answer makes at most 5 such calls, then the model is told to answer with what it
 has, and they share the answer's limit of tokens, so a model that spends them all searching is cut
-short as any other answer is. Every model Ember offers is given the search, with nothing to turn on;
-a model kept from before isn't, nor is a test question, and a model that stops taking the tool is asked
+short as any other answer is. Claude, GPT and Grok, the models the models file lists, are given the
+search, with nothing to turn on; Workers AI's models aren't, nor is a model kept from before Ember
+offered its own, or a test question, and a model that stops taking the tool is asked
 again without it: one refused only once it has searched answers without it in the tokens the answer has
 left. Each call has the model read the conversation again, so an answer that searches costs
 that many more tokens read. A picture or a link that only a search found shows as a link, as the rule
@@ -718,12 +729,15 @@ Cloudflare's catalog was in listing Low and High for xAI's Grok 4.20 Reasoning, 
 every level. So when an administrator picks a model, in Set up Ember AI, Add a model or an agent's
 page, the Worker also asks it the test question once at each level, all at once, and keeps the levels
 it answered at. A level it doesn't take costs nothing, as the provider refuses it before the model
-writes anything. The Thinking dial then offers only those, on a person's profile for their model and on
-an agent's page, and says which the model can't be set to. A level chosen before that the model doesn't
-take asks it for the nearest one it does, below first, so Off asks a model that can't turn thinking off
-for Low. A model that takes no level decides how much it thinks, and Thinking still sets how much it
-may. A model picked before Ember asked at each level, or one whose provider refuses a level it took
-then, is asked again without one.
+writes anything. Workers AI's models are the exception: Cloudflare runs them itself, and its model
+search lists the reasoning efforts each takes, and those it turns into others, which asking can't tell,
+so Ember keeps those as its levels, and asks at each only a model the search doesn't say them for. The
+Thinking dial then offers only those, on a person's profile for their model and on an agent's page, and
+says which the model can't be set to. A level chosen before that the model doesn't take asks it for the
+nearest one it does, below first, so Off asks a model that can't turn thinking off for Low. A model
+that takes no level decides how much it thinks, and Thinking still sets how much it may. A model picked
+before Ember asked at each level, or one whose provider refuses a level it took then, is asked again
+without one.
 
 @ember waits for its model as long as the levels may take, 2 minutes at the least and about 13 at High
 and Long. An answer its token limit cuts short ends with an ellipsis, and when the model thinks for all
@@ -737,26 +751,32 @@ which AI Gateway passes on and the model's provider runs
 OpenAI's [web search](https://platform.openai.com/docs/guides/tools-web-search) for GPT, and xAI's
 [web search](https://docs.x.ai/developers/tools/web-search) for Grok, which searches only at AI Gateway's
 xAI endpoint, with an xAI API key added under Provider Keys in the default gateway's settings, as the
-gateway's credits don't pay for it there, which the switch says without one. A model kept from before in Chat Completions, as Workers AI's and Google's are, has no such
-tools, which the page says, its switch opening Set up Ember AI to choose another model. Turning it on
-asks the model that answers everyone a question it has to search the web for, and keeps the tools AI
-Gateway took, reading pages only if it took that tool too, and says what the model found; a model that
-answers without searching leaves it off. Grok, kept in Chat Completions, is asked through the xAI
-endpoint then, and once it searches there, Ember asks it there from then on. Each other such Grok model people pick is
-asked its test question there too, whichever model answers everyone, and moves there once it answers. A
-model that moves is asked again at each level of thinking, as the levels it takes there needn't be the
-ones it took before. While the token still lacks that permission, the switch says to add it. Choosing
-another model to answer everyone, under Models or in Set up Ember AI, or another Cloudflare account
-there, turns it off, as another model, or another account's AI Gateway, may not take the same tools,
-until it's turned on again. A model someone picks on their profile is given the same tools, of those
-its format has, so every model Ember offers searches too, and any other is told to say it can't, and
-that they can pick one that can. While it's on, @ember searches at most 5 times an answer and reads at
-most 3 pages, each cut to about 10,000 tokens: pages people link to, or that its searches find. Its
-answer is what it writes after it last searches, and a line under it links to the pages it cites and
-the pages it read, by their titles, at most 10, leaving out those the answer links to itself. A model
-that stops taking the tools is asked again without them, told it can't search this time. Its searches
-are written from the conversation, so the provider's search sees what the room was asking about. While
-it's off, @ember is told it can't search, and that an administrator can turn Search the web on.
+gateway's credits don't pay for it there, which the switch says without one. Workers AI's models search with a
+tool of Ember's own, which the Worker runs with Cloudflare's
+[Web Search API](https://developers.cloudflare.com/web-search/) through the same gateway: each search
+finds 5 pages, and the model reads what the search says of each, up to 2,000 characters, though not the
+pages themselves. A model kept from before in Chat Completions,
+as Google's are, has no such tools, which the page says, its switch opening Set up Ember AI to choose
+another model. Turning it on asks the model that answers everyone a question it has to search the web
+for, and keeps the tools AI Gateway took, reading pages only if it took that tool too, and says what
+the model found; a model that answers without searching leaves it off. Grok, kept in Chat
+Completions, is asked through the xAI endpoint then, and once it searches there, Ember asks it there from then on. Each other
+such Grok model people pick is asked its test question there too, whichever model answers everyone, and
+moves there once it answers. A model that moves is asked again at each level of thinking, as the levels
+it takes there needn't be the ones it took before. While the token still lacks that permission, the
+switch says to add it. Choosing another model to answer everyone, under Models or in Set up Ember AI,
+or another Cloudflare account there, turns it off, as another model, or another account's AI Gateway,
+may not take the same tools, until it's turned on again. A model someone picks on their profile is
+given the same tools, of those its format has, so the models Ember offers search too, and any other
+is told to say it can't, and that they can pick one that can. While it's on, @ember searches at most 5
+times an answer and reads at most 3 pages, each cut to about 10,000 tokens: pages people link to, or
+that its searches find. Its answer is what it writes after it last searches, and a line under it links
+to the pages it cites and the pages it read, by their titles, at most 10, leaving out those the answer
+links to itself. A Workers AI model can't cite pages, so its line links to those its searches found,
+each search's first ones first. A model that stops taking the tools is asked again without them, told
+it can't search this time. Its searches are written from the conversation, so the provider's search
+sees what the room was asking about. While it's off, @ember is told it can't search, and that an
+administrator can turn Search the web on.
 
 ### AI agents
 
@@ -845,14 +865,17 @@ Modified.
 ### Huddles
 
 A huddle is a room's voice call, laid out as Slack's is. The headphones at the top of a room start its
-huddle, or join the one going on, and show the rest of the room how many are in it. A preview comes
-first, which asks the browser for a microphone and offers a choice of it and, where the browser has
-one, of the speaker; without a microphone you join to listen. While you're in a huddle, a bar along
+huddle, or join the one going on, and show the rest of the room how many are in it. So does the
+room's row in the sidebar, which ends with the faces of the first two people in the huddle, the
+headphones and how many are in it, and says who they are under a pointer. Starting or joining goes by
+a preview, which asks the browser for a microphone and offers a choice of it and, where the browser
+has one, of the speaker; without a microphone you join to listen. While you're in a huddle, a bar along
 the window's base follows you from page to page, with the microphone's switch and Leave. A sound
 plays as someone joins the huddle, yourself included, and another as someone leaves it. While you're
 the only one in it, quiet music plays on a loop, as Slack's does, from five seconds after you find
-yourself alone until someone joins you. The sounds were written for Ember, so nothing is owed for
-playing them, and `apps/web/src/lib/huddle-sounds/` says how to change them.
+yourself alone until someone joins you. The two sounds were written for Ember and the music was
+generated for it by Google's AI, so nothing is owed for playing them, and
+`apps/web/src/lib/huddle-sounds/` says where each came from and how to change them.
 Ctrl+Alt+Shift+H (⌘⌥⇧H on a Mac) leaves the huddle you're in, or opens the preview for the room
 you're looking at, and Ctrl+Shift+Space (⌘⇧Space) mutes and unmutes. The arrow beside the headphones
 copies the huddle's link, which opens the room at the preview. A huddle takes up to 50 people and
@@ -1039,6 +1062,9 @@ What a self-hoster should know, beyond keeping the setup password and link to th
 - `/api/health` tells strangers only whether Ember is up; administrators and whoever sends the
   recovery token hear the rest. QR codes (`/qr_code/<id>`) are drawn for people signed in.
 
+If you find a hole in Ember itself, report it privately with GitHub's form rather than in an issue,
+as [SECURITY.md](../SECURITY.md) says.
+
 ## What it costs
 
 Ember is free, under the MIT license. What it runs on is Cloudflare's, at Cloudflare's prices, as its
@@ -1067,18 +1093,22 @@ pages had them in October 2026:
 - **Ember AI**, if it's on: its models are paid for with AI Gateway's credits, at each provider's own
   per-token prices, plus a 5% fee on the credits bought: for a million tokens read and a million
   written, from $0.10 and $0.50 on Claude Haiku 5.5 or GPT-6 Luna to $10 and $50 on GPT-6 Astra, as the
-  model menu says. A Workers AI model kept from before is free up to 10,000 Neurons a day on either
-  plan, and Workers Paid bills past that at $0.011 per 1,000 Neurons. Thinking counts as output, as the
-  answer does, so the [dials](#ember-ai) bound what one answer costs: at most 3,000 tokens out at Off
-  and Short, 6,000 at Low and Medium, and 38,000 at High and Long. Picking a model asks it a test
-  question, then again at each Thinking level, each at most 2,000 tokens out. Each person's questions
-  cost what the model they pick does, so add to the Models list only the models you're happy to pay
-  for, and each [agent's](#ai-agents) what its own model does at its own dials, whose most its page
-  says. While Search the web is on, an answer can also search up to 5 times, which Anthropic charges
-  $10 per 1,000 searches for, xAI $5 per 1,000 and OpenAI its own price per search, and the results and
-  pages it reads count as input, up to about 10,000 tokens a page. An answer that searches its room,
-  which Ember's own models can, up to 5 times, has its model read the conversation again after each
-  round of searches, with what they found.
+  model menu says. Workers AI's models are free up to 10,000 Neurons a day on either plan, and Workers
+  Paid bills past that at each model's own prices, which the menu says too, in Neurons at $0.011 per
+  1,000. AI Gateway's credits pay for them instead once Unified billing is chosen under Workers AI
+  Billing in the default gateway's settings, which also opens the models Cloudflare otherwise runs only
+  on Workers Paid. Thinking counts as output, as the answer does, so the [dials](#ember-ai) bound what
+  one answer costs: at most 3,000 tokens out at Off and Short, 6,000 at Low and Medium, and 38,000 at
+  High and Long. Picking a model asks it a test question, then again at each Thinking level, each at
+  most 2,000 tokens out. Each person's questions cost what the model they pick does, so add to the
+  Models list only the models you're happy to pay for, and each [agent's](#ai-agents) what its own
+  model does at its own dials, whose most its page says. While Search the web is on, an answer can also
+  search up to 5 times, which Anthropic charges $10 per 1,000 searches for, xAI $5 per 1,000 and OpenAI
+  its own price per search, and Cloudflare's Web Search API, for Workers AI's models, $0.25 per 1,000
+  with its default provider, Ceramic.ai, paid with AI Gateway's credits. The results and pages it reads
+  count as input, up to about 10,000 tokens a page. An answer that searches its room, which Claude,
+  GPT and Grok can, up to 5 times, has its model read the conversation again after each round of
+  searches, with what they found.
 - **Huddles**, if they're on: Cloudflare's Realtime SFU charges for what it sends to the people in a
   huddle, and nothing for what they send it. The first 1,000 GB a month are free, and it's $0.05 per GB
   after that, as its page had it in November 2026. A voice is about 50 kbps to each person who hears

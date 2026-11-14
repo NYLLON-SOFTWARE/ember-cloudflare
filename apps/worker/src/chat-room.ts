@@ -41,8 +41,8 @@ import {
   type Answer,
 } from "./assistant/answers";
 import { ask, type Answered } from "./assistant/gateway";
+import { takesEmbersTools } from "./assistant/offered";
 import { roomSearch } from "./assistant/room-search";
-import { takesTools } from "./assistant/tool-calls";
 import { JobQueue } from "./at-once";
 import { actingButton, clickPayload } from "./bots/clicks";
 import { payloadOf, slackMessage, type SlackMessage } from "./bots/slack";
@@ -1447,10 +1447,10 @@ export class ChatRoom extends DurableObject<Env> {
   private async saidTo(roomId: RoomId, access: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<Said> {
     const { bot, gateway, picked, instructions, promptTemplate, community, levels, webTools, webSearchOn } = access;
     if (!gateway) return { text: NOTES["unopened token"] };
-    const conversation = await this.conversationOf(this.storeFor(roomId), message);
+    const [conversation, searchesRoom] = await Promise.all([this.conversationOf(this.storeFor(roomId), message), takesEmbersTools(this.env, gateway.model)]);
     const where = { community, roomName, inThread: message.parentId !== undefined };
     const read = readable(conversation, where.inThread).map(({ id }) => id);
-    const tools = takesTools(gateway.model) ? [roomSearch(this.env, roomId, read)] : [];
+    const tools = searchesRoom ? [roomSearch(this.env, roomId, read)] : [];
     const asked = { ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools };
     const [answered, people] = await Promise.all([ask(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
     if (!("refusal" in answered)) {

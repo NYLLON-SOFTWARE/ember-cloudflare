@@ -34,6 +34,10 @@ EMBER_SETUP_PASSWORD=
 # test keys, 1x00000000000000000000AA and 1x0000000000000000000000000000000AA, always pass, on localhost too.
 # TURNSTILE_SITE_KEY=
 # TURNSTILE_SECRET_KEY=
+# Where Ember reads models.json, the models it offers besides Workers AI's (docs/models.md): unset, the
+# one on Ember's main branch, or another https address, such as a branch's, to try a change, or blank
+# to offer only this checkout's.
+# EMBER_MODELS_URL=https://raw.githubusercontent.com/NYLLON-SOFTWARE/ember-cloudflare/<branch>/models.json
 # Lets plain HTTP through where it would be redirected to HTTPS, which localhost never is: set it to
 # reach `wrangler dev --ip 0.0.0.0` from a phone on your network.
 # DISABLE_SSL=true
