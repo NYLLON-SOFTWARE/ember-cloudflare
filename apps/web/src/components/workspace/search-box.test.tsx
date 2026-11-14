@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving, navigate, pageMark } from "@/hooks/use-route";
 import { takeAnswer } from "@/lib/search";
-import { CONFIRM_CLEAR_SEARCHES, SearchBox } from "./search-box";
+import { CONFIRM_CLEAR_SEARCHES } from "./search-box";
+import { SearchBox } from "./search-dialog";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Someone in the people directory. */

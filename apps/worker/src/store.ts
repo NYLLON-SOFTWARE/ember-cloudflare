@@ -77,6 +77,41 @@ interface BoostRow {
 export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
   WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`;
 
+/** Someone's message by the id the app gave it, through the same index. */
+const SENT_AS = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AND client_message_id = ? LIMIT 1`;
+
+/** A forward whose original here was deleted: where it is, for that room to hear. */
+export interface OrphanedForward {
+  toRoomId: RoomId;
+  forwardId: string;
+}
+
+/** A forward whose original here changed since its room last heard, as of `changedAt`. */
+export interface ChangedForward extends OrphanedForward {
+  messageId: string;
+  changedAt: string;
+}
+
+const CHANGED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId, message_id AS messageId, changed_at AS changedAt FROM forwards
+  WHERE room_id = ? AND changed_at IS NOT NULL AND orphaned_at IS NULL ORDER BY changed_at LIMIT ?`;
+
+/**
+ * What marks the forwards of message `messageId` changed, at `now`, for the batch that changes it, so the
+ * room tells each forward's room what it quotes now (migrations/0081_forward_changes.sql).
+ */
+const changingForwardsOf = (roomId: RoomId, messageId: string, now: string): Statement =>
+  statement(`UPDATE forwards SET changed_at = ? WHERE room_id = ? AND message_id = ? AND orphaned_at IS NULL`, now, roomId, messageId);
+
+const ORPHANED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId FROM forwards
+  WHERE room_id = ? AND orphaned_at IS NOT NULL ORDER BY orphaned_at LIMIT ?`;
+
+/**
+ * What marks the forwards of the messages a JSON list names orphaned, at `now`, for the batch that deletes
+ * them, so the room tells each forward's room (migrations/0080_forwards.sql).
+ */
+const orphaningForwardsOf = (roomId: RoomId, listed: string, now: string): Statement =>
+  statement(`UPDATE forwards SET orphaned_at = ? WHERE room_id = ? AND message_id IN (SELECT value FROM json_each(?)) AND orphaned_at IS NULL`, now, roomId, listed);
+
 /**
  * Up to a number of someone's messages, in no particular order, read through the same index as the above.
  * One deleted already, kept for its thread, is left out, so deleting them all comes to an end.
@@ -588,8 +623,9 @@ export class MessageStore {
   /**
    * Replaces a message's text, which marks it edited, and its cards with `body`'s, or takes them away,
    * since what's sent in its place is the whole message, logging it for the search index, and its
-   * thread's replies if what they show of it changes, and answers the message as it is now with the
-   * change's number, as the methods below that change a message answer theirs.
+   * thread's replies if what they show of it changes, and its forwards for the room to retell
+   * (`changingForwardsOf`), and answers the message as it is now with the change's number, as the
+   * methods below that change a message answer theirs.
    */
   async updateBody(message: Message, body: StoredBody, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
@@ -605,12 +641,88 @@ export class MessageStore {
         this.roomId,
         message.id,
       ),
+      changingForwardsOf(this.roomId, message.id, now),
       logIndexing(this.roomId, message.id),
       ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
     const { cards: _, ...rest } = message;
     const edited = { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now };
     return { message: body.cards ? { ...edited, cards: body.cards } : edited, seq };
+  }
+
+  /** `creator`'s message here that the app named `clientMessageId`, if the room has it, as a forward sent again finds it. */
+  async findSent(creator: User, clientMessageId: string): Promise<Message | null> {
+    const [row] = await this.db.all<Pick<MessageRow, "id">>(SENT_AS, this.roomId, creator.id, clientMessageId);
+    return row ? this.find(row.id) : null;
+  }
+
+  /**
+   * Has forward `message` quote what its original says now, `body`, as its original changed, or was deleted,
+   * when `body` says so and `keepFile` is false: its plain text becomes `body`'s, and without `keepFile` its
+   * copy of the original's file goes, marked deleted for the room to purge. It isn't marked edited, as its
+   * forwarder changed nothing. The search index, its thread's replies and its own forwards hear, as for an
+   * edit, so a forward of it follows it in turn.
+   */
+  async retellForward(message: Message, body: PreparedBody, keepFile: boolean, now: string): Promise<{ message: Message; seq: number }> {
+    const dropsFile = message.attachment !== undefined && !keepFile;
+    const seq = await this.change((seq) => [
+      // First, while the message still names the file it had.
+      ...(dropsFile ? [deletingFilesOf(this.roomId, JSON.stringify([message.id]), now)] : []),
+      statement(
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, attachment = CASE WHEN ? THEN NULL ELSE attachment END, updated_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
+        body.html,
+        body.plainText,
+        JSON.stringify(body.mentions),
+        dropsFile ? 1 : 0,
+        now,
+        seq,
+        this.roomId,
+        message.id,
+      ),
+      changingForwardsOf(this.roomId, message.id, now),
+      logIndexing(this.roomId, message.id),
+      ...logIndexingRepliesTo(this.roomId, message, body.plainText),
+    ]);
+    const { attachment, ...rest } = message;
+    return { message: { ...rest, ...(!dropsFile && attachment && { attachment }), body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now }, seq };
+  }
+
+  /** Records that `messageId` here was forwarded as message `forwardId` in room `toRoomId`, at `now`. */
+  async recordForward(messageId: string, toRoomId: RoomId, forwardId: string, now: string): Promise<void> {
+    await this.db.run(
+      `INSERT INTO forwards (room_id, message_id, to_room_id, forward_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      this.roomId,
+      messageId,
+      toRoomId,
+      forwardId,
+      now,
+    );
+  }
+
+  /** Up to `limit` forwards whose originals here have been deleted, which their rooms are yet to hear of. */
+  async orphanedForwards(limit: number): Promise<OrphanedForward[]> {
+    return this.db.all<OrphanedForward>(ORPHANED_FORWARDS, this.roomId, limit);
+  }
+
+  /** Forgets forward `forwardId` in room `toRoomId`, whose room has heard its original went. */
+  async forgetForward({ toRoomId, forwardId }: OrphanedForward): Promise<void> {
+    await this.db.run(`DELETE FROM forwards WHERE room_id = ? AND to_room_id = ? AND forward_id = ?`, this.roomId, toRoomId, forwardId);
+  }
+
+  /** Up to `limit` forwards whose originals here have changed since their rooms last heard, the oldest change first. */
+  async changedForwards(limit: number): Promise<ChangedForward[]> {
+    return this.db.all<ChangedForward>(CHANGED_FORWARDS, this.roomId, limit);
+  }
+
+  /** Clears forward `forwardId`'s mark, which its room has heard of, unless its original changed again since `changedAt`. */
+  async retoldForward({ toRoomId, forwardId, changedAt }: ChangedForward): Promise<void> {
+    await this.db.run(
+      `UPDATE forwards SET changed_at = NULL WHERE room_id = ? AND to_room_id = ? AND forward_id = ? AND changed_at = ?`,
+      this.roomId,
+      toRoomId,
+      forwardId,
+      changedAt,
+    );
   }
 
   /**
@@ -625,6 +737,7 @@ export class MessageStore {
     const seq = await this.change((seq) => [
       // First, while the message still names the file it had.
       deletingFilesOf(this.roomId, JSON.stringify([message.id]), now),
+      changingForwardsOf(this.roomId, message.id, now),
       statement(
         `UPDATE messages SET attachment = ?, plain_text = ?, updated_at = ?, edited_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
         posted ? JSON.stringify(posted.file) : null,
@@ -659,7 +772,7 @@ export class MessageStore {
    * boosts, and a message kept that way already. One kept that way goes once its last reply does, and the
    * parents whose threads lose replies change too, each change numbered after the deletions. Boosts go
    * with their messages, through ON DELETE CASCADE, so a failure keeps both, and the messages' files are
-   * marked deleted first, for the room to purge. The ids deleted stay with their deletions' numbers, and
+   * marked deleted first, for the room to purge, and their forwards marked orphaned, for the room to tell. The ids deleted stay with their deletions' numbers, and
    * the deletions that fall out of the latest `CHANGES_KEPT` go, and the messages deleted, kept or changed
    * are logged for the search index, with the replies to those kept, whose results show none of their
    * text now. The ids go as JSON values, which a page of them can fill.
@@ -686,6 +799,7 @@ export class MessageStore {
       (seq) => [
         // First, while the messages kept still name their files.
         deletingFilesOf(this.roomId, goneOrKept, now),
+        orphaningForwardsOf(this.roomId, goneOrKept, now),
         statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, deletedList),
         statement(`INSERT INTO message_deletions (room_id, seq, message_id) SELECT ?, ? + key, value FROM json_each(?)`, this.roomId, seq, deletedList),
         statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + count - 1 - CHANGES_KEPT),
@@ -715,6 +829,7 @@ export class MessageStore {
     await this.changingMessages(() =>
       this.db.batch([
         deletingFilesOf(this.roomId, listed, now),
+        orphaningForwardsOf(this.roomId, listed, now),
         statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, listed),
         ...(left ? [] : [deletingAllFiles(this.roomId, now), statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId)]),
       ]),

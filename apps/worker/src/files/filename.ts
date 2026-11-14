@@ -4,8 +4,12 @@
 
 import { strip } from "@ember/richtext";
 
-/** What `sanitized` makes "-": the right-to-left override, path separators, and shell and HTML metacharacters. */
-const UNSAFE = /[‮%$|:;/<>?*"\t\r\n\\]/g;
+/**
+ * What `sanitized` makes "-": the right-to-left override, as Active Storage does, and every other control of
+ * the direction text runs in, which would reorder a downloaded file's name as it shows, path separators, and
+ * shell and HTML metacharacters.
+ */
+const UNSAFE = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069%$|:;/<>?*"\t\r\n\\]/g;
 
 /** `ActiveStorage::Filename#sanitized`, which Active Storage names and identifies a file by. */
 export const sanitizedFilename = (name: string) => strip(name).replace(UNSAFE, "-");

@@ -87,8 +87,9 @@ export default defineConfig({
       "/account/turnstile_check": "http://localhost:8787",
       // Only avatars, so people's pages under /users, once they're built, stay the app's.
       "^/users/[^/]+/avatar": "http://localhost:8787",
-      // Rooms' files and their previews, and the workspace's logo.
-      "^/(files|previews)/": "http://localhost:8787",
+      // Rooms' files and their previews, at /files/<key>/<signature>/<name>, and the workspace's logo. The
+      // Files page's own addresses, /files/canvases and /files/starred, have no key, and stay the app's.
+      "^/(files|previews)/[^/?#]+/": "http://localhost:8787",
       "^/account/logo(\\.[^/.?]+)?(\\?|$)": "http://localhost:8787",
       // Bots' webhooks, at the addresses the Chat bots page shows here.
       "^/rooms/[^/]+/[^/]+/(messages|slack)(\\?|$)": "http://localhost:8787",

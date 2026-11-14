@@ -3,17 +3,19 @@ import { editorField, ROOM_SOCKET } from "../../fixtures";
 import { expect, test, type Member, type Members } from "./fixtures";
 
 test.describe("Who's here", () => {
-  test("shows who is in the room as people come and go", async ({ members }) => {
+  test("shows who is in the room as people come and go, in its members from the header", async ({ members }) => {
     const ada = await members.signIn("Ada");
-    await expect(ada.presence()).toHaveText("1 here now");
+    await expect(ada.membersButton()).toBeVisible();
+    await ada.expectHere("Ada");
 
     const grace = await members.signIn("Grace");
-    await expect(ada.presence()).toHaveText("2 here now");
-    await expect(grace.presence()).toHaveText("2 here now");
-    await expect(ada.page.getByTitle(/^(Ada, Grace|Grace, Ada)$/)).toBeVisible();
-
+    await grace.expectHere("Ada", "Grace");
+    // The members stay open as people come and go.
+    await ada.membersButton().click();
+    await expect(ada.hereNow()).toHaveCount(2);
     await grace.page.close();
-    await expect(ada.presence()).toHaveText("1 here now");
+    await expect(ada.hereNow()).toHaveCount(1);
+    await expect(ada.hereNow()).toContainText("Ada");
   });
 });
 
@@ -26,12 +28,12 @@ test.describe("New line", () => {
     // of it, unless they read the room after it.
     const grace = await members.signIn("Grace");
     await expect(grace.message("Before you left")).toBeVisible();
-    await expect(ada.presence()).toHaveText("2 here now");
+    await ada.expectHere("Ada", "Grace");
     const rows = grace.page.getByRole("region", { name: "Rooms" });
     const general = rows.getByRole("link", { name: "general" });
     const leaveGeneral = async () => {
       await rows.getByRole("link", { name: "random" }).click();
-      await expect(ada.presence()).toHaveText("1 here now");
+      await ada.expectHere("Ada");
     };
     await leaveGeneral();
 
@@ -71,10 +73,11 @@ test.describe("Presence", () => {
     const grace = await members.signIn("Grace");
     const secondTab = await grace.page.context().newPage();
     await secondTab.goto(`/rooms/${rooms.general.id}`);
-    await expect(secondTab.getByText("2 here now")).toBeAttached();
+    await secondTab.getByRole("button", { name: /^View members, / }).click();
+    await expect(secondTab.getByRole("dialog").getByRole("listitem").filter({ hasText: "here now" })).toHaveCount(2);
 
     await secondTab.close();
-    await expect(ada.presence()).toHaveText("2 here now");
+    await ada.expectHere("Ada", "Grace");
   });
 });
 
@@ -187,13 +190,11 @@ test.describe("Catch up after a reconnect", () => {
     await expect(ada.message("React to me")).toBeVisible();
 
     await cut();
-    await (await grace.actions("Typo heer")).getByRole("button", { name: "Edit" }).click();
+    await grace.edit("Typo heer");
     await grace.editor().fill("Typo here");
     await grace.editor().press("ControlOrMeta+Enter");
     await expect(grace.message("Typo here")).toContainText("(edited)");
-    await (await grace.actions("Gone soon")).getByRole("button", { name: "Edit" }).click();
-    grace.page.once("dialog", (dialog) => void dialog.accept());
-    await grace.page.getByRole("button", { name: "Delete message" }).click();
+    await grace.delete("Gone soon");
     await expect(grace.message("Gone soon")).toHaveCount(0);
     await (await grace.actions("React to me")).getByRole("button", { name: "Thumbs up" }).click();
     await expect(grace.message("React to me").getByRole("img", { name: "Grace boosted 👍" })).toBeVisible();

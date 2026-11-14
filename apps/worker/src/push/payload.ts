@@ -1,4 +1,4 @@
-import { threadPath, type RoomId, type RoomKind } from "@ember/protocol";
+import { savedPath, threadPath, type RoomId, type RoomKind, type SavedKind, type SavedList } from "@ember/protocol";
 
 // What a push of a new message says, for the service worker to show as it is.
 
@@ -43,6 +43,23 @@ export function messagePayload(roomId: RoomId, room: PushedRoom, senderName: str
   const body = direct ? plainText : `${senderName}: ${plainText}`;
   const path = reply === undefined ? `/rooms/${roomId}` : threadPath(roomId, reply.parentId, reply.replyId);
   return { title: truncated(title, MAX_TITLE_BYTES), body: truncated(body, MAX_BODY_BYTES), path };
+}
+
+/** A to-do or saved item whose reminder has gone off, as its push names it. */
+export interface PushedReminder {
+  id: string;
+  list: SavedList;
+  kind: SavedKind;
+  plainText: string | null;
+}
+
+/**
+ * A reminder's push: titled "Reminder", reading a note's text, or what kind of thing it's about, and
+ * opening the item in its list.
+ */
+export function reminderPayload({ id, list, kind, plainText }: PushedReminder): PushPayload {
+  const about = kind === "note" ? plainText || "A to-do" : kind === "file" ? "A file you kept" : "A message you kept";
+  return { title: "Reminder", body: truncated(about, MAX_BODY_BYTES), path: savedPath(list, id) };
 }
 
 /**

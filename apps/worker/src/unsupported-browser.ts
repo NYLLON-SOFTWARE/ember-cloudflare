@@ -1,4 +1,4 @@
-import { TRANSLATIONS } from "@ember/protocol";
+import { TRANSLATIONS } from "@ember/protocol/translations";
 import { contentSecurityPolicy, inlineScriptHashes } from "./csp";
 import { escapeHtml } from "./encoding";
 import type { Env } from "./env";

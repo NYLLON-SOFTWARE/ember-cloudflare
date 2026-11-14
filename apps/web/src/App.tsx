@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, NAVIGATION_SLOTS, PASSWORD_RESET_PATH, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
-import { EmailSignUpPage } from "@/components/email-sign-up-page";
-import { InvitationPage } from "@/components/invitation-page";
-import { JoinPage } from "@/components/join-page";
-import { PasswordResetPage } from "@/components/password-reset-page";
-import { SetupPage } from "@/components/setup-page";
+import { SignedOutPage } from "@/components/signed-out-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { TransferPage } from "@/components/transfer-page";
 import { Workspace, loadPageAhead } from "@/components/workspace/workspace";
@@ -174,7 +170,7 @@ export function App() {
   // A sign-in link signs in whoever opens it, even someone signed in as someone else.
   const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn && !atPasswordReset && !atTransfer;
   const page = () => {
-    if (workspace.setup === "pending") return <SetupPage placeholders={workspace.setupPlaceholders} access={workspace.setupAccess} onSetUp={setUp} />;
+    if (workspace.setup === "pending") return <SignedOutPage show={({ SetupPage }) => <SetupPage placeholders={workspace.setupPlaceholders} access={workspace.setupAccess} onSetUp={setUp} />} />;
     if (atTransfer) return <TransferPage />;
     // Someone else's workspace starts afresh, with their own rooms and sockets.
     if (showsWorkspace)
@@ -189,10 +185,10 @@ export function App() {
           />
         </PushProvider>
       );
-    if (atInvitation) return <InvitationPage workspace={workspace} onJoined={joined} />;
-    if (atEmailSignUp) return <EmailSignUpPage workspace={workspace} onJoined={joined} />;
-    if (joinCode !== null || atSignUp) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
-    if (atPasswordReset) return <PasswordResetPage workspace={workspace} />;
+    if (atInvitation) return <SignedOutPage show={({ InvitationPage }) => <InvitationPage workspace={workspace} onJoined={joined} />} />;
+    if (atEmailSignUp) return <SignedOutPage show={({ EmailSignUpPage }) => <EmailSignUpPage workspace={workspace} onJoined={joined} />} />;
+    if (joinCode !== null || atSignUp) return <SignedOutPage show={({ JoinPage }) => <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />} />;
+    if (atPasswordReset) return <SignedOutPage show={({ PasswordResetPage }) => <PasswordResetPage workspace={workspace} />} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
   };
   // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's flash.

@@ -1,17 +1,91 @@
+import type { Locator, Page } from "@playwright/test";
 import { editorField, openRoom, signInAs } from "../../fixtures";
-import { expect, REACTION_PILLS, test } from "./fixtures";
+import { expect, hasPhoneLayout, REACTION_PILLS, tabBar, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
 });
 
-test("message actions open with a tap and fit the phone", async ({ page, room, participant, screenIsFine }) => {
+/** Rests a finger on `target` until `opens` shows, as a long press does, then lifts it. Playwright's touchscreen only taps. */
+async function longPress(target: Locator, opens: Locator) {
+  await target.scrollIntoViewIfNeeded();
+  // A finger rests on what's still, as a page that scrolls under it, as one settling after the keyboard
+  // goes does, cancels the press: the tab bar comes back a moment after a text field lets go of focus.
+  await expect
+    .poll(() =>
+      target.page().evaluate(() => !document.documentElement.hasAttribute("data-typing") || !!document.activeElement?.matches("input, textarea, [contenteditable=true]")),
+    )
+    .toBe(true);
+  let box = { x: NaN, y: NaN, width: 0, height: 0 };
+  await expect
+    .poll(async () => {
+      const [before, now] = [box, (box = (await target.boundingBox())!)];
+      return now.x === before.x && now.y === before.y;
+    }, { intervals: [250] })
+    .toBe(true);
+  const cdp = await target.page().context().newCDPSession(target.page());
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }] });
+  await expect(opens).toBeVisible();
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await cdp.detach();
+}
+
+/**
+ * Opens a message's actions as a finger does: a long press on its text in the phone layout, which opens
+ * them in a sheet, or Message options on a wider touch screen, which opens them beside it.
+ */
+async function openActions(page: Page, message: Locator, text: string): Promise<Locator> {
+  if (!hasPhoneLayout(page)) {
+    await message.getByRole("button", { name: "Message options" }).tap();
+    return page.getByRole("group", { name: "Message actions" });
+  }
+  const sheet = page.getByRole("dialog", { name: "Message actions" });
+  await longPress(message.getByText(text), sheet);
+  return sheet;
+}
+
+test("a long press opens a message's actions in a sheet that fits the phone, with nothing showing on the message", async ({ page, room, participant, screenIsFine }) => {
+  test.skip(!hasPhoneLayout(page), "Wider touch screens have Message options");
+  const ada = await participant("Ada");
+  await ada.say("Hold this message to react to it");
+  await openRoom(page, room);
+
+  const message = page.getByRole("article").filter({ hasText: "Hold this message" });
+  // Message options is there for screen readers and keyboards, but not to see.
+  expect(await message.getByRole("button", { name: "Message options" }).evaluate((button) => button.getBoundingClientRect().width)).toBeLessThanOrEqual(1);
+  await screenIsFine();
+
+  const sheet = await openActions(page, message, "Hold this message");
+  await expect(sheet.getByRole("button", { name: "Reply in thread" })).toBeVisible();
+  // The sheet has focus, rather than its first reaction, which a ring would mark as picked already.
+  await expect(sheet).toBeFocused();
+  await screenIsFine();
+
+  // Add reaction opens a sheet of reactions in its place.
+  await sheet.getByRole("button", { name: "Add reaction" }).tap();
+  const picker = page.getByRole("dialog", { name: "Add reaction" });
+  await expect(picker).toBeVisible();
+  await expect(sheet).toBeHidden();
+  await screenIsFine();
+  await picker.getByRole("group", { name: "All reactions" }).getByRole("button", { name: "Fire" }).tap();
+  await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "🔥" })).toBeVisible();
+  await expect(picker).toBeHidden();
+
+  await openActions(page, message, "Hold this message");
+  await sheet.getByRole("button", { name: "Thumbs up" }).tap();
+  await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "👍" })).toBeVisible();
+  await expect(sheet).toBeHidden();
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
+});
+
+test("message actions open with a tap on Message options and fit a wider touch screen", async ({ page, room, participant, screenIsFine }) => {
+  test.skip(hasPhoneLayout(page), "Phones open them with a long press");
   const ada = await participant("Ada");
   await ada.say("Tap the options button to react to this");
   await openRoom(page, room);
 
-  // Phones can't hover, so each message has an options button instead. The actions open beside it,
-  // over the timeline.
+  // Touch screens can't hover, so each message has an options button instead. The actions open beside
+  // it, over the timeline.
   const message = page.getByRole("article").filter({ hasText: "Tap the options button" });
   const options = message.getByRole("button", { name: "Message options" });
   const actions = page.getByRole("group", { name: "Message actions" });
@@ -31,28 +105,33 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
 
   await options.tap();
   await actions.getByRole("button", { name: "Thumbs up" }).tap();
-  await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button")).toHaveCount(2);
+  await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "👍" })).toBeVisible();
   await expect(actions).toBeHidden();
   await expect(options).toBeFocused();
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 
-test("Add a boost, New boost's form and Delete this boost fit the phone", async ({ page, room, participant, screenIsFine }) => {
+test("Add reaction, New boost's form and Delete this boost fit the phone", async ({ page, room, participant, screenIsFine }) => {
   const ada = await participant("Ada");
   await ada.say("React to this in your own words");
   await openRoom(page, room);
 
   const message = page.getByRole("article").filter({ hasText: "React to this" });
   const reactions = message.getByRole("list", { name: "Reactions" });
-  await message.getByRole("button", { name: "Message options" }).tap();
-  await page.getByRole("group", { name: "Message actions" }).getByRole("button", { name: "Thumbs up" }).tap();
-  await message.getByRole("button", { name: "Add a boost" }).tap();
-  const tray = page.getByRole("group", { name: "More reactions" });
-  await expect(tray.getByRole("button", { name: "Muscle" })).toBeFocused();
+  await (await openActions(page, message, "React to this")).getByRole("button", { name: "Thumbs up" }).tap();
+  // A pill after the reactions, which opens a picker of reactions alone: a sheet on a phone, and beside it wider.
+  const add = reactions.getByRole("button", { name: "Add reaction" });
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
+  const pill = (await reactions.getByRole("listitem").first().boundingBox())!;
+  expect(Math.abs((await add.boundingBox())!.height - pill.height)).toBeLessThanOrEqual(1);
+  await add.tap();
+  const picker = page.getByRole("dialog", { name: "Add reaction" });
+  await expect(picker).toBeVisible();
+  await expect(page.getByRole("group", { name: "Message actions" })).toBeHidden();
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
 
   // The form fits, and leaves the message its width.
-  await tray.getByRole("button", { name: "New boost" }).tap();
+  await picker.getByRole("button", { name: "New boost" }).tap();
   const field = message.getByRole("textbox", { name: "Custom reaction" });
   await expect(field).toBeFocused();
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
@@ -71,6 +150,7 @@ test("Add a boost, New boost's form and Delete this boost fit the phone", async 
 });
 
 test("tapping Message options again closes the actions", async ({ page, room, participant }) => {
+  test.skip(hasPhoneLayout(page), "Phones open them in a sheet with a long press");
   const ada = await participant("Ada");
   await ada.say("Open and close my actions");
   await openRoom(page, room);
@@ -85,9 +165,11 @@ test("tapping Message options again closes the actions", async ({ page, room, pa
 });
 
 test("tapping anywhere else closes the actions, so only one message has them open", async ({ page, room, participant }) => {
+  test.skip(hasPhoneLayout(page), "Phones open them in a sheet with a long press");
   const ada = await participant("Ada");
-  // The first message's actions open over the next two, so the last one's button is clear of them.
-  for (const text of ["The first message", "The second", "The third", "The last message"]) await ada.say(text);
+  // The first message's actions open over the next few, three rows of them on the narrowest phone, so the
+  // last one's button is clear of them.
+  for (const text of ["The first message", "The second", "The third", "The fourth", "The fifth", "The last message"]) await ada.say(text);
   await openRoom(page, room);
   // In landscape the first message's button is under the header, so tapping it scrolls the timeline
   // up, and the composer's editor mounting then would resize the timeline, which keeps to its end
@@ -109,6 +191,19 @@ test("tapping anywhere else closes the actions, so only one message has them ope
   await expect(actions).toHaveCount(0);
 });
 
+test("tapping outside a message's sheet closes it", async ({ page, room, participant }) => {
+  test.skip(!hasPhoneLayout(page), "Wider touch screens have Message options");
+  const ada = await participant("Ada");
+  await ada.say("Open and close my sheet");
+  await openRoom(page, room);
+
+  const sheet = await openActions(page, page.getByRole("article").filter({ hasText: "Open and close my sheet" }), "Open and close my sheet");
+  // Outside the sheet, over the timeline: above it, or beside it on a phone on its side, where it's as
+  // tall as the screen.
+  await page.touchscreen.tap(8, 8);
+  await expect(sheet).toBeHidden();
+});
+
 test("your own messages can be edited on a phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
   const composer = editorField(page, "Write a message");
@@ -118,25 +213,50 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
 
   const message = page.getByRole("article").filter({ hasText: "A message to edit" });
   await expect(message).not.toHaveAttribute("aria-busy");
-  const edit = page.getByRole("group", { name: "Message actions" }).getByRole("button", { name: "Edit" });
+  // Without a mouse, Edit is on the bar that Message options opens.
   await message.getByRole("button", { name: "Message options" }).tap();
-  await edit.tap();
+  await message.getByRole("button", { name: "Edit", exact: true }).tap();
   const field = editorField(message, "Edit message");
   await expect(field).toBeFocused();
   await screenIsFine();
 
-  // Enter starts a new line here too, so saving and cancelling need buttons.
+  // On a phone, Enter starts a new line, as it does in the composer, so Save and Cancel are buttons under the editor.
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await page.keyboard.type("with a second line");
-  await message.getByRole("button", { name: "Save changes" }).tap();
+  await message.getByRole("button", { name: "Save", exact: true }).tap();
   await expect(message.getByText("(edited)")).toBeVisible();
   await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
 
+  // The tab bar comes back as the keyboard goes, moving the room under a finger that's already down.
+  if (hasPhoneLayout(page)) await expect(tabBar(page)).toBeVisible();
   await message.getByRole("button", { name: "Message options" }).tap();
-  await edit.tap();
-  await message.getByRole("button", { name: "Close editor and discard changes" }).tap();
+  await message.getByRole("button", { name: "Edit", exact: true }).tap();
+  await message.getByRole("button", { name: "Cancel", exact: true }).tap();
   await expect(field).toBeHidden();
+});
+
+test("deleting your own message from its sheet asks first, in a dialog that fits the phone", async ({ page, room, screenIsFine }) => {
+  test.skip(!hasPhoneLayout(page), "Wider touch screens delete from the editor");
+  await openRoom(page, room);
+  await editorField(page, "Write a message").tap();
+  await page.keyboard.type("A message to delete");
+  await page.getByRole("button", { name: "Send Message" }).tap();
+  const message = page.getByRole("article").filter({ hasText: "A message to delete" });
+  await expect(message).not.toHaveAttribute("aria-busy");
+
+  const sheet = await openActions(page, message, "A message to delete");
+  await sheet.getByRole("button", { name: "Delete message" }).tap();
+  const question = page.getByRole("alertdialog", { name: "Delete message?" });
+  await expect(question).toBeVisible();
+  await screenIsFine();
+  await question.getByRole("button", { name: "Cancel" }).tap();
+  await expect(question).toBeHidden();
+  await expect(message).toBeVisible();
+
+  await (await openActions(page, message, "A message to delete")).getByRole("button", { name: "Delete message" }).tap();
+  await question.getByRole("button", { name: "Delete", exact: true }).tap();
+  await expect(message).toHaveCount(0);
 });
 
 test("Jump to newest message appears as one comes while you're scrolled back, and fits", async ({ page, room, participant, screenIsFine }) => {

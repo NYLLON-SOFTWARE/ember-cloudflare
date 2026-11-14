@@ -213,6 +213,66 @@ lexxy-toolbar {
   }
 }
 
+/*
+ * The composer's own toolbar (composer-toolbar.tsx), whose buttons are painted the same way: each an
+ * Iconoir file, in the button's text color.
+ */
+.composer-tool-icon {
+  background-color: currentColor;
+  display: block;
+  flex-shrink: 0;
+  forced-color-adjust: none;
+  mask: var(--iconoir) center / contain no-repeat;
+
+  &[data-icon="bold"] {
+    --iconoir: url("../icons/iconoir/bold.svg");
+  }
+
+  &[data-icon="italic"] {
+    --iconoir: url("../icons/iconoir/italic.svg");
+  }
+
+  &[data-icon="underline"] {
+    --iconoir: url("../icons/iconoir/underline.svg");
+  }
+
+  &[data-icon="strikethrough"] {
+    --iconoir: url("../icons/iconoir/strikethrough.svg");
+  }
+
+  &[data-icon="block"] {
+    --iconoir: url("../icons/iconoir/text.svg");
+  }
+
+  &[data-icon="link"] {
+    --iconoir: url("../icons/iconoir/link.svg");
+  }
+
+  &[data-icon="numberedList"] {
+    --iconoir: url("../icons/iconoir/numbered-list-left.svg");
+  }
+
+  &[data-icon="bulletList"] {
+    --iconoir: url("../icons/iconoir/list.svg");
+  }
+
+  &[data-icon="quote"] {
+    --iconoir: url("../icons/iconoir/quote.svg");
+  }
+
+  &[data-icon="code"] {
+    --iconoir: url("../icons/iconoir/code.svg");
+  }
+
+  &[data-icon="codeBlock"] {
+    --iconoir: url("../icons/iconoir/code-brackets-square.svg");
+  }
+
+  &[data-icon="divider"] {
+    --iconoir: url("../icons/iconoir/minus.svg");
+  }
+}
+
 /* The remove button on a link preview or an attachment while it's selected, at the toolbar's scale. */
 .lexxy-node-delete {
   --iconoir: url("../icons/iconoir/trash.svg");
@@ -394,6 +454,18 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
     font-size: 1.4rem !important;
     margin: 0;
   }
+
+  /* The paragraph style menu's Subheading (formatting.ts), as a message shows it (index.css). */
+  h3 {
+    font-size: 1.25rem !important;
+    margin: 0;
+  }
+
+  hr {
+    border: 0;
+    border-block-end: 1px solid var(--message-rule);
+    margin-block: 0.5em;
+  }
 }
 
 /*
@@ -482,8 +554,7 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
 /*
  * The composer: 14px text, between 40px and min(32dvh, 300px) tall, then scrolling. At 900px wide and
  * below it's at least 30px, and there and on touch screens its text is 16px, as `touch:` sizes fields,
- * so iOS doesn't zoom in. Formatting options shows the toolbar under the text, wrapping, with its menus
- * opening upward.
+ * so iOS doesn't zoom in. Its toolbar is its own (composer-toolbar.tsx), over the text, rather than Lexxy's.
  *
  * The text takes the card's padding around it and all the room above the buttons, so a tap anywhere
  * there lands in it, 44px tall on phones. The sizes above are the text's, inside that padding.
@@ -495,7 +566,9 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
     display: flex;
     flex: 1;
     flex-direction: column;
-    font-size: 14px;
+    /* As a message's text is, so it doesn't change size as it's sent. */
+    font-size: 15px;
+    line-height: 22px;
     margin: 0;
     padding: 0;
   }
@@ -509,43 +582,27 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
   }
 
   .lexxy-editor__content {
+    /* The room above the text: the card's padding, or less under the toolbar, which has the card's. */
+    --composer-text-top: var(--composer-padding);
+
     flex: 1;
-    margin: calc(-1 * var(--composer-padding)) calc(-1 * var(--composer-padding)) 0;
-    max-block-size: calc(min(32dvh, 300px) + var(--composer-padding) + 4px);
+    margin: calc(-1 * var(--composer-text-top)) calc(-1 * var(--composer-padding)) 0;
+    max-block-size: calc(min(32dvh, 300px) + var(--composer-text-top) + 4px);
+    /* As tall empty as with the card's padding above it, so the composer keeps its height with the toolbar. */
     min-block-size: calc(40px + var(--composer-padding) + 4px);
     overflow-y: auto;
-    padding: var(--composer-padding) var(--composer-padding) 4px;
+    padding: var(--composer-text-top) var(--composer-padding) 4px;
 
     &:focus {
       outline: none;
     }
   }
 
-  &[data-toolbar] {
-    lexxy-toolbar {
-      --lexxy-toolbar-gap: 4px;
+  /* Under the toolbar, the text keeps to its own space, rather than the card's padding the toolbar is in. */
+  &[data-toolbar] .lexxy-editor__content {
+    --composer-text-top: 6px;
 
-      display: flex;
-      flex-wrap: wrap;
-      /* 8px from the text, less the 4px the text keeps under it, and 4px to the buttons */
-      margin-block: 4px;
-    }
-
-    .lexxy-editor__content {
-      order: -1;
-    }
-  }
-
-  /* Campfire's composer.css, which puts 0.4em between the text and the toolbar on wide screens with a mouse */
-  @media (min-width: 100ch) and (any-hover: hover) and (pointer: fine) {
-    &[data-toolbar] lexxy-toolbar {
-      margin-block-start: calc(0.4em - 4px);
-    }
-  }
-
-  lexxy-toolbar [data-dropdown-panel] {
-    inset-block-end: 100%;
-    inset-block-start: auto;
+    margin-block-start: 0;
   }
 
   @media (width < 56.3125rem) {
@@ -607,4 +664,10 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
   .lexxy-editor__content:focus {
     outline: none;
   }
+}
+
+/* Inline code keeps its border on each line it wraps onto, as a message's does (index.css). */
+lexxy-editor .lexxy-editor__content code {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }

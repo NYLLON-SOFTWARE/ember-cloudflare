@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_CANVAS_CLIENT_ID_LENGTH,
+  MAX_CANVAS_STEPS,
   ASSISTANT_NAME,
+  parseNewForward,
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
   DEFAULT_NAVIGATION_ICONS,
@@ -115,6 +118,27 @@ const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
 /** What a room socket's address with `params` says, as the worker's URLSearchParams reads it. */
 const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null });
 
+describe("Write a canvas together", () => {
+  const step = { stepType: "replace", from: 1, to: 1 };
+  it("takes joining, steps over a version and leaving, from editors that name themselves", () => {
+    expect(parse({ type: "canvas.join", tabId: "t1" })).toEqual({ type: "canvas.join", tabId: "t1" });
+    expect(parse({ type: "canvas.join", tabId: "t1", version: 3 })).toEqual({ type: "canvas.join", tabId: "t1", version: 3 });
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [step] })).toEqual({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [step] });
+    expect(parse({ type: "canvas.leave", tabId: "t1" })).toEqual({ type: "canvas.leave", tabId: "t1" });
+  });
+
+  it("refuses versions that aren't counts, steps that aren't objects, too many or none, and long editor ids", () => {
+    expect(parse({ type: "canvas.join", tabId: "t1", version: -1 })).toBeNull();
+    expect(parse({ type: "canvas.join", tabId: "t1", version: 1.5 })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: ["step"] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [[step]] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: Array(MAX_CANVAS_STEPS + 1).fill(step) })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c".repeat(MAX_CANVAS_CLIENT_ID_LENGTH + 1), steps: [step] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "", version: 0, clientId: "c", steps: [step] })).toBeNull();
+  });
+});
+
 describe("Send a message", () => {
   it("accepts a well-formed message, leaving its markup for the room to read", () => {
     for (const body of ["<p>hi</p>", "  <p>hi</p>\n", "", " "]) {
@@ -150,6 +174,28 @@ describe("Send a message", () => {
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
+  });
+});
+
+describe("Forward a message", () => {
+  it("takes the conversation, an optional thread and an optional note, trimmed", () => {
+    expect(parseNewForward({ to: "general", clientMessageId: "c1" })).toEqual({ to: "general", clientMessageId: "c1" });
+    expect(parseNewForward({ to: "general", parentId: "m1", note: "  Look at this\n ", clientMessageId: "c1" })).toEqual({
+      to: "general",
+      parentId: "m1",
+      note: "Look at this",
+      clientMessageId: "c1",
+    });
+    expect(parseNewForward({ to: "general", note: "   ", clientMessageId: "c1" })).toEqual({ to: "general", clientMessageId: "c1" });
+  });
+
+  it("refuses anything else", () => {
+    expect(parseNewForward(null)).toBe("Expected a JSON object");
+    expect(parseNewForward({ to: "Not a room!", clientMessageId: "c1" })).toBe("Pick a conversation to forward it to");
+    expect(parseNewForward({ to: "general" })).toBe("A forward needs an id");
+    expect(parseNewForward({ to: "general", clientMessageId: "c1", parentId: "" })).toBe("That thread doesn't exist");
+    expect(parseNewForward({ to: "general", clientMessageId: "c1", note: 5 })).toBe("A note is text");
+    expect(parseNewForward({ to: "general", clientMessageId: "c1", note: "x".repeat(MAX_MESSAGE_LENGTH + 1) })).toMatch(/up to/);
   });
 });
 
@@ -1250,6 +1296,34 @@ describe("Set up the workspace", () => {
     expect(isPasswordTooLong("🔐".repeat(36))).toBe(false);
     expect(isPasswordTooLong("x".repeat(73))).toBe(true);
     expect(isPasswordTooLong("🔐".repeat(37))).toBe(true);
+  });
+});
+
+describe("Scheduled messages", () => {
+  it("schedules a message, or a reply in a thread, at a whole number of milliseconds", () => {
+    const sendAt = Date.UTC(2026, 10, 12, 9);
+    expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "<p>Hi</p>", sendAt })).toEqual({ type: "scheduled.create", clientMessageId: "c1", body: "<p>Hi</p>", sendAt });
+    expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "x", sendAt, parentId: "m1", alsoSend: true })).toEqual({
+      type: "scheduled.create",
+      clientMessageId: "c1",
+      body: "x",
+      sendAt,
+      parentId: "m1",
+      alsoSend: true,
+    });
+    for (const at of [undefined, "1", 0, -5, 1.5, Number.NaN, Infinity, 2 ** 60]) {
+      expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "x", sendAt: at }), String(at)).toBeNull();
+    }
+    expect(parse({ type: "scheduled.create", clientMessageId: "", body: "x", sendAt })).toBeNull();
+    expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "x", sendAt, parentId: "" })).toBeNull();
+  });
+
+  it("moves, sends and deletes a scheduled message by its id", () => {
+    expect(parse({ type: "scheduled.update", id: "s1", sendAt: 5 })).toEqual({ type: "scheduled.update", id: "s1", sendAt: 5 });
+    expect(parse({ type: "scheduled.update", id: "s1" })).toBeNull();
+    expect(parse({ type: "scheduled.send", id: "s1" })).toEqual({ type: "scheduled.send", id: "s1" });
+    expect(parse({ type: "scheduled.delete", id: "s1" })).toEqual({ type: "scheduled.delete", id: "s1" });
+    for (const type of ["scheduled.send", "scheduled.delete"]) expect(parse({ type, id: "" })).toBeNull();
   });
 });
 

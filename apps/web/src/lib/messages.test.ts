@@ -1,7 +1,7 @@
 import type { Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { dateLabel, dateTimeLabel, lastReplyLabel, replyQuote, timeLabel, timeline } from "./messages";
+import { dateLabel, dateTimeLabel, lastReplyLabel, quotedTimeLabel, replyQuote, timeLabel, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -90,10 +90,21 @@ describe("Day separators", () => {
   });
 });
 
+describe("Quoted times", () => {
+  const now = new Date("2026-11-12T10:00:00");
+
+  it("shows today's as just the time, another day's with its date, and another year's with its year", () => {
+    expect(quotedTimeLabel(new Date("2026-11-12T08:05:00"), now)).toBe("8:05 AM");
+    expect(quotedTimeLabel(new Date("2026-11-11T19:30:00"), now)).toBe("Nov 11, 7:30 PM");
+    expect(quotedTimeLabel(new Date("2025-11-11T19:30:00"), now)).toBe("Nov 11, 2025, 7:30 PM");
+  });
+});
+
 describe("Quote a message", () => {
   const MENTION = 'content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"';
   const LINK = "https://ember.test/rooms/general/@m1";
-  const CITE = `<cite>Ada <a href="${LINK}">#</a></cite><p><br></p>`;
+  const CREATED = "2026-10-12T15:04:00";
+  const CITE = `<cite>Ada · <time datetime="${CREATED}">${quotedTimeLabel(new Date(CREATED))}</time> <a href="${LINK}">#</a></cite><p><br></p>`;
 
   /** A link preview as the composer adds one. */
   function preview(details: Parameters<typeof previewContent>[0]): string {
@@ -103,15 +114,16 @@ describe("Quote a message", () => {
     return attachment.outerHTML;
   }
 
-  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace");
+  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), { author: "Ada", createdAt: CREATED, link: LINK }, () => "Grace");
 
-  it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
+  it("quotes what the message shows, then cites its author, when they wrote it and a link to it, leaving a line to write on", () => {
     const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`, "", "");
     const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
-    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
+    const quoted = { author: "Ada & co", createdAt: "2025-10-12T15:04:00", link: "https://ember.test/rooms/general/@m%201" };
+    expect(replyQuote(nodes, quoted, (userId) => names[userId]!)).toBe(
       "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
         '<a href="https://example.com">https://example.com</a></p></blockquote>' +
-        '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
+        '<cite>Ada &amp; co · <time datetime="2025-10-12T15:04:00">Oct 12, 2025, 3:04 PM</time> <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
     );
   });
 

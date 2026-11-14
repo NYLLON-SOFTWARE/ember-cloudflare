@@ -4,6 +4,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useRoomDrag, type OrderStatus } from "@/hooks/use-room-drag";
 import { isSignedOut, setSharedOrder } from "@/lib/api";
 import { inSidebarOrder } from "@/lib/room-list";
+import { flattened, roomTree, type RoomBranch } from "@/lib/sub-rooms";
 
 interface Options {
   /** The rooms in this administrator's sidebar, but their DMs, in any order. */
@@ -26,12 +27,20 @@ function stillStaged(staged: RoomId[], rooms: RoomId[]): RoomId[] {
   return [...kept, ...rooms.filter((id) => !listed.has(id))];
 }
 
+/** `order`, the ids of `rooms`, as a tree one level deep, each room's sub-rooms under it in their order. */
+function treeOf(rooms: SharedRoom[], order: RoomId[]): RoomBranch<SharedRoom>[] {
+  const byId = new Map(rooms.map((room) => [room.id, room]));
+  return roomTree(order.flatMap((id) => byId.get(id) ?? []));
+}
+
 /**
  * The order an administrator puts their rooms in for everyone, staged on workspace settings (`staged`):
  * a row is dragged at once by its handle, or moved with Alt and an arrow (`useRoomDrag`), and each move
  * is only staged until Save order saves the whole list as the shared order, or Cancel puts it back as
  * saved. The rooms the shared order doesn't rank come after the rest, by name, as they do in the
- * sidebar. A room that comes or goes meanwhile joins or leaves what's staged, at its end.
+ * sidebar. A room that comes or goes meanwhile joins or leaves what's staged, at its end. Sub-rooms move
+ * with their parent, and among their parent's other sub-rooms, each parent's in a list of its own
+ * (`subRoomDrag`), and the order saved lists each parent's after it.
  */
 export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Options) {
   const [staged, setStaged] = useState<RoomId[] | null>(null);
@@ -41,24 +50,39 @@ export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }
   // The save under way, as it is now rather than as last drawn, which saving again waits for.
   const saved = useRef<Promise<boolean> | null>(null);
 
-  const savedOrder = useMemo(() => inSidebarOrder(rooms, [], sharedOrder).map((room) => room.id), [rooms, sharedOrder]);
-  const order = useMemo(() => (staged ? stillStaged(staged, savedOrder) : savedOrder), [staged, savedOrder]);
+  const savedOrder = useMemo(() => flattened(roomTree(inSidebarOrder(rooms, [], sharedOrder))), [rooms, sharedOrder]);
+  const order = useMemo(() => flattened(treeOf(rooms, staged ? stillStaged(staged, savedOrder) : savedOrder)), [rooms, staged, savedOrder]);
+  const tree = useMemo(() => treeOf(rooms, order), [rooms, order]);
   const changed = !sameOrder(order, savedOrder);
   const nameOf = (roomId: RoomId) => rooms.find((room) => room.id === roomId)?.name ?? "";
 
-  const drag = useRoomDrag({
-    order,
-    movable: order,
+  /** What a list of rows, the rooms' or a parent's sub-rooms', says as its rows move, staging the order they're moved to. */
+  const moves = (stage: (moved: RoomId[]) => RoomId[]) => ({
     holdMs: 0,
-    grabs: (target) => target.closest("[data-room-order-handle]") !== null,
+    grabs: (target: Element) => target.closest("[data-room-order-handle]") !== null,
     isLocked: () => saved.current !== null,
-    onDrag: (roomId) => setStatus({ message: `Moving ${nameOf(roomId)}. Release to place, or press Escape to cancel.`, error: false }),
-    onMove: (moved) => {
-      setStaged(moved);
+    onDrag: (roomId: RoomId) => setStatus({ message: `Moving ${nameOf(roomId)}. Release to place, or press Escape to cancel.`, error: false }),
+    onMove: (moved: RoomId[]) => {
+      setStaged(stage(moved));
       setStatus({ message: "Unsaved room order. Save to apply it to everyone.", error: false });
     },
     onCancel: () => setStatus({ message: "Room move canceled.", error: false }),
   });
+
+  const topIds = tree.map((branch) => branch.room.id);
+  const subRoomsOf = new Map(tree.map((branch) => [branch.room.id, branch.subRooms.map((sub) => sub.id)]));
+  // A parent's row carries its sub-rooms with it.
+  const drag = useRoomDrag({ order: topIds, movable: topIds, ...moves((moved) => moved.flatMap((id) => [id, ...(subRoomsOf.get(id) ?? [])])) });
+
+  /** What `useRoomDrag` takes for parent `parentId`'s list of sub-rooms, whose moves stay among them. */
+  const subRoomDrag = (parentId: RoomId) => {
+    const subRoomIds = subRoomsOf.get(parentId) ?? [];
+    return {
+      order: subRoomIds,
+      movable: subRoomIds,
+      ...moves((moved) => order.filter((id) => !subRoomIds.includes(id)).flatMap((id) => (id === parentId ? [id, ...moved] : [id]))),
+    };
+  };
 
   /**
    * Saves the order staged as the shared order, putting back a row being dragged, so what's saved is what
@@ -103,5 +127,7 @@ export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }
     setStatus(null);
   }
 
-  return { order: drag.order, moving: drag.moving, status, changed, saving, listRef: drag.listRef, listProps: drag.listProps, save, reset };
+  // While a parent's row is dragged, the tree shows it where it's been dragged to.
+  const shownTree = drag.order.flatMap((id) => tree.find((branch) => branch.room.id === id) ?? []);
+  return { tree: shownTree, subRoomDrag, moving: drag.moving, status, changed, saving, listRef: drag.listRef, listProps: drag.listProps, save, reset };
 }

@@ -37,7 +37,7 @@ const NOTICES = {
 } satisfies Record<string, PushNotice>;
 
 /** Whether this page can have push notifications at all: it's secure, and the browser has service workers, notifications and push. */
-const pushAllowed = () => window.isSecureContext && "serviceWorker" in navigator && "Notification" in window && "PushManager" in window;
+export const pushAllowed = () => window.isSecureContext && "serviceWorker" in navigator && "Notification" in window && "PushManager" in window;
 
 /**
  * Whether this browser has notifications on, as Campfire's bell decides each time it loads: they're
