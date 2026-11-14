@@ -21,11 +21,13 @@ export const CLEAR_CHOICES: ReadonlyArray<{ value: ClearChoice; label: string }>
 export function clearAtOf(choice: ClearChoice, now = new Date()): string | null {
   const at = new Date(now);
   switch (choice) {
+    // An hour or four wears as time itself, not as the clock counts it, so a mood comes off on time
+    // across a change to or from daylight saving time too.
     case "hour":
-      at.setHours(at.getHours() + 1);
+      at.setTime(at.getTime() + 3_600_000);
       break;
     case "four":
-      at.setHours(at.getHours() + 4);
+      at.setTime(at.getTime() + 4 * 3_600_000);
       break;
     case "today":
       at.setDate(at.getDate() + 1);
@@ -42,9 +44,19 @@ export function clearAtOf(choice: ClearChoice, now = new Date()): string | null 
   return at.toISOString();
 }
 
+/** The instant of the midnight `at` falls in, by this clock. */
+const midnightOf = (at: number): number => {
+  const day = new Date(at);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+};
+
 /** The Clear-at choice a worn mood's clear time was made by, by how far off it is. */
 export function choiceOf(clearAt: string, now = new Date()): ClearChoice {
   const until = Date.parse(clearAt);
+  // Today is the choice a mood that comes off at a midnight was made by, whatever the hours left since
+  // it was saved, so it reads back as Today past midnight the day it was saved for too.
+  if (until === midnightOf(until)) return "today";
   const hours = (until - now.getTime()) / 3_600_000;
   if (hours <= 2) return "hour";
   if (hours <= 8) return "four";

@@ -170,8 +170,8 @@ describe("Initials avatars", () => {
     expect(users).toHaveLength(2);
     expect(users).toEqual(
       expect.arrayContaining([
-        { id: ada.user.id, name: "Ada Lovelace", bio: null, role: "administrator", status: "active", avatarUrl: expect.stringMatching(/^\/users\//) },
-        { id: grace.user.id, name: "Grace Hopper", bio: "Wrote the first compiler", role: "member", status: "deactivated", avatarUrl: expect.stringMatching(/^\/users\//) },
+        { id: ada.user.id, name: "Ada Lovelace", bio: null, mood: null, role: "administrator", status: "active", avatarUrl: expect.stringMatching(/^\/users\//) },
+        { id: grace.user.id, name: "Grace Hopper", bio: "Wrote the first compiler", mood: null, role: "member", status: "deactivated", avatarUrl: expect.stringMatching(/^\/users\//) },
       ]),
     );
   });

@@ -143,6 +143,7 @@ describe("Add and edit a bot", () => {
       id: expect.any(String),
       name: "Build Bot",
       bio: null,
+      mood: null,
       role: "bot",
       status: "active",
       avatarUrl: expect.stringMatching(/^\/users\/[^/]+\/avatar\?v=\d{14}$/),
@@ -153,7 +154,7 @@ describe("Add and edit a bot", () => {
     expect(bot.key).toMatch(new RegExp(`^${bot.id}-[A-Za-z0-9]{12}$`));
     expect(await stored(bot.id)).toMatchObject({ name: "Build Bot", role: 2, status: 0, bot_token: tokenOf(bot) });
     expect(await webhookOf(bot.id)).toMatchObject({ url: "https://ci.example.com/hooks/ember" });
-    expect(await inDirectory(administrator, bot.id)).toEqual({ id: bot.id, name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: bot.avatarUrl });
+    expect(await inDirectory(administrator, bot.id)).toEqual({ id: bot.id, name: "Build Bot", bio: null, mood: null, role: "bot", status: "active", avatarUrl: bot.avatarUrl });
     expect(await showBot(administrator, bot.id).then(botOf)).toEqual(bot);
 
     // Open rooms made later take it in, as they do everyone active.
@@ -239,7 +240,7 @@ describe("Add and edit a bot", () => {
     const renamed = await changeBot(administrator, bot.id, { name: "Deploy Bot" }).then(botOf);
     expect(await workspace.next()).toEqual({
       type: "user.updated",
-      user: { id: bot.id, name: "Deploy Bot", bio: null, role: "bot", status: "active", avatarUrl: renamed.avatarUrl },
+      user: { id: bot.id, name: "Deploy Bot", bio: null, mood: null, role: "bot", status: "active", avatarUrl: renamed.avatarUrl },
     });
     expect(await inDirectory(member, bot.id)).toMatchObject({ name: "Deploy Bot", avatarUrl: renamed.avatarUrl });
   });
@@ -371,7 +372,7 @@ describe("Delete a bot", () => {
     const removed = await workspace.next();
     expect(removed).toEqual({
       type: "user.updated",
-      user: { id: bot.id, name: "Build Bot", bio: null, role: "bot", status: "deactivated", avatarUrl: expect.any(String) },
+      user: { id: bot.id, name: "Build Bot", bio: null, mood: null, role: "bot", status: "deactivated", avatarUrl: expect.any(String) },
     });
     expect(await inDirectory(member, bot.id)).toEqual((removed as { user: DirectoryUser }).user);
     expect(await listed(administrator)).toEqual([]);
@@ -478,7 +479,7 @@ describe("A bot's profile", () => {
     const administrator = await setUp();
     const bot = await added(administrator, { name: "Build Bot" });
 
-    const person = { id: bot.id, name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: bot.avatarUrl, emailAddress: null };
+    const person = { id: bot.id, name: "Build Bot", bio: null, mood: null, role: "bot", status: "active", avatarUrl: bot.avatarUrl, emailAddress: null };
     expect(await answered<PersonAnswer>(administrator, `/api/users/${bot.id}`)).toEqual({ person });
     const avatar = await api(bot.avatarUrl, { headers: signedInAs(administrator) });
     expect(avatar.headers.get("Content-Type")).toBe("image/svg+xml");

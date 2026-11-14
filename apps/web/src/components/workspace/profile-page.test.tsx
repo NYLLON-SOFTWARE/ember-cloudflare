@@ -1017,3 +1017,96 @@ describe("Apps on your profile", () => {
     expect(fetch).toHaveBeenLastCalledWith(`/api/users/me/apps/${LINEAR.id}/sign-in`, expect.objectContaining({ method: "DELETE" }));
   });
 });
+describe("Your mood", () => {
+  it("wears an emoji and a few words beside your name, until the Clear-at menu says, with the notice ✓", async () => {
+    const { onFailed, user } = showPage();
+    await loaded();
+    await user.type(field("Emoji"), "😌");
+    await user.type(field("Words"), "Pairing on the compiler");
+    await user.selectOptions(field("Clear at"), "hour");
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    const [sent] = saved();
+    expect(sent!.mood).toEqual({ emoji: "😌", text: "Pairing on the compiler", clearAt: expect.any(String) });
+    // In an hour from when it was saved, by this clock.
+    expect(Date.parse(sent!.mood!.clearAt!)).toBeGreaterThan(Date.now() + 55 * 60_000);
+    expect(Date.parse(sent!.mood!.clearAt!)).toBeLessThan(Date.now() + 65 * 60_000);
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("shows what you wear, and takes it off with Clear, which empties the fields", async () => {
+    serve({
+      loaded: () =>
+        Response.json({ profile: { ...profile, mood: { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() + 30 * 60_000).toISOString() } }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    // Half an hour off is within the hour the Clear-at menu counts by.
+    expect(field("Clear at")).toHaveValue("hour");
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(saved()).toEqual([{ mood: null }]);
+    expect(field("Emoji")).toHaveValue("");
+    expect(field("Words")).toHaveValue("");
+    expect(field("Clear at")).toHaveValue("never");
+  });
+
+  it("prefers Never for a stored mood whose clear time has passed, so saving it doesn't keep it an hour longer", async () => {
+    serve({
+      loaded: () =>
+        Response.json({ profile: { ...profile, mood: { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() - 60_000).toISOString() } }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    showPage();
+    await loaded();
+    expect(field("Clear at")).toHaveValue("never");
+  });
+
+  it("has nothing to save or clear while you wear none, until an emoji and words are typed", async () => {
+    const { user } = showPage();
+    await loaded();
+    const saveMood = screen.getByRole("button", { name: "Save mood" });
+    expect(saveMood).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+    await user.type(field("Emoji"), "😌");
+    expect(saveMood).toBeDisabled();
+    await user.type(field("Words"), "Pairing");
+    expect(saveMood).toBeEnabled();
+  });
+
+  it("shows what another tab has saved since, which its answer tells this page", async () => {
+    const worn = { emoji: "😌", text: "Pairing on the compiler", clearAt: null };
+    serve({ loaded: () => Response.json({ profile: { ...profile, mood: worn }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { user } = showPage();
+    await loaded();
+    expect(field("Emoji")).toHaveValue("😌");
+    // Another tab saved new words, which reach this page with its next answer.
+    serve({ saved: () => Response.json({ profile: { ...profile, mood: { ...worn, text: "Sailing the seas" } }, transferId: SAVED_LINK } satisfies ProfileAnswer) });
+    await user.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    await waitFor(() => expect(field("Words")).toHaveValue("Sailing the seas"));
+  });
+
+  it("keeps the mood it just saved when a save that read the older one answers after", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Emoji"), "😌");
+    await user.type(field("Words"), "Pairing on the compiler");
+    await user.selectOptions(field("Clear at"), "hour");
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(field("Clear at")).toHaveValue("hour");
+
+    // A save of the profile sent before the mood was, answering after it, says the mood it read.
+    serve({ saved: () => Response.json({ profile: { ...profile, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer) });
+    await user.click(saveButton());
+    await waitFor(() => expect(field("Name")).toHaveValue("Ada King"));
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    expect(field("Clear at")).toHaveValue("hour");
+  });
+});

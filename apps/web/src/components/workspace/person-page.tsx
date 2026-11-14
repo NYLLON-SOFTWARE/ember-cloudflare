@@ -8,10 +8,10 @@ import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { leave, PROFILE_PATH, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { currentMood } from "@/lib/mood";
 import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AgentBadge, isAgent } from "./agent-badge";
+import { useWornMood } from "./mood";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
@@ -129,8 +129,8 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   };
 
   const mine = userId === me.id;
-  // What they wear beside their name, while it hasn't come off by its clear time.
-  const worn = person ? currentMood(person.mood) : null;
+  // What they wear beside their name, which a render takes off when its clear time arrives.
+  const worn = useWornMood(person?.mood);
   // Gone as soon as you stop being an administrator, before the page has loaded them again.
   const transferId = me.administrator ? fetched?.transferId : undefined;
   const editProfile = mine && (
