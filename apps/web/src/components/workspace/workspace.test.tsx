@@ -1724,6 +1724,16 @@ describe("Live sidebar updates", () => {
     expect(location.pathname).toBe("/rooms/random");
   });
 
+  it("says a DM shown on the DMs page was deleted, in its place, as soon as the workspace socket says it's gone", async () => {
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/dms/d1");
+    expect(await roomHeading()).toHaveTextContent("Direct message with Grace");
+    await workspaceSends({ type: "room.gone", roomId: "d1" });
+    expect(screen.getByRole("alert")).toHaveTextContent("This DM was deleted");
+    expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
+    expect(location.pathname).toBe("/dms/d1");
+  });
+
   it("drops the tab from the address of a room that's gone while a tab of it is shown (E-R5-18)", async () => {
     serve({ "GET /api/rooms/random/library": () => Response.json({ files: [], links: [] }) });
     showWorkspace("/rooms/random?tab=files");
