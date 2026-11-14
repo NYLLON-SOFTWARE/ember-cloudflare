@@ -331,6 +331,7 @@ async function askWorkersAi(env: Env, gateway: Gateway, question: Question, sign
   const found: Source[][] = [];
   let searchRefused: GatewayRefusal | undefined;
   let tokensLeft = question.maxTokens;
+  const mayCall = toolsFor(gateway.format, question.webTools).length > 0;
   for (let searched = 0; ; ) {
     const answered = await send(env, gateway, question, { ...request, messages, max_completion_tokens: tokensLeft }, signal);
     if ("refusal" in answered) return answered;
@@ -340,11 +341,13 @@ async function askWorkersAi(env: Env, gateway: Gateway, question: Question, sign
     if (calls.length === 0 || searched > WEB_SEARCHES_PER_ANSWER || tokensLeft < 1) return withSearches(answeredIn(gateway.format, answered.body), found, searchRefused);
     const content = typeof message?.content === "string" ? message.content : "";
     messages.push({ role: "assistant", content, tool_calls: calls.map(({ id, name, query }) => ({ id, type: "function", function: { name, arguments: JSON.stringify({ query }) } })) });
-    const searches = calls.map(({ name, query }) => (name === WEB_SEARCH_FUNCTION.function.name && query !== "" ? query : null));
+    // A model given no tool may call one all the same, which Ember doesn't run.
+    const searches = calls.map(({ name, query }) => (mayCall && name === WEB_SEARCH_FUNCTION.function.name && query !== "" ? query : null));
     const results = await Promise.all(
       searches.map((query, index) => (query !== null && searched + index < WEB_SEARCHES_PER_ANSWER ? searchedFor(env, gateway, question, query, signal) : null)),
     );
     const said = results.map((result, index) => {
+      if (!mayCall) return "You can't search the web for this answer. Answer without it.";
       if (calls[index]!.name !== WEB_SEARCH_FUNCTION.function.name) return "There's no tool by that name. Search the web, or answer.";
       if (searches[index] === null) return "Say what to search for.";
       if (result === null) return "You've searched as much as you may for this answer. Answer with what you've found.";

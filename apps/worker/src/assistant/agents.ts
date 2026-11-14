@@ -212,7 +212,9 @@ async function triedAnswer(
   // What its tests found, while it's asked as it's saved, of what it may do on the web still, as it is in a room.
   const kept = known && known.webTools.length > 0 && format === known.format ? known.webTools.filter((tool) => webToolsOf(trial.model, format, file).includes(tool)) : null;
   const webTools = !trial.webSearch ? [] : (kept ?? may);
-  const thinkingLevels = (known && format === known.format ? known.thinkingLevels : offered?.thinkingLevels) ?? undefined;
+  // One kept from before in another format is asked in Workers AI's at the levels the model search lists.
+  const listed = offered ?? (known && format !== known.format ? await offeredModel(env, trial.model, through) : null);
+  const thinkingLevels = (known && format === known.format ? known.thinkingLevels : listed?.thinkingLevels) ?? undefined;
   const question = questionFor(answerer, [{ creator: asker, plainText: trial.question }], asker, where, levels, new Date(), webTools);
   const answered = await ask(env, { ...through, model: trial.model, format, thinkingLevels }, question, waitFor(question));
   return "refusal" in answered ? answered : { ...answered, webTools };
@@ -262,8 +264,13 @@ async function askedModel(
   if (!searchFormat) return formAnswer({ error: agentCannotSearchWith(modelName), field: "webSearch" }, 422);
   const searched = await searchedBy(env, { ...through, model, format: searchFormat, name: modelName }, webTestQuestionFor(name), agentAnsweredUnsearched);
   if ("refusal" in searched) return refused(searched, "webSearch");
-  // The levels of thinking it took in another format needn't be the ones it takes in this.
-  const levels = searchFormat === format ? thinkingLevels : await testedLevelsOf(env, { ...through, model, format: searchFormat }, testQuestionFor(name));
+  // The levels of thinking it took in another format needn't be the ones it takes in this, which Cloudflare's model search lists for one of Workers AI's.
+  const levels =
+    searchFormat === format
+      ? thinkingLevels
+      : searchFormat === "workers"
+        ? ((await offeredModel(env, model, through))?.thinkingLevels ?? null)
+        : await testedLevelsOf(env, { ...through, model, format: searchFormat }, testQuestionFor(name));
   return { model, modelName, format: searchFormat, thinkingLevels: levels, webTools: searched.webTools, through };
 }
 

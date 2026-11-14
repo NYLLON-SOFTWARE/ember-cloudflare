@@ -23,7 +23,7 @@ import {
   workersAiModelOf,
 } from "../src/assistant/offered";
 import { API_TOKEN_NEEDED } from "../src/assistant/settings";
-import { addKeptModels, api, apiWith, connect, cookieOf, freshDeploy, post, shown, withWorkspaceEnv, workspaceSql, workspaceStub, type Client, type Session } from "./support";
+import { addKeptModels, agentWithKeptModel, api, apiWith, connect, cookieOf, freshDeploy, post, shown, withWorkspaceEnv, workspaceSql, workspaceStub, type Client, type Session } from "./support";
 
 // The models Ember offers administrators, as Set up Ember AI, Add a model and the agents' pages list
 // them: those the models file lists, which Ember reads from its main branch once a day, and Workers AI's
@@ -539,6 +539,45 @@ describe("Workers AI's models", () => {
     const tried = await api(`/api/account/agents/${agent.id}/trials`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify(trial) });
     expect(tried.status, await tried.clone().text()).toBe(200);
     expect(placesOf(requests).filter((url) => url !== `${CLOUDFLARE_API}/accounts/${ACCOUNT_ID}/ai/models/search`)).toEqual([CHAT_COMPLETIONS, WEB_SEARCH, CHAT_COMPLETIONS]);
+  });
+
+  it("search for an agent kept from before in Chat Completions at the levels the model search lists, tried or saved", async () => {
+    const ada = await setUpWithAssistant();
+    cloudflare({ model: searchingModel });
+    const scout: NewAgent = { name: "Scout", description: "Finds things", instructions: "Find it.", model: GLM.id, thinking: "low", length: "short", webSearch: false, rooms: null };
+    const made = await api("/api/account/agents", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify(scout) });
+    expect(made.status, await made.clone().text()).toBe(201);
+    const { agent } = (await made.json()) as AgentAnswer;
+    vi.restoreAllMocks();
+    await agentWithKeptModel(agent.id, { id: GLM.id, name: "GLM 5.2", format: "chat", thinkingLevels: ["off", "low", "medium", "high"] });
+
+    let requests = cloudflare({ model: searchingModel });
+    const trial = { name: scout.name, instructions: scout.instructions, model: scout.model, thinking: "low", length: scout.length, webSearch: true, question: "What's AI Gateway?" };
+    const tried = await api(`/api/account/agents/${agent.id}/trials`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify(trial) });
+    expect(tried.status, await tried.clone().text()).toBe(200);
+    // Low, which GLM 5.2 turns into High, is asked as Off, the level below it that it takes.
+    expect(requests.filter(({ url }) => url === CHAT_COMPLETIONS).map(({ body }) => body?.reasoning_effort)).toEqual(["none", "none"]);
+    vi.restoreAllMocks();
+
+    requests = cloudflare({ model: searchingModel });
+    const changed = await api(`/api/account/agents/${agent.id}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ webSearch: true }) });
+    expect(changed.status, await changed.clone().text()).toBe(200);
+    expect(((await changed.json()) as AgentAnswer).agent).toMatchObject({ format: "workers", thinkingLevels: ["off", "high"], webTools: ["search"] });
+    expect(placesOf(requests).filter((url) => url === CHAT_COMPLETIONS)).toHaveLength(2);
+  });
+
+  it("don't search the web for a model that calls Ember's tool while Search the web is off, telling it to answer without it", async () => {
+    const ada = await setUpWithAssistant({ ...SETUP, model: GLM.id });
+    const client = await connect(await general(), ada);
+    const requests = cloudflare({
+      model: (sent) => (((sent.body?.messages ?? []) as Array<{ role: string }>).at(-1)?.role === "tool" ? answering("Answered without it.")(sent) : calling("AI Gateway")),
+    });
+    await post(client, `<p>${mention} what's AI Gateway?</p>`);
+    expect((await nextAnswer(client)).plainText).toBe("Answered without it.");
+    client.close();
+    expect(placesOf(requests)).toEqual([CHAT_COMPLETIONS, CHAT_COMPLETIONS]);
+    expect(requests[0]!.body?.tools).toBeUndefined();
+    expect((requests[1]!.body!.messages as Array<Record<string, unknown>>).at(-1)).toEqual({ role: "tool", tool_call_id: "call_0", content: "You can't search the web for this answer. Answer without it." });
   });
 
   it(`search at most ${WEB_SEARCHES_PER_ANSWER} times an answer, then are told to answer with what they found`, async () => {
