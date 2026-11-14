@@ -195,9 +195,10 @@ describe("Connecting an app", () => {
       toolsReadAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as string,
       connectedBy: administrator.user,
       setAside: [],
+      signIn: null,
     });
     expect(await appOf(await show(administrator, app.id))).toEqual(app);
-    expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([{ id: app.id, name: "Tracker", url: LOCAL, toolCount: 2, setAside: 0 }]);
+    expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([{ id: app.id, name: "Tracker", url: LOCAL, toolCount: 2, setAside: 0, signInEnded: false }]);
 
     // Ember asks as the protocol has it, at the address it was given, and follows no redirect.
     expect(asked.filter(({ rpc }) => rpc !== undefined).map(({ rpc }) => rpc)).toEqual(["initialize", "notifications/initialized", "tools/list"]);
@@ -290,8 +291,9 @@ describe("Connecting an app", () => {
     server.token = "right";
     expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "not-the-token-1234" }), 422)).toEqual({ error: "localhost:3845 didn't take that token.", field: "token" });
     expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 422)).toEqual({
-      error: "localhost:3845 asks for a sign-in. Give a token for it, if it has one: Ember can't sign in to an app any other way yet.",
+      error: "localhost:3845 asks for a sign-in. Sign in to it, or give a token for it, if it has one.",
       field: "token",
+      signIn: true,
     });
     server = { pages: [], instead: () => new Response("Forbidden", { status: 403, headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope", scope="tools:read"' } }) };
     expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "a-narrow-token-9012" }), 422)).toEqual({

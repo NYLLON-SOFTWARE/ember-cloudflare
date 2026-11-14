@@ -1,19 +1,25 @@
 import {
   APP_CHANGED,
+  APP_SIGN_IN_ENDED,
+  APP_SIGNED_IN,
   APPS_FORBIDDEN,
   APPS_FULL,
   TOOL_GONE,
   parseAppChanges,
+  parseAppSignInReturn,
   parseNewApp,
   parseToolPicks,
   type AgentTools,
   type App,
   type AppAnswer,
   type AppId,
+  type AppRefused,
   type Apps,
+  type AppSignedIn,
+  type AppSignInBegun,
   type OfferedApp,
 } from "@ember/protocol/apps";
-import type { UserId } from "@ember/protocol";
+import { APP_SIGNED_IN_PATH, type UserId } from "@ember/protocol";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { administratorOf } from "../assistant/settings";
 import { credentialsOf } from "../auth";
@@ -21,12 +27,18 @@ import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
 import { notFound } from "../error-pages";
 import { anyOtherPage, formAnswer } from "../pages";
-import { workspace } from "../workspace";
+import { urlOf } from "../request-url";
+import { workspace, type BegunAppSignIn, type Credentials } from "../workspace";
 import { appConnector } from "./connector";
+import type { ReadApp } from "./mcp";
+import { CLIENT_DOCUMENT_PATH, clientMetadataOf } from "./oauth";
+import { hasEnded, signInEnded } from "./tools";
 
 // Apps, as administrators connect, change and disconnect them on the AI assistant tab of workspace
 // settings: MCP servers, each with the tools Ember read from it, which the AI agents may be given. They
-// answer JSON for the tab and each app's page.
+// answer JSON for the tab and each app's page. An app whose server asks for a sign-in is connected by
+// one: the administrator's browser goes to its authorization server and comes back to the app with a
+// code, which the app sends here to finish.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -74,9 +86,85 @@ export async function connectApp(request: Request, env: Env): Promise<Response> 
   const ember = workspace(env);
   const slot = await ember.appSlot(credentials);
   if (slot !== true) return refused(slot);
-  const read = await appConnector(env).read(app.url, app.token ?? null);
+  const read = await appConnector(env).read(app.url, app.token === undefined ? null : { token: app.token });
   if ("error" in read) return formAnswer(read, 422);
   return appAnswer(await ember.connectApp(credentials, app, read), 201);
+}
+
+/**
+ * `POST /api/account/app-sign-ins`, `{ name, url }`: begins a sign-in to the MCP server at `url`, to
+ * connect it by, answering where to send the browser, `{ authorizationUrl }`, which comes back to
+ * `/account/apps/signed-in`. It's refused as connecting an app is, and when the server has no sign-in
+ * Ember can use, on the field that's about.
+ */
+export async function beginNewAppSignIn(request: Request, env: Env): Promise<Response> {
+  const credentials = await administratorOf(request, env, APPS_FORBIDDEN);
+  if (credentials instanceof Response) return credentials;
+  const app = parseNewApp(await jsonBodyOf(request));
+  if ("error" in app) return formAnswer(app, 422);
+  const slot = await workspace(env).appSlot(credentials);
+  if (slot !== true) return refused(slot);
+  return begunSignIn(request, env, credentials, { appId: null, name: app.name, url: app.url });
+}
+
+/**
+ * `POST /api/account/apps/:id/sign-in`: begins a sign-in to the server of the connected app `id`, in
+ * place of the one it has, or of its token, answering as `beginNewAppSignIn` does, or with 422 and
+ * why its server has no sign-in Ember can use.
+ */
+export async function beginAppSignIn(request: Request, env: Env, appId: AppId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const access = credentials && (await workspace(env).appAccess(credentials, appId));
+  if (!credentials || !access) return refused(null);
+  if (typeof access === "string") return refused(access);
+  return begunSignIn(request, env, credentials, { appId, name: access.name, url: access.url });
+}
+
+/** Begins the sign-in to `app`'s server for whoever `credentials` signs in, whose browser comes back to where `request` came: where to send it, or why not. */
+async function begunSignIn(request: Request, env: Env, credentials: Credentials, app: Pick<BegunAppSignIn, "appId" | "name" | "url">): Promise<Response> {
+  const { origin, protocol } = urlOf(request);
+  // An authorization server reads who Ember is only from an https address.
+  const begun = await appConnector(env).startSignIn(app.url, `${origin}${APP_SIGNED_IN_PATH}`, protocol === "https:" ? `${origin}${CLIENT_DOCUMENT_PATH}` : null);
+  if ("error" in begun) return formAnswer(begun, 422);
+  const kept = await workspace(env).beginAppSignIn(credentials, { ...app, state: begun.state, signIn: begun.kept });
+  if (kept !== true) return refused(kept);
+  return Response.json({ authorizationUrl: begun.authorizationUrl } satisfies AppSignInBegun, { headers: PRIVATE });
+}
+
+/**
+ * `POST /api/account/app-sign-ins/finish`, `{ state, code, iss? }`, as the browser came back with them:
+ * finishes the sign-in the administrator began, once, reads the server's tools with it, and connects
+ * the app, answering 201, or keeps the sign-in for the connected app it was for, answering 200, with
+ * the app as its page then shows it. A sign-in that has ended, or that someone else began, is refused
+ * with 422, as is one the authorization server or the app's server refuses, with why.
+ */
+export async function finishAppSignIn(request: Request, env: Env): Promise<Response> {
+  const credentials = await administratorOf(request, env, APPS_FORBIDDEN);
+  if (credentials instanceof Response) return credentials;
+  const back = parseAppSignInReturn(await jsonBodyOf(request));
+  if ("error" in back) return problem(422, back.error);
+  const ember = workspace(env);
+  const begun = await ember.takeAppSignIn(credentials, back.state);
+  if (begun === "ended") return problem(422, APP_SIGN_IN_ENDED);
+  if (begun === null || typeof begun === "string") return refused(begun);
+  const { appId, name, url } = begun;
+  // What crosses from the connector is typed as what can cross, which the tools' schemas aren't known to be.
+  const signedIn = (await appConnector(env).signIn(url, begun.signIn, back.code, back.iss, appId !== null)) as (ReadApp & { kept: string }) | AppRefused;
+  if ("error" in signedIn) return problem(422, signedIn.error);
+  const { kept, ...read } = signedIn;
+  const app = appId === null ? await ember.connectApp(credentials, { name, url }, read, kept) : await ember.signInToApp(credentials, appId, url, kept, read);
+  if (typeof app !== "object" || app === null) return refused(app);
+  return Response.json({ app, again: appId !== null } satisfies AppSignedIn, { status: appId === null ? 201 : 200, headers: PRIVATE });
+}
+
+/**
+ * `GET /oauth/client.json`: who Ember is to an authorization server that reads its clients from a
+ * document (a Client ID Metadata Document), at the address `request` came to: a public client, which
+ * sends a browser back only to its own page.
+ */
+export function clientDocument(request: Request): Response {
+  const { origin } = urlOf(request);
+  return Response.json({ client_id: `${origin}${CLIENT_DOCUMENT_PATH}`, ...clientMetadataOf(`${origin}${APP_SIGNED_IN_PATH}`) }, { headers: { "Cache-Control": "public, max-age=3600" } });
 }
 
 /**
@@ -84,7 +172,8 @@ export async function connectApp(request: Request, env: Env): Promise<Response> 
  * connected app `id`, answering it as its page then shows it. Another address or token has Ember read
  * the server's tools again first, there or with it, so that neither is saved unless the server answers.
  * As with connecting one, someone who isn't an administrator hears so first, then that Ember AI is off,
- * then that there's no such app, before anything that was sent is read.
+ * then that there's no such app, before anything that was sent is read. An app that's signed in to
+ * keeps its address and takes no token: Ember's sign-in is to the server there, and is sent nowhere else.
  */
 export async function changeApp(request: Request, env: Env, appId: AppId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -95,9 +184,13 @@ export async function changeApp(request: Request, env: Env, appId: AppId): Promi
   const changes = parseAppChanges(await jsonBodyOf(request));
   if ("error" in changes) return formAnswer(changes, 422);
   const url = changes.url ?? access.url;
-  const token = changes.token === undefined ? access.token : changes.token === "" ? null : changes.token;
-  if (url === access.url && token === access.token) return appAnswer(await ember.changeApp(credentials, appId, changes, null));
-  const read = await appConnector(env).read(url, token);
+  if (access.signedIn) {
+    if (url !== access.url || changes.token !== undefined) return formAnswer(signedInRefusal(url !== access.url), 422);
+    return appAnswer(await ember.changeApp(credentials, appId, changes, null));
+  }
+  const token = changes.token === undefined ? (access.key?.token ?? null) : changes.token === "" ? null : changes.token;
+  if (url === access.url && token === (access.key?.token ?? null)) return appAnswer(await ember.changeApp(credentials, appId, changes, null));
+  const read = await appConnector(env).read(url, token === null ? null : { token });
   if ("error" in read) return formAnswer(read, 422);
   return appAnswer(await ember.changeApp(credentials, appId, changes, { read, askedAt: access }));
 }
@@ -105,7 +198,7 @@ export async function changeApp(request: Request, env: Env, appId: AppId): Promi
 /**
  * `POST /api/account/apps/:id/tools`: reads the connected app `id`'s tools from its server again,
  * answering it as its page then shows it, with no tools if its server has none Ember can use any more,
- * or why Ember couldn't read them, which leaves the app as it was.
+ * or why Ember couldn't read them, which leaves the app as it was, as a sign-in to it that has ended does.
  */
 export async function readAppTools(request: Request, env: Env, appId: AppId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -113,7 +206,8 @@ export async function readAppTools(request: Request, env: Env, appId: AppId): Pr
   const access = credentials && (await ember.appAccess(credentials, appId));
   if (!credentials || !access) return refused(null);
   if (typeof access === "string") return refused(access);
-  const read = await appConnector(env).read(access.url, access.token, true);
+  if (hasEnded(access)) return problem(422, signInEnded(access.name));
+  const read = await appConnector(env).read(access.url, access.key, true);
   if ("error" in read) return problem(422, read.error);
   return appAnswer(await ember.changeApp(credentials, appId, {}, { read, askedAt: access }));
 }
@@ -151,7 +245,10 @@ function agentToolsAnswer(apps: OfferedApp[] | Refusal): Response {
 }
 
 /** Why a request about apps isn't done: there's no such app, agent or tool, or the person asking can't, or not now. */
-type Refusal = "off" | "full" | "changed" | "gone" | "not found" | "forbidden" | null;
+type Refusal = "off" | "full" | "changed" | "signed in" | "gone" | "not found" | "forbidden" | null;
+
+/** Why an app that's signed in to keeps its address, or else takes no token, said on that field. */
+const signedInRefusal = (moved: boolean): AppRefused => ({ error: APP_SIGNED_IN, field: moved ? "url" : "token" });
 
 /** What a request about an app answers: the app as its page then shows it, with `status`, or why it was refused. */
 function appAnswer(app: App | Refusal, status = 200): Response {
@@ -162,5 +259,6 @@ function refused(why: Refusal): Response {
   if (why === null) return problem(401, NOT_SIGNED_IN);
   if (why === "forbidden") return problem(403, APPS_FORBIDDEN);
   if (why === "not found") return problem(404, "Not found");
+  if (why === "signed in") return formAnswer(signedInRefusal(true), 422);
   return problem(409, why === "off" ? ASSISTANT_OFF : why === "changed" ? APP_CHANGED : why === "gone" ? TOOL_GONE : APPS_FULL);
 }

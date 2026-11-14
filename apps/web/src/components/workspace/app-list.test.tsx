@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { APPS_FULL, MAX_APPS, type AppSummary } from "@ember/protocol/apps";
 import { appSettingsPath, NEW_APP_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
-import { addressOf, AppList, APPS_EXPLAINED, NO_APPS, setAsideOf, toolsOf } from "./app-list";
+import { addressOf, AppList, APPS_EXPLAINED, NO_APPS, setAsideOf, SIGN_IN_ENDED, toolsOf } from "./app-list";
 
-const LINEAR: AppSummary = { id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0 };
-const NOTES: AppSummary = { id: "0mgk3x2a9b4c71", name: "Notes", url: "https://notes.example/", toolCount: 1, setAside: 0 };
+const LINEAR: AppSummary = { id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0, signInEnded: false };
+const NOTES: AppSummary = { id: "0mgk3x2a9b4c71", name: "Notes", url: "https://notes.example/", toolCount: 1, setAside: 0, signInEnded: false };
 
 /** Answers listing the apps with `apps`, or as `listed` says. */
 const serve = (listed: () => Response | Promise<Response> = () => Response.json({ apps: [LINEAR, NOTES] })) =>
@@ -50,6 +50,15 @@ describe("The Apps card", () => {
     expect(setAsideOf(2)).toContain("2 picked tools are set aside");
     expect(notes).toHaveTextContent(setAsideOf(1));
     expect(setAsideOf(1)).toContain("1 picked tool is set aside");
+  });
+
+  it("says on an app's row that Ember's sign-in to it has ended, and nothing of that on any other", async () => {
+    serve(() => Response.json({ apps: [{ ...LINEAR, signInEnded: true }, NOTES] }));
+    showList();
+    await loaded();
+    const [linear, notes] = within(card()).getAllByRole("listitem");
+    expect(linear).toHaveTextContent(SIGN_IN_ENDED);
+    expect(notes).not.toHaveTextContent("sign-in");
   });
 
   it("says what apps are, with Connect an app, which goes to its page", async () => {

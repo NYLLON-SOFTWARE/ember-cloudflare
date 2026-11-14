@@ -153,6 +153,12 @@ describe("Connect an app and a connected app's page", () => {
       expect(workspacePageOf(path)).toBeNull();
     }
   });
+
+  it("shows where an app's sign-in comes back to at `/account/apps/signed-in`", () => {
+    expect(workspacePageOf("/account/apps/signed-in")).toEqual({ page: "app-signed-in" });
+    expect(workspacePageOf("/account/apps/signed-in/")).toBeNull();
+    expect(workspacePageOf("/account/apps/signed-in/edit")).toEqual({ page: "app-settings", appId: "signed-in" });
+  });
 });
 
 describe("New agent and an agent's settings", () => {

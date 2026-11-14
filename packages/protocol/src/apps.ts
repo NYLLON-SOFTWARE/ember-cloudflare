@@ -25,6 +25,8 @@ export const APPS_FORBIDDEN = "Only administrators can connect apps";
 export const APPS_FULL = `Ember connects at most ${MAX_APPS} apps. Remove one first.`;
 export const APP_CHANGED = "Someone else changed this app while Ember read its tools. Load the page again.";
 export const APP_URL_REFUSED = "The address must be an https URL, or an http one on localhost";
+export const APP_SIGNED_IN = "This app signs in to its server, so its address and token can't be changed here. Remove it and connect it again to move it.";
+export const APP_SIGN_IN_ENDED = "That sign-in has ended, or isn't one you started. Start it again.";
 
 /** A tool of an app's, as its server describes it: its name there, what it's called, if that's something else, and what it does. */
 export interface AppTool {
@@ -36,7 +38,8 @@ export interface AppTool {
 /**
  * An app as its page shows it: its name, its server's address, whether Ember
  * sends a token, which it never shows again, what the server calls itself, the tools read from it, how
- * many more it has than Ember keeps, and who connected it, and when its tools were last read.
+ * many more it has than Ember keeps, and who connected it, and when its tools were last read, and its
+ * sign-in, if an administrator signed in to its server.
  */
 export interface App {
   id: AppId;
@@ -49,11 +52,25 @@ export interface App {
   toolsReadAt: string;
   connectedBy: { id: UserId; name: string } | null;
   setAside: SetAsideTool[];
+  signIn: AppSignIn | null;
+}
+
+/**
+ * An app's sign-in: who signed in to its server, if they're still known, and when, and whether it has
+ * `ended`, as it has once its server won't give Ember another token, so that its agents are without
+ * its tools until an administrator signs in again.
+ */
+export interface AppSignIn {
+  by: { id: UserId; name: string } | null;
+  at: string;
+  ended: boolean;
 }
 
 /**
  * An app as the AI assistant tab lists it: its name, its server's address, how many tools Ember read
- * from it, and how many of them are set aside for an agent that had them (`SetAsideTool`).
+ * from it, how many of them are set aside for an agent that had them (`SetAsideTool`), and whether
+ * Ember's sign-in to its server has ended, so that its server isn't asked until an administrator signs
+ * in again.
  */
 export interface AppSummary {
   id: AppId;
@@ -61,6 +78,7 @@ export interface AppSummary {
   url: string;
   toolCount: number;
   setAside: number;
+  signInEnded: boolean;
 }
 
 /**
@@ -101,10 +119,48 @@ export interface AppChanges {
   token?: string;
 }
 
-/** Why a field of an app's form is refused. */
+/** Why a field of an app's form is refused, and whether that's because its server asks for a sign-in, which Ember can begin. */
 export interface AppRefused {
   error: string;
   field?: "name" | "url" | "token";
+  signIn?: true;
+}
+
+/** What `POST /api/account/app-sign-ins` takes: the name and server address of an app to connect by signing in to its server. */
+export type NewAppSignIn = Pick<NewApp, "name" | "url">;
+
+/** What beginning a sign-in answers: where to send the administrator's browser, which comes back to `/account/apps/signed-in`. */
+export interface AppSignInBegun {
+  authorizationUrl: string;
+}
+
+/**
+ * What `POST /api/account/app-sign-ins/finish` takes, from the address the administrator's browser came
+ * back to: the `state` and `code` it carried, and who the authorization server said it is, `iss`, if
+ * it said.
+ */
+export interface AppSignInReturn {
+  state: string;
+  code: string;
+  iss?: string;
+}
+
+/** What finishing a sign-in answers: the app as its page then shows it, and whether it was connected already, and signed in to `again`. */
+export interface AppSignedIn {
+  app: App;
+  again: boolean;
+}
+
+/** The longest state, code or issuer a browser comes back from a sign-in with that Ember reads. */
+const MAX_RETURN_LENGTH = 4096;
+
+/** Parses what a browser came back from a sign-in with, untrusted, or says why it's refused. */
+export function parseAppSignInReturn(data: unknown): AppSignInReturn | AppRefused {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return { error: "Expected a JSON object" };
+  const { state, code, iss } = data as Record<string, unknown>;
+  const isText = (value: unknown): value is string => typeof value === "string" && value !== "" && value.length <= MAX_RETURN_LENGTH;
+  if (!isText(state) || !isText(code) || (iss !== undefined && !isText(iss))) return { error: APP_SIGN_IN_ENDED };
+  return { state, code, ...(iss !== undefined && { iss }) };
 }
 
 /**

@@ -2399,7 +2399,11 @@ export interface StoredAppRead {
   toolsLeftOut: number;
 }
 
-/** A connected app as the apps table keeps it: its token sealed, or null without one, what was read from its server, and who connected it, if they're still known. */
+/**
+ * A connected app as the apps table keeps it: its token sealed, or null without one, what was read
+ * from its server, who connected it, if they're still known, and, for one an administrator signed in
+ * to, who and when, with the sign-in sealed, or null once it has ended.
+ */
 export interface StoredApp extends StoredAppRead {
   id: AppId;
   name: string;
@@ -2407,6 +2411,28 @@ export interface StoredApp extends StoredAppRead {
   sealedToken: string | null;
   toolsReadAt: string;
   connectedBy: { id: UserId; name: string } | null;
+  sealedSignIn: string | null;
+  signedIn: { by: { id: UserId; name: string } | null; at: string } | null;
+}
+
+/** A sign-in to keep for an app: sealed for it, and who signed in. */
+export interface NewAppSignIn {
+  sealed: string;
+  by: UserId;
+}
+
+/**
+ * A sign-in under way, from when an administrator, `userId`, is sent to an app's authorization server
+ * until their browser comes back with `state`: for the connected app `appId`, or, with null, for one
+ * to connect by `name` at `url`, with what the sign-in needs to finish, sealed.
+ */
+export interface PendingAppSignIn {
+  state: string;
+  userId: UserId;
+  appId: AppId | null;
+  name: string;
+  url: string;
+  sealedSignIn: string;
 }
 
 /** An app to connect, by `connectedBy`. */
@@ -2415,6 +2441,8 @@ export interface NewStoredApp extends StoredAppRead {
   name: string;
   url: string;
   sealedToken: string | null;
+  /** The sign-in it's connected with, sealed, if it's connected by one. */
+  sealedSignIn?: string;
   connectedBy: UserId;
   now: string;
 }
@@ -2470,11 +2498,16 @@ interface AppRow {
   tools_read_at: string;
   connected_by_id: UserId | null;
   connected_by_name: string | null;
+  sign_in: string | null;
+  signed_in_at: string | null;
+  signed_in_by_id: UserId | null;
+  signed_in_by_name: string | null;
 }
 
 const APPS = `SELECT apps.id, apps.name, apps.url, apps.token, apps.server_name, apps.tools, apps.tools_left_out, apps.tools_read_at,
-  users.id AS connected_by_id, users.name AS connected_by_name
-  FROM apps LEFT JOIN users ON users.id = apps.created_by`;
+  users.id AS connected_by_id, users.name AS connected_by_name,
+  apps.sign_in, apps.signed_in_at, signers.id AS signed_in_by_id, signers.name AS signed_in_by_name
+  FROM apps LEFT JOIN users ON users.id = apps.created_by LEFT JOIN users AS signers ON signers.id = apps.signed_in_by`;
 
 const APP = `${APPS} WHERE apps.id = ?`;
 
@@ -2489,7 +2522,13 @@ const storedApp = (row: AppRow): StoredApp => ({
   toolsLeftOut: row.tools_left_out,
   toolsReadAt: row.tools_read_at,
   connectedBy: row.connected_by_id !== null && row.connected_by_name !== null ? { id: row.connected_by_id, name: row.connected_by_name } : null,
+  sealedSignIn: row.sign_in,
+  signedIn:
+    row.signed_in_at === null ? null : { by: row.signed_in_by_id !== null && row.signed_in_by_name !== null ? { id: row.signed_in_by_id, name: row.signed_in_by_name } : null, at: row.signed_in_at },
 });
+
+/** How many sign-ins to apps can be under way at once: beginning another forgets the one begun longest ago. */
+const MAX_PENDING_APP_SIGN_INS = 20;
 
 export class WorkspaceStore {
   constructor(private readonly db: Db) {}
@@ -3886,15 +3925,69 @@ export class WorkspaceStore {
 
   /** Connects `app`, unless as many apps as there can be, `most`, are connected already, answering whether it did. */
   async connectApp(app: NewStoredApp, most: number): Promise<boolean> {
-    const { id, name, url, sealedToken, serverName, tools, toolsLeftOut, connectedBy, now } = app;
+    const { id, name, url, sealedToken, sealedSignIn = null, serverName, tools, toolsLeftOut, connectedBy, now } = app;
+    const signedIn = sealedSignIn === null ? [null, null, null] : [sealedSignIn, connectedBy, now];
     const [connected] = (await this.db.batch([
       statement(
-        `INSERT INTO apps (id, name, url, token, server_name, tools, tools_left_out, tools_read_at, created_by, updated_by, created_at, updated_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM apps) < ? RETURNING id`,
-        ...[id, name, url, sealedToken, serverName, JSON.stringify(tools), toolsLeftOut, now, connectedBy, connectedBy, now, now, most],
+        `INSERT INTO apps (id, name, url, token, server_name, tools, tools_left_out, tools_read_at, created_by, updated_by, created_at, updated_at, sign_in, signed_in_by, signed_in_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM apps) < ? RETURNING id`,
+        ...[id, name, url, sealedToken, serverName, JSON.stringify(tools), toolsLeftOut, now, connectedBy, connectedBy, now, now, ...signedIn, most],
       ),
     ])) as [unknown[]];
     return connected.length > 0;
+  }
+
+  /**
+   * Keeps a sign-in to the connected app `appId`, made by `signIn.by`, in place of any it had, and of its
+   * token, with what was `read` from its server with it and the agents' `picks` that changes, in one
+   * batch, while the app is still asked at `url`: answers whether it was.
+   */
+  async signInToApp(appId: AppId, signIn: NewAppSignIn, { serverName, tools, toolsLeftOut }: StoredAppRead, picks: ChangedPicks[], url: string, now: string): Promise<boolean> {
+    const [signedIn] = (await this.db.batch([
+      statement(
+        `UPDATE apps SET token = NULL, sign_in = ?, signed_in_by = ?, signed_in_at = ?, server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ?, updated_by = ?, updated_at = ?
+         WHERE id = ? AND url = ? RETURNING id`,
+        ...[signIn.sealed, signIn.by, now, serverName, JSON.stringify(tools), toolsLeftOut, now, signIn.by, now, appId, url],
+      ),
+      ...picks.map(({ agentId, stored, picks: changed }) =>
+        statement(
+          `UPDATE agent_tools SET tools = ? WHERE agent_id = ? AND tools = ? AND EXISTS (SELECT 1 FROM apps WHERE id = ? AND url = ? AND sign_in = ?)`,
+          ...[JSON.stringify(changed), agentId, stored, appId, url, signIn.sealed],
+        ),
+      ),
+    ])) as [unknown[]];
+    return signedIn.length > 0;
+  }
+
+  /**
+   * Has the sign-in the connected app `appId` keeps be `sealed`, with the tokens its authorization
+   * server gave in place of the last, or null once it has ended, while it's still the one that was
+   * asked with, `was`: answers whether it was.
+   */
+  async keepAppSignIn(appId: AppId, sealed: string | null, was: string): Promise<boolean> {
+    const [kept] = (await this.db.batch([statement(`UPDATE apps SET sign_in = ? WHERE id = ? AND sign_in = ? RETURNING id`, sealed, appId, was)])) as [unknown[]];
+    return kept.length > 0;
+  }
+
+  /**
+   * Keeps `pending`, a sign-in under way, until `expiresAt`, forgetting those that have expired by
+   * `now`, and the ones begun longest ago once there are more than Ember keeps.
+   */
+  async beginAppSignIn({ state, userId, appId, name, url, sealedSignIn }: PendingAppSignIn, expiresAt: string, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`DELETE FROM app_sign_ins WHERE expires_at <= ?`, now),
+      statement(`INSERT INTO app_sign_ins (state, user_id, app_id, name, url, sign_in, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, state, userId, appId, name, url, sealedSignIn, expiresAt),
+      statement(`DELETE FROM app_sign_ins WHERE state NOT IN (SELECT state FROM app_sign_ins ORDER BY expires_at DESC, state LIMIT ?)`, MAX_PENDING_APP_SIGN_INS),
+    ]);
+  }
+
+  /** Takes the sign-in under way that `userId` began and whose browser came back with `state`, if it hasn't expired by `now`: it's finished once. */
+  async takeAppSignIn(state: string, userId: UserId, now: string): Promise<PendingAppSignIn | null> {
+    const [taken] = (await this.db.batch([
+      statement(`DELETE FROM app_sign_ins WHERE state = ? AND user_id = ? AND expires_at > ? RETURNING app_id, name, url, sign_in`, state, userId, now),
+    ])) as [Array<{ app_id: AppId | null; name: string; url: string; sign_in: string }>];
+    const row = taken[0];
+    return row ? { state, userId, appId: row.app_id, name: row.name, url: row.url, sealedSignIn: row.sign_in } : null;
   }
 
   /**
@@ -3943,9 +4036,12 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** Disconnects the app `appId`, answering whether there was one. */
+  /** Disconnects the app `appId`, forgetting any sign-in to it that's under way, answering whether there was one. */
   async disconnectApp(appId: AppId): Promise<boolean> {
-    const [disconnected] = (await this.db.batch([statement(`DELETE FROM apps WHERE id = ? RETURNING id`, appId)])) as [unknown[]];
+    const [disconnected] = (await this.db.batch([
+      statement(`DELETE FROM apps WHERE id = ? RETURNING id`, appId),
+      statement(`DELETE FROM app_sign_ins WHERE app_id = ?`, appId),
+    ])) as [unknown[], unknown[]];
     return disconnected.length > 0;
   }
 

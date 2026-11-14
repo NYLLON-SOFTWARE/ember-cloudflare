@@ -55,45 +55,51 @@ export interface CalledTool {
   changed?: true;
 }
 
+/** What Ember sends an app's server to be let in: a token an administrator gave, or the one a sign-in to it gave, `signedIn`. */
+export interface Key {
+  token: string;
+  signedIn?: true;
+}
+
 /** What an app is asked through: the Worker's `fetch`, or a fake in tests. */
 export type Send = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /** What asking an app is held to: when it ends, and how many bytes of answers may still be read. */
-interface Held {
+export interface Held {
   deadline: AbortSignal;
   bytesLeft: number;
 }
 
 /**
- * The tools of the app at `url`, asked with `token`, if it takes one: what its server calls itself and
+ * The tools of the app at `url`, asked with `key`, if it takes one: what its server calls itself and
  * each tool it lists, up to as many as Ember keeps, or why Ember couldn't read them, in words for the
  * administrator who's connecting it, on the field it's about. A server with no tools Ember can use is
  * no app to connect, but a connected app's, read `again`, may have come to have none.
  */
-export async function readApp(url: string, token: string | null, again = false, send: Send = fetch): Promise<ReadApp | AppRefused> {
+export async function readApp(url: string, key: Key | null, again = false, send: Send = fetch): Promise<ReadApp | AppRefused> {
   const address = new URL(url);
   const held: Held = { deadline: AbortSignal.timeout(READ_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
   const within = heldTo(held, send);
   const guarded = await guardedHost(address, within, held);
   if (guarded) return guarded;
   try {
-    return await connected(address, token, within, held, async (client) => {
+    return await connected(address, key, within, held, async (client) => {
       const { listed, more } = await listedTools(client, held.deadline);
       const tools = await keptTools(listed);
       if (tools.length === 0 && !again) return { error: `${address.host} answered, but it has no tools Ember can use.`, field: "url" };
       return { serverName: client.getServerVersion()?.name?.slice(0, 100) ?? null, tools, toolsLeftOut: listed.length - tools.length + (more ? 1 : 0) };
     });
   } catch (error) {
-    return whyNot("Reading the tools of", address, token, error, held);
+    return whyNot("Reading the tools of", address, key, error, held);
   }
 }
 
 /**
- * What calling `tool` of the app at `url` with `input` came to, asked with `token`, if it takes one, as
+ * What calling `tool` of the app at `url` with `input` came to, asked with `key`, if it takes one, as
  * a model reads it. The server is asked for the tool first, and it's called only while it's the one an
  * administrator looked at, by its fingerprint: a server can change what a tool says it does.
  */
-export async function callApp(url: string, token: string | null, tool: Pick<ReadTool, "name" | "fingerprint">, input: Record<string, unknown>, send: Send = fetch): Promise<CalledTool> {
+export async function callApp(url: string, key: Key | null, tool: Pick<ReadTool, "name" | "fingerprint">, input: Record<string, unknown>, send: Send = fetch): Promise<CalledTool> {
   const address = new URL(url);
   const held: Held = { deadline: AbortSignal.timeout(CALL_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
   const within = heldTo(held, send);
@@ -101,7 +107,7 @@ export async function callApp(url: string, token: string | null, tool: Pick<Read
   if (guarded) return notRun(guarded.error);
   let called = false;
   try {
-    return await connected(address, token, within, held, async (client) => {
+    return await connected(address, key, within, held, async (client) => {
       const listed = await toolNamed(client, tool.name, held.deadline);
       if (!listed) return { ...notRun(`${address.host} no longer has a tool named ${tool.name}.`), changed: true };
       if (listed.fingerprint !== tool.fingerprint) return { ...notRun(`${tool.name} has changed since an administrator looked at it.`), changed: true };
@@ -112,20 +118,20 @@ export async function callApp(url: string, token: string | null, tool: Pick<Read
   } catch (error) {
     // What a server says of a call it refused is the model's to read, as a result is.
     if (called && error instanceof ProtocolError) return { text: `${tool.name} refused the call: ${cut(error.message, 500)}`, failed: true };
-    const { error: why } = whyNot("Calling a tool of", address, token, error, held);
+    const { error: why } = whyNot("Calling a tool of", address, key, error, held);
     return called ? { text: `${tool.name} didn't answer, and may have run all the same: ${why}`, failed: true } : notRun(why);
   }
 }
 
 const notRun = (why: string): CalledTool => ({ text: `Not run: ${why}`, failed: true, unmade: true });
 
-/** What `ask` comes to, asked of a client connected to the server at `address`, with `token`, if it takes one: the connection is closed after. */
-async function connected<T>(address: URL, token: string | null, send: Send, held: Held, ask: (client: Client) => Promise<T>): Promise<T> {
+/** What `ask` comes to, asked of a client connected to the server at `address`, with `key`, if it takes one: the connection is closed after. */
+async function connected<T>(address: URL, key: Key | null, send: Send, held: Held, ask: (client: Client) => Promise<T>): Promise<T> {
   const transport = new StreamableHTTPClientTransport(address, {
     fetch: send,
     // Workers' fetch has no "error": a redirect comes back as it is, which is no answer.
     requestInit: { redirect: "manual" },
-    ...(token !== null && { authProvider: { token: async () => token } }),
+    ...(key !== null && { authProvider: { token: async () => key.token } }),
   });
   const client = new Client({ name: "Ember", version: VERSION });
   try {
@@ -140,7 +146,7 @@ async function connected<T>(address: URL, token: string | null, send: Send, held
  * `send`, held: each request ends at the deadline, and what's read of each answer comes out of the bytes
  * left, past which reading it fails.
  */
-function heldTo(held: Held, send: Send): Send {
+export function heldTo(held: Held, send: Send): Send {
   return async (input, init) => {
     const response = await send(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, held.deadline]) : held.deadline });
     if (!response.body) return response;
@@ -219,8 +225,8 @@ async function guardedHost(address: URL, send: Send, held: Held): Promise<AppRef
   }
 }
 
-const tookTooLong = (host: string) => `${host} took too long to answer.`;
-const saidTooMuch = (host: string) => `${host} answered with more than Ember reads.`;
+export const tookTooLong = (host: string) => `${host} took too long to answer.`;
+export const saidTooMuch = (host: string) => `${host} answered with more than Ember reads.`;
 
 /**
  * A tool as an app lists it, `listed`, as Ember keeps it, or null for one it can't use: without a name
@@ -259,11 +265,11 @@ function inOrder(value: unknown): unknown {
 }
 
 /**
- * Why Ember couldn't do `what` it was doing with the app at `address`, asked with `token`, from what went
+ * Why Ember couldn't do `what` it was doing with the app at `address`, asked with `key`, from what went
  * wrong within what asking it was held to, or at its end. Only the kind of failure is logged: a server writes what its answers say,
  * which the client quotes in its errors, and could write the token there.
  */
-function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL, token: string | null, error: unknown, held: Held): AppRefused {
+function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL, key: Key | null, error: unknown, held: Held): AppRefused {
   const { host } = address;
   const status = error instanceof SdkHttpError ? error.status : null;
   const kind = error instanceof SdkError ? `${error.name} ${error.code}` : error instanceof Error ? error.name : typeof error;
@@ -271,11 +277,12 @@ function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL
   if (held.bytesLeft < 0) return { error: saidTooMuch(host), field: "url" };
   if (held.deadline.aborted) return { error: tookTooLong(host), field: "url" };
   // A token that opens the server but not what was asked of it: the client has no status for that refusal.
-  if (error instanceof InsufficientScopeError) return { error: `${host} took that token, but says it doesn't allow this. Give one that does.`, field: "token" };
+  if (error instanceof InsufficientScopeError) {
+    return { error: key?.signedIn ? `${host} took Ember's sign-in, but says it doesn't allow this.` : `${host} took that token, but says it doesn't allow this. Give one that does.`, field: "token" };
+  }
   if (error instanceof UnauthorizedError || status === 401 || status === 403) {
-    return token === null
-      ? { error: `${host} asks for a sign-in. Give a token for it, if it has one: Ember can't sign in to an app any other way yet.`, field: "token" }
-      : { error: `${host} didn't take that token.`, field: "token" };
+    if (key === null) return { error: `${host} asks for a sign-in. Sign in to it, or give a token for it, if it has one.`, field: "token", signIn: true };
+    return { error: key.signedIn ? `${host} didn't take Ember's sign-in. Sign in to it again.` : `${host} didn't take that token.`, field: "token" };
   }
   if (status !== null && status >= 300 && status < 400) return { error: `${host} sends that address on to another, which Ember doesn't follow. Give the address it ends at.`, field: "url" };
   if (status === 404 || status === 405) return { error: `${host} has no MCP server at that address. Check the address, which often ends in /mcp.`, field: "url" };

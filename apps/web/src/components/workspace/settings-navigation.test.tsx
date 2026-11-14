@@ -84,6 +84,7 @@ describe("Community settings page", () => {
       ["/account/agents/ember/edit", "assistant-settings"],
       ["/account/apps/new", "assistant-settings"],
       ["/account/apps/p1/edit", "assistant-settings"],
+      ["/account/apps/signed-in", "assistant-settings"],
       ["/account/custom_styles/edit", "custom-styles"],
       ["/rooms/general", null],
       ["/rooms/directs/d1/edit", null],

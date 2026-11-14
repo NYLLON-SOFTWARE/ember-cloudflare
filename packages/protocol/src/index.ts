@@ -103,6 +103,7 @@ export {
   type Upload,
 } from "./files.ts";
 export {
+  APP_SIGNED_IN_PATH,
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
   EMAIL_SIGN_UP_PATH,

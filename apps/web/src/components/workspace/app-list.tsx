@@ -10,7 +10,8 @@ import { ROUND_BUTTON } from "./link-buttons";
 
 // The Apps card on the AI assistant tab, under Agents, for administrators while Ember AI is on: Connect
 // an app, then each app connected, by name, with where its MCP server is, how many tools Ember read
-// from it, and whether any an agent had is set aside, each with a link to its page.
+// from it, whether Ember's sign-in to it has ended, and whether any tool an agent had is set aside, each
+// with a link to its page.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -22,6 +23,9 @@ export const NO_APPS = "No apps are connected yet.";
 
 /** What a row says of an app's tools that are set aside for an agent that had them, as its page says which. */
 export const setAsideOf = (count: number) => (count === 1 ? "1 picked tool is set aside: its app changed it" : `${count} picked tools are set aside: their app changed them`);
+
+/** What a row says of an app whose sign-in has ended, which its page signs in to again. */
+export const SIGN_IN_ENDED = "Its sign-in has ended: sign in to it again on its page";
 
 /** How many tools a row says Ember read from an app. */
 export const toolsOf = (count: number) => (count === 1 ? "1 tool" : `${count} tools`);
@@ -81,11 +85,12 @@ export function AppList({ onFailed }: Props) {
       {apps?.length === 0 && <p className={cn(NOTE, "rounded-[10px] border border-dashed border-muted-foreground px-[1ch] py-4 text-center")}>{NO_APPS}</p>}
       {apps !== null && apps.length > 0 && (
         <ul aria-labelledby="apps-heading" className="flex flex-col">
-          {apps.map(({ id, name, url, toolCount, setAside }) => (
+          {apps.map(({ id, name, url, toolCount, setAside, signInEnded }) => (
             <li key={id} className="flex items-center gap-x-[1.5ch] border-t py-3 last:pb-0">
               <div className="min-w-0 flex-1">
                 <strong className="block truncate">{name}</strong>
                 <p className={cn(NOTE, "wrap-anywhere")}>{[addressOf(url), toolsOf(toolCount)].join(" · ")}</p>
+                {signInEnded && <p className={cn(NOTE, "text-negative")}>{SIGN_IN_ENDED}</p>}
                 {setAside > 0 && <p className={cn(NOTE, "text-negative")}>{setAsideOf(setAside)}</p>}
               </div>
               <PageLink href={appSettingsPath(id)} className={ROUND_BUTTON}>

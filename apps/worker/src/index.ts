@@ -96,7 +96,8 @@ import {
   tokenDigest,
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import { appPage, changeApp, connectApp, disconnectApp, listApps, pickAgentTools, readAppTools, showAgentTools, showApp } from "./apps/api";
+import { appPage, beginAppSignIn, beginNewAppSignIn, changeApp, clientDocument, connectApp, disconnectApp, finishAppSignIn, listApps, pickAgentTools, readAppTools, showAgentTools, showApp } from "./apps/api";
+import { CLIENT_DOCUMENT_PATH } from "./apps/oauth";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
 import {
   addAssistantModel,
@@ -1117,6 +1118,10 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (app && request.method === "GET") return () => showApp(request, env, app[1]!);
   if (app && request.method === "PATCH") return () => changeApp(request, env, app[1]!);
   if (app && request.method === "DELETE") return () => disconnectApp(request, env, app[1]!);
+  if (pathname === "/api/account/app-sign-ins" && request.method === "POST") return () => beginNewAppSignIn(request, env);
+  if (pathname === "/api/account/app-sign-ins/finish" && request.method === "POST") return () => finishAppSignIn(request, env);
+  const appSignIn = pathname.match(/^\/api\/account\/apps\/([^/]+)\/sign-in$/);
+  if (appSignIn && request.method === "POST") return () => beginAppSignIn(request, env, appSignIn[1]!);
   const appTools = pathname.match(/^\/api\/account\/apps\/([^/]+)\/tools$/);
   if (appTools && request.method === "POST") return () => readAppTools(request, env, appTools[1]!);
   if (pathname === "/api/account/huddles" && request.method === "PUT") return () => saveHuddles(request, env);
@@ -1247,6 +1252,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Nor is Memberful's webhook, which its servers sign with the webhook's secret.
   if (pathname === MEMBERFUL_WEBHOOK_PATH) return memberfulWebhook(request, env);
   const write = request.method !== "GET" && request.method !== "HEAD";
+  // Nor is an app's authorization server, reading who Ember is.
+  if (pathname === CLIENT_DOCUMENT_PATH && !write) return clientDocument(request);
   // Nor are a room's files, to whoever has the address, whatever their browser.
   const file = fileAddressOf(pathname);
   if (file) return write ? notFound(request) : serveFile(request, env, file);

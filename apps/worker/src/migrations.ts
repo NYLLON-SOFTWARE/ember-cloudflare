@@ -55,6 +55,7 @@ import agentThinkingLevels from "../migrations/0054_agent_thinking_levels.sql";
 import apps from "../migrations/0055_apps.sql";
 import agentTools from "../migrations/0056_agent_tools.sql";
 import waitingCalls from "../migrations/0057_waiting_calls.sql";
+import appSignIns from "../migrations/0058_app_sign_ins.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -136,6 +137,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0055_apps.sql", scope: "workspace", sql: apps },
   { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
   { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
+  { name: "0058_app_sign_ins.sql", scope: "workspace", sql: appSignIns },
 ];
 
 /**
