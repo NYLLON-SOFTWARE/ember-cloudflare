@@ -107,8 +107,13 @@ export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
     : [...rooms, { ...room, unread: false, involvement: startingInvolvement(room) }];
 }
 
-/** `listed`'s unread mark, and since when, when it's marked. */
-const markOf = ({ unread, unreadSince }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince"> => (unreadSince === undefined ? { unread } : { unread, unreadSince });
+/** `listed`'s unread mark, and since when, how many it counts and whether one mentions you, when it's marked. */
+const markOf = ({ unread, unreadSince, unreadCount, unreadMentioned }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince" | "unreadCount" | "unreadMentioned"> => ({
+  unread,
+  ...(unreadSince !== undefined && { unreadSince }),
+  ...(unreadCount !== undefined && { unreadCount }),
+  ...(unreadMentioned !== undefined && { unreadMentioned }),
+});
 
 /**
  * `room` marked unread as of `at`, with `count` messages counted since, if the server counted any, or

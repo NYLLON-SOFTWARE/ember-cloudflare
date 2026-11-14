@@ -158,6 +158,12 @@ describe("Unread rooms", () => {
     expect(read.list!.rooms[0]).toEqual(room("r1", "Design"));
   });
 
+  it("keeps a room's count and mention when it's renamed or its icon changes", () => {
+    const counted = roomListReducer(loaded, { type: "marked", roomId: "r1", at: NOON, count: 3, mentioned: true });
+    const renamed: Room = { id: "r1", kind: "open", name: "Product design", icon: "image" };
+    expect(withRoom(counted.list!.rooms, renamed)[0]).toEqual({ ...since(room("r1", "Product design")), icon: "image", unreadCount: 3, unreadMentioned: true });
+  });
+
   it("marks a room's row unread unless the tab shows the room", () => {
     expect(markedUnread(room("r1", "Design", true), null)).toBe(true);
     expect(markedUnread(room("r1", "Design", true), "r2")).toBe(true);
