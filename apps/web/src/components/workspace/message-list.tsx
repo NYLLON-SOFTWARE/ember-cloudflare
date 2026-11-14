@@ -138,6 +138,8 @@ interface Props {
    * since gets the New line, unless the messages loaded may not reach back to it.
    */
   newSince?: string | null;
+  /** The room's pinned messages' ids, which names Pin to room or Unpin among each message's actions. */
+  pinnedIds?: ReadonlySet<string>;
 }
 
 /**
@@ -145,7 +147,7 @@ interface Props {
  * else, it keeps the reader's place, loads the pages before and after as they near either end, and
  * offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
+export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null, pinnedIds }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -348,6 +350,7 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
                         editors={editors}
                         thread={thread?.place}
                         open={message.id === openThread}
+                        pinnedIds={pinnedIds}
                       />
                     </div>
                   );

@@ -42,6 +42,8 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}
@@ -77,6 +79,8 @@ describe("Who's here", () => {
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}
@@ -151,6 +155,8 @@ describe("Group DMs and DM names", () => {
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}
@@ -176,6 +182,23 @@ describe("Group DMs and DM names", () => {
     const settings = screen.getByRole("link", { name: "Settings for this Ping" });
     expect(settings).toHaveAttribute("title", "Conversation settings");
     expect(settings).toHaveAttribute("href", "/rooms/directs/direct-1/edit");
+  });
+});
+
+describe("Pinned messages", () => {
+  it("shows the room's Pinned control with how many it has, and opens the panel with it", async () => {
+    const onPinned = vi.fn();
+    renderHeader({ pinned: 3, onPinned });
+    const pinned = screen.getByRole("button", { name: "Pinned messages (3)" });
+    expect(pinned).toHaveTextContent("3");
+    expect(screen.getByTitle("Pinned messages")).toBeInTheDocument();
+    await userEvent.click(pinned);
+    expect(onPinned).toHaveBeenCalledOnce();
+  });
+
+  it("shows nothing while the room has no pins, or none known yet", () => {
+    renderHeader();
+    expect(screen.queryByRole("button", { name: /Pinned messages/ })).not.toBeInTheDocument();
   });
 });
 
@@ -316,6 +339,8 @@ describe("Huddles", () => {
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}

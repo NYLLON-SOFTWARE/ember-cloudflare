@@ -73,6 +73,13 @@ interface BoostRow {
   created_at: string;
 }
 
+interface PinRow {
+  message_id: string;
+  room_id: RoomId;
+  user_id: string;
+  pinned_at: string;
+}
+
 /** The ids go as one JSON value, since both backends bind at most 100 values a statement. */
 export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
   WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`;
@@ -122,6 +129,13 @@ const toBoost = (row: BoostRow): Boost => ({
   content: row.content,
   createdAt: row.created_at,
 });
+
+/** A pin, as the room keeps it: the message pinned, who pinned it and when. */
+export interface StoredPin {
+  messageId: string;
+  userId: UserId;
+  at: string;
+}
 
 const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
@@ -659,10 +673,11 @@ export class MessageStore {
    * boosts, and a message kept that way already. One kept that way goes once its last reply does, and the
    * parents whose threads lose replies change too, each change numbered after the deletions. Boosts go
    * with their messages, through ON DELETE CASCADE, so a failure keeps both, and the messages' files are
-   * marked deleted first, for the room to purge. The ids deleted stay with their deletions' numbers, and
-   * the deletions that fall out of the latest `CHANGES_KEPT` go, and the messages deleted, kept or changed
-   * are logged for the search index, with the replies to those kept, whose results show none of their
-   * text now. The ids go as JSON values, which a page of them can fill.
+   * marked deleted first, for the room to purge; a message's pin goes with it too, whether it's deleted
+   * or kept for its replies. The ids deleted stay with their deletions' numbers, and the deletions that
+   * fall out of the latest `CHANGES_KEPT` go, and the messages deleted, kept or changed are logged for
+   * the search index, with the replies to those kept, whose results show none of their text now. The ids
+   * go as JSON values, which a page of them can fill.
    */
   async delete(ids: string[]): Promise<Deletion> {
     const listed = JSON.stringify(ids);
@@ -691,6 +706,7 @@ export class MessageStore {
         statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + count - 1 - CHANGES_KEPT),
         statement(KEEP_FOR_THREADS, this.roomId, keptList, now),
         statement(`DELETE FROM boosts WHERE room_id = ? AND message_id IN (SELECT value FROM json_each(?))`, this.roomId, keptList),
+        statement(`DELETE FROM pins WHERE room_id = ? AND message_id IN (SELECT value FROM json_each(?))`, this.roomId, goneOrKept),
         statement(NUMBER_CHANGES, this.roomId, changedList, seq + deletedIds.length),
         logIndexingEach(this.roomId, unindexed),
         logIndexingReplies(this.roomId, keptList),
@@ -703,9 +719,10 @@ export class MessageStore {
 
   /**
    * Deletes up to `limit` of the messages here, the oldest first, and through ON DELETE CASCADE their
-   * boosts, as deleting the room does a batch at a time, marking their files deleted, for the room to
-   * purge, and answers whether any are left. The last batch also deletes the deletions it kept, since no
-   * tab can connect to the room again, and marks deleted every file it has left, uploads under way too.
+   * boosts and pins, as deleting the room does a batch at a time, marking their files deleted, for the
+   * room to purge, and answers whether any are left. The last batch also deletes the deletions it kept,
+   * since no tab can connect to the room again, and marks deleted every file it has left, uploads under
+   * way too.
    */
   async deleteMessages(limit: number): Promise<boolean> {
     const ids = (await this.db.all<{ id: string }>(OLDEST_MESSAGES, this.roomId, limit + 1)).map(({ id }) => id);
@@ -752,6 +769,43 @@ export class MessageStore {
       statement(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, boost.id),
       this.numbered(boost.messageId, seq),
       logIndexing(this.roomId, boost.messageId),
+    ]);
+  }
+
+  /** The room's pins, oldest pinned first, two pinned in the same breath in the order of their messages. */
+  async pins(): Promise<StoredPin[]> {
+    const rows = await this.db.all<PinRow>(`SELECT * FROM pins WHERE room_id = ? ORDER BY pinned_at, message_id`, this.roomId);
+    return rows.map(({ message_id, user_id, pinned_at }) => ({ messageId: message_id, userId: user_id, at: pinned_at }));
+  }
+
+  /** How many pins the room has, at most MAX_PINS. */
+  async pinCount(): Promise<number> {
+    return (await this.db.all<{ count: number }>(`SELECT COUNT(*) AS count FROM pins WHERE room_id = ?`, this.roomId))[0]!.count;
+  }
+
+  async isPinned(messageId: string): Promise<boolean> {
+    const [row] = await this.db.all<Pick<PinRow, "message_id">>(`SELECT message_id FROM pins WHERE room_id = ? AND message_id = ?`, this.roomId, messageId);
+    return row !== undefined;
+  }
+
+  /**
+   * Pins the message `messageId`, numbering its change, as a reaction added numbers its message's. The
+   * pin count is read apart from the batch, as a boost's message is, which is safe as every write here
+   * is: the room runs one frame at a time (`serially` in chat-room.ts), so no other pin can come between.
+   */
+  async addPin(messageId: string, userId: UserId, now: string): Promise<number> {
+    return this.change((seq) => [
+      statement(`INSERT INTO pins (message_id, room_id, user_id, pinned_at) VALUES (?, ?, ?, ?)`, messageId, this.roomId, userId, now),
+      this.numbered(messageId, seq),
+    ]);
+  }
+
+  /** Takes the room's pin of `messageId` away, numbering the message's change, and answers its number, or null where it wasn't pinned. */
+  async removePin(messageId: string): Promise<number | null> {
+    if (!(await this.isPinned(messageId))) return null;
+    return this.change((seq) => [
+      statement(`DELETE FROM pins WHERE room_id = ? AND message_id = ?`, this.roomId, messageId),
+      this.numbered(messageId, seq),
     ]);
   }
 

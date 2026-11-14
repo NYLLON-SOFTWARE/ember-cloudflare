@@ -6,7 +6,9 @@ import {
   isMessageTooLong,
   MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
+  MAX_PINS,
   MESSAGE_TOO_LONG,
+  PINS_FULL,
   parseClientFrame,
   parseRoomSocketParams,
   ROOM_PROTOCOL,
@@ -17,6 +19,7 @@ import {
   type LinkPreview,
   type Message,
   type NewUpload,
+  type PinnedMessage,
   type RoomId,
   type ServerFrame,
   type TimelinePage,
@@ -117,7 +120,7 @@ const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
  */
 const BANNED = "Request failed (429)";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "card.click"]);
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "card.click", "pin.create", "pin.delete"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -894,6 +897,16 @@ export class ChatRoom extends DurableObject<Env> {
         if (!boost || boost.booster.id !== user.id) return this.refuse(ws, "You can only remove your own reactions");
         return this.removeBoost(store, boost);
       }
+      case "pin.create": {
+        const message = await this.findUndeleted(store, frame.messageId);
+        if (!message) return this.refuse(ws, "That message no longer exists");
+        return this.addPin(store, frame.messageId, user, now, ws);
+      }
+      case "pin.delete":
+        // Anyone can unpin, as anyone can pin.
+        return this.removePin(store, frame.messageId, user);
+      case "pins.list":
+        return this.send(ws, { type: "pins.listed", pins: await this.listPins(store) });
       case "typing.start":
       case "typing.stop": {
         const typing = frame.type === "typing.start";
@@ -1051,6 +1064,45 @@ export class ChatRoom extends DurableObject<Env> {
     const seq = await store.removeBoost(boost);
     this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
     this.couriersFor(store.roomId).index.deliver();
+  }
+
+  /**
+   * Pins the message `messageId` for the room, telling everyone, or refuses when the room is at its
+   * hundred. Pinning a pinned message is a repeated click, which changes nothing.
+   */
+  private async addPin(store: MessageStore, messageId: string, user: User, now: string, ws: WebSocket): Promise<void> {
+    if (await store.isPinned(messageId)) return;
+    if ((await store.pinCount()) >= MAX_PINS) return this.send(ws, { type: "error", message: PINS_FULL, failed: "pin.create" });
+    const seq = await store.addPin(messageId, user.id, now);
+    this.broadcast({ type: "pin.created", messageId, by: user, seq });
+  }
+
+  /** Takes the room's pin of `messageId` away, telling everyone, or nothing where it isn't pinned. */
+  private async removePin(store: MessageStore, messageId: string, user: User): Promise<void> {
+    const seq = await store.removePin(messageId);
+    if (seq === null) return;
+    this.broadcast({ type: "pin.deleted", messageId, by: user, seq });
+  }
+
+  /**
+   * The room's pins, with their messages and whoever pinned each under their name now, as pins.list
+   * answers. The people of the pinners are the Workspace's to name, as a message's mentions are, and a
+   * pin whose message is gone is too late to show.
+   */
+  private async listPins(store: MessageStore): Promise<PinnedMessage[]> {
+    const pins = await store.pins();
+    if (pins.length === 0) return [];
+    const [people, messages] = await Promise.all([
+      workspace(this.env).mentionedPeople(pins.map(({ userId }) => userId)),
+      store.withIds(pins.map(({ messageId }) => messageId)),
+    ]);
+    const by = new Map(people.map((person) => [person.id, person]));
+    const pinned = new Map(messages.map((message) => [message.id, message]));
+    return pins.flatMap(({ messageId, userId, at }) => {
+      const message = pinned.get(messageId);
+      const pinner = by.get(userId);
+      return message && pinner ? [{ message, by: pinner, at }] : [];
+    });
   }
 
   /** Tells everyone in the room what deleting messages did: the deletions, then the messages it changed. */

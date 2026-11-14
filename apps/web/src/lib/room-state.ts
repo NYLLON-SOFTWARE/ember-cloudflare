@@ -481,6 +481,10 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "thread.opened":
     case "thread.history":
     case "card.clicked":
+    // Pins have a hook of their own, which the room's header and Pinned panel read.
+    case "pins.listed":
+    case "pin.created":
+    case "pin.deleted":
     case "pong":
       return state;
   }
