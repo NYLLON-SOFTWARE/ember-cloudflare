@@ -40,4 +40,23 @@ test.describe("Drafts & sent › Scheduled", () => {
     await ada.page.goto(`/rooms/${rooms.general.id}`);
     await expect(ada.message("lunch at noon?")).toBeVisible();
   });
+
+  test("opens a phone's sheet of a row's actions on a long press, with focus in it and no ring on any of them", async ({ members, browser, baseURL }) => {
+    const ada = await members.signIn(unique("Ada"), { context: desktop });
+    await schedule(ada, "lunch at noon?");
+    // Ada's phone, signed in as Ada.
+    const phone = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    await phone.addCookies(await ada.page.context().cookies());
+    const page = await phone.newPage();
+    await page.goto("/drafts/scheduled");
+    const link = page.getByRole("link", { name: /lunch at noon\?/ });
+    // A finger rests on it, and the browser's own long press comes first.
+    await link.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, clientX: 100, clientY: 100 });
+    await link.dispatchEvent("contextmenu");
+    const sheet = page.getByRole("dialog", { name: "lunch at noon?" });
+    await expect(sheet).toBeFocused();
+    for (const name of ["Send now", "Edit time", "Delete", "Cancel"]) await expect(sheet.getByRole("button", { name })).toHaveCSS("outline-style", "none");
+    await expect(sheet).toHaveCSS("outline-style", "none");
+    await phone.close();
+  });
 });

@@ -137,7 +137,18 @@ export function ScheduledSheet({ text, failed, onClose, onSendNow, onMove, onEdi
   };
   return (
     <Dialog open onOpenChange={(opened) => opened || onClose()}>
-      <DialogContent showCloseButton={false} aria-describedby={undefined} overlayClassName="bg-transparent" className={cn(DIALOG, SHEET, "p-3")}>
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        overlayClassName="bg-transparent"
+        // A finger opens it, so focus goes to the sheet itself, which shows no ring, rather than ringing Send now,
+        // which no key chose. Tab goes on to its actions, ringed then.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement).focus();
+        }}
+        className={cn(DIALOG, SHEET, "p-3")}
+      >
         <DialogTitle className="line-clamp-2 px-3 pt-2 pb-1 text-[15px] font-normal wrap-anywhere text-muted-foreground">{text}</DialogTitle>
         <div className="flex flex-col">
           <button type="button" onClick={then(onSendNow)} className={sheetAction}>
