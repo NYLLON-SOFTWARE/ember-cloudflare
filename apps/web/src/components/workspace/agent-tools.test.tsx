@@ -5,7 +5,7 @@ import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { AGENT_TOOLS_FULL, MAX_AGENT_TOOLS, TOOL_GONE, type OfferedApp } from "@ember/protocol/apps";
 import { NEW_APP_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
-import { AgentTools, alwaysAllowExplained, NO_APPS_TO_PICK, pickedOf, TOOL_CHANGED, toolsExplained } from "./agent-tools";
+import { AgentTools, alwaysAllowExplained, NO_APPS_TO_PICK, NO_TOOLS_TO_PICK, pickedOf, TOOL_CHANGED, toolsExplained } from "./agent-tools";
 
 const RECAP = "0mgk3x2a9b4c60";
 const TOOLS = `/api/account/agents/${RECAP}/tools`;
@@ -235,6 +235,14 @@ describe("An agent's Tools card", () => {
     expect(within(card()).getByRole("link", { name: "Connect an app" })).toHaveAttribute("href", NEW_APP_PATH);
     expect(within(card()).queryByRole("checkbox")).toBeNull();
     expect(card()).not.toHaveTextContent(pickedOf(0));
+  });
+
+  it("says so under an app whose server has no tools any more", async () => {
+    serve({ loaded: () => Response.json({ apps: [{ id: "0mgk3x2a9b4c70", name: "Tracker", tools: [] }] }) });
+    showCard();
+    await loaded();
+    expect(within(card()).getByRole("group", { name: "Tracker" })).toHaveTextContent(NO_TOOLS_TO_PICK);
+    expect(within(card()).queryByRole("checkbox")).toBeNull();
   });
 
   it("shows no tools, and not that there are no apps, while they load", () => {

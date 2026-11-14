@@ -448,6 +448,23 @@ describe("A connected app", () => {
     expect(await appOf(await show(administrator, app.id))).toEqual(read);
   });
 
+  it("has no tools once its server has none any more, which sets aside the ones agents had", async () => {
+    const administrator = await setUp();
+    const app = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    await offeredBy(await pick(administrator, ASSISTANT_ID, await picksNow(administrator, "search_issues")));
+    server.pages = [[]];
+
+    const read = await appOf(await readAgain(administrator, app.id));
+    expect(read.tools).toEqual([]);
+    expect(read.setAside).toEqual([{ name: "search_issues", gone: true, agents: [{ id: ASSISTANT_ID, name: "Ember" }] }]);
+    expect(((await (await listApps(administrator)).json()) as Apps).apps).toMatchObject([{ name: "Tracker", toolCount: 0, setAside: 1 }]);
+    expect(await offeredBy(await offered(administrator, ASSISTANT_ID))).toMatchObject([{ name: "Tracker", tools: [] }]);
+
+    // A server with no tools still isn't one to connect, or to move an app to.
+    expect((await refusalOf(await connect(administrator, { name: "Empty", url: TRACKER }), 422)).field).toBe("url");
+    expect((await refusalOf(await change(administrator, app.id, { url: TRACKER }), 422)).field).toBe("url");
+  });
+
   it("keeps nothing a server answered once someone has changed where the app is asked meanwhile", async () => {
     const administrator = await setUp();
     const app = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
@@ -656,6 +673,51 @@ describe("An agent's tools", () => {
     expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, [search])))).toEqual([]);
     expect(await workspaceSql("SELECT tools FROM agent_tools WHERE agent_id = ?", ASSISTANT_ID)).toEqual([{ tools: JSON.stringify([search, { ...create, setAside: true }]) }]);
     expect(always(await offeredBy(await pick(administrator, ASSISTANT_ID, await picksNow(administrator, "search_issues", "create_issue"))))).toEqual([]);
+  });
+
+  it("asks first again for an always-allowed tool once its server has changed it, or dropped it, even when it's back as it was", async () => {
+    const administrator = await setUp();
+    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    const made = await api("/api/account/agents", { method: "POST", headers: as(administrator), body: JSON.stringify(RECAP) });
+    const { agent } = (await made.json()) as { agent: AgentSettings };
+    const [search, create] = (await picksNow(administrator, "search_issues", "create_issue")) as [ToolPick, ToolPick];
+    const both = [
+      { ...search, alwaysAllowed: true },
+      { ...create, alwaysAllowed: true },
+    ];
+    await offeredBy(await pick(administrator, ASSISTANT_ID, both));
+    await offeredBy(await pick(administrator, agent.id, both));
+    const kept = async (agentId: UserId) => {
+      const [row] = (await workspaceSql("SELECT tools FROM agent_tools WHERE agent_id = ?", agentId)) as [{ tools: string }];
+      return JSON.parse(row.tools);
+    };
+    /** Each of @ember's tools, with whether it has it and whether its calls of it are always allowed. */
+    const embers = async () => {
+      const [{ tools }] = (await offeredBy(await offered(administrator, ASSISTANT_ID))) as [OfferedApp];
+      return tools.map(({ name, picked, alwaysAllowed }) => ({ name, picked, alwaysAllowed }));
+    };
+    const lists = async (...tools: Array<typeof SEARCH_ISSUES>) => {
+      server.pages = [tools];
+      await appOf(await readAgain(administrator, tracker.id));
+    };
+
+    // Described another way, it's set aside for both agents, which ends its always being allowed for good.
+    await lists(SEARCH_ISSUES, { ...CREATE_ISSUE, description: "Opens an issue, and emails everyone." });
+    for (const agentId of [ASSISTANT_ID, agent.id]) expect(await kept(agentId)).toEqual([{ ...search, alwaysAllowed: true }, create]);
+    await lists(SEARCH_ISSUES, CREATE_ISSUE);
+    expect(await embers()).toEqual([
+      { name: "search_issues", picked: true, alwaysAllowed: true },
+      { name: "create_issue", picked: true, alwaysAllowed: false },
+    ]);
+
+    // Dropped and listed again, the other one asks first too.
+    await lists(CREATE_ISSUE);
+    await lists(SEARCH_ISSUES, CREATE_ISSUE);
+    expect(await embers()).toEqual([
+      { name: "search_issues", picked: true, alwaysAllowed: false },
+      { name: "create_issue", picked: true, alwaysAllowed: false },
+    ]);
+    expect(await kept(agent.id)).toEqual([search, create]);
   });
 
   it("says on an app's page, and in the list, which of its tools are set aside for the agents that had them: changed by its server, or gone from it", async () => {

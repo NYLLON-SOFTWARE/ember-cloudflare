@@ -2425,6 +2425,8 @@ export interface AppChange {
   url?: string;
   sealedToken?: string | null;
   read?: StoredAppRead;
+  /** The agents' picks that what was read changes (`ChangedPicks`). */
+  picks?: ChangedPicks[];
   changedBy: UserId;
   now: string;
 }
@@ -2443,9 +2445,17 @@ export interface StoredToolPick {
   alwaysAllowed?: true;
 }
 
-/** The tools picked for one agent, with what it's called: @ember's name before it has answered, as it has no user till then. */
+/** The tools picked for one agent, with what it's called, @ember's name before it has answered, as it has no user till then, and the picks as they're `stored`. */
 export interface AgentToolPicks {
   agent: { id: UserId; name: string };
+  picks: StoredToolPick[];
+  stored: string;
+}
+
+/** An agent's picks as reading an app's tools leaves them, `picks`, kept only while they're still `stored` as they were when that was worked out. */
+export interface ChangedPicks {
+  agentId: UserId;
+  stored: string;
   picks: StoredToolPick[];
 }
 
@@ -3835,7 +3845,7 @@ export class WorkspaceStore {
       `SELECT agent_tools.agent_id, users.name, agent_tools.tools FROM agent_tools LEFT JOIN users ON users.id = agent_tools.agent_id
        ORDER BY users.name COLLATE NOCASE, agent_tools.agent_id`,
     );
-    return rows.map(({ agent_id, name, tools }) => ({ agent: { id: agent_id, name: name ?? ASSISTANT_NAME }, picks: JSON.parse(tools) as StoredToolPick[] }));
+    return rows.map(({ agent_id, name, tools }) => ({ agent: { id: agent_id, name: name ?? ASSISTANT_NAME }, picks: JSON.parse(tools) as StoredToolPick[], stored: tools }));
   }
 
   /** Every connected app, by name, with its sealed token and the tools read from it. */
@@ -3890,9 +3900,9 @@ export class WorkspaceStore {
   /**
    * Changes the connected app `appId` as `change` has it, by `changedBy`: its name, its server's address
    * and its sealed token, null for none, each kept when left out, and what was read from its server
-   * again, if it was.
+   * again, if it was, with the agents' picks that changes, in the same batch.
    */
-  async changeApp(appId: AppId, { name, url, sealedToken, read, changedBy, now }: AppChange): Promise<void> {
+  async changeApp(appId: AppId, { name, url, sealedToken, read, picks = [], changedBy, now }: AppChange): Promise<void> {
     const statements = [
       statement(`UPDATE apps SET name = COALESCE(?, name), url = COALESCE(?, url), updated_by = ?, updated_at = ? WHERE id = ?`, name ?? null, url ?? null, changedBy, now, appId),
     ];
@@ -3900,16 +3910,37 @@ export class WorkspaceStore {
     if (read) {
       const { serverName, tools, toolsLeftOut } = read;
       statements.push(statement(`UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ?`, serverName, JSON.stringify(tools), toolsLeftOut, now, appId));
+      for (const { agentId, stored, picks: changed } of picks) {
+        statements.push(statement(`UPDATE agent_tools SET tools = ? WHERE agent_id = ? AND tools = ?`, JSON.stringify(changed), agentId, stored));
+      }
     }
     await this.db.batch(statements);
   }
 
-  /** Keeps what was read from the server of the app `appId` again, while it's still asked at `url` with `sealedToken`, changing nothing else of it. */
-  async keepAppRead(appId: AppId, { serverName, tools, toolsLeftOut }: StoredAppRead, { url, sealedToken }: { url: string; sealedToken: string | null }, now: string): Promise<void> {
-    await this.db.run(
-      `UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ? AND url = ? AND token IS ?`,
-      ...[serverName, JSON.stringify(tools), toolsLeftOut, now, appId, url, sealedToken],
-    );
+  /**
+   * Keeps what was read from the server of the app `appId` again, with the agents' `picks` that
+   * changes, in one batch, while it's still asked at `url` with `sealedToken`, changing nothing else of it.
+   */
+  async keepAppRead(
+    appId: AppId,
+    { serverName, tools, toolsLeftOut }: StoredAppRead,
+    picks: ChangedPicks[],
+    { url, sealedToken }: { url: string; sealedToken: string | null },
+    now: string,
+  ): Promise<void> {
+    const asked = [appId, url, sealedToken];
+    await this.db.batch([
+      statement(
+        `UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ? AND url = ? AND token IS ?`,
+        ...[serverName, JSON.stringify(tools), toolsLeftOut, now, ...asked],
+      ),
+      ...picks.map(({ agentId, stored, picks: changed }) =>
+        statement(
+          `UPDATE agent_tools SET tools = ? WHERE agent_id = ? AND tools = ? AND EXISTS (SELECT 1 FROM apps WHERE id = ? AND url = ? AND token IS ?)`,
+          ...[JSON.stringify(changed), agentId, stored, ...asked],
+        ),
+      ),
+    ]);
   }
 
   /** Disconnects the app `appId`, answering whether there was one. */

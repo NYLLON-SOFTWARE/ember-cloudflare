@@ -631,8 +631,8 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(calls()).toHaveLength(1);
   });
 
-  it("stops being once its server describes the tool another way: it's set aside, and picked again, it asks first", async () => {
-    const { inGeneral, ada } = await setUp();
+  it("stops being once its server describes the tool another way: it's set aside, and asks first even once it's described as it was", async () => {
+    const { inGeneral, ada, tracker } = await setUp();
     await pick(ada, ["create_issue"], { always: ["create_issue"] });
     vi.spyOn(console, "error").mockImplementation(() => {});
     server.tools = [{ ...CREATE_ISSUE, description: "Opens an issue, and emails everyone." }];
@@ -647,10 +647,54 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(calls()).toEqual([]);
     expect((await offered(ada)).flatMap(({ tools }) => tools)).toEqual([expect.objectContaining({ name: "create_issue", picked: false, changed: true, alwaysAllowed: false })]);
 
-    await pick(ada, ["create_issue"]);
+    // Described as it was again, it's the tool that was picked, which asks first from now on.
+    server.tools = [CREATE_ISSUE];
+    expect((await api(`/api/account/apps/${tracker.id}/tools`, { method: "POST", headers: as(ada) })).status).toBe(200);
     expect((await offered(ada)).flatMap(({ tools }) => tools)).toEqual([expect.objectContaining({ name: "create_issue", picked: true, changed: false, alwaysAllowed: false })]);
     script = [CALL];
     expect(buttonsOf((await ask(inGeneral)).cards).map(({ text }) => text)).toEqual(["Allow once", "Deny"]);
     expect(calls()).toEqual([]);
+  });
+
+  it("has its card say it wasn't made when its server couldn't be asked for it, as when it doesn't take Ember's token, and not when the tool ran and failed", async () => {
+    const { inGeneral, ada } = await setUp();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const shown = (header: string, note: string) => [header, 'create_issue, with:\n{\n  "title": "Login fails"\n}', note].join("\n");
+
+    server.token = "another-token";
+    script = [CALL, { text: "I couldn't." }];
+    const unasked = await ask(inGeneral);
+    expect((await changed(inGeneral, unasked)).plainText).toBe(shown("Ember didn't use Tracker", unmadeFor("Ember", "Tracker", "unasked")));
+    expect((await fromEmber(inGeneral)).plainText).toBe("I couldn't.");
+    expect(told()).toEqual([["Not run: localhost:3845 didn't take that token.", true]]);
+    expect(calls()).toEqual([]);
+
+    // A call its tool refused was made, which its card goes on saying.
+    Object.assign(server, { token: MCP_TOKEN, refuses: "title is too short" });
+    script = [CALL, { text: "It refused." }];
+    const refused = await ask(inGeneral);
+    expect(refused.plainText).toBe(USED);
+    expect((await fromEmber(inGeneral)).plainText).toBe("It refused.");
+    expect(calls()).toHaveLength(1);
+    const [kept] = (await roomSql(refused.roomId, "SELECT plain_text FROM messages WHERE id = ?", refused.id)) as [{ plain_text: string }];
+    expect(kept.plain_text).toBe(USED);
+  });
+
+  it("finds that its app has no tools any more, which the app's page then says", async () => {
+    const { inGeneral, ada, tracker } = await setUp();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    server.tools = [];
+    script = [CALL, { text: "I couldn't." }];
+
+    await changed(inGeneral, await ask(inGeneral));
+    expect((await fromEmber(inGeneral)).plainText).toBe("I couldn't.");
+    const { app } = (await (await api(`/api/account/apps/${tracker.id}`, { headers: as(ada) })).json()) as AppAnswer;
+    expect(app.tools).toEqual([]);
+    expect(app.setAside).toEqual([{ name: "create_issue", gone: true, agents: [{ id: ASSISTANT_ID, name: "Ember" }] }]);
+    // Its model is given none of them from then on.
+    expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
+    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
   });
 });

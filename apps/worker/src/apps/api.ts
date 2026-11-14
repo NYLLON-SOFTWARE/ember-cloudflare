@@ -104,7 +104,8 @@ export async function changeApp(request: Request, env: Env, appId: AppId): Promi
 
 /**
  * `POST /api/account/apps/:id/tools`: reads the connected app `id`'s tools from its server again,
- * answering it as its page then shows it, or why Ember couldn't read them, which leaves the app as it was.
+ * answering it as its page then shows it, with no tools if its server has none Ember can use any more,
+ * or why Ember couldn't read them, which leaves the app as it was.
  */
 export async function readAppTools(request: Request, env: Env, appId: AppId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -112,7 +113,7 @@ export async function readAppTools(request: Request, env: Env, appId: AppId): Pr
   const access = credentials && (await ember.appAccess(credentials, appId));
   if (!credentials || !access) return refused(null);
   if (typeof access === "string") return refused(access);
-  const read = await appConnector(env).read(access.url, access.token);
+  const read = await appConnector(env).read(access.url, access.token, true);
   if ("error" in read) return problem(422, read.error);
   return appAnswer(await ember.changeApp(credentials, appId, {}, { read, askedAt: access }));
 }

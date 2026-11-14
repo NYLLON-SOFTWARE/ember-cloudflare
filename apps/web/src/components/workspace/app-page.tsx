@@ -413,6 +413,9 @@ export const toolsLeftOut = (count: number) => `It has ${count} more that Ember 
 /** What the Tools card says over the tools set aside for agents that had them. */
 export const SET_ASIDE_EXPLAINED = "Set aside, as this app changed them after they were picked. No agent is given one until you pick it again on the agent's page, as it's described now:";
 
+/** What the Tools card says of an app whose server has come to have no tools Ember can use. */
+export const NO_TOOLS = "Its server has no tools Ember can use any more.";
+
 /** What the Tools card says of a picked tool its app no longer has. */
 export const TOOL_IS_GONE = "the app no longer has it";
 
@@ -475,6 +478,7 @@ function Tools({ app, busy, unread, onReadAgain }: { app: App; busy: Busy; unrea
         {busy === "reading" ? READING_TOOLS : unread}
       </p>
       <p className={NOTE}>Each description is the app's own. Pick the tools an agent may use on the agent's page.</p>
+      {app.tools.length === 0 && <p className={NOTE}>{NO_TOOLS}</p>}
       {app.setAside.length > 0 && <SetAside tools={app.setAside} />}
       {app.tools.length > 0 && (
         <ul aria-labelledby="app-tools-heading" className="flex max-h-[28em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background">

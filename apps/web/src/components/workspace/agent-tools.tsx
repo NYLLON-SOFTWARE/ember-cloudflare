@@ -24,6 +24,9 @@ export const alwaysAllowExplained = (name: string) => `Always allow: ${name} cal
 /** What the card says in place of its tools, with no app connected. */
 export const NO_APPS_TO_PICK = "No apps are connected yet.";
 
+/** What the card says under an app whose server has come to have no tools Ember can use. */
+export const NO_TOOLS_TO_PICK = "Its server has no tools Ember can use any more.";
+
 /** What the card says under a tool whose app describes it another way than when it was picked. */
 export const TOOL_CHANGED = "Its app describes this tool another way than when it was picked, so it's set aside. Pick it again to keep it.";
 
@@ -141,7 +144,8 @@ export function AgentTools({ agentId, name, onFailed }: Props) {
       {apps?.map(({ id, name: app, tools }) => (
         <fieldset key={id} disabled={saving} className="flex min-w-0 flex-col">
           <legend className="pb-1 font-semibold">{app}</legend>
-          <ul className="flex max-h-[24em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background">
+          {tools.length === 0 && <p className={NOTE}>{NO_TOOLS_TO_PICK}</p>}
+          <ul className="flex max-h-[24em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background empty:hidden">
             {tools.map(({ name: tool, title, description, fingerprint, picked, changed, alwaysAllowed }) => (
               <li key={tool} className="border-t first:border-t-0">
                 {/* For fingers, the box sits far enough into its label, whatever the font, for a fingertip on it to land on the label. */}

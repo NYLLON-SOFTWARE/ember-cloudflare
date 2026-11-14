@@ -899,14 +899,16 @@ or nothing.
   keeps each pick with the tool as its server described it then: when Ember reads the app's tools again
   and the server describes one another way, in its name, title, description or what it takes, that
   tool is set aside for every agent that had it, and its page says so, until an administrator picks it
-  again. A pick is of the tool as the page showed it, so one made on a page that loaded before the
+  again. One its server describes as it did again, before that agent's picks are next saved, comes
+  back by itself, as it's the tool that was picked. A pick is of the tool as the page showed it, so one made on a page that loaded before the
   tool changed is refused, and the page shows the tools as they are now. Removing an app takes its
   tools from every agent.
 - **A tool set aside** is flagged where an administrator looks: the Apps card says on the app's row
   how many of its picked tools are set aside, and the app's page names each, with the agents that had
   it, linked to their pages, and whether the server changed it or no longer has it. Ember also finds
   a change as it goes to call a tool: it then reads the app's tools again, so the tool is set aside
-  from that call on, without waiting for an administrator to read them.
+  from that call on, without waiting for an administrator to read them. An app whose server has
+  come to have no tools Ember can use keeps none, which its page and the agents' say.
 - **A call** is the model's to ask for and a person's to allow. Claude, GPT and Grok, which can
   search their room, are given an agent's picked tools beside that search, each named for its app and
   described in the app's own words, marked as the app's; Workers AI's models aren't given them. It never has an app's address or token: it names a tool
@@ -927,9 +929,10 @@ or nothing.
   allow. The room still sees each call: Ember posts a card saying which agent used which app, the
   tool, and what it was called with, before it makes the call, and makes none it can't show, whether
   the room wouldn't take the card or there are more than 3,000 characters to show. A call that then
-  finds its server has changed the tool isn't made either, and its card is changed to say so. Uncheck the box
+  isn't made after all, as Ember finds its server has changed the tool or can't get through to it, has its card changed to say so. Uncheck the box
   and the tool asks first again, from the next call. It ends by itself when the tool is taken from
-  the agent, or set aside because its server changed it: picked again, the tool asks first.
+  the agent, or when Ember finds its server has changed it: from then on the tool asks first, even
+  once the server describes it as it did, until you check the box again.
 
 Reading an app's tools and calling one run in a Durable Object of its own, `AppConnector`, apart from the rooms and
 the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none

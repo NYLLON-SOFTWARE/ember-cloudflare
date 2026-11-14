@@ -68,9 +68,12 @@ const describedAs = ({ appName, title, description, alwaysAllowed }: PickedTool)
     .filter((line) => line !== "")
     .join("\n");
 
-/** A call the room was shown, which it's told wasn't made after all with `unmade`. */
+/** Why a call the room was shown wasn't made after all: its server has changed the tool, or couldn't be asked for it. */
+export type Unmade = "changed" | "unasked";
+
+/** A call the room was shown, which it's told wasn't made after all, and why, with `unmade`. */
 export interface ShownCall {
-  unmade(): Promise<void>;
+  unmade(why: Unmade): Promise<void>;
 }
 
 /** Shows the room a call that's made without asking first, with what it's called with, answering why it couldn't, if it couldn't. */
@@ -105,8 +108,8 @@ export const CALL_NOT_SHOWN = "Not run: the room couldn't be shown this call, an
  * is `shown` it, as the agent's calls of it are always allowed: what its app answered, or why not, for
  * the model to read. The Workspace says where it goes, as it finds the tool then: one no longer picked
  * for the agent, changed since, or, with nobody asked, no longer always allowed, isn't called, and
- * neither is one the room can't be shown. A call shown that then finds its tool changed has the room
- * told it wasn't made.
+ * neither is one the room can't be shown. A call shown that then isn't made, as its tool is found
+ * changed or its server can't be asked, has the room told so.
  */
 async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, shown?: ShowsCall): Promise<string> {
   const access = await workspace(env).appToolCall(agentId, tool, shown !== undefined);
@@ -116,20 +119,21 @@ async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<
     console.error(`A call of the tool ${tool.name} of app ${tool.appId} wasn't made, as the room couldn't be shown it: ${shownCall}`);
     throw new ToolError(CALL_NOT_SHOWN);
   }
-  const { text, failed, changed } = await appConnector(env).call(access.url, access.token, { name: tool.name, fingerprint: tool.fingerprint }, input);
-  if (changed) await Promise.all([readAgain(env, tool, access), shownCall?.unmade()]);
+  const { text, failed, unmade, changed } = await appConnector(env).call(access.url, access.token, { name: tool.name, fingerprint: tool.fingerprint }, input);
+  await Promise.all([changed && readAgain(env, tool, access), unmade && shownCall?.unmade(changed ? "changed" : "unasked")]);
   if (failed) throw new ToolError(text);
   return text;
 }
 
 /**
  * Reads the tools of `tool`'s app again, asked as `access` has it, once a call has found its server no
- * longer lists the tool as it was picked, so that the agents' pages say so, and how it's described now.
- * A server that doesn't answer leaves the app as it was, and the tool uncalled all the same.
+ * longer lists the tool as it was picked, so that the agents' pages say so, and how it's described now,
+ * or that its server has no tools any more. A server that doesn't answer leaves the app as it was, and
+ * the tool uncalled all the same.
  */
 async function readAgain(env: Env, tool: GivenTool, access: AppCallAccess): Promise<void> {
   try {
-    const read = await appConnector(env).read(access.url, access.token);
+    const read = await appConnector(env).read(access.url, access.token, true);
     if (!("error" in read)) await workspace(env).keepAppRead(tool.appId, read, access);
   } catch (error) {
     console.error(`Reading the tools of app ${tool.appId} again, after a call found one changed, failed: ${error instanceof Error ? error.name : "unknown error"}`);
@@ -190,18 +194,20 @@ export function callCard(botName: string, askerName: string, tool: GivenTool, in
 /** What the card of a call made without asking first says of why it was. */
 export const alwaysAllowedFor = (botName: string) => `An administrator always allows ${botName} this tool, so nobody was asked first.`;
 
-/** What the card of a call made without asking first says once the call found its tool changed, and wasn't made. */
-export const unmadeFor = (botName: string, appName: string) =>
-  `Not run: ${appName} has changed this tool since an administrator picked it for ${botName}, who is without it until one picks it again.`;
+/** What the card of a call made without asking first says once the call wasn't made after all: it found its tool changed, or couldn't ask its server for it. */
+export const unmadeFor = (botName: string, appName: string, why: Unmade = "changed") =>
+  why === "changed"
+    ? `Not run: ${appName} has changed this tool since an administrator picked it for ${botName}, who is without it until one picks it again.`
+    : `Not run: Ember couldn't get through to ${appName} to make this call.`;
 
 /**
  * The card a room posts for a call made without asking first, as the agent's calls of the tool are
  * always allowed, as a Slack payload: who used which app, the tool and what it was called with, or,
- * once the call found its tool changed, `unmade`, that it wasn't made, and why.
+ * once the call wasn't made after all, `unmade`, that it wasn't, and why.
  */
-export function usedCard(botName: string, tool: GivenTool, input: Record<string, unknown>, unmade = false): SlackPayload {
+export function usedCard(botName: string, tool: GivenTool, input: Record<string, unknown>, unmade?: Unmade): SlackPayload {
   const header = unmade ? `${botName} didn't use ${tool.appName}` : `${botName} used ${tool.appName}`;
-  return { blocks: callBlocks(header, tool, input, unmade ? unmadeFor(botName, tool.appName) : alwaysAllowedFor(botName)) };
+  return { blocks: callBlocks(header, tool, input, unmade ? unmadeFor(botName, tool.appName, unmade) : alwaysAllowedFor(botName)) };
 }
 
 /** What the button `action` answers a call that waits with, or undefined for any other button. */

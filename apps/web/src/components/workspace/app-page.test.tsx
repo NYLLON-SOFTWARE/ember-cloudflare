@@ -8,7 +8,7 @@ import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { agentSettingsPath, appSettingsPath, NEW_APP_PATH } from "@/hooks/use-route";
 import { AGENTS_PATH } from "./agent-list";
-import { AppSettingsPage, changesOf, CONFIRM_REMOVE_APP, NewAppPage, READING_TOOLS, SET_ASIDE_EXPLAINED, TOKEN_EXPLAINED, TOKEN_KEPT, TOOL_IS_GONE, toolsLeftOut, URL_EXPLAINED } from "./app-page";
+import { AppSettingsPage, changesOf, CONFIRM_REMOVE_APP, NewAppPage, NO_TOOLS, READING_TOOLS, SET_ASIDE_EXPLAINED, TOKEN_EXPLAINED, TOKEN_KEPT, TOOL_IS_GONE, toolsLeftOut, URL_EXPLAINED } from "./app-page";
 import { CHANGES_SAVED } from "./settings-page";
 
 const ada: Me = { id: "0mgk3x2a9b4c5d", name: "Ada Lovelace", administrator: true };
@@ -228,6 +228,16 @@ describe("A connected app's page", () => {
     expect(within(created!).getByRole("link", { name: "Recap" })).toHaveAttribute("href", agentSettingsPath("0mgk3x2a9b4c81"));
     // The tools themselves are listed under it as ever.
     expect(within(tools()).getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("says so of an app whose server has no tools any more, over the ones set aside for the agents that had them", async () => {
+    serve({ loaded: () => answer({ ...LINEAR, tools: [], setAside: [{ name: "create_issue", gone: true, agents: [{ id: "ember", name: "Ember" }] }] }) });
+    showSettings();
+    await nameField();
+
+    expect(within(tools()).getByRole("heading", { name: "Tools" })).toBeVisible();
+    expect(within(tools()).getByText(NO_TOOLS)).toBeVisible();
+    expect(within(tools()).getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("says how many tools Ember left out, when the server has more than it keeps", async () => {

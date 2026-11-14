@@ -43,7 +43,7 @@ import {
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
 import { roomSearch } from "./assistant/room-search";
-import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, usedCard, type GivenTool, type PickedTool, type ShowsCall } from "./apps/tools";
+import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, usedCard, type GivenTool, type PickedTool, type ShowsCall, type Unmade } from "./apps/tools";
 import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
 import { actingButton, clickPayload } from "./bots/clicks";
@@ -1525,13 +1525,13 @@ export class ChatRoom extends DurableObject<Env> {
     return async (input) => {
       let cardId: string | undefined;
       const unshown = await this.postCallCard(roomId, bot, message, usedCard(bot.name, tool, input), async (posted) => void (cardId = posted.id));
-      return unshown ?? { unmade: () => this.showUnmade(roomId, cardId!, tool, input) };
+      return unshown ?? { unmade: (why) => this.showUnmade(roomId, cardId!, tool, input, why) };
     };
   }
 
-  /** Has the card `messageId`, which showed the room a call of `tool` made without asking first, say the call wasn't made, as it found the tool changed. */
-  private async showUnmade(roomId: RoomId, messageId: string, tool: GivenTool, input: Record<string, unknown>): Promise<void> {
-    const unchanged = await this.changeCallCard(roomId, messageId, (botName) => usedCard(botName, tool, input, true));
+  /** Has the card `messageId`, which showed the room a call of `tool` made without asking first, say the call wasn't made, and `why`. */
+  private async showUnmade(roomId: RoomId, messageId: string, tool: GivenTool, input: Record<string, unknown>, why: Unmade): Promise<void> {
+    const unchanged = await this.changeCallCard(roomId, messageId, (botName) => usedCard(botName, tool, input, why));
     if (unchanged !== null) console.error(`The card of a call that wasn't made, message ${messageId}, wasn't changed: ${unchanged}`);
   }
 

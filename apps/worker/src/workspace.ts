@@ -149,6 +149,7 @@ import {
   type StoredApp,
   type StoredAppRead,
   type AgentToolPicks,
+  type ChangedPicks,
   type StoredToolPick,
   type StoredAgentSettings,
   type StoredBot,
@@ -783,6 +784,20 @@ function setAsideTools(app: StoredApp, everyPicks: readonly AgentToolPicks[]): S
     }
   }
   return [...tools.values()].sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+/**
+ * The picks that reading `read` from the app `appId` changes, by agent, `everyPicks` being every
+ * agent's: an always-allowed pick of a tool its server no longer has as it was picked asks first from
+ * then on, even once the server describes the tool as it did. Nobody is asked about a call that's
+ * always allowed, so that isn't to come back without an administrator.
+ */
+function picksChangedBy(appId: AppId, read: StoredAppRead, everyPicks: readonly AgentToolPicks[]): ChangedPicks[] {
+  const isChanged = (pick: StoredToolPick) => pick.appId === appId && read.tools.find((tool) => tool.name === pick.name)?.fingerprint !== pick.fingerprint;
+  const asksFirst = ({ alwaysAllowed: _, ...pick }: StoredToolPick): StoredToolPick => pick;
+  return everyPicks
+    .filter(({ picks }) => picks.some((pick) => pick.alwaysAllowed && isChanged(pick)))
+    .map(({ agent, picks, stored }) => ({ agentId: agent.id, stored, picks: picks.map((pick) => (pick.alwaysAllowed && isChanged(pick) ? asksFirst(pick) : pick)) }));
 }
 
 const shownApp = (app: StoredApp, everyPicks: readonly AgentToolPicks[]): App => ({
@@ -3227,7 +3242,8 @@ export class Workspace extends DurableObject<Env> {
       if (!app) return "not found";
       if (reread && (app.url !== reread.askedAt.url || app.sealedToken !== reread.askedAt.sealedToken)) return "changed";
       const sealedToken = changes.token === undefined ? undefined : changes.token === "" ? null : await this.sealedAppToken(appId, changes.token);
-      await this.store.changeApp(appId, { name: changes.name, url: changes.url, sealedToken, ...(reread && { read: reread.read }), changedBy: user.id, now: new Date().toISOString() });
+      const read = reread && { read: reread.read, picks: picksChangedBy(appId, reread.read, await this.store.everyAgentsToolPicks()) };
+      await this.store.changeApp(appId, { name: changes.name, url: changes.url, sealedToken, ...read, changedBy: user.id, now: new Date().toISOString() });
       const [changed, everyPicks] = await Promise.all([this.store.app(appId), this.store.everyAgentsToolPicks()]);
       return changed ? shownApp(changed, everyPicks) : "not found";
     });
@@ -3307,11 +3323,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Keeps what the server of the connected app `appId` answered when a room read its tools again,
    * `read`, as a call had found one no longer as it was picked: the tool is then set aside for every
-   * agent that had it, whose pages show how its server describes it now, until an administrator picks
-   * it again. Kept only while the app is still asked where it was then, `askedAt`.
+   * agent that had it, whose pages show how its server describes it now, while it does, and no longer
+   * always allowed (`picksChangedBy`). Kept only while the app is still asked where it was then, `askedAt`.
    */
   async keepAppRead(appId: AppId, read: StoredAppRead, askedAt: AskedAt): Promise<void> {
-    await this.store.keepAppRead(appId, read, askedAt, new Date().toISOString());
+    const picks = picksChangedBy(appId, read, await this.store.everyAgentsToolPicks());
+    await this.store.keepAppRead(appId, read, picks, askedAt, new Date().toISOString());
   }
 
   /**
