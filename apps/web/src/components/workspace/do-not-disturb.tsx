@@ -51,6 +51,8 @@ const UNTIL_FORMAT = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", t
 interface Props {
   /** When your push notifications are hushed until, or null while they aren't. */
   dndUntil: string | null;
+  /** Answers what a save of its own read, which shows only if nothing was heard of the hush since it was sent, as the page's answers do. */
+  askForDnd: () => (dndUntil: string | null) => void;
   /** Shows your push notifications as a change here saves them, or as they were again when it isn't. */
   onChanged: (dndUntil: string | null) => void;
   /** Says why a change couldn't be saved, as the workspace's alerts do. */
@@ -58,7 +60,7 @@ interface Props {
 }
 
 /** Your hush of push notifications: the switch, and the picker of when it ends. */
-export function DoNotDisturb({ dndUntil, onChanged, onFailed }: Props) {
+export function DoNotDisturb({ dndUntil, askForDnd, onChanged, onFailed }: Props) {
   const [picked, setPicked] = useState(ONE_HOUR);
   /** What the custom field holds, as a date-time field gives it, in this device's time. */
   const [custom, setCustom] = useState("");
@@ -76,17 +78,21 @@ export function DoNotDisturb({ dndUntil, onChanged, onFailed }: Props) {
     const was = dndUntil;
     setSaving(true);
     onChanged(until);
+    // What the save's own answer says shows only if nothing was heard of the hush since it was sent,
+    // as the page's answers do, since it may have read before a change another tab made while it was
+    // on its way. What it says of failing shows it as it was again on the same terms.
+    const heard = askForDnd();
     (until === null ? clearDnd() : setDnd(until)).then(
       ({ dndUntil }) => {
         if (!mounted.current) return;
         setSaving(false);
-        onChanged(dndUntil);
+        heard(dndUntil);
       },
       (error: unknown) => {
         // Only the section's saving is the section's to keep: the hush is the workspace's, which shows
         // it as it was again, and says why, even once the section is gone.
         if (mounted.current) setSaving(false);
-        onChanged(was);
+        heard(was);
         onFailed(error);
       },
     );

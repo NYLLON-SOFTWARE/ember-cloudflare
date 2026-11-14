@@ -404,7 +404,7 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {apps.length > 0 && <YourApps apps={apps} onChanged={setApps} onFailed={onFailed} />}
         {outsideAi && <YourOutsideAi connections={outsideAi} onChanged={setOutsideAi} onFailed={onFailed} />}
-        <DoNotDisturb dndUntil={dndUntil} onChanged={onDndChanged} onFailed={onFailed} />
+        <DoNotDisturb dndUntil={dndUntil} askForDnd={askForDnd} onChanged={onDndChanged} onFailed={onFailed} />
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>
