@@ -4,6 +4,9 @@ import { cn } from "@/lib/utils";
 /** A file's size as its upload card gives it: in whole KB, at least 1, under a megabyte, and in MB to one place from there. */
 export const uploadSize = (size: number) => (size < 1_000_000 ? `${Math.max(1, Math.ceil(size / 1000))} KB` : `${(size / 1_000_000).toFixed(1)} MB`);
 
+/** A file's size as the composer's chips and Files in Ember give it: in bytes under a kilobyte, else as `uploadSize`. */
+export const fileSize = (size: number) => (size < 1000 ? `${size} B` : uploadSize(size));
+
 /**
  * The card for a file on its way to becoming a message: its name and size, then a bar showing how much
  * of it has gone, or why it failed, which a failed card keeps until the page is loaded again.

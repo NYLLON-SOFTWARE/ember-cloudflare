@@ -119,7 +119,7 @@ describe("New direct message dialog", () => {
   it("opens titled New direct message, focused on the search, listing everyone else active by name", async () => {
     showDialog();
     const dialog = screen.getByRole("dialog", { name: "New direct message" });
-    expect(dialog).toHaveAccessibleDescription("Find people by full name. You can also type @name.");
+    expect(dialog).toHaveAccessibleDescription("");
     expect(search()).toHaveFocus();
     expect(search()).toHaveAttribute("placeholder", "Search by name or @name");
     // Entering it keeps the usual cursor.
@@ -127,7 +127,7 @@ describe("New direct message dialog", () => {
     expect(search()).toHaveAttribute("aria-controls", screen.getByRole("listbox", { name: "People" }).id);
     // Ada, deactivated Edsger and the case of a name don't count.
     await waitFor(() => expect(listed()).toEqual(["Ada Byron", "alan Turing", "Barbara Liskov", "Grace Hopper", "Linus Torvalds"]));
-    expect(status()).toHaveTextContent("Choose one or more people.");
+    expect(status()).toBeEmptyDOMElement();
     expect(screen.queryByRole("group", { name: "Selected people" })).not.toBeInTheDocument();
     expect(start()).toBeDisabled();
   });
@@ -230,14 +230,14 @@ describe("New direct message dialog", () => {
 
     rerender(everyone);
     expect(listed()).toHaveLength(5);
-    expect(status()).toHaveTextContent("Choose one or more people.");
+    expect(status()).toBeEmptyDOMElement();
   });
 
   it("lists the people it has while it loads them again, and keeps them if that fails", async () => {
     showDialog({ reloadPeople: () => Promise.reject(new TypeError("Failed to fetch")) });
     await act(async () => {});
     expect(listed()).toHaveLength(5);
-    expect(status()).toHaveTextContent("Choose one or more people.");
+    expect(status()).toBeEmptyDOMElement();
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   });
 
@@ -295,7 +295,7 @@ describe("New direct message dialog", () => {
     expect(onFailed).not.toHaveBeenCalled();
 
     await user.click(option("Linus Torvalds"));
-    expect(status()).toHaveTextContent("Choose one or more people.");
+    expect(status()).toBeEmptyDOMElement();
   });
 
   it("hands on a session that's ended", async () => {
@@ -321,7 +321,7 @@ describe("New direct message dialog", () => {
       await user.click(start());
       expect(guard).toHaveBeenCalledExactlyOnceWith(null, expect.any(Function));
       expect(fetch).not.toHaveBeenCalled();
-      expect(status()).toHaveTextContent("Choose one or more people.");
+      expect(status()).toBeEmptyDOMElement();
 
       release();
       const left = act(async () => proceed!());

@@ -1,9 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  type ListedScheduledMessage,
   ASSISTANT_ID,
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
   CloseCode,
+  type ActivityMarks,
+  type ActivityPage,
   domainOfEmailAddress,
   EMAILS_PER_ADDRESS,
   EMAIL_LINKS_PER_NETWORK,
@@ -14,6 +17,7 @@ import {
   isRoomId,
   mailboxOf,
   mailboxUnder,
+  notInParent,
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
@@ -61,6 +65,7 @@ import {
   type Room,
   type RoomChanges,
   type RoomId,
+  type RoomParent,
   type RoomSettings,
   type Search,
   type SentTestEmail,
@@ -69,6 +74,7 @@ import {
   type User,
   type UserId,
   type UserStatus,
+  type ShareWidening,
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -108,11 +114,15 @@ import { pictureObjects, type StoredPicture } from "./files/pictures";
 import type { SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
+import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
 import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
+import { ActivityStore, type RecordedItems, type RemovedItems } from "./activity";
 import type { RoomEvent } from "./room-log";
+import { RoomTabStore, type KeptTab, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
+import type { Canvas, CanvasSave, FileMark, FileMarks } from "@ember/protocol/library";
 import type { PickedTool } from "./apps/tools";
 import { seal, unseal } from "./sealed";
 import { isToken } from "./secrets";
@@ -500,6 +510,8 @@ export interface ShownPerson {
   transfer: Transfer | null;
   /** What the page tells everyone of an agent an administrator made, or null for anyone else. */
   agent: AgentProfile | null;
+  /** The time zone their browser last said it's in, or null. */
+  timeZone: string | null;
 }
 
 /**
@@ -517,9 +529,18 @@ export interface RoomAccess {
   user: User;
   sessionId: string;
   member: boolean;
+  /** Whether the room is there, so that someone who isn't in it hears they've lost access rather than that it was deleted. */
+  found: boolean;
   /** Whether a ban blocks the IP address the socket comes from, which lets it read but not change anything. */
   banned: boolean;
   /** When the Workspace checked, in milliseconds since the epoch. */
+  authorizedAt: number;
+}
+
+/** Someone the Workspace found active in a room, as it posts a message they scheduled there. */
+export interface AuthorAccess {
+  user: User;
+  /** When the Workspace checked, in milliseconds since the epoch, as a room's socket has it. */
   authorizedAt: number;
 }
 
@@ -822,6 +843,10 @@ const shownApp = (app: StoredApp, everyPicks: readonly AgentToolPicks[]): App =>
 export class Workspace extends DurableObject<Env> {
   private readonly db: Db;
   private readonly store: WorkspaceStore;
+  /** Everyone's Activity, beside their memberships. */
+  private readonly activity: ActivityStore;
+  /** Everyone's scheduled messages across rooms, which each room sends as they change. */
+  private readonly scheduled: ScheduledListings;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /**
    * The account once it exists. Renaming it and regenerating its join code keep this current, and
@@ -872,6 +897,8 @@ export class Workspace extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     this.db = openDb(env, ctx.storage, "workspace");
     this.store = new WorkspaceStore(this.db);
+    this.activity = new ActivityStore(this.db);
+    this.scheduled = new ScheduledListings(this.db);
     // The outbox can hold revocations with no alarm set for them: the Workspace can stop after saving a
     // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
     // whenever it starts, before answering anything. A failure is only logged; the next change that
@@ -908,6 +935,10 @@ export class Workspace extends DurableObject<Env> {
     const [current, account] = await Promise.all([this.session(credentials), this.account()]);
     if (current) send(server, { type: "welcome", you: meOf(current), account: account ?? ACCOUNT_BEFORE_SETUP });
     else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
+    // The time zone the tab's browser is in, for the local time others see on their profile, saved once
+    // the socket is in, and only when it's changed.
+    const timeZone = timeZoneOf(new URL(request.url).searchParams.get("tz"));
+    if (current && timeZone) this.ctx.waitUntil(this.store.setTimeZone(current.user.id, timeZone).catch(() => {}));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -2713,16 +2744,27 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Creates a room as the person `credentials` signs in: "forbidden" unless they may create rooms, or
    * null without a valid session. Everyone it puts in sees it in their sidebars at once, and nobody else
-   * hears of it.
+   * hears of it. A sub-room goes under a room they could put it under, or is refused as "bad parent".
    */
-  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | null> {
+  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | "bad parent" | { refused: string } | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
-    const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
-    const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
-    this.tell(memberIds, { type: "room.saved", room: created });
-    return created;
+    return this.oneAtATime(async () => {
+      const parent = room.parentId ? await this.store.parentChoice(room.parentId, user.id) : null;
+      if (room.parentId && !parent) return "bad parent";
+      // A private sub-room is only for people in its parent, so one naming anyone else is refused, naming
+      // them, rather than made without them, as New room only offers the parent's people.
+      const outsiders = parent && room.kind === "closed" ? await this.store.notInRoom(parent.id, room.memberIds) : [];
+      if (parent && outsiders.length > 0) return { refused: notInParent(parent.name, outsiders) };
+      const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null, ...(parent && { parent }) };
+      const at = new Date().toISOString();
+      const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, at);
+      if (!memberIds) return "bad parent";
+      this.tell(memberIds, { type: "room.saved", room: created });
+      if (room.kind === "closed") this.tellOfActivity(await this.activity.recordInvitations(created.id, user.id, memberIds, at));
+      return created;
+    });
   }
 
   /**
@@ -2749,7 +2791,9 @@ export class Workspace extends DurableObject<Env> {
   async newRoomForm(credentials: Credentials): Promise<NewRoomForm | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return (await this.mayCreateRoomsAs(user.id)) ? { people: await this.store.activePeople() } : "forbidden";
+    if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
+    const [people, parents] = await Promise.all([this.store.activePeople(), this.store.parentChoices(user.id)]);
+    return { people, parents };
   }
 
   /**
@@ -2762,6 +2806,19 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
     return this.store.mentionable(query, roomId);
+  }
+
+  /**
+   * Whether sharing from room `sourceRoomId` in `targetRoomId` would show it to people who can't see it now,
+   * for the person `credentials` signs in, who has to be in both: "not found" if they aren't, or null
+   * without a valid session.
+   */
+  async shareWidening(credentials: Credentials, sourceRoomId: RoomId, targetRoomId: RoomId): Promise<ShareWidening | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const [source, target] = await Promise.all([this.store.isMember(sourceRoomId, user.id), this.store.isMember(targetRoomId, user.id)]);
+    if (!source || !target) return "not found";
+    return this.store.shareWidening(sourceRoomId, targetRoomId);
   }
 
   /** Everyone in the workspace, for the person `credentials` signs in, or null without a valid session. */
@@ -2778,15 +2835,19 @@ export class Workspace extends DurableObject<Env> {
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
-    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
+    const [person, administrator, timeZone] = await Promise.all([
+      this.store.personWithProfile(userId),
+      this.store.isAdministrator(session.user.id),
+      this.store.timeZoneOf(userId),
+    ]);
     if (!person) return "not found";
     const agent = person.agent ? await this.store.agentProfile(userId) : null;
     if (administrator) {
       const transferable = person.status === "active" && person.role !== "bot";
-      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent };
+      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent, timeZone };
     }
     const { emailAddress, ...listed } = person;
-    return { person: listed, transfer: null, agent };
+    return { person: listed, transfer: null, agent, timeZone };
   }
 
   /**
@@ -3685,31 +3746,47 @@ export class Workspace extends DurableObject<Env> {
    * leaves their sidebars. Everyone in it sees it as it is now in theirs, or, when only who's in it
    * changed, the people it puts in do.
    */
-  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | null> {
+  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | "bad parent" | { refused: string } | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
       const found = await this.store.roomToChange(roomId, user.id);
       if (!found) return "not found";
       if (!found.canAdminister) return "forbidden";
+      const moving = changes.parentId !== undefined && changes.parentId !== (found.room.parent?.id ?? null);
+      const parent = moving ? await this.parentFor(roomId, changes.parentId!, user.id) : (found.room.parent ?? null);
+      if (parent === "bad parent") return parent;
+      // A sub-room staying under its parent only takes in the parent's people, so a list naming anyone else
+      // is refused, naming them, as making one is. One moving under a parent drops them, as its settings warn.
+      const outsiders = !moving && parent && changes.kind === "closed" ? await this.store.notInRoom(parent.id, changes.memberIds) : [];
+      if (parent && outsiders.length > 0) return { refused: notInParent(parent.name, outsiders) };
+      // A room open to everyone it can take in takes in its new parent's people, or the workspace's.
+      if (moving && !changes.kind && found.room.kind === "open") changes = { ...changes, kind: "open" };
+      const { parent: _, ...unparented } = found.room;
       const changed: SharedRoom = {
-        ...found.room,
+        ...unparented,
+        ...(parent && { parent }),
         ...(changes.name && { name: changes.name }),
         ...(changes.kind && { kind: changes.kind }),
         ...(changes.icon !== undefined && { icon: changes.icon || null }),
       };
-      if (!changes.name && !changes.kind && changes.icon === undefined) return changed;
+      if (!moving) changes = { ...changes, parentId: undefined };
+      if (!changes.name && !changes.kind && changes.icon === undefined && !moving) return changed;
       const now = Date.now();
       // As when signing out, until the database says it queued nothing.
-      let queued = changes.kind === "closed";
+      let queued = changes.kind === "closed" || moving;
       let saved: SavedRoomChange;
       try {
-        saved = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
-        queued = saved.removedIds.length > 0;
+        saved = await this.store.changeRoom(roomId, changes, parent?.id ?? null, CloseCode.Reconnect, now, new Date(now).toISOString());
+        queued = saved.removedIds.length > 0 || saved.subRoomsLeft.length > 0;
       } finally {
         if (queued) await this.revocationsQueued(now);
       }
-      this.tell(saved.removedIds, { type: "room.gone", roomId });
+      this.tell(saved.removedIds, { type: "room.gone", roomId, lostAccess: true });
+      for (const left of saved.subRoomsLeft) this.tell([left.userId], { type: "room.gone", roomId: left.roomId, lostAccess: true });
+      // The sub-rooms' people read the room's name with theirs, and whoever joined them reads them anew.
+      const reread = new Set([...saved.subRoomsJoinedIds, ...(saved.roomChanged && changes.name ? saved.subRoomPeople : [])]);
+      if (reread.size > 0) this.tell([...reread], { type: "rooms.reordered" });
       this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
       // Whoever it puts in has heard nothing of a huddle going on there.
       const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
@@ -3717,8 +3794,20 @@ export class Workspace extends DurableObject<Env> {
       // The shared order their sidebars have leaves out the rooms they weren't in, so they load it
       // again.
       if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
+      // Whoever it puts in a private room finds it in their Activity, as Slack's invitations are.
+      if (changed.kind === "closed") this.tellOfActivity(await this.activity.recordInvitations(roomId, user.id, saved.addedIds, new Date(now).toISOString()));
       return changed;
     });
+  }
+
+  /**
+   * The parent room `parentId` names for room `roomId`, as `userId` moves it there, or null for none:
+   * "bad parent" unless they could put a room under it, the room has no sub-rooms, and it isn't the room.
+   */
+  private async parentFor(roomId: RoomId, parentId: RoomId | null, userId: UserId): Promise<RoomParent | null | "bad parent"> {
+    if (parentId === null) return null;
+    if (parentId === roomId || (await this.store.subRoomCount(roomId)) > 0) return "bad parent";
+    return (await this.store.parentChoice(parentId, userId)) ?? "bad parent";
   }
 
   /**
@@ -3738,13 +3827,15 @@ export class Workspace extends DurableObject<Env> {
       if (found.canAdminister) return "can change";
       if (!(await this.store.anotherPersonInRoom(roomId, user.id))) return "last";
       const now = Date.now();
+      let subRoomIds: RoomId[] = [];
       try {
-        await this.store.leaveRoom(roomId, user.id, CloseCode.Reconnect, now);
+        subRoomIds = await this.store.leaveRoom(roomId, user.id, CloseCode.Reconnect, now);
       } finally {
         // As when signing out: the database may have saved it, and so queued it, though its answer was lost.
         await this.revocationsQueued(now);
       }
-      this.tell([user.id], { type: "room.gone", roomId });
+      // Access to a sub-room needs access to its parent, so they leave its sub-rooms too.
+      for (const id of [roomId, ...subRoomIds]) this.tell([user.id], { type: "room.gone", roomId: id, lostAccess: true });
       return "left";
     });
   }
@@ -3789,16 +3880,72 @@ export class Workspace extends DurableObject<Env> {
       if (!found) return "not found";
       if (found.kind !== "direct" && !found.canAdminister) return "forbidden";
       const now = Date.now();
-      let memberIds: UserId[];
+      let deleted: { memberIds: UserId[]; subRoomIds: RoomId[] };
       try {
-        memberIds = await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
+        deleted = await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
       } finally {
         // As when signing out: the database may have saved the deletion, and so queued it, though its answer was lost.
         await this.revocationsQueued(now);
       }
-      this.tell(memberIds, { type: "room.gone", roomId });
+      this.tell(deleted.memberIds, { type: "room.gone", roomId });
+      // Its sub-rooms are rooms of their own now, which their people's sidebars read anew.
+      if (deleted.subRoomIds.length > 0) this.tell(deleted.memberIds, { type: "rooms.reordered" });
       return "deleted";
     });
+  }
+
+  /** Tells each person of the items added to their Activity. */
+  private tellOfActivity(added: RecordedItems): void {
+    for (const [userId, items] of added) this.tell([userId], { type: "activity.added", items });
+  }
+
+  /** Tells each person of the items gone from their Activity. */
+  private tellOfRemovedActivity(removed: RemovedItems): void {
+    for (const [userId, ids] of removed) this.tell([userId], { type: "activity.removed", ids });
+  }
+
+  /** A page of the Activity of the person `credentials` signs in, older than item `before`, or the newest, or null without a valid session. */
+  async activityPage(credentials: Credentials, before: number | null): Promise<ActivityPage | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.activity.page(user.id, before);
+  }
+
+  /**
+   * Marks items of the Activity of the person `credentials` signs in read or unread, as `marks` says,
+   * telling their tabs, answering false without a valid session.
+   */
+  async markActivity(credentials: Credentials, marks: ActivityMarks): Promise<boolean> {
+    const user = await this.authenticate(credentials);
+    if (!user) return false;
+    const ids = await this.activity.mark(user.id, marks, new Date().toISOString());
+    if (ids === null || ids.length > 0) this.tell([user.id], { type: "activity.marked", ids, read: marks.read });
+    return true;
+  }
+
+  /**
+   * Records `reactorId`'s reaction, `content`, to message `messageId` in room `roomId`, which `authorId`
+   * wrote and whose text starts `plainText`, in its author's Activity, as the room asks once it's saved.
+   */
+  async reacted(roomId: RoomId, messageId: string, authorId: UserId, reactorId: UserId, content: string, plainText: string, at: string): Promise<void> {
+    this.tellOfActivity(await this.activity.recordReaction(roomId, messageId, authorId, reactorId, content, plainText, at));
+  }
+
+  /** Takes back the item a reaction recorded, as the room asks once the reaction is removed. */
+  async unreacted(messageId: string, reactorId: UserId, content: string): Promise<void> {
+    this.tellOfRemovedActivity(await this.activity.removeReaction(messageId, reactorId, content));
+  }
+
+  /**
+   * Has everyone's Activity say what message `messageId` in room `roomId` says now, `plainText`, as the
+   * room asks once it's edited, so that nothing edited out of it stays there, telling each of them.
+   */
+  async messageEdited(roomId: RoomId, messageId: string, plainText: string): Promise<void> {
+    for (const [userId, items] of await this.activity.editMessage(roomId, messageId, plainText)) this.tell([userId], { type: "activity.updated", items });
+  }
+
+  /** Takes out of everyone's Activity the items about message `messageId` in room `roomId`, as the room asks once it's deleted. */
+  async messageDeleted(roomId: RoomId, messageId: string): Promise<void> {
+    this.tellOfRemovedActivity(await this.activity.removeMessage(roomId, messageId));
   }
 
   /**
@@ -3814,9 +3961,17 @@ export class Workspace extends DurableObject<Env> {
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
     if (events.length === 0) return { pushes: [], webhooks: [], asks: [] };
     const { on: pushing } = await webPush(this.env);
-    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
-    for (const [userId, at] of marks) this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at });
+    const { marks, counts, active, pushes, webhooks, asks, activity } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
+    // Someone whose mark changed hears of it with their count, if a message counted, and someone already
+    // marked hears of their count as it changes.
+    for (const [userId, at] of marks) {
+      const counted = counts.get(userId);
+      this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at, ...(counted && { count: counted.count, ...(counted.mentioned && { mentioned: true }) }) });
+    }
+    for (const [userId, { at, count, mentioned }] of counts) if (!marks.has(userId)) this.tell([userId], { type: "room.unread", roomId, at, count, ...(mentioned && { mentioned: true }) });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
+    this.tellOfActivity(activity.added);
+    for (const [userId, ids] of activity.read) if (ids.length > 0) this.tell([userId], { type: "activity.marked", ids, read: true });
     return { pushes, webhooks, asks };
   }
 
@@ -3847,11 +4002,95 @@ export class Workspace extends DurableObject<Env> {
     return user && { userId: user.id, ...(await this.store.searcherOf(user.id, recording)) };
   }
 
+  /**
+   * Lists room `roomId`'s scheduled messages as `changes` has them now, or forgets those gone, as the room
+   * sends them whenever one is scheduled, moved, marked not sent, posted or deleted. Each is applied
+   * however often it's sent, and nothing of a deleted room's is kept.
+   */
+  async scheduledChanged(roomId: RoomId, changes: ScheduledChange[]): Promise<void> {
+    await this.scheduled.apply(roomId, changes, new Date().toISOString());
+  }
+
+  /** The scheduled messages of the person `credentials` signs in, in the rooms they're still in, soonest first, or null without a valid session. */
+  async scheduledMessages(credentials: Credentials): Promise<ListedScheduledMessage[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.scheduled.of(user.id);
+  }
+
   /** Forgets the recent searches of the person `credentials` signs in, answering false without a valid session. */
   async clearSearches(credentials: Credentials): Promise<boolean> {
     const user = await this.authenticate(credentials);
     if (user) await this.store.clearSearches(user.id);
     return user !== null;
+  }
+
+  /**
+   * What the files of the person `credentials` signs in are listed with (library.ts): the rooms they're in,
+   * or only `roomId` when it's given, the canvases there and what they've starred and opened. Null without a
+   * valid session, and "not found" for a room they aren't in.
+   */
+  async library(credentials: Credentials, roomId: RoomId | null): Promise<LibraryShelf | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const { rooms } = await this.store.searcherOf(user.id, null);
+    const roomIds = rooms.flatMap(({ id }) => (roomId === null || id === roomId ? [id] : []));
+    if (roomId !== null && roomIds.length === 0) return "not found";
+    const tabs = new RoomTabStore(this.db);
+    const [canvases, marks] = await Promise.all([tabs.canvasesIn(roomIds), tabs.marksOf(user.id)]);
+    return { userId: user.id, roomIds, canvases, marks };
+  }
+
+  /** Stars a file, or records that it was opened, for the person `credentials` signs in, who must be in its room. */
+  async markFile(credentials: Credentials, mark: FileMark): Promise<FileMarks | "not found" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member } = await this.store.roomAccess(mark.roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const tabs = new RoomTabStore(this.db);
+    // A file's message is checked before it's asked here; anything else marked is one of the room's canvases.
+    if (mark.messageId === undefined && !(await tabs.hasCanvas(mark.roomId, mark.fileId))) return "not found";
+    return tabs.mark(session.user.id, mark, new Date().toISOString());
+  }
+
+  /** Does what `action` asks of room `roomId`'s tabs for the person `credentials` signs in, if they're in it (room-tabs.ts). */
+  async roomTabs(credentials: Credentials, roomId: RoomId, action: TabAction): Promise<TabAnswer | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const { id, name } = session.user;
+    return new RoomTabStore(this.db).act(roomId, { id, name }, banned, action, new Date().toISOString());
+  }
+
+  /**
+   * Whom `credentials` signs in, with the canvas, if they can change room `roomId`'s canvas `tabId`: they're
+   * in the room, and no ban blocks their address. Their save then goes through the room's object, where
+   * people may be writing the canvas together (canvas-sessions.ts).
+   */
+  async canvasWriter(credentials: Credentials, roomId: RoomId, tabId: string): Promise<{ actor: User; tab: KeptTab } | "forbidden" | "not found" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const actor = { id: session.user.id, name: session.user.name };
+    const opened = await new RoomTabStore(this.db).act(roomId, actor, banned, { act: "open", tabId }, new Date().toISOString());
+    if (typeof opened !== "object" || !("tab" in opened) || opened.tab.kind !== "canvas") return "not found";
+    return banned ? "forbidden" : { actor, tab: opened.tab };
+  }
+
+  /** Room `roomId`'s canvas `tabId`, for the room's object, which people write it together through. */
+  async roomCanvas(roomId: RoomId, tabId: string): Promise<Canvas | null> {
+    return new RoomTabStore(this.db).canvas(roomId, tabId);
+  }
+
+  /** Saves room `roomId`'s canvas over `save.version`, for the room's object, as a writer `canvasWriter` let through asked. */
+  async saveRoomCanvas(roomId: RoomId, tabId: string, actor: User, save: CanvasSave): Promise<TabAnswer> {
+    return new RoomTabStore(this.db).act(roomId, actor, false, { act: "save", tabId, save }, new Date().toISOString());
+  }
+
+  /** Keeps what people writing room `roomId`'s canvas together left it at, for the room's object, unless it's kept a later version. */
+  async keepRoomCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User): Promise<boolean> {
+    return new RoomTabStore(this.db).keepCanvas(roomId, tabId, body, version, by, new Date().toISOString());
   }
 
   /**
@@ -4064,6 +4303,18 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The author of a message scheduled in room `roomId`, as the room posts it, with when this checked:
+   * null once they're no longer active or in the room, so that removing, banning or taking someone out
+   * of a room stops what they scheduled there.
+   */
+  async scheduledAuthor(roomId: RoomId, userId: UserId): Promise<AuthorAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const user = await this.store.activeMember(roomId, userId);
+    return user && { user, authorizedAt };
+  }
+
+  /**
    * Whether `userId` is an active administrator now, for a room deciding whether they may edit or
    * delete someone else's message. Rooms ask, since a role can change while their sockets are open.
    */
@@ -4082,8 +4333,8 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.session(credentials);
     if (!session) return null;
     // From the database rather than what `isBanned` keeps, which a ban saving now hasn't changed yet.
-    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
-    return { user: session.user, sessionId: session.id, member, banned, authorizedAt };
+    const { member, found, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    return { user: session.user, sessionId: session.id, member, found, banned, authorizedAt };
   }
 
   /**
@@ -4361,3 +4612,13 @@ export class Workspace extends DurableObject<Env> {
 }
 
 export const workspace = (env: Env) => env.WORKSPACE.getByName("workspace");
+
+/** The IANA time zone a tab says its browser is in, or null for none, or one the runtime doesn't know. */
+export function timeZoneOf(zone: string | null): string | null {
+  if (!zone || zone.length > 64) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}

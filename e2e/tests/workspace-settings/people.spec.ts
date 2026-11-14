@@ -185,7 +185,7 @@ test.describe("What a ban blocks", () => {
     const visitor = await (await browser.newContext({ baseURL, ignoreHTTPSErrors: true })).newPage();
     await useOwnAddress(visitor, shared);
     await visitor.goto("/session/new");
-    const star = hal.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+    const star = hal.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
 
     const { users } = (await (await page.request.get("/api/users")).json()) as Directory;
     await page.goto(`/users/${users.find((user) => user.name === graceName)!.id}`);
@@ -198,7 +198,7 @@ test.describe("What a ban blocks", () => {
     await hal.reload();
     await expect(hal.getByRole("log")).not.toHaveAttribute("aria-busy");
     expect(await statusOfChange(hal, "/favorite", () => star.click())).toBe(429);
-    await expect(hal.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
+    await expect(hal.getByRole("status").filter({ hasText: "Couldn’t save your star. Please try again." })).toBeVisible();
     await expect(star).toHaveAttribute("aria-pressed", "false");
     expect(await statusOfChange(visitor, "/api/session", () => signInAsAdministrator(visitor))).toBe(429);
     // As if they'd tried too often.

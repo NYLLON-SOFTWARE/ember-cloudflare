@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { huddlePath, isAppPage, MAX_ID_LENGTH, threadPath, TRANSFER_PATH, transferLink, workspacePageOf } from "./index";
+import { dmPath, huddlePath, isAppPage, MAX_ID_LENGTH, threadPath, TRANSFER_PATH, transferLink, workspacePageOf } from "./index";
 
 describe("Error pages", () => {
   it("names the pages the app shows, for the Worker to serve the app at", () => {
@@ -30,6 +30,27 @@ describe("New direct message dialog", () => {
   it("shows New direct message at its address", () => {
     expect(workspacePageOf("/rooms/directs/new")).toEqual({ page: "new-direct" });
     for (const path of ["/rooms/directs/new/", "/rooms/directs/new/edit"]) expect(workspacePageOf(path), path).not.toEqual({ page: "new-direct" });
+  });
+});
+
+describe("DMs page and the Home sidebar's pages", () => {
+  it("shows each at its address", () => {
+    expect(workspacePageOf("/dms")).toEqual({ page: "dms" });
+    expect(workspacePageOf("/people")).toEqual({ page: "people" });
+    expect(workspacePageOf("/drafts")).toEqual({ page: "drafts", tab: "drafts" });
+    expect(workspacePageOf("/drafts/sent")).toEqual({ page: "drafts", tab: "sent" });
+    expect(workspacePageOf("/threads")).toEqual({ page: "threads" });
+  });
+
+  it("opens a DM beside the DMs page at /dms/<id>, and names nothing for a malformed one", () => {
+    expect(workspacePageOf("/dms/d%C3%A9")).toEqual({ page: "dms", roomId: "dé" });
+    expect(dmPath("dé")).toBe("/dms/d%C3%A9");
+    expect(workspacePageOf("/dms/%FF")).toBeNull();
+    expect(isAppPage("/dms/d1/extra")).toBe(false);
+  });
+
+  it("names nothing past their addresses", () => {
+    for (const path of ["/dms/", "/people/1", "/drafts/", "/drafts/other", "/threads/1", "/constructor", "/toString"]) expect(isAppPage(path), path).toBe(false);
   });
 });
 
@@ -183,5 +204,19 @@ describe("Search page", () => {
     expect(workspacePageOf("/searches")).toEqual({ page: "search" });
     expect(isAppPage("/searches")).toBe(true);
     for (const path of ["/searches/", "/searches/clear", "/search"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+});
+
+describe("Activity page", () => {
+  it("shows Activity at `/activity`, with the conversation and thread open beside it that a room's address after it names", () => {
+    expect(workspacePageOf("/activity")).toEqual({ page: "activity" });
+    expect(isAppPage("/activity")).toBe(true);
+    expect(workspacePageOf("/activity/rooms/r1")).toEqual({ page: "activity", roomId: "r1" });
+    expect(workspacePageOf("/activity/rooms/r1/@m1")).toEqual({ page: "activity", roomId: "r1", messageId: "m1" });
+    expect(workspacePageOf("/activity/rooms/r1/threads/m1")).toEqual({ page: "activity", roomId: "r1", threadId: "m1" });
+    expect(workspacePageOf("/activity/rooms/r1/threads/m1/@m2")).toEqual({ page: "activity", roomId: "r1", threadId: "m1", replyId: "m2" });
+    expect(isAppPage("/activity/rooms/r1/threads/m1/@m2")).toBe(true);
+    for (const path of ["/activity/", "/activity/1", "/activities", "/activity/rooms", "/activity/rooms/r1/huddle", "/activity/rooms/r1/messages/m1", "/activity/rooms/opens/r1/edit", "/activity/users/u1"])
+      expect(workspacePageOf(path), path).toBeNull();
   });
 });

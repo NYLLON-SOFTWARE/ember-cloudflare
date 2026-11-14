@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, startingInvolvement, type Account, type ActivityItem, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
@@ -41,7 +41,7 @@ const roomList = (listed: Room[], favorites: RoomId[] = [], sharedOrder: RoomId[
   suggestions: [],
   huddles: {},
 });
-const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
+const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }], parents: [], subRooms: 0 };
 const workspaceSettings: WorkspaceSettings = {
   account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false },
   joinCode: "aB3d-Ef5h-iJ7k",
@@ -60,13 +60,16 @@ const workspaceSettings: WorkspaceSettings = {
 
 /**
  * Answers each request as `responses` says, by its method and path, such as "POST /api/rooms", with
- * the workspace's settings for "GET /api/account", nobody for "GET /api/users", and the room list for
- * anything else.
+ * the workspace's settings for "GET /api/account", nobody for "GET /api/users", no Activity for
+ * "GET /api/activity", and the room list for anything else.
  */
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
     "GET /api/users": () => Response.json({ users: [] }),
+    "GET /api/directs": () => Response.json({ previews: [] }),
+    "GET /api/threads": () => Response.json({ threads: [], next: null }),
+    "GET /api/activity": () => Response.json({ items: [], unread: 0, more: false }),
     ...responses,
   };
   vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json(roomList(rooms))))());
@@ -151,9 +154,8 @@ const roomHeading = () => screen.findByRole("heading", { level: 1 });
 /** The rooms in the sidebar, in order. */
 /** The sidebar's rooms by name, with a ★ after each starred one. */
 const sidebarRooms = () =>
-  within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
-    .getAllByRole("link")
-    .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
+  within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).queryAllByRole("link").map((link) => [link, region] as const))
+    .map(([link, region]) => link.textContent!.replace(/^#/, "") + (within(region).queryByRole("button", { name: "Starred" }) ? "★" : ""));
 /** The rail's links for the page shown, if any. */
 const railCurrent = () =>
   within(screen.getByRole("navigation", { name: "Workspace" }))
@@ -193,12 +195,15 @@ describe("Open a room", () => {
     await waitFor(() => expect(document.title).toBe("random"));
   });
 
-  it("goes home with an alert from a room you can't see, once the list, asked again, hasn't got it either", async () => {
-    showWorkspace("/rooms/secret");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+  it("says so in the room's place at a room you can't see, once the list, asked again, hasn't got it either, with a way to a room you can", async () => {
+    const { user } = showWorkspace("/rooms/secret");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("You don’t have access to this room");
+    expect(location.pathname).toBe("/rooms/secret");
+    expect(roomListRequests()).toBe(2);
+    await user.click(screen.getByRole("button", { name: "Go to #general" }));
     expect(await roomHeading()).toHaveTextContent("general");
     expect(location.pathname).toBe("/rooms/general");
-    expect(roomListRequests()).toBe(2);
   });
 
   it("opens a room made since the list came, which the list asked again has", async () => {
@@ -214,10 +219,11 @@ describe("Open a room", () => {
   it("asks for the list again each time the address names a room it hasn't got", async () => {
     const { user } = showWorkspace("/rooms/secret");
     await screen.findByRole("alert");
-    await roomHeading();
+    act(() => navigate("/rooms/general"));
+    expect(await roomHeading()).toHaveTextContent("general");
     act(() => navigate("/rooms/secret"));
     await waitFor(() => expect(roomListRequests()).toBe(3));
-    expect(await roomHeading()).toHaveTextContent("general");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
     // A room it has asks nothing.
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
     expect(await roomHeading()).toHaveTextContent("random");
@@ -336,10 +342,10 @@ describe("Room addresses", () => {
     await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
   });
 
-  it("goes home with the alert from the address for a kind of room you can't see", async () => {
+  it("goes from the address for a kind of room you can't see to the room's own, which says so", async () => {
     showWorkspace("/rooms/closeds/secret");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
+    expect(location.pathname).toBe("/rooms/secret");
   });
 
   it("goes from a direct message's address to the room's own without looking, which then looks", async () => {
@@ -350,8 +356,8 @@ describe("Room addresses", () => {
 
   it("reads /rooms/opens as a room's id", async () => {
     showWorkspace("/rooms/opens");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
+    expect(location.pathname).toBe("/rooms/opens");
   });
 });
 
@@ -359,7 +365,7 @@ describe("Create an open room", () => {
   it("makes a room from workspace settings, lists it in its place by name, and opens it", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], parents: [] }),
       "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/general");
@@ -382,7 +388,7 @@ describe("Create an open room", () => {
     let answer = (_: Response) => {};
     serve({
       "GET /api/sidebar": () => new Promise((resolve) => (answer = resolve)),
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], parents: [] }),
       "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -423,7 +429,7 @@ describe("Room settings page", () => {
     const lists = [roomList(rooms)];
     serve({
       "GET /api/sidebar": () => Response.json(lists.shift() ?? roomList([older, ...rooms])),
-      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }], parents: [], subRooms: 0 }),
       "PATCH /api/rooms/older": () => Response.json({ room: { ...older, name: "elder" } }),
     });
     const { user } = showWorkspace("/rooms/closeds/older/edit");
@@ -462,7 +468,7 @@ describe("Add and remove private room members", () => {
     const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed", icon: null };
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, leadsRoom])),
-      "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }], parents: [], subRooms: 0 }),
       "PATCH /api/rooms/leads": () => Response.json({ room: leadsRoom }),
     });
     const { user } = showWorkspace("/rooms/closeds/leads/edit");
@@ -476,14 +482,16 @@ describe("Add and remove private room members", () => {
 });
 
 describe("Only members see a room", () => {
-  it("keeps a room that's gone on screen, saying it was deleted, and takes it out of the sidebar", async () => {
+  it("says in its place that a room that's gone was deleted, and takes it out of the sidebar", async () => {
     vi.stubGlobal("WebSocket", goneRoom("random"));
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     const { user } = showWorkspace("/rooms/random");
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("#random was deleted");
     expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Star/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to #general" })).toBeInTheDocument();
 
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /general/ }));
@@ -491,15 +499,14 @@ describe("Only members see a room", () => {
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #general");
   });
 
-  it("leaves the messages of a room that's gone with nothing to do to them", async () => {
+  it("takes away the messages of a room that's gone", async () => {
     const said: Message = { id: "m1", clientMessageId: "c1", roomId: "random", creator: ada, body: "<p>Before it went</p>", plainText: "Before it went", mentions: [], createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", editedAt: null, boosts: [] };
     vi.stubGlobal("WebSocket", goneRoom("random", [said]));
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/rooms/random");
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    const article = screen.getByText("Before it went").closest("article")!;
-    expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
+    expect(screen.queryByText("Before it went")).not.toBeInTheDocument();
   });
 
   it("keeps a room / went to on screen when it goes, without asking for the list again", async () => {
@@ -507,8 +514,7 @@ describe("Only members see a room", () => {
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/");
     await waitFor(() => expect(sidebarRooms()).toEqual(["random"]));
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("general");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("#general was deleted");
     expect(location.pathname).toBe("/rooms/general");
     expect(roomListRequests()).toBe(1);
   });
@@ -565,6 +571,22 @@ describe("Link to a message", () => {
     expect(room.sent).not.toContainEqual({ type: "history.around" });
   });
 
+  it("leaves the room's messages where they are as another of its tabs shows, and Messages again", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    const older: Message = { id: "m1", clientMessageId: "c1", roomId: "general", creator: ada, body: "<p>Older</p>", plainText: "Older", mentions: [], createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", editedAt: null, boosts: [] };
+    // Reading older history, which going to the newest would ask the room for again.
+    room.letIn({ messages: [older], hasNewer: true });
+
+    await userEvent.click(screen.getByRole("tab", { name: "Files & links" }));
+    expect(location.pathname + location.search).toBe("/rooms/general?tab=files");
+    await userEvent.click(screen.getByRole("tab", { name: "Messages" }));
+    expect(location.pathname + location.search).toBe("/rooms/general");
+    expect(room.sent).not.toContainEqual(expect.objectContaining({ type: "history.around" }));
+  });
+
   it("says what the room has to over a thread that covers it, as why it refused something done in the thread", async () => {
     vi.stubGlobal("WebSocket", RoomSocket);
     vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));
@@ -588,14 +610,14 @@ describe("Link to a message", () => {
     expect(railCurrent()).toEqual(["Home"]);
   });
 
-  it("goes from the address of a message with a malformed id to its room, and from one in a room you can't see home with the alert", async () => {
+  it("goes from the address of a message with a malformed id to its room, and says so at one in a room you can't see", async () => {
     showWorkspace("/rooms/random/messages/%FF");
     expect(await roomHeading()).toHaveTextContent("random");
     expect(location.pathname).toBe("/rooms/random");
 
     act(() => navigate("/rooms/secret/messages/m1"));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
+    expect(location.pathname).toBe("/rooms/secret/@m1");
   });
 });
 
@@ -611,6 +633,93 @@ describe("Group DMs and DM names", () => {
   });
 });
 
+describe("DMs page", () => {
+  const dmsList = () => screen.getByRole("region", { name: "Direct messages" });
+  /** A message Ada wrote, at noon. */
+  const sentMessage = (id: string, plainText: string): Message => ({ id, clientMessageId: id, roomId: "general", creator: ada, body: `<p>${plainText}</p>`, plainText, mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] });
+
+  it("lists the DMs once in the drawer layout, in the page, where the sidebar's hidden", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 56.3125rem)", media, addEventListener() {}, removeEventListener() {} }));
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/dms");
+    expect(await screen.findByRole("link", { name: "Direct message with Grace" })).toBeInTheDocument();
+    expect(screen.getAllByRole("region", { name: "Direct messages" })).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "Direct messages" }).closest("aside")).toBeNull();
+  });
+
+  it("opens from the rail's DMs, beside the list of DMs, and shows a DM picked there beside the list, marking DMs", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
+      "GET /api/directs": () => Response.json({ previews: [{ roomId: "d1", latest: { ...sentMessage("m1", "see you at noon"), roomId: "d1" }, unread: 0 }] }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    // Home lists no DMs.
+    expect(screen.queryByRole("link", { name: /^Direct message with / })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "DMs" }));
+    expect(location.pathname).toBe("/dms");
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("heading", { level: 1, name: "Direct messages" })).toBeInTheDocument();
+    expect(screen.getByText(/^\d+ conversations?/)).toBeInTheDocument();
+    expect(await within(dmsList()).findByText("You: see you at noon")).toBeInTheDocument();
+
+    await user.click(within(dmsList()).getByRole("link", { name: "Direct message with Grace" }));
+    expect(await roomHeading()).toHaveTextContent("Direct message with Grace");
+    expect(location.pathname).toBe("/dms/d1");
+    expect(within(dmsList()).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+
+    // Home goes back to the last room it showed, not the DM.
+    await user.click(screen.getByRole("link", { name: "Home" }));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(screen.queryByRole("region", { name: "Direct messages" })).not.toBeInTheDocument();
+  });
+
+  it("shows a DM at its address on the DMs page, a room that isn't a DM at its own, and goes home from one that isn't yours", async () => {
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/dms/d1");
+    expect(await roomHeading()).toHaveTextContent("Direct message with Grace");
+    expect(within(dmsList()).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("href", "/dms/d1");
+    expect(within(dmsList()).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+
+    act(() => navigate("/dms/random"));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
+    act(() => navigate("/dms/d9"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    // Home, which goes back to the last room it showed.
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
+  });
+
+  it("keeps New direct message at its address, over the last room visited", async () => {
+    showWorkspace("/rooms/directs/new");
+    expect(await screen.findByRole("dialog", { name: "New direct message" })).toBeInTheDocument();
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+  });
+});
+
+describe("Home sidebar pages", () => {
+  it("opens Threads, Drafts & sent and People from Home's links, marking the link and Home", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("link", { name: "Threads" }));
+    expect(location.pathname).toBe("/threads");
+    expect(await screen.findByRole("heading", { name: "No threads yet" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Threads" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+
+    await user.click(screen.getByRole("link", { name: "Drafts & sent" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Drafts & sent" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No drafts" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "People" }));
+    expect(location.pathname).toBe("/people");
+    expect(screen.getByRole("searchbox", { name: "Search for people" })).toBeInTheDocument();
+  });
+});
+
 describe("Delete a direct message", () => {
   it("deletes a DM from the settings its header opens, going home without an alert", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -620,15 +729,16 @@ describe("Delete a direct message", () => {
     });
     const { user } = showWorkspace("/rooms/d1");
     await roomHeading();
-    await user.click(screen.getByRole("link", { name: "Settings for this Ping" }));
+    await user.click(screen.getByRole("link", { name: "Settings for this DM" }));
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Edit settings for Grace");
-    await user.click(screen.getByRole("button", { name: "Delete Ping" }));
+    await user.click(screen.getByRole("button", { name: "Delete DM" }));
 
     expect(await roomHeading()).toHaveTextContent("general");
     expect(location.pathname).toBe("/rooms/general");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
+    act(() => navigate("/dms"));
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
   });
 
   it("goes home without an alert when the workspace socket tells of the deletion before it answers", async () => {
@@ -640,10 +750,10 @@ describe("Delete a direct message", () => {
       "DELETE /api/rooms/d1": () => new Promise<Response>((resolve) => (answer = resolve)),
     });
     const { user } = showWorkspace("/rooms/directs/d1/edit");
-    await user.click(await screen.findByRole("button", { name: "Delete Ping" }));
+    await user.click(await screen.findByRole("button", { name: "Delete DM" }));
     await workspaceSends({ type: "room.gone", roomId: "d1" });
     // The page stays as it was until its deletion answers.
-    expect(screen.getByRole("button", { name: "Delete Ping" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete DM" })).toBeDisabled();
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
 
     await act(async () => answer(new Response(null, { status: 204 })));
@@ -660,12 +770,13 @@ describe("Delete a direct message", () => {
       "DELETE /api/rooms/d1": () => Response.json({ error: "Room not found or inaccessible" }, { status: 404 }),
     });
     const { user } = showWorkspace("/rooms/directs/d1/edit");
-    await screen.findByRole("button", { name: "Delete Ping" });
+    await screen.findByRole("button", { name: "Delete DM" });
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toHaveLength(1);
     await workspaceSends({ type: "room.gone", roomId: "d1" });
-    expect(within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
 
-    await user.click(screen.getByRole("button", { name: "Delete Ping" }));
+    await user.click(screen.getByRole("button", { name: "Delete DM" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
     expect(await roomHeading()).toHaveTextContent("general");
   });
@@ -686,23 +797,30 @@ describe("New direct message dialog", () => {
   const people: DirectoryUser[] = [ada, withGrace.members[1]!].map(({ id, name }) => ({ id, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${id}/avatar` }));
   const newDirect = () => screen.queryByRole("dialog", { name: "New direct message" });
   const dms = () => within(screen.getByRole("navigation", { name: "Workspace", hidden: true })).getByRole("link", { name: "DMs", hidden: true });
+  /** The DMs page's button that starts a new DM. */
+  const compose = () => screen.getByRole("link", { name: "New direct message" });
+  /** Opens New direct message from the DMs page, which the rail's DMs goes to. */
+  async function openNewDirect(user: ReturnType<typeof userEvent.setup>) {
+    if (!screen.queryByRole("link", { name: "New direct message" })) await user.click(dms());
+    await user.click(compose());
+  }
 
   beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
 
-  it("opens over the page from the rail's DMs and the sidebar's New direct message, turning Activity off, and closes back on the link", async () => {
+  it("opens over the DMs page from its New direct message, which the rail's DMs goes to, and closes back on the link", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(screen.getByRole("button", { name: "Activity" }));
     await user.click(dms());
+    expect(location.pathname).toBe("/dms");
+    const link = compose();
+    await user.click(link);
     expect(newDirect()).toBeInTheDocument();
-    expect(location.pathname).toBe("/rooms/general");
-    expect(screen.getByRole("button", { name: "Activity", hidden: true })).toHaveAttribute("aria-pressed", "false");
+    expect(location.pathname).toBe("/dms");
     expect(await screen.findByRole("option", { name: "Grace" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(newDirect()).not.toBeInTheDocument());
-    expect(dms()).toHaveFocus();
+    expect(link).toHaveFocus();
 
-    const link = within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "New direct message" });
     await user.click(link);
     expect(newDirect()).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -723,7 +841,8 @@ describe("New direct message dialog", () => {
   });
 
   it("closes the drawer as it opens on a phone, and gives focus to the drawer's toggle once it closes", async () => {
-    const { user } = showWorkspace("/rooms/general");
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])), "GET /api/users": () => Response.json({ users: people }) });
+    const { user } = showWorkspace("/rooms/d1");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
     await user.click(within(screen.getByRole("dialog", { name: "Conversations" })).getByRole("link", { name: "New direct message" }));
@@ -738,14 +857,14 @@ describe("New direct message dialog", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(dms());
+    await openNewDirect(user);
     await user.click(await screen.findByRole("option", { name: "Grace" }));
     await user.click(screen.getByRole("button", { name: "Start conversation" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/d1");
     expect(newDirect()).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: ["u2"] }) }));
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
 
@@ -758,7 +877,7 @@ describe("New direct message dialog", () => {
     });
     const { user } = showWorkspace("/rooms/d1");
     const composer = await screen.findByRole("textbox", { name: "Write a message" });
-    await user.click(dms());
+    await openNewDirect(user);
     await user.click(await screen.findByRole("option", { name: "Grace" }));
     await user.click(screen.getByRole("button", { name: "Start conversation" }));
     await waitFor(() => expect(newDirect()).not.toBeInTheDocument());
@@ -766,46 +885,24 @@ describe("New direct message dialog", () => {
     expect(screen.getByRole("textbox", { name: "Write a message" })).toBe(composer);
     await waitFor(() => expect(composer).toHaveFocus());
   });
-
-  it("asks before leaving a room's unsaved settings for the DM, keeping the people picked to come back to", async () => {
-    serve({
-      "GET /api/users": () => Response.json({ users: people }),
-      "GET /api/rooms/general/settings": () => Response.json(generalSettings),
-      "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
-    });
-    const { user } = showWorkspace("/rooms/opens/general/edit");
-    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
-    await user.click(dms());
-    await user.click(await screen.findByRole("option", { name: "Grace" }));
-    await user.click(screen.getByRole("button", { name: "Start conversation" }));
-    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
-    expect(screen.getByRole("button", { name: "Remove Grace" })).toBeInTheDocument();
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/directs")).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "Start conversation" }));
-    await user.click(await screen.findByRole("button", { name: "Discard" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
-    expect(location.pathname).toBe("/rooms/d1");
-  });
 });
 
 describe("Suggested people", () => {
   const grace = withGrace.members[1]!;
-  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
+  const suggestion = () => within(screen.getByRole("region", { name: "Direct messages" })).queryByRole("button", { name: "Start a direct message with Grace" });
 
-  it("starts a DM with someone suggested and opens it, listed in the suggestion's place, for its composer to take focus", async () => {
+  it("starts a DM with someone the DMs page suggests and opens it, listed in the suggestion's place, for its composer to take focus", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
+    const { user } = showWorkspace("/dms");
+    await user.click(await screen.findByRole("button", { name: "Start a direct message with Grace" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
-    expect(location.pathname).toBe("/rooms/d1");
+    expect(location.pathname).toBe("/dms/d1");
     expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
     expect(suggestion()).not.toBeInTheDocument();
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
@@ -816,15 +913,15 @@ describe("Suggested people", () => {
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
       "POST /api/directs": () => new Promise<Response>((resolve) => (answer = resolve)),
     });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
-    await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
-    expect(await roomHeading()).toHaveTextContent("random");
+    const { user } = showWorkspace("/dms");
+    await user.click(await screen.findByRole("button", { name: "Start a direct message with Grace" }));
+    await user.click(screen.getByRole("link", { name: "Home" }));
+    expect(await roomHeading()).toHaveTextContent("general");
 
     await act(async () => answer(Response.json({ room: withGrace }, { status: 201 })));
-    expect(location.pathname).toBe("/rooms/random");
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).not.toHaveAttribute("aria-current");
+    expect(location.pathname).toBe("/rooms/general");
+    act(() => navigate("/dms"));
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).getByRole("link", { name: "Direct message with Grace" })).not.toHaveAttribute("aria-current");
     expect(suggestion()).not.toBeInTheDocument();
   });
 
@@ -833,11 +930,10 @@ describe("Suggested people", () => {
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
       "POST /api/directs": () => Promise.reject(new TypeError("Failed to fetch")),
     });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
+    const { user } = showWorkspace("/dms");
+    await user.click(await screen.findByRole("button", { name: "Start a direct message with Grace" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
-    expect(location.pathname).toBe("/rooms/general");
+    expect(location.pathname).toBe("/dms");
     expect(suggestion()).toBeInTheDocument();
     expect(suggestion()).not.toHaveAttribute("aria-disabled");
   });
@@ -845,7 +941,7 @@ describe("Suggested people", () => {
 
 describe("Remove someone from the workspace", () => {
   const grace: DirectoryUser = { ...withGrace.members[1]!, bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
-  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
+  const suggestion = () => within(screen.getByRole("region", { name: "Direct messages" })).queryByRole("button", { name: "Start a direct message with Grace" });
 
   it("suggests nobody the workspace socket says has been removed since the sidebar loaded", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
@@ -853,9 +949,8 @@ describe("Remove someone from the workspace", () => {
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [withGrace.members[1]] }),
       "GET /api/users": () => Response.json({ users: [grace] }),
     });
-    showWorkspace("/rooms/general");
-    await roomHeading();
-    expect(suggestion()).toBeInTheDocument();
+    showWorkspace("/dms");
+    expect(await screen.findByRole("button", { name: "Start a direct message with Grace" })).toBeInTheDocument();
     await workspaceSends({ type: "user.updated", user: { ...grace, status: "deactivated" } });
     expect(suggestion()).not.toBeInTheDocument();
   });
@@ -872,7 +967,7 @@ describe("Rename the workspace", () => {
 describe("Saved notices", () => {
   it("alerts with what the server said when something fails", async () => {
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], parents: [] }),
       "POST /api/rooms": () => Response.json({ error: "Name must be 1 to 100 characters" }, { status: 422 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -888,7 +983,7 @@ describe("Saved notices", () => {
 
   it("shows the same alert again when it comes again", async () => {
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], parents: [] }),
       "POST /api/rooms": () => Response.json({ error: "Name must be 1 to 100 characters" }, { status: 422 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -1158,6 +1253,7 @@ describe("Search box", () => {
     await waitFor(() => expect(searchBox()).not.toBeInTheDocument());
 
     await user.click(screen.getByRole("link", { name: "DMs" }));
+    await user.click(screen.getByRole("link", { name: "New direct message" }));
     expect(fireEvent.keyDown(screen.getByRole("combobox", { name: "Search people" }), { key: "f", ctrlKey: true })).toBe(true);
     expect(searchBox()).not.toBeInTheDocument();
   });
@@ -1275,156 +1371,256 @@ describe("Someone's profile page", () => {
   });
 });
 
-describe("Activity filter", () => {
-  const marked: SidebarRoom[] = [
-    { ...rooms[0]!, unread: true, involvement: "mentions" },
-    { ...rooms[1]!, unread: true, involvement: "mentions" },
-    { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" },
-  ];
-  const activity = () => screen.getByRole("button", { name: "Activity" });
-  // The sidebar's rooms, which workspace settings has a section named for too.
-  const sidebarRooms = () =>
-    within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
-      .getAllByRole("link")
-      .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
-  const roomLink = (name: RegExp) => within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("link", { name });
+describe("Activity", () => {
+  const item = (id: number, fields: Partial<ActivityItem> = {}): ActivityItem => ({
+    id,
+    kind: "mention",
+    roomId: "random",
+    messageId: `m${id}`,
+    parentId: null,
+    actorId: "u2",
+    preview: `Look at this ${id}`,
+    content: null,
+    at: NOON,
+    read: false,
+    ...fields,
+  });
+  const activityLink = () => within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("link", { name: "Activity" });
+  const feed = () => screen.getByRole("list", { name: "Activity items" });
+  const grace: DirectoryUser = { id: "u2", name: "Grace", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
+  const serveActivity = (items: ActivityItem[], responses: Parameters<typeof serve>[0] = {}) =>
+    serve({
+      ...responses,
+      "GET /api/users": () => Response.json({ users: [grace] }),
+      "GET /api/activity": () => Response.json({ items, unread: items.filter((i) => !i.read).length, more: false }),
+      "POST /api/activity/marks": () => new Response(null, { status: 204 }),
+    });
 
-  /** A workspace socket that welcomes Ada, then says random has been marked unread for her. */
-  class MarkingSocket extends QuietSocket {
-    onopen: (() => void) | null = null;
-    onmessage: ((event: { data: string }) => void) | null = null;
-    constructor(url: string) {
-      super();
-      if (!url.includes("/api/socket")) return;
-      setTimeout(() => {
-        this.onopen?.();
-        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
-        this.onmessage?.({ data: JSON.stringify({ type: "room.unread", roomId: "random", at: NOON }) });
-      });
-    }
-  }
-
-  it("counts the conversations marked unread but the one shown, and shows only them while it's on", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
-    await user.click(activity());
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-    expect(sidebarRooms()).toEqual(["random"]);
-    expect(railCurrent()).toEqual([]);
-
-    await user.click(activity());
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
-    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
-    expect(railCurrent()).toEqual(["Home"]);
+  it("shows Activity at its address, in the conversations' place, marking it on the rail", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(2), item(1, { kind: "direct", roomId: withGrace.id, read: true })], { "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/activity");
+    expect(await screen.findByRole("heading", { level: 1, name: "Activity" })).toBeInTheDocument();
+    await waitFor(() => expect(within(feed()).getAllByRole("button", { name: /Look at this/ })).toHaveLength(2));
+    // Each says the conversation it's from, but a DM with its author alone, which needs no naming again.
+    expect(within(feed()).getByRole("button", { name: /Look at this 2, Mention in #random$/ })).toHaveTextContent(/#random$/);
+    expect(within(feed()).getByRole("button", { name: /Look at this 1, Direct message in Grace$/ })).toHaveTextContent(/^Look at this 1$/);
+    expect(screen.queryByRole("complementary", { name: "Conversations" })).not.toBeInTheDocument();
+    // Its pill counts the unread item, which the description says.
+    expect(railCurrent()).toEqual(["Activity1"]);
+    expect(activityLink()).toHaveAccessibleDescription("1 unread");
   });
 
-  it("counts a room as it's marked", async () => {
-    vi.stubGlobal("WebSocket", MarkingSocket);
+  it("counts unread items on the rail as the workspace socket adds and marks them, on any page", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([]);
     showWorkspace("/rooms/general");
     await roomHeading();
-    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
+    await workspaceSends({ type: "activity.added", items: [item(1), item(2)] });
+    expect(activityLink()).toHaveAccessibleDescription("2 unread");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "activity.marked", ids: [1], read: true }) }));
+    expect(activityLink()).toHaveAccessibleDescription("1 unread");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "activity.marked", ids: null, read: true }) }));
+    expect(activityLink()).not.toHaveAttribute("aria-description");
   });
 
-  it("turns off when you follow a rail or sidebar link, and stays on through other navigation", async () => {
-    serve({
-      "GET /api/sidebar": () => Response.json(roomList(marked)),
-      "GET /api/searches?q=": () => Response.json({ search: null, matches: [], next: null, rooms: [], recent: [] }),
-    });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(activity());
-    act(() => navigate("/account/edit"));
-    expect(await communitySettings()).toBeInTheDocument();
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-    act(() => navigate("/searches"));
-    expect(await screen.findByRole("heading", { name: "Find a conversation" })).toBeInTheDocument();
-    // With no room shown, general counts too.
-    expect(sidebarRooms()).toEqual(["general", "random"]);
+  it("filters by tab, unread and search, and marks items read and unread", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(3, { kind: "thread", preview: "a reply", parentId: "m0" }), item(2, { read: true }), item(1, { kind: "direct", roomId: withGrace.id, preview: "lunch?" })]);
+    const { user } = showWorkspace("/activity");
+    const previews = () => within(feed()).queryAllByRole("button", { name: /^Grace/ }).map((row) => row.textContent);
+    await waitFor(() => expect(previews()).toHaveLength(3));
 
-    await user.click(roomLink(/random/));
-    expect(await roomHeading()).toHaveTextContent("random");
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Threads" }));
+    expect(previews()).toEqual([expect.stringContaining("a reply")]);
+    await user.click(screen.getByRole("button", { name: "All" }));
+    const unreads = screen.getByRole("button", { name: "Unreads", pressed: false });
+    await user.click(unreads);
+    expect(unreads).toHaveAttribute("aria-pressed", "true");
+    expect(previews()).toHaveLength(2);
+    await user.click(unreads);
+    await user.click(screen.getByRole("button", { name: "Search activity" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search activity" }), "lunch");
+    expect(previews()).toEqual([expect.stringContaining("lunch?")]);
 
-    await user.click(activity());
-    await user.click(screen.getByRole("link", { name: "Workspace" }));
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
+    await user.click(within(feed()).getByRole("button", { name: "Mark read: Grace" }));
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ method: "POST", body: JSON.stringify({ ids: [1], read: true }) }));
+    expect(within(feed()).getByRole("button", { name: "Mark unread: Grace" })).toBeInTheDocument();
   });
 
-  it("stays on when a link opens somewhere else", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
+  it("shows an unread item by its row alone, marking it with U or its menu, and everything from ⋯", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(2), item(1, { read: true })]);
+    const { user } = showWorkspace("/activity");
+    const row = async (preview: string) => (await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: new RegExp(preview) })).closest("li")!;
+    const unread = await row("Look at this 2");
+    expect(unread).toHaveClass("bg-activity-unread");
+    expect(await row("Look at this 1")).not.toHaveClass("bg-activity-unread");
+    expect(within(unread).getByRole("button", { name: /Look at this 2/ })).toHaveAccessibleName(/^Grace, unread: /);
+    // No dots, and the tabs have none either: the rail's count says there's something unread.
+    expect(within(feed()).queryByLabelText("Unread")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All" })).toHaveTextContent(/^All$/);
+
+    within(unread).getByRole("button", { name: /Look at this 2/ }).focus();
+    await user.keyboard("u");
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [2], read: true }) }));
+    expect(unread).not.toHaveClass("bg-activity-unread");
+
+    fireEvent.contextMenu(unread, { clientX: 40, clientY: 20 });
+    await user.click(await screen.findByRole("menuitem", { name: /^Mark unread/ }));
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [2], read: false }) }));
+    expect(unread).toHaveClass("bg-activity-unread");
+
+    await user.click(screen.getByRole("button", { name: "More activity actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark all read" }));
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ all: true, read: true }) }));
+  });
+
+  it("says in one line why the feed's empty", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1, { read: true })]);
+    const { user } = showWorkspace("/activity");
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    await user.click(screen.getByRole("button", { name: "Unreads" }));
+    expect(within(feed()).getByRole("listitem")).toHaveTextContent(/^You’re all caught up\.$/);
+    await user.click(screen.getByRole("button", { name: "Search activity" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search activity" }), "nothing like it");
+    expect(within(feed()).getByRole("listitem")).toHaveTextContent(/^Nothing matches\.$/);
+  });
+
+  it("opens an item's room beside the feed at its message, reading the item", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1)]);
+    const { user } = showWorkspace("/activity");
+    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
+    // The address says what's open, so a reload keeps it, and Back closes it.
+    expect(location.pathname).toBe("/activity/rooms/random/@m1");
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [1], read: true }) }));
+    expect(screen.getAllByRole("separator", { name: "Resize activity" })).toHaveLength(1);
+    expect(within(feed()).getAllByRole("listitem").find((row) => row.getAttribute("aria-current") === "true")).toHaveTextContent("Look at this 1");
+    act(() => history.back());
+    await waitFor(() => expect(location.pathname).toBe("/activity"));
+    expect(screen.queryByRole("heading", { level: 1, name: "random" })).not.toBeInTheDocument();
+  });
+
+  it("closes what it opened by going back, so Back never opens it again", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(3, { kind: "thread", parentId: "m0", preview: "a reply" })]);
+    const { user } = showWorkspace("/activity");
+    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /a reply/ }));
+    expect(location.pathname).toBe("/activity/rooms/random/threads/m0/@m3");
+    await user.click(await screen.findByRole("button", { name: "Close thread" }));
+    // Opened from the feed, the thread closes into the conversation in its place, which Back closes too.
+    await waitFor(() => expect(location.pathname).toBe("/activity/rooms/random"));
+    act(() => history.back());
+    await waitFor(() => expect(location.pathname).toBe("/activity"));
+    expect(screen.queryByRole("heading", { level: 1, name: "random" })).not.toBeInTheDocument();
+  });
+
+  it("says a conversation its address names can't be opened, for a room you aren't in", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([]);
+    showWorkspace("/activity/rooms/elsewhere/@m1");
+    expect(await screen.findByText("You can’t open this conversation.")).toBeInTheDocument();
+  });
+
+  it("opens a profile beside the feed with nothing open, with no empty pane between", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1)], { "GET /api/users/u2": () => Response.json({ person: grace }) });
+    const { user } = showWorkspace("/activity");
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    await user.click(within(feed()).getAllByRole("link", { name: "Grace" })[1]!);
+    expect(await screen.findByRole("complementary", { name: "Profile" })).toBeInTheDocument();
+    expect(screen.getAllByRole("separator", { name: /^Resize/ }).map((separator) => separator.getAttribute("aria-label"))).toEqual(["Resize profile"]);
+  });
+
+  it("opens the conversation and thread its address names beside the feed, closing the thread back to the conversation", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(3, { kind: "thread", parentId: "m0", preview: "a reply" })]);
+    const { user } = showWorkspace("/activity/rooms/random/threads/m0/@m3");
+    expect(await screen.findByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
+    expect(await screen.findByRole("separator", { name: "Resize thread" })).toBeInTheDocument();
+    await waitFor(() => expect(within(feed()).getAllByRole("listitem").find((row) => row.getAttribute("aria-current") === "true")).toHaveTextContent("a reply"));
+    await user.click(await screen.findByRole("button", { name: "Close thread" }));
+    expect(location.pathname).toBe("/activity/rooms/random");
+    expect(screen.queryByRole("separator", { name: "Resize thread" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
+  });
+
+  it("opens an item's author's profile beside the feed from their name or avatar, without opening the item", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1)], { "GET /api/users/u2": () => Response.json({ person: { ...grace, bio: "Wrote the first compiler" } }) });
+    const { user } = showWorkspace("/activity");
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    const [avatar, name] = within(feed()).getAllByRole("link", { name: "Grace" });
+    expect(avatar).toHaveAttribute("href", "/users/u2");
+    await user.click(name!);
+    const profile = screen.getByRole("complementary", { name: "Profile" });
+    expect(await within(profile).findByRole("heading", { name: "Grace" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/activity");
+    expect(fetch).not.toHaveBeenCalledWith("/api/activity/marks", expect.anything());
+    await user.click(within(profile).getByRole("button", { name: "Close profile" }));
+    await user.click(avatar!);
+    expect(screen.getByRole("complementary", { name: "Profile" })).toBeInTheDocument();
+  });
+});
+
+describe("Profile pane", () => {
+  /** A link to someone's page in the room shown, as a message's avatar is. */
+  const personLink = (userId: string) => {
+    const link = document.createElement("a");
+    link.href = `/users/${userId}`;
+    link.textContent = "Grace";
+    screen.getByRole("main").append(link);
+    return link;
+  };
+
+  it("opens someone's profile beside the room from a link to their page, and closes it", async () => {
+    serve({ "GET /api/users/u2": () => Response.json({ person: { id: "u2", name: "Grace", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/u2/avatar", timeZone: "America/New_York" } }) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(activity());
-    for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }]) {
-      // Keeps jsdom, which can't open a tab, from following the link once the page has had the click.
-      document.addEventListener("click", (event) => event.preventDefault(), { once: true });
-      fireEvent.click(roomLink(/random/), init);
-    }
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
+    await user.click(personLink("u2"));
+    const profile = screen.getByRole("complementary", { name: "Profile" });
     expect(location.pathname).toBe("/rooms/general");
+    expect(await within(profile).findByRole("heading", { name: "Grace" })).toBeInTheDocument();
+    expect(within(profile).getByText("Wrote the first compiler")).toBeInTheDocument();
+    expect(within(profile).getByText(/local time$/)).toBeInTheDocument();
+    expect(within(profile).getByRole("button", { name: "Message" })).toBeInTheDocument();
+    expect(within(profile).getByRole("button", { name: "More actions" })).toBeInTheDocument();
+    await user.click(within(profile).getByRole("button", { name: "Close profile" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument());
+    expect(location.pathname + location.search).toBe("/rooms/general");
   });
 
-  it("stays on while unsaved changes keep you on the page, and turns off once they let you go", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)), "GET /api/rooms/general/settings": () => Response.json(generalSettings) });
+  it("keeps the profile open in the address, through a reload, Back closing it", async () => {
+    serve({ "GET /api/users/u2": () => Response.json({ person: { id: "u2", name: "Grace", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" } }) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(activity());
-    const changeSettings = async () => {
-      act(() => navigate("/rooms/opens/general/edit"));
-      await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
-    };
-    await changeSettings();
+    await user.click(personLink("u2"));
+    expect(location.pathname + location.search).toBe("/rooms/general?profile=u2");
+    act(() => history.back());
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument());
+    expect(location.search).toBe("");
+    cleanup();
 
-    await user.click(screen.getByRole("link", { name: "Workspace" }));
-    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
-    expect(location.pathname).toBe("/rooms/opens/general/edit");
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-    // Going elsewhere afterwards some other way leaves it on.
-    await user.click(screen.getByRole("link", { name: "Go Back" }));
-    await user.click(await screen.findByRole("button", { name: "Discard" }));
-    expect(await screen.findByRole("heading", { level: 2, name: "Room order and permissions" })).toBeInTheDocument();
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-
-    await changeSettings();
-    await user.click(screen.getByRole("link", { name: "Home" }));
-    await user.click(await screen.findByRole("button", { name: "Discard" }));
-    expect(await roomHeading()).toHaveTextContent("general");
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
+    showWorkspace("/rooms/general?profile=u2");
+    expect(await within(await screen.findByRole("complementary", { name: "Profile" })).findByRole("heading", { name: "Grace" })).toBeInTheDocument();
+    // Closed on a page it didn't open on, it goes, leaving nothing for Back to open again.
+    await user.click(screen.getByRole("button", { name: "Close profile" }));
+    expect(location.pathname + location.search).toBe("/rooms/general");
+    expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument();
   });
 
-  it("keeps the drawer open on a phone, turning on or off, and filters the drawer's rooms", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(screen.getByRole("button", { name: "Open conversations" }));
-    const drawer = screen.getByRole("dialog", { name: "Conversations" });
-    await user.click(within(drawer).getByRole("button", { name: "Activity" }));
-    expect(screen.getByRole("dialog", { name: "Conversations" })).toBe(drawer);
-    expect(within(drawer).getAllByRole("link", { name: /random|general|Design/ }).map((link) => link.textContent)).toEqual(["#random"]);
-    await user.click(within(drawer).getByRole("button", { name: "Activity" }));
-    expect(screen.getByRole("dialog", { name: "Conversations" })).toBe(drawer);
-    expect(within(drawer).getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("keeps the drawer open on a phone as Activity, pressed there on community settings' pages, goes home, filtering its conversations", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
+  it("follows a link to someone's page on a page with no pane for it", async () => {
     const { user } = showWorkspace("/account/edit");
     await communitySettings();
-    await user.click(screen.getByRole("button", { name: "Open navigation", expanded: false }));
-    await user.click(within(screen.getByRole("dialog", { name: "Navigation" })).getByRole("button", { name: "Activity" }));
-    // Home goes on to the last room, which shows under the drawer.
-    await waitFor(() => expect(location.pathname).toMatch(/^\/rooms\/\w+$/));
-    const drawer = await screen.findByRole("dialog", { name: "Conversations" });
-    expect(within(drawer).getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "true");
-    // The room home went on to is read, so Activity leaves it out.
-    const unread = within(drawer).getAllByRole("link", { name: /random|general|Design/ });
-    expect(unread).toHaveLength(1);
-
-    // Going on to another page closes it, as ever.
-    await user.click(unread[0]!);
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const link = document.createElement("a");
+    link.href = "/users/u2";
+    link.textContent = "Grace";
+    document.body.querySelector("main")!.append(link);
+    await user.click(link);
+    expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument();
   });
 });
 
@@ -1469,17 +1665,38 @@ describe("Live sidebar updates", () => {
     await roomHeading();
     await workspaceSends({ type: "room.gone", roomId: "random" });
     expect(sidebarRooms()).toEqual(["general"]);
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
     expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/random");
+  });
+
+  it("drops the tab from the address of a room that's gone while a tab of it is shown (E-R5-18)", async () => {
+    serve({ "GET /api/rooms/random/library": () => Response.json({ files: [], links: [] }) });
+    showWorkspace("/rooms/random?tab=files");
+    await roomHeading();
+    await screen.findByRole("tabpanel", { name: "Files & links" }, { timeout: 5000 });
+    await workspaceSends({ type: "room.gone", roomId: "random" });
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
+    await waitFor(() => expect(location.pathname + location.search).toBe("/rooms/random"));
+  });
+
+  it("says someone taken out of a room that's still there no longer has access to it, rather than that it was deleted", async () => {
+    showWorkspace("/rooms/random");
+    await roomHeading();
+    await workspaceSends({ type: "room.gone", roomId: "random", lostAccess: true });
+    expect(sidebarRooms()).toEqual(["general"]);
+    expect(screen.getByRole("alert")).toHaveTextContent("You no longer have access to #random");
+    expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to #general" })).toBeInTheDocument();
+    // The bar above names the room still, muted.
+    expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent("#random");
   });
 
   it("shows a room said to be gone as it is once the workspace socket brings it back, as when someone is put back in it", async () => {
     showWorkspace("/rooms/random");
     await roomHeading();
     await workspaceSends({ type: "room.gone", roomId: "random" });
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
 
     await workspaceSends({ type: "room.saved", room: rooms[1]! });
     expect(sidebarRooms()).toEqual(["general", "random"]);
@@ -1506,7 +1723,7 @@ describe("Live sidebar updates", () => {
     vi.stubGlobal("WebSocket", ReturningRoom);
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/rooms/random");
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted."));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted"));
     // The page takes the room out of the sidebar in an effect, just after it says so.
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
 
@@ -1529,7 +1746,7 @@ describe("Live sidebar updates", () => {
 
 describe("Star rooms", () => {
   const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
-  const star = () => screen.getByRole("button", { name: "Favorite room" });
+  const star = () => screen.getByRole("button", { name: "Star room" });
 
   it("lists your starred rooms first, and stars the room shown from its header, moving it up", async () => {
     const answered = { rooms: ["random", "design"], version: 2 };
@@ -1554,7 +1771,7 @@ describe("Star rooms", () => {
 
     await user.click(star());
     expect(star().nextElementSibling).toHaveRole("status");
-    expect(star().nextElementSibling).toHaveTextContent("Couldn’t save your favorite. Please try again.");
+    expect(star().nextElementSibling).toHaveTextContent("Couldn’t save your star. Please try again.");
     expect(star()).toHaveAttribute("aria-pressed", "false");
     expect(sidebarRooms()).toEqual(["general", "random"]);
   });
@@ -1616,6 +1833,7 @@ describe("Keyboard shortcuts", () => {
     await waitFor(() => expect(composer).toHaveFocus());
 
     await user.click(screen.getByRole("link", { name: "DMs" }));
+    await user.click(screen.getByRole("link", { name: "New direct message" }));
     expect(fireEvent.keyDown(screen.getByRole("combobox", { name: "Search people" }), { key: "/", ctrlKey: true })).toBe(true);
     expect(shortcuts()).not.toBeInTheDocument();
   });
@@ -1647,7 +1865,8 @@ describe("Welcome card for administrators, until they dismiss it", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({ "GET /api/sidebar": () => Response.json(invited), "DELETE /api/sidebar/invitation": answer });
     const shown = showWorkspace("/rooms/general");
-    return { ...shown, dismiss: await screen.findByRole("button", { name: "Dismiss welcome card" }) };
+    // The card shows once the sidebar and the room have both come, which can take a while on a busy machine.
+    return { ...shown, dismiss: await screen.findByRole("button", { name: "Dismiss welcome card" }, { timeout: 10_000 }) };
   }
 
   it("takes the welcome card away once its × has saved that it's dismissed", async () => {
@@ -1676,7 +1895,7 @@ describe("Welcome card for administrators, until they dismiss it", () => {
 
 describe("Shared room order", () => {
   /** The rooms `order` lists, top to bottom, by the names of their links to their settings. */
-  const roomsIn = (order: HTMLElement) => within(order).getAllByRole("link").map((link) => link.getAttribute("aria-label")!.replace("Settings for ", ""));
+  const roomsIn = (order: HTMLElement) => within(order).getAllByRole("link", { name: /^Settings for / }).map((link) => link.getAttribute("aria-label")!.replace("Settings for ", ""));
 
   it("puts the sidebar's rooms in the order an administrator saves on workspace settings, after their stars", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
@@ -1762,7 +1981,7 @@ describe("Stay signed in, per device", () => {
 
   it("goes back to sign-in when a page that was left finds the session gone", async () => {
     let answer = (_: Response) => {};
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], parents: [] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
     const { onSessionChanged, user } = showWorkspace("/rooms/opens/new");
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     act(() => navigate("/account/edit"));
@@ -1772,7 +1991,7 @@ describe("Stay signed in, per device", () => {
 
   it("says nothing more once another person's workspace has taken its place", async () => {
     let answer = (_: Response) => {};
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], parents: [] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
     const { onSessionChanged, unmount, user } = showWorkspace("/rooms/opens/new");
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     // As App replaces it when another tab signs in as someone else.
@@ -1829,7 +2048,7 @@ describe("Conversations drawer on phones", () => {
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
     await user.tab();
-    expect(within(screen.getByRole("dialog")).getByRole("link", { name: /general/ })).toHaveFocus();
+    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Threads" })).toHaveFocus();
     await user.tab({ shift: true });
     await user.tab({ shift: true });
     expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Your profile" })).toHaveFocus();
@@ -1930,13 +2149,13 @@ describe("Landmarks and names", () => {
     expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
   });
 
-  it("names the rail, the rooms, the DMs, the messages and the composer", async () => {
+  it("names the rail, the rooms, the Home sidebar's links, the messages and the composer", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(screen.getByRole("navigation", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Rooms" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "DMs" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Home" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toContainElement(screen.getByRole("log", { name: "Messages in general" }));
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toBeInTheDocument();
   });
@@ -1969,8 +2188,6 @@ describe("Notification levels", () => {
 });
 
 describe("Hide a room", () => {
-  const activity = () => screen.getByRole("button", { name: "Activity" });
-
   it("takes the room shown out of the sidebar once its bell hides it, keeping it open, and puts it back once it's shown again", async () => {
     const listed: SidebarRoom[] = [
       { ...rooms[0]!, unread: false, involvement: "nothing" },
@@ -1994,16 +2211,17 @@ describe("Hide a room", () => {
     await waitFor(() => expect(sidebarRooms()).toEqual(["general", "random"]));
   });
 
-  it("leaves the rooms you've hidden out of Activity's count", async () => {
+  it("leaves the rooms you've hidden out of the app's badge", async () => {
     const listed: SidebarRoom[] = [
       { ...rooms[0]!, unread: false, involvement: "mentions" },
       { ...rooms[1]!, unread: true, involvement: "invisible" },
     ];
     serve({ "GET /api/sidebar": () => Response.json(roomList(listed)) });
+    const badges = badgeTheApp();
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(sidebarRooms()).toEqual(["general"]);
-    expect(activity()).not.toHaveAccessibleDescription(/\d unread/);
+    await waitFor(() => expect(badges).toEqual(["cleared"]));
   });
 });
 
@@ -2128,7 +2346,7 @@ describe("Agent pages", () => {
   it("shows the agents' pages at their addresses from the AI assistant tab, marking it, and Admin on the rail, with Go Back to it", async () => {
     withAgents({ "GET /api/account/agents/a1": () => Response.json({ agent: recap }) });
     const { user } = showWorkspace("/account/edit#assistant-settings", asAdministrator);
-    await user.click(await screen.findByRole("link", { name: "Edit Recap" }));
+    await user.click(await screen.findByRole("link", { name: "Edit Recap" }, { timeout: 10_000 }));
     expect(await screen.findByRole("textbox", { name: "Name" })).toHaveValue("Recap");
     expect(document.title).toBe("Edit agent");
     expect(railCurrent()).toEqual(["Admin"]);
@@ -2272,7 +2490,7 @@ describe("Community settings page", () => {
   });
 
   it("shows the room forms as part of Rooms and permissions", async () => {
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], parents: [] }) });
     showWorkspace("/rooms/opens/new");
     await screen.findByRole("textbox", { name: "Room name" });
     expect(sectionMarked()).toHaveTextContent("Rooms and permissions");
@@ -2281,16 +2499,6 @@ describe("Community settings page", () => {
   });
 });
 
-describe("Activity filter", () => {
-  it("goes home from community settings' pages with Activity, which turns on there, as they've no conversations to show", async () => {
-    const { user } = showWorkspace("/account/edit");
-    await communitySettings();
-    await user.click(screen.getByRole("button", { name: "Activity" }));
-    expect(await roomHeading()).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("complementary", { name: "Conversations" })).toBeInTheDocument();
-  });
-});
 
 describe("Conversations drawer on phones", () => {
   it("holds the rail alone on community settings' pages, named for navigation, focusing its first link as it opens", async () => {
@@ -2455,9 +2663,9 @@ describe("Huddles", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("goes home from the huddle's link of a room that isn't this person's", async () => {
+  it("says the room isn't this person's at the huddle's link of a room that isn't", async () => {
     showWorkspace("/rooms/secret/huddle", ada, HUDDLES_ON);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
     expect(preview()).not.toBeInTheDocument();
   });
 
