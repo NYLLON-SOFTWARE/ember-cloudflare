@@ -1821,7 +1821,8 @@ export type WorkspaceServerFrame =
  * tabs sent a message's text rather than its markup, which the room would now read as markup, before
  * revision 3, an edit dropped the message's mentions, before revision 4, tabs knew nothing of
  * threads, and showed every reply in the room, and before revision 5, they knew nothing of pins,
- * whose frames their room view has no case for, which would break it rather than show one.
+ * whose frames their room view has no case for, and an edit dropped a group's mention, which a tab
+ * that knew no groups detached as one of no one.
  */
 export const ROOM_PROTOCOL = 5;
 

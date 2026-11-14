@@ -1,6 +1,6 @@
 import { Suspense, useContext, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Message } from "@ember/protocol";
-import { editableBody } from "@ember/richtext/dom";
+import { editableBody, groupIdsIn } from "@ember/richtext/dom";
 import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
 import { DirectoryLoaded, GroupsContext, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
@@ -43,11 +43,16 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const container = useRef<HTMLDivElement>(null);
   const people = useContext(PeopleContext);
   const groups = useContext(GroupsContext);
+  const directoryLoaded = useContext(DirectoryLoaded);
   // The editable body: its mentions as the editor draws them, of the people and the groups as they are
   // now, and its link previews as the message shows them here. It drops a mention of no one, and a
   // message from before messages named the people they mention knows them only from the directory, so
-  // for such a message the editor waits for the directory to load, when it lists everyone.
-  const knowsMentions = useContext(DirectoryLoaded) || message.mentions.every((person) => person.name !== "");
+  // for such a message the editor waits for the directory to load, when it lists everyone. A body
+  // naming a group waits for it too, whose groups the directory loads with it: opened before, the
+  // editor would know no group to draw the mention by, and keep none once the groups arrived.
+  const knowsMentions =
+    (directoryLoaded || groupIdsIn(message.body).length === 0) &&
+    (directoryLoaded || message.mentions.every((person) => person.name !== ""));
   const editableNow = () =>
     editableBody(
       message.body,
