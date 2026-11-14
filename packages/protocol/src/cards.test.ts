@@ -205,6 +205,7 @@ describe("Bot cards", () => {
       },
       { kind: "section", html: "<p>Deploy?</p>", button: button({ id: "approve", value: "" }) },
       { kind: "tiles", tiles: [{ buttons: [button({ id: "book" })] }] },
+      { kind: "buttons", buttons: [button({ id: "tool:close_issue", value: "{}", appId: "app-1" }), button({ id: "tool:close_issue", appId: 7 })] },
     ];
     const kept = [
       {
@@ -219,6 +220,8 @@ describe("Bot cards", () => {
       },
       { kind: "section", html: "<p>Deploy?</p>", button: { text: "Approve", action: { id: "approve", value: "" } } },
       { kind: "tiles", tiles: [{ buttons: [{ text: "Approve", action: { id: "book" } }] }] },
+      // The app whose tool a button on a tool's card calls stays with it.
+      { kind: "buttons", buttons: [{ text: "Approve", action: { id: "tool:close_issue", value: "{}", appId: "app-1" } }, { text: "Approve", action: { id: "tool:close_issue" } }] },
     ];
     expect(parseCards([{ source: "blocks", parts }], address)).toEqual([{ source: "blocks", parts: kept }]);
     expect(parseParts(parts, address)).toEqual(kept);

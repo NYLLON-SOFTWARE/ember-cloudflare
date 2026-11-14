@@ -88,12 +88,15 @@ export interface CardButton {
 
 /**
  * What a button that acts tells its bot when it's clicked, as a Block Kit button's `action_id` and `value`
- * do, and its block's `block_id`: `id` names the button, which a click finds by it and `blockId`.
+ * do, and its block's `block_id`: `id` names the button, which a click finds by it and `blockId`. On the
+ * card a connected app's tool answered with, a button calls a tool of that app, `appId`, which only
+ * the room writes there.
  */
 export interface CardAction {
   id: string;
   blockId?: string;
   value?: string;
+  appId?: string;
 }
 
 /** The longest `action_id` and `block_id` Slack takes. */
@@ -257,7 +260,8 @@ function actionOf(value: unknown): CardAction | undefined {
   if (!isRecord(value) || !isActionId(value.id)) return undefined;
   const blockId = isActionId(value.blockId) ? value.blockId : undefined;
   const actionValue = isActionValue(value.value) ? value.value : undefined;
-  return { id: value.id, ...(blockId !== undefined && { blockId }), ...(actionValue !== undefined && { value: actionValue }) };
+  const appId = isActionId(value.appId) ? value.appId : undefined;
+  return { id: value.id, ...(blockId !== undefined && { blockId }), ...(actionValue !== undefined && { value: actionValue }), ...(appId !== undefined && { appId }) };
 }
 
 /** Whether `value` can name a button that acts, or its block: text, some but not too much. */

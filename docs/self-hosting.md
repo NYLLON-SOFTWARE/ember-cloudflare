@@ -922,6 +922,25 @@ allowed.
   again, and doesn't call one that's no longer picked for the agent or that the server describes
   another way than when it was picked. What the tool answers goes to the model as text, cut at 8,000
   characters, and is the app's word: Ember passes on no pictures or files from it.
+- **A tool's card** is the app's own. A server built for Slack's assistant can answer a call with
+  [Block Kit](https://docs.slack.dev/ai/slackbot-mcp-client/returning-rich-responses) beside its
+  text, in `_meta.slack.blocks`, and Ember tells every server it takes that, by the name Slack's
+  client gives it (`io.slack/block-kit`). The room is shown those blocks as a card from the agent,
+  before its answer, ending in a line that says which app and tool it's from, and the model is told
+  the room has seen it. Ember shows such a card whole or not at all, as Slack does: one with more
+  than 50 blocks, or with a block Ember doesn't draw (a field to type in, a menu, a data table, a
+  chart, a container, a file), isn't shown, and the agent answers from the tool's text, as it does for
+  a server that sends no card. Its pictures are fetched by each reader's app from the addresses the
+  server gave, as a bot's card's are.
+- **A button on a tool's card** calls a tool when its `action_id` is `tool:` and the tool's name, with
+  the JSON object its `value` writes, as Slack has it. Ember keeps such a button only for a tool of
+  the same app that's picked for the agent, and drops any other button that isn't a link. Anyone in
+  the room can click it, and the click is its own leave: nobody is asked first, as the call is the
+  one the app's card offered, not one a model wrote, and it goes to no model. The card the tool
+  answers with takes the clicked one's place, saying who clicked which button, and what a tool only
+  says is posted beside the card. A call that fails tells whoever clicked why, in the server's words,
+  cut short. One click is answered at a time on a card. Agents' own answers still get no buttons
+  that act.
 - **Always allow** is an administrator's, for one agent and one tool: a box under each picked tool in
   the agent's Tools card. That agent's calls of that tool are then made at once, with nobody asked,
   for anyone who can ask the agent, so keep it for tools that only read, or whose every use you'd

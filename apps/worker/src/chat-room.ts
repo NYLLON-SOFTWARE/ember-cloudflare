@@ -43,7 +43,24 @@ import {
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
 import { roomSearch } from "./assistant/room-search";
-import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, usedCard, type GivenTool, type PickedTool, type ShowsCall, type Unmade } from "./apps/tools";
+import { ToolError } from "./assistant/tool-calls";
+import { saidCard, toolCallOf, toolCards, type CardCall } from "./apps/cards";
+import {
+  appTool,
+  callCard,
+  callDecisionOf,
+  CALL_OUTCOMES,
+  calledFromCard,
+  givenAs,
+  givenTools,
+  ToolGone,
+  usedCard,
+  type GivenTool,
+  type PickedTool,
+  type ShowsCall,
+  type ShowsCard,
+  type Unmade,
+} from "./apps/tools";
 import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
 import { actingButton, clickPayload } from "./bots/clicks";
@@ -234,6 +251,19 @@ const CALL_ANSWERED = "Someone has answered that already";
 const CALL_LATE = "That waited too long to be allowed. Ask again";
 /** What it tells them while the room has no turn left for the answer to go on in. */
 const ROOM_BUSY = "Too many questions are waiting for answers in this room. Try again in a moment";
+/** What it tells whoever clicks a button of a tool's card while another click on the card is being answered. */
+const CARD_BUSY = "That card is answering another click. Try again in a moment";
+/** The most characters of why a click's call came to nothing that whoever clicked is told, as an app's server may write it. */
+const MAX_TOLD_LENGTH = 300;
+
+/** What whoever clicked is told of `why` a click's call came to nothing, as a model would be told: without what says so to a model, and cut short. */
+const toldOf = (why: string) => {
+  const told = why.replace(/^Not run: /, "");
+  return told.length > MAX_TOLD_LENGTH ? `${told.slice(0, MAX_TOLD_LENGTH - 1)}…` : told;
+};
+
+/** The names of the tools of the app `appId` among `picked`, an answerer's. */
+const toolsOf = (picked: readonly PickedTool[], appId: string) => new Set(picked.filter((tool) => tool.appId === appId).map(({ name }) => name));
 /** What an answerer says when its model isn't the one that made the call that waited. */
 const MODEL_CHANGED = "I can't go on from that call: my model was changed while it waited. Ask me again.";
 /** What an answerer says, by its tool's app, when what it has read is too much to keep while a call waits. */
@@ -284,6 +314,8 @@ export class ChatRoom extends DurableObject<Env> {
   /** How many clicks each person has waiting on bots' webhooks. */
   private readonly clicking = new Map<UserId, number>();
   private readonly answers = new JobQueue(ANSWERS_AT_ONCE, ANSWERS_WAITING);
+  /** The tools' cards a click's call is being made for, by their messages' ids: one at a time each, as what it answers takes the card's place. */
+  private readonly calling = new Set<string>();
   /** How many jobs each bot is typing for, by its id and the thread it's typing in, if it's in one. */
   private readonly typists = new Map<string, number>();
   /**
@@ -974,8 +1006,8 @@ export class ChatRoom extends DurableObject<Env> {
         const refused = !button ? BUTTON_GONE : waiting >= CLICKS_WAITING_EACH ? TOO_MANY_CLICKS : null;
         if (refused) return this.send(ws, { type: "error", message: refused, clickId: frame.clickId, failed: frame.type });
         this.clicking.set(user.id, waiting + 1);
-        // The bot answers in its own time, which nothing else in the room waits for.
-        this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame));
+        // The bot answers in its own time, which nothing else in the room waits for. A click that calls an app's tool waits on the app, as an answer does, not among the bots' deliveries.
+        this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame, button && toolCallOf(button.action) ? this.answers : this.webhooks));
         return;
       }
       case "ping":
@@ -1272,14 +1304,15 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Reports the click `click`, which `user` sent on `ws`, to the webhook of the bot whose message it's on,
-   * in its turn among the room's deliveries, and does what the bot answers, then tells `ws` it's done, or
-   * why it came to nothing. Each is logged as a delivery is, and one the queue has no room for is dropped.
+   * in its turn among the room's deliveries, or among its answers, as `queue` is, and does what the bot
+   * answers, then tells `ws` it's done, or why it came to nothing. Each is logged as a delivery is, and
+   * one the queue has no room for is dropped.
    */
-  private async deliverClick(roomId: RoomId, ws: WebSocket, user: User, click: CardClick): Promise<void> {
+  private async deliverClick(roomId: RoomId, ws: WebSocket, user: User, click: CardClick, queue: JobQueue): Promise<void> {
     const job = `Bot::WebhookJob of ${user.id}'s click on message ${click.messageId}`;
     let failed: string | null = null;
     try {
-      const ran = await this.webhooks.run(async () => {
+      const ran = await queue.run(async () => {
         try {
           console.log(`${job} performed: ${await this.reportClick(roomId, user, click)}`);
         } catch (error) {
@@ -1288,8 +1321,8 @@ export class ChatRoom extends DurableObject<Env> {
         }
       });
       if (!ran) {
-        console.error(`${job} dropped: the room's webhook queue is full`);
-        failed = WEBHOOKS_FULL;
+        console.error(`${job} dropped: the room's queue is full`);
+        failed = queue === this.answers ? ROOM_BUSY : WEBHOOKS_FULL;
       }
     } finally {
       const waiting = (this.clicking.get(user.id) ?? 1) - 1;
@@ -1303,7 +1336,8 @@ export class ChatRoom extends DurableObject<Env> {
    * Delivers `user`'s click to the bot's webhook, as `deliver` delivers a message: the button as its
    * message has it by then, to the webhook as the Workspace finds it then, for whoever clicked, while
    * they're in the room, and does what the bot answers. Answers the webhook's status, or throws why the
-   * click came to nothing.
+   * click came to nothing. A click that answers a call that waits goes to no webhook (`decideCall`),
+   * and neither does one that calls a tool, on a tool's card (`callFromCard`).
    */
   private async reportClick(roomId: RoomId, user: User, click: CardClick): Promise<number | string> {
     const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), click.messageId);
@@ -1312,6 +1346,8 @@ export class ChatRoom extends DurableObject<Env> {
     const decision = callDecisionOf(button.action);
     const decided = decision && (await this.decideCall(roomId, user, message, decision));
     if (decided) return decided;
+    const call = toolCallOf(button.action);
+    if (call) return this.callFromCard(roomId, user, message, button.text, call);
     const { name } = message.creator;
     const webhook = await workspace(this.env).clickWebhook(roomId, message.creator.id, user.id);
     if (!webhook) throw new ClickError(`${name} isn't taking clicks here`, `${NO_WEBHOOK}, or whoever clicked has left the room`);
@@ -1322,6 +1358,60 @@ export class ChatRoom extends DurableObject<Env> {
     const refused = answer && (await this.postClickAnswer(roomId, webhook, message, answer));
     if (refused) throw new ClickError(`${name}'s answer couldn't be shown`, `its answer wasn't kept: ${refused}`);
     return status;
+  }
+
+  /**
+   * Makes the call `call`, which `user`'s click on the button `label` of the tool's card `message`
+   * asks for: of a tool the card's answerer still has, of the app whose tool answered with the card,
+   * for someone in the room, while Ember AI is on and the answerer there, one click a card at a time.
+   * The card the tool answers with takes the clicked one's place, saying who clicked what, and what a
+   * tool only says is the answerer's new message beside it. Answers what came of it, or throws why the
+   * click came to nothing, which whoever clicked is told: a tool's own word for it, cut short.
+   */
+  private async callFromCard(roomId: RoomId, user: User, message: Message, label: string, call: CardCall): Promise<string> {
+    const { name } = message.creator;
+    const [clicker, access] = await Promise.all([workspace(this.env).callDecider(roomId, user.id), workspace(this.env).answererIn(roomId, message.creator.id, user.id)]);
+    if (!clicker || !access) throw new ClickError(`${name} isn't answering here`, `${answererGone(message.creator.id)}, or whoever clicked has left the room`);
+    const tool = givenTools(access.appTools).find(({ appId, name }) => appId === call.appId && name === call.name);
+    if (!tool) throw new ClickError(`${name} no longer has that tool`, "the tool isn't the answerer's any more");
+    if (this.calling.has(message.id)) throw new ClickError(CARD_BUSY, "another click on the card is being answered");
+    this.calling.add(message.id);
+    try {
+      const clicked = { who: clicker.member.name, button: label };
+      const { text, card } = await calledFromCard(this.env, access.bot.id, givenAs(tool), call.input, clicked);
+      const cards = card && toolCards(card, tool.appId, toolsOf(access.appTools, tool.appId));
+      const unshown = await this.showCalled(roomId, access, message, cards ?? slackMessage(saidCard(tool, text, clicked)), cards !== null);
+      if (unshown !== null) throw new ClickError(`${tool.appName}'s answer couldn't be shown`, `its answer wasn't kept: ${unshown}`);
+      return cards ? "its card was replaced" : "its tool's answer was posted";
+    } catch (error) {
+      if (error instanceof ToolGone) throw new ClickError(`${name} no longer has that tool`, "the tool isn't the answerer's any more");
+      // What a server says of a call isn't logged, as it could write the token there.
+      if (error instanceof ToolError) throw new ClickError(toldOf(error.message), "the call came to nothing");
+      throw error;
+    } finally {
+      this.calling.delete(message.id);
+    }
+  }
+
+  /**
+   * Shows what a click's call was answered with, `shown`, for the tool's card `message`, the answerer
+   * `access` finds's own: in its place, `replacing` it, or as the answerer's new message beside it.
+   * Answers why the room keeps nothing of it, if it doesn't.
+   */
+  private showCalled(roomId: RoomId, access: AssistantAccess, message: Message, shown: SlackMessage | string, replacing: boolean): Promise<string | null> {
+    return this.serially(async () => {
+      if (typeof shown === "string") return shown;
+      if (await this.isDeleted()) return "the room is gone";
+      if (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt)) return answererGone(access.bot.id);
+      const store = this.storeFor(roomId);
+      const current = await this.botsOwn(store, access.bot, message.id);
+      if (typeof current === "string") return "the card is gone";
+      if (!replacing) return this.postBeside(store, access.bot, current, shown);
+      const body = await this.prepareWithCards(shown.markup, shown.cards);
+      if (typeof body === "string") return body;
+      await this.edit(store, current, body, new Date().toISOString());
+      return null;
+    });
   }
 
   /**
@@ -1488,7 +1578,7 @@ export class ChatRoom extends DurableObject<Env> {
     const where = { community, roomName, inThread: message.parentId !== undefined };
     const read = readable(conversation, where.inThread).map(({ id }) => id);
     const given = takesTools ? givenTools(access.appTools) : [];
-    const appTools = given.map((tool) => appTool(this.env, bot.id, tool, { described: tool, shown: this.showsCallsOf(roomId, access, message, tool) }));
+    const appTools = given.map((tool) => appTool(this.env, bot.id, tool, { described: tool, shown: this.showsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) }));
     const tools = takesTools ? [roomSearch(this.env, roomId, read), ...appTools] : [];
     const asked = { ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools };
     const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
@@ -1509,7 +1599,8 @@ export class ChatRoom extends DurableObject<Env> {
     const conversation = await this.conversationOf(this.storeFor(roomId), message);
     const inThread = message.parentId !== undefined;
     const read = readable(conversation, inThread).map(({ id }) => id);
-    const tools = [roomSearch(this.env, roomId, read), ...call.tools.map((tool) => appTool(this.env, bot.id, tool, { shown: this.showsCallsOf(roomId, access, message, tool) }))];
+    const appTools = call.tools.map((tool) => appTool(this.env, bot.id, tool, { shown: this.showsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) }));
+    const tools = [roomSearch(this.env, roomId, read), ...appTools];
     const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, call.paused, allowed, waitFor(call.paused.question)), this.peopleWhoWrote(conversation)]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools);
   }
@@ -1524,9 +1615,18 @@ export class ChatRoom extends DurableObject<Env> {
     if (!appTools.some((picked) => isIt(picked) && picked.alwaysAllowed)) return undefined;
     return async (input) => {
       let cardId: string | undefined;
-      const unshown = await this.postCallCard(roomId, bot, message, usedCard(bot.name, tool, input), async (posted) => void (cardId = posted.id));
+      const unshown = await this.postCallCard(roomId, bot, message, () => slackMessage(usedCard(bot.name, tool, input), true), async (posted) => void (cardId = posted.id));
       return unshown ?? { unmade: (why) => this.showUnmade(roomId, cardId!, tool, input, why) };
     };
+  }
+
+  /**
+   * What shows room `roomId` the cards that `tool` answers `bot`'s calls with, as it answers
+   * `message`: each as `bot`'s reply, where its answer goes, with the buttons that call a tool of the
+   * same app that `bot` has by then (`toolCards`).
+   */
+  private showsCardsOf(roomId: RoomId, bot: User, message: Message, tool: GivenTool): ShowsCard {
+    return (card) => this.postCallCard(roomId, bot, message, ({ appTools }) => toolCards(card, tool.appId, toolsOf(appTools, tool.appId)) ?? "it shows nothing here");
   }
 
   /** Has the card `messageId`, which showed the room a call of `tool` made without asking first, say the call wasn't made, and `why`. */
@@ -1573,24 +1673,26 @@ export class ChatRoom extends DurableObject<Env> {
    * that answers it (`decideCall`). Answers why the room keeps nothing of it, if it doesn't.
    */
   private async askFirst(roomId: RoomId, bot: User, message: Message, call: WaitingCall): Promise<string | null> {
-    const refused = await this.postCallCard(roomId, bot, message, callCard(bot.name, call.asker.name, call.tool, call.input), (posted) => this.waitingCallsFor(roomId).keep(posted.id, call));
+    const card = () => slackMessage(callCard(bot.name, call.asker.name, call.tool, call.input), true);
+    const refused = await this.postCallCard(roomId, bot, message, card, (posted) => this.waitingCallsFor(roomId).keep(posted.id, call));
     // The alarm forgets it once it has waited too long (`forgetLateCalls`).
     if (refused === null) await this.wakeAt(roomId, call.askedAt + CALL_WAITS_MS + 1);
     return refused;
   }
 
   /**
-   * Posts `card`, a call's, as `bot`'s reply to `message`, where `postAnswer` would post the answer and
-   * while it would, and then does `kept` with the message it is, in the same turn. Answers why the room
-   * keeps nothing of it, if it doesn't.
+   * Posts a call's card, or the card one was answered with, as `bot`'s reply to `message`, where
+   * `postAnswer` would post the answer and while it would: what `cardFor` gives for `bot` as the
+   * Workspace finds it then, or why there's none to post. It then does `kept` with the message it is,
+   * in the same turn. Answers why the room keeps nothing of it, if it doesn't.
    */
-  private async postCallCard(roomId: RoomId, bot: User, message: Message, payload: SlackPayload, kept?: (posted: Message) => Promise<void>): Promise<string | null> {
-    const card = slackMessage(payload, true);
-    if (typeof card === "string") return card;
+  private async postCallCard(roomId: RoomId, bot: User, message: Message, cardFor: (access: AssistantAccess) => SlackMessage | string, kept?: (posted: Message) => Promise<void>): Promise<string | null> {
     const access = await workspace(this.env).answererIn(roomId, bot.id, message.creator.id);
+    const card = access && cardFor(access);
+    if (typeof card === "string") return card;
     return this.serially(async () => {
       if (await this.isDeleted()) return "the room is gone";
-      if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return answererGone(bot.id);
+      if (!access || !card || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return answererGone(bot.id);
       const store = this.storeFor(roomId);
       if (!(await this.findUndeleted(store, message.id))) return "the message is gone";
       const inThread = message.parentId === undefined ? undefined : await this.inThread(store, message.parentId, false);

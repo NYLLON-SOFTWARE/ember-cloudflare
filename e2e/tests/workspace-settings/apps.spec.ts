@@ -7,8 +7,8 @@ import { ALLOW_HEADING, asksFor, calledWith, MCP_TOKEN, SERVER_NAME, startFakeMc
 
 // The Apps card on the AI assistant tab, Connect an app, a connected app's page, the Tools card on
 // @ember's page, and @ember calling a picked tool once it's allowed, or at once where an administrator
-// always allows it, on the second test server, with an
-// MCP server this spec fakes on this machine. Each test leaves the workspace as a new one is: no apps,
+// always allows it, and the card a tool answers with, whose buttons call its tools, on the second test
+// server, with an MCP server this spec fakes on this machine. Each test leaves the workspace as a new one is: no apps,
 // and Ember AI off.
 
 const SONNET = "anthropic/claude-sonnet-5.5";
@@ -497,5 +497,57 @@ test.describe("Apps", () => {
     const asks = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: third });
     await expect(asks.getByRole("button", { name: "Allow once" })).toBeVisible();
     expect(mcp.calls).toHaveLength(1);
+  });
+
+  test("a tool that answers with a card of its own has it shown in the room, where its button calls the tool it names, whose card takes its place", async ({ page, request }) => {
+    const CLOSE = { name: "close_issue", description: "Closes an issue.", inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } };
+    mcp.tools.splice(0, mcp.tools.length, ...TOOLS.map((tool) => ({ ...tool })), CLOSE);
+    mcp.calls.length = 0;
+    // The server answers a call with Block Kit, as one built for Slack's client does: an issue, open with a button that closes it, or closed.
+    mcp.blocks = (name, given) => {
+      const { title } = given as { title: string };
+      const state = (text: string) => [{ type: "header", text: { type: "plain_text", text: title } }, { type: "section", text: { type: "mrkdwn", text } }];
+      if (name === "close_issue") return state("*Closed*");
+      const close = { type: "button", text: { type: "plain_text", text: "Close" }, style: "danger", action_id: "tool:close_issue", value: JSON.stringify({ title }) };
+      return [...state("*Open*"), { type: "actions", elements: [close] }];
+    };
+    try {
+      const headers = await asAdministrator(request);
+      const connected = await request.post("/api/account/apps", { data: { name: "Tracker", url: mcp.url, token: MCP_TOKEN }, headers });
+      expect(connected.status(), await connected.text()).toBe(201);
+      const offered = (await (await request.get("/api/account/agents/ember/tools", { headers })).json()) as AgentTools;
+      const tools = offered.apps.flatMap(({ id, tools }) => tools.filter(({ name }) => name !== "search_issues").map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
+      const picked = await request.put("/api/account/agents/ember/tools", { data: { tools }, headers });
+      expect(picked.status(), await picked.text()).toBe(200);
+      const created = await request.post("/api/rooms", { data: { kind: "open", name: `Cards ${crypto.randomUUID().slice(0, 8)}` }, headers });
+      expect(created.status(), await created.text()).toBe(201);
+      const { room } = (await created.json()) as { room: { id: string; name: string } };
+      await useOwnAddress(page);
+      await page.goto(`/rooms/${room.id}`);
+      await signInAsAdministrator(page);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
+
+      // Once the call is allowed, the tool's card is in the room, saying whose it is, before the answer.
+      const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
+      await askEmber(page, `${FILE_QUESTION} ${title}`);
+      await page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title }).getByRole("button", { name: "Allow once" }).click();
+      const card = page.getByRole("article", { name: title });
+      await expect(card).toContainText("Open");
+      await expect(card).toContainText("From Tracker, answering create_issue.");
+      await expect(page.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
+
+      // Its button calls the tool it names, with what the server put in it, and nobody is asked first: the card that answers takes its place.
+      await card.getByRole("button", { name: "Close" }).click();
+      await expect(card).toContainText("Closed");
+      await expect(card).toContainText("From Tracker, answering close_issue, after Ada Lovelace clicked Close.");
+      await expect(card.getByRole("button", { name: "Close" })).toHaveCount(0);
+      expect(mcp.calls).toEqual([
+        { name: "create_issue", arguments: { title } },
+        { name: "close_issue", arguments: { title } },
+      ]);
+      await expect(page.getByRole("article", { name: "Ember wants to use Tracker" })).toHaveCount(1);
+    } finally {
+      mcp.blocks = null;
+    }
   });
 });
