@@ -66,6 +66,7 @@ import {
   type SentTestEmail,
   type SharedRoom,
   type Sidebar,
+  type SkinTone,
   type User,
   type UserId,
   type UserStatus,
@@ -687,7 +688,7 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 }
 
 /** Who a session signs in, as the app keeps them. */
-const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
+const meOf = ({ user, administrator, skinTone }: StoredSession): Me => ({ ...user, administrator, ...(skinTone ? { skinTone } : {}) });
 
 /** Whether someone or a bot named `name` takes @ember's name by being renamed `rename`, which they can't, unless it was theirs already (`isReservedName`). */
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
@@ -1780,6 +1781,7 @@ export class Workspace extends DurableObject<Env> {
       user: { id: sortableId(), name: administrator.name },
       administrator: true,
       guest: false,
+      skinTone: 0,
       lastActiveAt: Date.now(),
     };
     const account = { id: sortableId(), name: ACCOUNT_NAME, joinCode: newJoinCode() };
@@ -1946,7 +1948,7 @@ export class Workspace extends DurableObject<Env> {
    */
   private async addMember(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | "agent's name" | null> {
     if (await this.takesAgentsName(null, person.name)) return "agent's name";
-    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
+    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, skinTone: 0, lastActiveAt: Date.now() };
     try {
       await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
     } catch (error) {
@@ -2059,7 +2061,7 @@ export class Workspace extends DurableObject<Env> {
     return this.oneAtATime(async () => {
       if ((await this.joinableAccount())?.memberfulSignIn) return "memberful";
       if (await this.takesAgentsName(null, name)) return "agent's name";
-      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
+      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, skinTone: 0, lastActiveAt: Date.now() };
       await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
       this.sessions.remember(tokenDigest, session);
       await this.publishPerson(session.user.id);
@@ -2103,7 +2105,7 @@ export class Workspace extends DurableObject<Env> {
       const agents = await this.store.agentEntries();
       const free = (name: string) => !agents.some((agent) => sameName(agent.name, name));
       const name = member.names.find(free) ?? namelessMember(free);
-      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: false, lastActiveAt: Date.now() };
+      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: false, skinTone: 0, lastActiveAt: Date.now() };
       const person = { ...session.user, emailAddress: member.emailAddress };
       try {
         await this.store.createLinkedMember(person, linkedAccountOf(issuer, member), readAt, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
@@ -2628,6 +2630,22 @@ export class Workspace extends DurableObject<Env> {
     this.tell([user.id], { type: "room.involvement", roomId, involvement: saved.involvement });
     if (saved.favorites) this.starsChanged(user.id, saved.favorites);
     return saved.involvement;
+  }
+
+  /**
+   * Gives the person `credentials` signs in the skin tone `skinTone` for emoji, answering it, or null
+   * without a valid session. Every tab of theirs hears it, in every browser.
+   */
+  async setSkinTone(credentials: Credentials, skinTone: SkinTone): Promise<SkinTone | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    // Their sessions read the tone with them, so they're read again.
+    await this.sessions.change(
+      (session) => session.user.id === user.id,
+      () => this.store.setSkinTone(user.id, skinTone),
+    );
+    this.tell([user.id], { type: "skin_tone.changed", skinTone });
+    return skinTone;
   }
 
   /** Tells every tab of `userId`'s what their stars are now. */

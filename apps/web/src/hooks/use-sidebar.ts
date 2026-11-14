@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
+import { withSkinToneOf } from "@/hooks/use-skin-tone";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
 import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
@@ -60,7 +61,8 @@ interface Directory {
 const NO_DIRECTORY: Directory = { people: new Map(), reload: async () => {}, update: () => {} };
 
 /** Whether `you` and `me` are the same person, as they are now. */
-const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && you.administrator === me.administrator;
+const isSame = (you: Me, me: Me) =>
+  you.id === me.id && you.name === me.name && you.administrator === me.administrator && (you.skinTone ?? 0) === (me.skinTone ?? 0);
 
 /**
  * Someone's sidebar, which loads again each time the tab's workspace socket connects, the first time
@@ -134,7 +136,7 @@ export function useSidebar(
   });
   const changed = useEffectEvent((user: DirectoryUser) => {
     directory.update(user);
-    if (user.id === me.id) signsIn({ id: user.id, name: user.name, administrator: user.role === "administrator" });
+    if (user.id === me.id) signsIn({ ...heard.current, name: user.name, administrator: user.role === "administrator" });
   });
 
   useEffect(() => {
@@ -157,11 +159,16 @@ export function useSidebar(
       }, Math.random() * RELOAD_SPREAD_MS);
     };
 
-    // What this connection has said changed, the person signed in or the workspace, which can come
-    // before its welcome. The welcome may have read it before that change, so it doesn't undo it. Each
-    // try starts afresh, after a close or a socket that stopped answering alike.
-    let toldOf = { you: false, account: false };
-    const onConnecting = () => void (toldOf = { you: false, account: false });
+    // What this connection has said changed, the person signed in (their name and role, or their skin
+    // tone) or the workspace, which can come before its welcome. The welcome may have read it before that
+    // change, so it doesn't undo it, but gives the rest. Each try starts afresh, after a close or a socket
+    // that stopped answering alike.
+    let toldOf = { you: false, tone: false, account: false };
+    const onConnecting = () => void (toldOf = { you: false, tone: false, account: false });
+    const welcomed = (you: Me) => {
+      const named = toldOf.you ? { ...you, name: heard.current.name, administrator: heard.current.administrator } : you;
+      return toldOf.tone ? withSkinToneOf(named, heard.current.skinTone ?? 0) : named;
+    };
     const heardOf = (roomId: RoomId) => roomFrames.current.lastOf.set(roomId, ++roomFrames.current.count);
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);
@@ -173,7 +180,7 @@ export function useSidebar(
             return sessionChanged(frame.you);
           }
           workspace.connected();
-          if (!toldOf.you) signsIn(frame.you);
+          signsIn(welcomed(frame.you));
           if (!toldOf.account) accountChanged(frame.account);
           return reload();
         case "room.saved":
@@ -206,6 +213,9 @@ export function useSidebar(
           return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
+        case "skin_tone.changed":
+          toldOf.tone = true;
+          return signsIn(withSkinToneOf(heard.current, frame.skinTone));
         case "invitation.dismissed":
           return change({ type: "invitation dismissed" });
         case "rooms.reordered":
