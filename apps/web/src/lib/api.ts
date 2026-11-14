@@ -92,6 +92,7 @@ import {
   type YourAssistantChanged,
   type YourAssistantChanges,
 } from "@ember/protocol";
+import type { Command, CommandAnswer, Commands, NewCommand } from "@ember/protocol/bots";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
 import type {
   AgentToolPicks,
@@ -507,6 +508,39 @@ export async function changeBot(botId: UserId, changes: BotChanges, avatar: Chos
 /** Deletes the bot `botId`, which takes it out of every room but its DMs. Fails as `fetchBot` does. */
 export async function deleteBot(botId: UserId): Promise<void> {
   await request(`/api/account/bots/${encodeURIComponent(botId)}`, { method: "DELETE" });
+}
+
+/**
+ * The workspace's commands, each with its bot, and which of the bots are on which rooms' message events,
+ * as the bots page ticks them and the composer's menu offers them. Fails with a 401 ApiError once the
+ * session has ended.
+ */
+export async function fetchCommands(): Promise<Commands> {
+  return request<Commands>("/api/account/commands");
+}
+
+/**
+ * Registers a command with `name` and what it's for, invoking the bot `botId`. Fails with a 403 ApiError
+ * for anyone but an administrator, a 404 for a bot that isn't active, and a 422 for a name that's
+ * refused or taken already.
+ */
+export async function registerCommand(command: NewCommand): Promise<Command> {
+  return (await request<CommandAnswer>("/api/account/commands", { method: "POST", body: JSON.stringify(command) })).command;
+}
+
+/** Forgets the command `id`, whose name is free again. Fails as `fetchBot` does. */
+export async function removeCommand(commandId: string): Promise<void> {
+  await request(`/api/account/commands/${encodeURIComponent(commandId)}`, { method: "DELETE" });
+}
+
+/** Puts the bot `botId` on room `roomId`'s message events, which it must be in. Fails with a 422 ApiError when it isn't. */
+export async function subscribeBotToMessages(botId: UserId, roomId: RoomId): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}/rooms/${encodeURIComponent(roomId)}/events`, { method: "PUT" });
+}
+
+/** Takes the bot `botId` off room `roomId`'s message events. Fails as `fetchBot` does. */
+export async function unsubscribeBotFromMessages(botId: UserId, roomId: RoomId): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}/rooms/${encodeURIComponent(roomId)}/events`, { method: "DELETE" });
 }
 
 /** Gives the bot `botId` a new key, so its old one stops working. Fails as `fetchBot` does. */

@@ -1,7 +1,8 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, Bot, Bots, DirectoryUser, UserId } from "@ember/protocol";
+import type { Account, DirectoryUser, UserId } from "@ember/protocol";
+import type { Bot, Bots, Commands } from "@ember/protocol/bots";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -25,14 +26,18 @@ const BUILD_BOT: Bot = {
 };
 const DEPLOY_BOT: Bot = { ...BUILD_BOT, id: "0mgk3x2a9b4c5f", name: "Deploy Bot", avatarUrl: "/users/d3p/avatar?v=1", key: "0mgk3x2a9b4c5f-Zy9xWv7uTs5r", rooms: [] };
 
-/** Answers loading the bots as the server does for an administrator, or as `loaded` says. */
-function serve(loaded = () => Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots)) {
+/** Answers loading the bots, and the workspace's commands, as the server does for an administrator, or as `loaded` says. */
+function serve(loaded?: () => Response, commands: () => Response = () => Response.json(NO_COMMANDS)) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
-    if (request === "GET /api/account/bots") return loaded();
+    if (request === "GET /api/account/bots") return (loaded ?? (() => Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots)))();
+    if (request === "GET /api/account/commands") return commands();
     throw new Error(`Unexpected request for ${request}`);
   });
 }
+
+/** A workspace with no commands registered, and no bot on any room's message events. */
+const NO_COMMANDS = { commands: [], subscriptions: [] } satisfies Commands;
 
 /** Shows the page, whose people directory `showPeople` changes. */
 function showPage(shown = account) {
@@ -85,7 +90,9 @@ describe("Chat bots page", () => {
       screen.getByText(
         "Chat bots let other apps and services post in your rooms, and reply when people talk to them. " +
           "Each of a bot's rooms gets two addresses below, one for posting text or a file and one that takes a Slack incoming webhook's payload. " +
-          "Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds.",
+          "Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds. " +
+          "Register a command for a bot, and typing /name in a room it's in sends it what was typed, its answer posted as the bot. " +
+          "Or set a room to send a bot every message written there, mention or no.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Add a chat bot" })).toHaveAttribute("href", "/account/bots/new");
@@ -197,6 +204,112 @@ describe("Slack-compatible webhooks", () => {
     }
     await userEvent.click(within(rooms[1]!).getByRole("button", { name: "Copy Slack-compatible webhook URL" }));
     expect(writeText.mock.calls).toEqual([[`http://localhost:3000/rooms/${BUILD_BOT.rooms[1]!.id}/${BUILD_BOT.key}/slack`]]);
+  });
+});
+
+describe("Slash commands", () => {
+  const DEPLOY_COMMAND = { id: "cmd1", name: "deploy", description: "Ship the build", bot: { id: BUILD_BOT.id, name: "Build Bot" } };
+
+  /** Answers the commands as `served` says, and each change to them with the reading that follows. */
+  function serveCommands(served: () => Response = () => Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)) {
+    let commands = served();
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/account/bots") return Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots);
+      if (request === "GET /api/account/commands") return commands;
+      if (request === "POST /api/account/commands") {
+        // The name as the server keeps it: without the leading "/" and lowercased.
+        const { name: given, description } = JSON.parse(String(init?.body)) as { name: string; description?: string };
+        const name = given.replace(/^\//, "").toLowerCase();
+        const registered = { ...DEPLOY_COMMAND, id: "cmd2", name, description: description ?? null };
+        commands = Response.json({ commands: [DEPLOY_COMMAND, registered], subscriptions: [] } satisfies Commands);
+        return Response.json({ command: registered }, { status: 201 });
+      }
+      if (request === "DELETE /api/account/commands/cmd1") {
+        commands = Response.json(NO_COMMANDS satisfies Commands);
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request for ${request}`);
+    });
+  }
+
+  it("lists the commands a bot answers, and registers another for it, which the page then lists", async () => {
+    serveCommands();
+    showPage();
+    const [build] = await listed(2);
+    const section = within(build!).getByRole("region", { name: "Commands" });
+    expect(within(section).getByText("/deploy")).toBeInTheDocument();
+    expect(within(section).getByText("Ship the build")).toBeInTheDocument();
+
+    await userEvent.type(within(section).getByRole("textbox", { name: "A command's name for Build Bot" }), "/restart");
+    await userEvent.type(within(section).getByRole("textbox", { name: "What Build Bot's command is for" }), "Start it over");
+    await userEvent.click(within(section).getByRole("button", { name: "Register" }));
+    await waitFor(() => expect(within(section).getByRole("button", { name: "Forget /restart" })).toBeInTheDocument());
+    // The form is left clear once it's registered.
+    expect(within(section).getByRole("textbox", { name: "A command's name for Build Bot" })).toHaveValue("");
+  });
+
+  it("says why a name the workspace has given another bot already is refused", async () => {
+    serveCommands();
+    showPage();
+    const [build] = await listed(2);
+    const section = within(build!).getByRole("region", { name: "Commands" });
+    await userEvent.type(within(section).getByRole("textbox", { name: "A command's name for Build Bot" }), "/restart");
+    // The second registration is answered 422, and the first reload below keeps /restart off the page.
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => Response.json({ error: "A command with that name is registered already" }, { status: 422 }));
+    await userEvent.click(within(section).getByRole("button", { name: "Register" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("A command with that name is registered already");
+  });
+
+  it("takes a command away with the button beside it", async () => {
+    serveCommands();
+    showPage();
+    const [build] = await listed(2);
+    const section = within(build!).getByRole("region", { name: "Commands" });
+    await userEvent.click(within(section).getByRole("button", { name: "Forget /deploy" }));
+    await waitFor(() => expect(within(section).queryByRole("button", { name: "Forget /deploy" })).not.toBeInTheDocument());
+  });
+});
+
+describe("Message events", () => {
+  /** The tick of room `room` in `bot`'s card, once the page has loaded. */
+  async function tickOf(bot: HTMLElement, room: string): Promise<HTMLInputElement> {
+    const rooms = within(bot).getAllByRole("group");
+    return within(rooms.find((fieldset) => fieldset.querySelector("legend")?.textContent === room)!).getByRole("checkbox", { name: /every message/ }) as HTMLInputElement;
+  }
+
+  it("ticks a room to send the bot every message there, and unticks it again", async () => {
+    const mock = serve(undefined, () => Response.json(NO_COMMANDS satisfies Commands));
+    let subscriptions: Commands["subscriptions"] = [];
+    mock.mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/account/bots") return Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots);
+      if (request === "GET /api/account/commands") return Response.json({ commands: [], subscriptions } satisfies Commands);
+      if (request === `PUT /api/account/bots/${BUILD_BOT.id}/rooms/${BUILD_BOT.rooms[0]!.id}/events`) {
+        subscriptions = [{ botId: BUILD_BOT.id, roomId: BUILD_BOT.rooms[0]!.id }];
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request for ${request}`);
+    });
+    showPage();
+    const [build] = await listed(2);
+    const tick = await tickOf(build!, "general");
+    expect(tick).not.toBeChecked();
+    await userEvent.click(tick);
+    await waitFor(() => expect(tick).toBeChecked());
+    // The other room's tick is the bot's own, and stays as it was.
+    expect(await tickOf(build!, "random")).not.toBeChecked();
+  });
+
+  it("says why a tick couldn't be saved, and leaves it as it was", async () => {
+    serve(undefined, () => Response.json(NO_COMMANDS satisfies Commands));
+    showPage();
+    const [build] = await listed(2);
+    const tick = await tickOf(build!, "general");
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => Response.json({ error: "The bot has to be in the room first" }, { status: 422 }));
+    await userEvent.click(tick);
+    expect(await screen.findByRole("alert")).toHaveTextContent("The bot has to be in the room first");
+    await waitFor(() => expect(tick).not.toBeChecked());
   });
 });
 

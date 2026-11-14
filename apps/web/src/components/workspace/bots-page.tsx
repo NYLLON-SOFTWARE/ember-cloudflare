@@ -1,13 +1,14 @@
-import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { botMessagesPath, botSlackPath, type Bot, type BotRoom } from "@ember/protocol/bots";
+import { useCallback, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { botMessagesPath, botSlackPath, type Bot, type BotRoom, type Command, type Commands } from "@ember/protocol/bots";
+import type { RoomId, UserId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
-import { Attachment, ChatBubbleEmpty, EditPencil, Internet, Plus } from "@/components/icons/iconoir";
+import { Attachment, ChatBubbleEmpty, EditPencil, Internet, Plus, Terminal, Trash } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { TranslationButton } from "@/components/translation-button";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { botSettingsPath, navigate, NEW_BOT_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, fetchBots, isSignedOut } from "@/lib/api";
+import { ApiError, fetchBots, fetchCommands, isSignedOut, registerCommand, removeCommand, subscribeBotToMessages, unsubscribeBotFromMessages } from "@/lib/api";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
@@ -22,6 +23,9 @@ export const curlUploadLine = (url: string) => `curl -F "attachment=@/path/to/fi
 
 /** Campfire's `.input.fill-white` in a panel: 42px tall, or 44px for fingers. */
 const INPUT = "min-h-[42px] w-full min-w-0 rounded-[9px] border bg-background px-[0.8em] py-[0.5em] text-base focus:border-muted-foreground touch:min-h-11";
+
+/** A form's button, as New domain asks for one. */
+const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";
 
 /**
  * Sends anyone but an administrator to workspace settings with an alert, as the Custom CSS page does:
@@ -43,11 +47,13 @@ export function useAdministratorsOnly(onFailed: (error: unknown) => void) {
 /**
  * The Chat bots page: what bots do, in short, and Add a chat bot, then each active bot by name, with a
  * link to its settings and, for each room it's in, the commands that post to the room as it, which their
- * buttons copy. Go Back returns to workspace settings. A bot deleted or renamed elsewhere leaves or is
- * renamed here as soon as the people directory hears of it.
+ * buttons copy. A bot of the workspace's can be given a command to answer, and a room's messages to
+ * hear, each in the bot's card below. Go Back returns to workspace settings. A bot deleted or renamed
+ * elsewhere leaves or is renamed here as soon as the people directory hears of it.
  */
 export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
   const [bots, setBots] = useState<Bot[] | null>(null);
+  const [commands, setCommands] = useState<Commands | null>(null);
   const people = useContext(PeopleContext);
   const { failed } = useAdministratorsOnly(onFailed);
   useTitle("Chat bots");
@@ -61,13 +67,28 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
         if (!stopped || isSignedOut(error)) failed(error);
       },
     );
+    fetchCommands().then(
+      (loaded) => !stopped && setCommands(loaded),
+      (error: unknown) => {
+        // The addresses below work without them, but why they didn't come is said all the same.
+        if (!stopped || isSignedOut(error)) failed(error);
+      },
+    );
     return () => void (stopped = true);
+  }, [failed]);
+
+  // Reads the commands again, as saving one, taking one away or ticking a room changes them.
+  const commandsChanged = useCallback(() => {
+    fetchCommands().then(
+      (loaded) => setCommands(loaded),
+      (error: unknown) => !isSignedOut(error) && failed(error),
+    );
   }, [failed]);
 
   return (
     <SettingsPage back={WORKSPACE_SETTINGS_PATH}>
       {/* `.panel--wide`: 900px. Spaced as workspace settings' sections are. */}
-      <Panel aria-busy={bots === null} className="flex w-[900px] flex-col gap-6">
+      <Panel aria-busy={bots === null || commands === null} className="flex w-[900px] flex-col gap-6">
         {/*
           Add a chat bot ends the heading's row, as New room does in Rooms and permissions, with the
           explainer under both in lines short enough to read. On phones it follows the explainer, rather
@@ -83,6 +104,8 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
             Chat bots let other apps and services post in your rooms, and reply when people talk to them.
             Each of a bot's rooms gets two addresses below, one for posting text or a file and one that takes a Slack incoming webhook's payload.
             Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds.
+            Register a command for a bot, and typing /name in a room it's in sends it what was typed, its answer posted as the bot.
+            Or set a room to send a bot every message written there, mention or no.
           </p>
           <PageLink
             href={NEW_BOT_PATH}
@@ -96,8 +119,9 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
         {/* As wide as the heading, as the cards in workspace settings are. */}
         <menu className="flex flex-col gap-4">
           {bots &&
+            commands &&
             listedNow(bots, people).map((bot) => (
-              <BotItem key={bot.id} bot={bot} />
+              <BotItem key={bot.id} bot={bot} commands={commands} onChanged={commandsChanged} />
             ))}
         </menu>
       </Panel>
@@ -109,8 +133,20 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
 const listedNow = (bots: Bot[], people: People) =>
   byName(bots.filter(({ id }) => people.get(id)?.status !== "deactivated").map((bot) => ({ ...bot, name: people.get(bot.id)?.name ?? bot.name })));
 
-/** The bot, with its avatar, name and edit link, then its rooms' commands. */
-function BotItem({ bot }: { bot: Bot }) {
+/** The bot, with its avatar, name and edit link, then its rooms' commands, and the commands it answers. */
+function BotItem({ bot, commands, onChanged }: { bot: Bot; commands: Commands; onChanged: () => void }) {
+  const flash = useFlash();
+  // A tick that couldn't be saved is unticked again by the reading that answers, so why it didn't is said.
+  const ticked = async (roomId: RoomId, subscribed: boolean) => {
+    try {
+      if (subscribed) await subscribeBotToMessages(bot.id, roomId);
+      else await unsubscribeBotFromMessages(bot.id, roomId);
+      onChanged();
+    } catch (error) {
+      flash("alert", error instanceof ApiError ? error.message : "That couldn't be saved");
+    }
+  };
+  const itsRooms = new Set(commands.subscriptions.filter(({ botId }) => botId === bot.id).map(({ roomId }) => roomId));
   return (
     <li className="flex flex-col gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[2ch] py-4">
       <div className="flex items-center gap-x-[1ch]">
@@ -126,23 +162,35 @@ function BotItem({ bot }: { bot: Bot }) {
         </PageLink>
       </div>
       {bot.rooms.map((room) => (
-        <RoomCommands key={room.id} room={room} botKey={bot.key} />
+        <RoomCommands key={room.id} room={room} botKey={bot.key} listening={itsRooms.has(room.id)} onTick={ticked} />
       ))}
+      <BotCommands bot={bot} commands={commands.commands.filter(({ bot: { id } }) => id === bot.id)} onChanged={onChanged} />
     </li>
   );
 }
 
 /**
- * The commands that post to `room` as the bot whose key is `botKey`, and its Slack-compatible webhook, in a
- * fieldset with the room's name on its border.
+ * The commands that post to `room` as the bot whose key is `botKey`, and its Slack-compatible webhook, in
+ * a fieldset with the room's name on its border, with the room's tick for the bot's hearing its messages.
  */
-function RoomCommands({ room, botKey }: { room: BotRoom; botKey: string }) {
+function RoomCommands({ room, botKey, listening, onTick }: { room: BotRoom; botKey: string; listening: boolean; onTick: (roomId: RoomId, subscribed: boolean) => void }) {
   return (
     <fieldset className="flex min-w-0 flex-col gap-x-[1ch] gap-y-4 rounded-[10px] border border-muted-foreground px-[1ch] py-4">
       <legend className="mx-auto flex max-w-full min-w-0 justify-center px-[1ch] text-start">
         <strong className="truncate">{room.name}</strong>
       </legend>
       <PostingCommands room={room} botKey={botKey} />
+      <label className="flex min-h-[24px] cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted touch:min-h-11">
+        <input
+          type="checkbox"
+          checked={listening}
+          onChange={(event) => onTick(room.id, event.target.checked)}
+          className="m-0 size-4 flex-none cursor-pointer accent-foreground"
+        />
+        <span>
+          Send it <strong className="font-semibold text-message-ink">every message</strong> posted here, mention or no
+        </span>
+      </label>
     </fieldset>
   );
 }
@@ -187,5 +235,87 @@ function Command({ icon, command, label, copyLabel }: { icon: ReactNode; command
         <CopyButton text={command} label={copyLabel} className={ROUND_BUTTON} />
       </div>
     </div>
+  );
+}
+
+/**
+ * The commands registered for `bot`, each with a button that takes it away, and the form that registers
+ * another: its name, which typing finds without its case, and what it's for, which the composer's menu
+ * says. A name the workspace has given another bot already is refused, as the server keeps the names
+ * apart.
+ */
+function BotCommands({ bot, commands, onChanged }: { bot: Bot; commands: Command[]; onChanged: () => void }) {
+  const flash = useFlash();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const said = (error: unknown, otherwise: string) => flash("alert", error instanceof ApiError ? error.message : otherwise);
+
+  const registered = async (event: FormEvent) => {
+    event.preventDefault();
+    if (saving || name.trim() === "") return;
+    setSaving(true);
+    try {
+      await registerCommand({ botId: bot.id, name, ...(description.trim() !== "" && { description: description.trim() }) });
+      setName("");
+      setDescription("");
+      onChanged();
+    } catch (error) {
+      said(error, "That command couldn't be registered");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const forgot = async (command: Command) => {
+    try {
+      await removeCommand(command.id);
+      onChanged();
+    } catch (error) {
+      said(error, "That command couldn't be taken away");
+    }
+  };
+
+  return (
+    <section aria-label="Commands" className="flex flex-col gap-y-3">
+      <h2 className="text-[15px] font-semibold text-message-ink">Commands</h2>
+      {commands.map((command) => (
+        <div key={command.id} className="flex items-center gap-x-[1ch]">
+          <Terminal className="size-5 flex-none opacity-70" />
+          <div className="min-w-0">
+            <div className="truncate text-[14px] leading-5">
+              <strong>/{command.name}</strong>
+            </div>
+            {command.description !== null && <div className="truncate text-[13px] leading-[18px] text-muted-foreground">{command.description}</div>}
+          </div>
+          <button type="button" onClick={() => void forgot(command)} className={cn(ROUND_BUTTON, "ms-auto")}>
+            <Trash className="size-[1.3em]" />
+            <span className="sr-only">Forget /{command.name}</span>
+          </button>
+        </div>
+      ))}
+      <form onSubmit={(event) => void registered(event)} className="flex flex-wrap items-center gap-x-[1ch] gap-y-2">
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          aria-label={`A command's name for ${bot.name}`}
+          placeholder="/deploy"
+          className={cn(INPUT, "min-w-0 grow basis-40")}
+        />
+        <input
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          aria-label={`What ${bot.name}'s command is for`}
+          placeholder="What it's for"
+          className={cn(INPUT, "min-w-0 grow basis-40")}
+        />
+        <button type="submit" disabled={saving || name.trim() === ""} className={cn(BUTTON, "touch:min-h-11")}>
+          Register
+        </button>
+      </form>
+      <p className="max-w-prose text-[13px] leading-[18px] text-muted-foreground">
+        Typing a command's name in a room {bot.name} is in sends it what was typed after it, and what it answers is posted as the bot.
+      </p>
+    </section>
   );
 }
