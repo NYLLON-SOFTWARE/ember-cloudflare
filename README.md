@@ -136,7 +136,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Where it runs** | Your Cloudflare account | Slack's cloud |
 | **Source code** | MIT license, on GitHub | Closed |
 | **Your own domain** | ✅ such as chat.example.com | — only yourteam.slack.com |
-| **Branding** | Name, logo, tagline, room and navigation icons, and custom CSS | Workspace name and icon |
+| **Branding** | Name, logo, tagline, room and navigation icons, custom CSS, and custom profile fields | Workspace name and icon |
 
 ### Everyday chat
 
@@ -145,6 +145,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Rooms, private rooms and DMs** | ✅ | ✅ |
 | **Threads** | ✅ with Also send to the room | ✅ with Also send to the channel |
 | **Mentions, quotes, reactions and edits** | ✅ react with any emoji or a few words | ✅ plus custom emoji |
+| **Custom profile fields** | ✅ administrators define up to 10 for everyone, people answer them on their profile | ✅ on paid plans |
 | **Rich text, code blocks and link previews** | ✅ | ✅ |
 | **Files** | ✅ up to 250 MB each | ✅ up to 1 GB each |
 | **Search** | ✅ every message in your rooms and DMs, with Slack's filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |
