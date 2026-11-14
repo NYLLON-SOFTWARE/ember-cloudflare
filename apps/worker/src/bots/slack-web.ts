@@ -108,13 +108,13 @@ async function botChannelIn(env: Env, key: string, fields: SlackPayload) {
  */
 async function fieldsIn(request: Request): Promise<SlackPayload | Response> {
   const query = Object.fromEntries(urlOf(request).searchParams);
-  if (request.method !== "POST") return query;
+  if (request.method !== "POST") return withMrkdwnRead(query);
   const text = await bodyUpTo(request, MAX_BODY_BYTES);
   if (text === null) return refused("msg_too_long");
   const type = request.headers.get("Content-Type");
   const fields = isFormType(type) ? await formFieldsOf(text, type!) : formType.test(type ?? "") ? formFieldsOfUrlencoded(text) : payloadOf(text.trim() === "" ? "{}" : text);
   if (fields === null) return refused("invalid_payload");
-  return { ...query, ...fields };
+  return withMrkdwnRead({ ...query, ...fields });
 }
 
 /** A urlencoded body's type, which its fields are read from as a form's. */
@@ -143,6 +143,12 @@ function formFieldsOfUrlencoded(text: string): SlackPayload {
 function withPayloadField(fields: SlackPayload): SlackPayload {
   const payload = typeof fields.payload === "string" ? payloadOf(fields.payload) : null;
   return payload ?? fields;
+}
+
+/** The fields, taking a form's or query's word for `mrkdwn` as the boolean it says, as JSON writes one. */
+function withMrkdwnRead(fields: SlackPayload): SlackPayload {
+  if (fields.mrkdwn !== "false" && fields.mrkdwn !== "true") return fields;
+  return { ...fields, mrkdwn: fields.mrkdwn === "true" };
 }
 
 /** `POST /api/auth.test`: who the bearer key names, as Slack's answer has it. */
@@ -184,7 +190,8 @@ async function chatUpdate(env: Env, request: Request): Promise<Response> {
   if (edited === NOT_FOUND) return refused("message_not_found");
   if (edited === FORBIDDEN) return refused("cant_update_message");
   if (typeof edited === "string") return refused(whyNothingKept(edited));
-  return answered({ channel: inChannel.roomId, ts: edited.id, message: messageJson(edited) });
+  // As Slack's answer has it, the updated text beside the message it belongs to.
+  return answered({ channel: inChannel.roomId, ts: edited.id, text: edited.plainText, message: messageJson(edited) });
 }
 
 /** `POST /api/chat.delete`: takes the bot's message `ts` in the room `channel` names away. */
