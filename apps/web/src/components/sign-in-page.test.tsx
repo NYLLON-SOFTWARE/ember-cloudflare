@@ -186,7 +186,7 @@ describe("Sign in with a display name", () => {
   });
 
   it("asks a guest sent by their link for their name, which is theirs to sign in with", () => {
-    history.replaceState(null, "", "/sign-in?guest=1");
+    history.replaceState(null, "", "/session/new?guest=1");
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.getByRole("heading", { name: "Welcome to Ember" })).toBeInTheDocument();
     expect(screen.getByLabelText("Your name")).toHaveFocus();

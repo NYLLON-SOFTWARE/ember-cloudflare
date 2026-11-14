@@ -94,6 +94,8 @@ describe("Room guests", () => {
   it("says what a guest is and how they sign in, and marks each guest with when their stay ends", () => {
     showPanel([ada, pat]);
     expect(panel()).toHaveTextContent("A guest is in this room and nothing else, and signs in with just their name, until the stay you pick ends.");
+    // The link names the sign-in page the app serves, which a guest's name opens the name form at.
+    expect(panel()).toHaveTextContent(`${location.origin}/session/new?guest=1`);
     expect(within(rowOf("Pat Doe")).getByText(`Guest until ${UNTIL_FORMAT.format(new Date(pat.guestUntil!))}`)).toBeInTheDocument();
     // Who isn't one of the room's guests has no row here, which the room's people list above has.
     expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();

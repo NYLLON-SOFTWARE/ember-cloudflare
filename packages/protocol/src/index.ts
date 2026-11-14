@@ -110,6 +110,7 @@ export {
   CUSTOM_STYLES_PATH,
   EMAIL_SIGN_UP_PATH,
   emailSignUpLink,
+  guestSignInLink,
   huddlePath,
   INVITATION_PATH,
   invitationLink,
