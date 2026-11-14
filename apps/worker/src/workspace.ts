@@ -209,10 +209,10 @@ const PROBE_WAIT_MS = 30 * 1000;
 /** How many probes the Workspace waits for at once, of the latest checks. */
 const WAITING_PROBES = 20;
 /**
- * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
- * first, then purges, then reindexes, and how many rooms a change calls before it answers
- * (`closeQueuedSockets`). Each room it calls may count as a subrequest, of which an invocation on the
- * Free plan can make 50, its queries included.
+ * How many requests of its outbox the Workspace delivers in one run of its alarm, at most, revocations
+ * first, then purges, then reindexes, then picture deletions, then the reminders due, and how many rooms
+ * a change calls before it answers (`closeQueuedSockets`). Each room it calls or push it sends may count
+ * as a subrequest, of which an invocation on the Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
 /**
@@ -230,8 +230,6 @@ export const REMINDER_LATEST_MS = 365 * 24 * 60 * 60 * 1000;
 const REMINDER_EXCERPT_LENGTH = 280;
 /** How many reminders that have come due one run of the alarm tells, at most. */
 const REMINDERS_PER_RUN = 20;
-/** How many pushes one run of the alarm sends for reminders, at most, so its asks stay within what an invocation may send, and the rest wait for the next run. */
-const REMINDER_PUSHES_PER_RUN = 40;
 /**
  * How many memberships the alarm checks in a run, at most, asking Memberful's admin API after them all in
  * one request, a query with an alias for each, so that a run's subrequests stay well within the Free plan's.
@@ -2699,25 +2697,26 @@ export class Workspace extends DurableObject<Env> {
    * message kept when they asked, and pushes it to their browsers, saying each it tells has been, so the
    * next run doesn't tell it again. Each is read again before it's told, since a push can wait long
    * enough that the person dismisses the next reminder meanwhile, and a run sends no more pushes than
-   * its share, leaving the rest for the next run. What a run that stops in between has said may be said
-   * again once, as a revocation's may. Answers how many it told.
+   * what the rest of the run's deliveries have left of its budget (`pushes`), leaving those it doesn't
+   * tell for the next run. What a run that stops in between has said may be said again once, as a
+   * revocation's may. Answers how many it told.
    */
-  private async deliverReminders(limit: number): Promise<number> {
+  private async deliverReminders(limit: number, pushes: number): Promise<number> {
     const due = await this.store.dueReminders(Date.now(), limit);
     let told = 0;
-    let pushes = 0;
+    let sent = 0;
     for (const { id, userId } of due) {
       const reminder = await this.store.reminder(id);
       if (reminder === null) continue;
       const deliveries = await this.store.pushDeliveriesFor(userId, guestSignIn(this.env));
-      if (pushes + deliveries.length > REMINDER_PUSHES_PER_RUN) break;
+      if (sent + deliveries.length > pushes) break;
       this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
       if (deliveries.length > 0) {
         const gone = await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id));
         if (gone.length > 0) await this.store.forgetPushSubscriptions(gone);
       }
       await this.store.markReminderTold(id, Date.now());
-      pushes += deliveries.length;
+      sent += deliveries.length;
       told++;
     }
     return told;
@@ -4119,15 +4118,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` rows, revocations first, then checks
-   * the memberships due, and sets the alarm for whatever is due next.
+   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` requests in all, revocations first,
+   * then purges, then reindexes, then picture deletions, then the reminders due with what's left, then
+   * checks the memberships due, and sets the alarm for whatever is due next.
    */
   override async alarm(): Promise<void> {
     const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
-    await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
-    await this.deliverReminders(REMINDERS_PER_RUN);
+    const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
+    await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
     await this.checkMemberships();
     await this.scheduleDelivery();
   }
@@ -4265,12 +4265,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Has R2 delete the pictures due now, up to `limit` of them, with their variants, in one call: the
    * avatars and logos people replaced or removed, and those nobody was given once their reservations ran out.
-   * When R2 fails, they're tried again later, as a revocation is.
+   * When R2 fails, they're tried again later, as a revocation is. Answers how many it read.
    */
-  private async deletePictures(limit: number): Promise<void> {
-    if (limit <= 0) return;
+  private async deletePictures(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
     const due = await this.store.duePictureDeletions(Date.now(), limit);
-    if (due.length === 0) return;
+    if (due.length === 0) return 0;
     try {
       if (!this.env.FILES) throw new Error("No R2 bucket is bound as FILES");
       await this.env.FILES.delete(due.flatMap(pictureObjects));
@@ -4279,6 +4279,7 @@ export class Workspace extends DurableObject<Env> {
       console.error("Could not delete pictures from R2; trying again later", error);
       await this.store.settlePictureDeletions([], due, Date.now());
     }
+    return due.length;
   }
 
   /**

@@ -72,6 +72,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * Stands in for every push service, answering each of the first ten pushes at once and holding every one
+ * after until `go`, keeping what was pushed where. The ten are all one run may push here, so the run the
+ * untold reminders set sits at its first pushes, held, while the test sees what that run left.
+ */
+function heldPushServices() {
+  const pushed: Array<{ endpoint: string; body: Uint8Array }> = [];
+  let go!: () => void;
+  const gate = new Promise<void>((opened) => (go = opened));
+  let held = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+    pushed.push({ endpoint: input instanceof Request ? input.url : String(input), body: init!.body as Uint8Array });
+    const answer = Promise.resolve(new Response(null, { status: 201 }));
+    return ++held > 10 ? gate.then(() => answer) : answer;
+  });
+  return { pushed, go };
+}
+
 describe("Reminders", () => {
   it("sets, lists and dismisses a reminder, keeping what the message read", async () => {
     const room = await freshRoom("reminding");
@@ -284,6 +302,37 @@ describe("Reminders", () => {
     expect(pushed).toHaveLength(40);
     expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 1 }]);
     // What the run left, the run it sets for the rest takes, whether that's asked for or comes of its wake.
+    await vi.waitFor(() => expect(pushed).toHaveLength(50));
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 0 }]);
+  });
+
+  it("pushes reminders with what the run's other deliveries leave of its budget, and the rest wait for the next run", async () => {
+    const room = await freshRoom("sharing");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    // Thirty pictures come due the same run, and ten browsers Grace saved make five reminders ask fifty
+    // pushes: twenty more than the forty the run may spend in all, so the pictures take thirty and the
+    // reminders push with the ten left, telling the first alone.
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30])
+      await workspaceSql("INSERT INTO pending_picture_deletions (object_key, due_at) VALUES (?, ?)", `pictures/${n}`, Date.now() - 1_000);
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) await subscribe(grace, `grace-${n}`);
+    const message = await post(ada, "<p>Tell me after the pictures</p>");
+    for (const n of [1, 2, 3, 4, 5]) await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    const { pushed, go } = heldPushServices();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    // Each of the ten browsers the run pushed heard the first reminder, and nothing else went out.
+    expect(pushed.slice(0, 10).map(({ endpoint }) => endpoint.split("/").at(-1))).toEqual(
+      expect.arrayContaining(["grace-1", "grace-2", "grace-3", "grace-4", "grace-5", "grace-6", "grace-7", "grace-8", "grace-9", "grace-10"]),
+    );
+    expect(await workspaceSql("SELECT count(*) AS n FROM pending_picture_deletions")).toEqual([{ n: 0 }]);
+    // The next run sits at its first pushes, held, so what the first left can be seen: four reminders
+    // untold.
+    await vi.waitFor(() => expect(pushed.length).toBeGreaterThan(10));
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 4 }]);
+    go();
     await vi.waitFor(() => expect(pushed).toHaveLength(50));
     expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 0 }]);
   });
