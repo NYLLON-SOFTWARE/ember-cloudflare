@@ -4,7 +4,7 @@ import { EditPencil, Group, Headset, MultiBubble } from "@/components/icons/icon
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
 import { roomPath } from "@/hooks/use-route";
-import { KEPT_SHORTCUTS, type KeptShortcut } from "../workspace/kept-shortcuts";
+import { KEPT_SHORTCUTS, useKeptCounts, type KeptShortcut } from "../workspace/kept-shortcuts";
 import { cappedCount, useDraftCount } from "./draft-count";
 import { useDirectoryCount } from "./people-count";
 import { NewMessageButton, TabPage, YouLink } from "./tab-page";
@@ -82,9 +82,9 @@ const KEPT_CARDS: KeptShortcut["page"][] = ["saved", "todos"];
 
 /** Saved's or To-dos' card, which says how many to-dos are open. Saved has no count to give yet. */
 function KeptCard({ shortcut }: { shortcut: KeptShortcut }) {
-  const count = shortcut.useBadge();
-  const counted = shortcut.page === "todos" ? "open" : count === 1 ? "item" : "items";
-  return <Card Icon={shortcut.Icon} title={shortcut.title} detail={count > 0 ? `${cappedCount(count)} ${counted}` : undefined} href={shortcut.href} />;
+  const counts = useKeptCounts();
+  const count = shortcut.page === "todos" ? counts.openTodos : counts.savedItems;
+  return <Card Icon={shortcut.Icon} title={shortcut.title} detail={count > 0 ? shortcut.detail(counts) : undefined} href={shortcut.href} />;
 }
 
 /** One of Home's cards: an icon, its name, and how much is there, each the same height with a count or without. */

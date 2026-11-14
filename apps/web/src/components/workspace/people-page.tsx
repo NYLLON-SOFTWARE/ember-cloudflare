@@ -34,10 +34,8 @@ export function PeoplePage() {
   useTitle("People");
   return (
     <>
-      <PageHeader back="/">
-        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-center max-md:font-bold">People</h1>
-        {/* As wide as Back, so the title stays in the middle on a phone. */}
-        <span aria-hidden="true" className="hidden w-11 shrink-0 max-md:block" />
+      <PageHeader>
+        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">People</h1>
       </PageHeader>
       <MainContent className="min-h-0 min-w-0 overflow-y-auto bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 px-[22px] pt-5 pb-[max(22px,env(safe-area-inset-bottom))] max-md:px-3">

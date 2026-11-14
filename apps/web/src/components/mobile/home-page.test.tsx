@@ -53,7 +53,7 @@ describe("Home on a phone", () => {
   it("counts drafts, open to-dos and live huddles", () => {
     localStorage.setItem("composer-draft-u1-general", "<p>Hello</p>");
     const cards = renderHome({ huddles: { general: {} as LiveHuddle } });
-    act(() => heardSaved({ marks: [], openTodos: 3 }));
+    act(() => heardSaved({ marks: [], openTodos: 3, overdueTodos: 0, savedItems: 0 }));
     expect(cardTexts(cards)).toEqual([["Threads"], ["Drafts & sent", "1 draft"], ["People", "2 people"], ["Saved"], ["To-dos", "3 open"], ["Huddles", "1 live"]]);
     expect(cards.getByRole("link", { name: /^Huddles/ })).toHaveAttribute("href", "/rooms/general");
   });

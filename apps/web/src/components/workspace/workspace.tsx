@@ -27,14 +27,11 @@ import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, usePath, useQuery, useRoute, type Route } from "@/hooks/use-route";
-import { ActivityPage } from "../mobile/activity-page";
-import { DmsPage } from "../mobile/dms-page";
-import { FilesPage } from "../mobile/files-page";
 import { HomePage } from "../mobile/home-page";
 import { NewReleaseContext } from "../mobile/you-sheet";
 import { TabBar, type TabNotices } from "../mobile/tab-bar";
 import { KeyboardInset } from "../mobile/keyboard-inset";
-import { tabAt, tabOf, type Tab } from "../mobile/tabs";
+import { tabOf, type Tab } from "../mobile/tabs";
 import { addressShowing } from "./room-tabs";
 import type { RoomGone } from "./composer";
 import { ActivityPage } from "./activity-page";
@@ -155,7 +152,15 @@ const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "pe
  * sits on it, people, search, and the pages Home's cards open. Threads, settings and forms take the
  * whole screen, with Back of their own.
  */
-const TAB_BAR_PAGES = new Set<Route["page"]>(["home", "newest-room", "room", "message", "room-of-kind", "person", "search"]);
+const TAB_BAR_PAGES = new Set<Route["page"]>(["home", "newest-room", "room", "message", "room-of-kind", "person", "search", "dms", "activity", "files", "people", "drafts", "threads", "todos", "saved"]);
+
+/** The tab whose own page a route is on a phone, or null for a page that opens over the tabs. */
+function ownTabOf(route: Route, path: string): Tab | null {
+  if (route.page === "home") return path === "/" ? "home" : null;
+  if (route.page === "dms") return route.roomId === undefined ? "dms" : null;
+  if (route.page === "activity" || route.page === "files") return route.page;
+  return null;
+}
 
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
 const showNotFound = () => loadPage(location.pathname);
@@ -342,7 +347,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const phone = usePhoneLayout();
   // On a phone, the tab whose page is shown, or the one the page shown was opened from.
   const path = usePath();
-  const ownTab = phone ? tabAt(path) : null;
+  const ownTab = phone ? ownTabOf(route, path) : null;
   const [openedFromTab, setOpenedFromTab] = useState<Tab | null>(null);
   if (ownTab && ownTab !== openedFromTab) setOpenedFromTab(ownTab);
   // On a page of community settings, the links to their sections take the conversations' place.
@@ -751,36 +756,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const filesNav =
     route.page === "files" ? <RarePage show={({ FilesNav }) => <FilesNav me={me} place={route.place} />} loading={null} onFailed={failed} /> : null;
 
-  // On a phone, the tabs' pages, and what's waiting on each, which the tab bar marks.
-  const tabPage = (rooms: SidebarRoom[]) => {
-    switch (ownTab) {
-      case "dms":
-        return <DmsPage me={me} rooms={rooms} loaded onNewDirect={openNewDirect} />;
-      case "activity":
-        return <ActivityPage me={me} rooms={rooms} loaded />;
-      case "files":
-        return <FilesPage me={me} />;
-      default:
-        if (SHORTCUTS[path]) return <ShortcutPage title={SHORTCUTS[path]} />;
-        return (
-          <HomePage
-            me={me}
-            workspaceName={workspaceName}
-            sidebar={sidebar}
-            huddles={liveHuddles}
-            newRelease={newRelease}
-            onNewDirect={openNewDirect}
-          />
-        );
-    }
-  };
+  // On a phone, what's waiting on each tab, which the tab bar marks.
   const unreadRooms = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId));
   const tabNotices: TabNotices = {
     home: unreadRooms.some((r) => r.kind !== "direct") ? "Unread rooms" : undefined,
     dms: unreadRooms.some((r) => r.kind === "direct") ? "Unread DMs" : undefined,
-    activity: activity.unread > 0 ? `${activity.unread} unread` : undefined,
+    activity: activityFeed.feed.unread > 0 ? `${activityFeed.feed.unread} unread` : undefined,
   };
-  const isDirect = (roomId: string) => rooms?.find((r) => r.id === roomId)?.kind === "direct";
 
   /**
    * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
@@ -959,8 +941,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onGone={roomGone}
             />
           );
-        // On a phone, the tabs' pages, but Home for someone in no rooms yet, which has nothing to list.
-        if (route.page === "home" && rooms && !goingOn) return phone && (ownTab !== "home" || rooms.length > 0) ? tabPage(rooms) : <WelcomePage me={me} />;
+        // On a phone, Home's list, but for someone in no rooms yet, who has nothing to list.
+        if (route.page === "home" && rooms && !goingOn) {
+          if (phone && rooms.length > 0)
+            return <HomePage me={me} workspaceName={workspaceName} sidebar={sidebar} huddles={liveHuddles} newRelease={newRelease} onNewDirect={openNewDirect} />;
+          return <WelcomePage me={me} />;
+        }
         // Why the room can't show, kept where it would show rather than in an alert that fades, as a
         // browser's own page says when a server can't be reached. The header keeps the way to the other
         // rooms on a phone.
@@ -1063,7 +1049,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           {page()}
           {room && profilePane?.userId && <ProfilePanel key={profilePane.userId} userId={profilePane.userId} me={me} pane={profilePane} placement="column" />}
           {phone && <KeyboardInset />}
-          {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(path, openedFromTab, isDirect)} notices={tabNotices} roomId={currentRoomId} />}
+          {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(ownTab, openedFromTab, room?.kind === "direct")} notices={tabNotices} roomId={currentRoomId} />}
           <MovedNotice />
           {newDirect && (
             <NewDirectDialog
