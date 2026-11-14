@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useState } from "react";
-import type { Me } from "@ember/protocol";
-import { APPS_FORBIDDEN, type AppSignedIn, type AppSignInReturn } from "@ember/protocol/apps";
+import { useEffect, useState } from "react";
+import { PROFILE_PATH, type Me } from "@ember/protocol";
+import type { AppSignedIn, AppSignInReturn, YourAppSignedIn } from "@ember/protocol/apps";
 import { useFlash } from "@/components/flash";
 import { PageLink } from "@/components/page-link";
 import { appSettingsPath, navigate } from "@/hooks/use-route";
@@ -10,13 +10,16 @@ import { AGENTS_PATH, useAgentsOnly } from "./agent-list";
 import { connectedNotice } from "./app-page";
 import { BUTTON } from "./email-settings";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
+import { isOwnSignIn } from "./your-apps";
 
-// Where an app's authorization server sends an administrator's browser back, once they've signed in
-// there: the page takes what came back out of the address, has Ember finish the sign-in with it, and
-// goes on to the app's page, or says why not.
+// Where an app's authorization server sends a browser back, once its person has signed in there: the
+// page takes what came back out of the address, has Ember finish the sign-in with it, and goes on to
+// the app's page, for the sign-in an administrator makes for Ember, or to your profile, for the one
+// you made yourself, or says why not.
 
-/** What the page says while Ember finishes the sign-in, which reads the app's tools. */
+/** What the page says while Ember finishes the sign-in, which reads the app's tools, and while it finishes one you made yourself. */
 export const FINISHING_SIGN_IN = "Ember is finishing the sign-in and reading the app's tools.";
+export const FINISHING_OWN_SIGN_IN = "Ember is finishing your sign-in.";
 
 /** What the page says of a sign-in its server didn't go through with: one the administrator turned down there, and any other. */
 export const SIGN_IN_TURNED_DOWN = "The sign-in was turned down there, so nothing has changed.";
@@ -24,6 +27,9 @@ export const SIGN_IN_NOT_FINISHED = "The sign-in wasn't finished there, so nothi
 
 /** What a page says once Ember is signed in to `app`'s server again. */
 export const signedInAgainNotice = (app: { name: string }) => `Ember is signed in to ${app.name} again.`;
+
+/** What your profile says once you've signed in to `app` yourself. */
+export const signedInYourselfNotice = (app: { name: string }) => `You're signed in to ${app.name}. What an agent does with it in your direct conversation with that agent, it now does as you.`;
 
 /** What an authorization server sent the browser back with, in the address: a code for the sign-in begun as `state`, with who it says it is, or why there's none. */
 interface CameBack {
@@ -46,9 +52,9 @@ function returnOf({ state, code, iss, error }: CameBack): AppSignInReturn | stri
 }
 
 // A sign-in is finished once, so a page that asks twice, as React has one do while it's developed, is answered once.
-const finishing = new Map<string, Promise<AppSignedIn>>();
+const finishing = new Map<string, Promise<AppSignedIn | YourAppSignedIn>>();
 
-function finishOnce(back: AppSignInReturn): Promise<AppSignedIn> {
+function finishOnce(back: AppSignInReturn): Promise<AppSignedIn | YourAppSignedIn> {
   const asked = finishing.get(back.state) ?? finishAppSignIn(back);
   finishing.set(back.state, asked);
   return asked;
@@ -61,55 +67,57 @@ interface Props {
 }
 
 /**
- * The page a sign-in to an app's server comes back to, which only administrators may open while Ember AI
- * is on, as Connect an app: it goes on to the app's page once Ember has finished the sign-in, saying the
- * app is connected, or signed in to again, and otherwise says why it wasn't, with the way back to the apps.
+ * The page a sign-in to an app's server comes back to. Ember's, which an administrator began, goes on
+ * to the app's page once Ember has finished it, saying the app is connected, or signed in to again.
+ * One you began for yourself, from your profile, goes back there, saying you're signed in. Either says
+ * why when it wasn't finished, with the way back to where it began: the apps, or, for a sign-in this
+ * tab noted as your own, and for anyone who isn't an administrator, your profile. Ember says whose a
+ * sign-in is when it finishes it, whatever the page took it for.
  */
 export function AppSignedInPage({ me, onFailed }: Props) {
-  const [back] = useState(() => returnOf(cameBack()));
+  const [came] = useState(cameBack);
+  const [back] = useState(() => returnOf(came));
+  const [own] = useState(() => !me.administrator || isOwnSignIn(came.state));
   const [problem, setProblem] = useState(typeof back === "string" ? back : null);
-  const { forbidden, failed } = useAgentsOnly(onFailed);
+  const { failed } = useAgentsOnly(onFailed);
   const flash = useFlash();
   useTitle("Signing in to an app");
-
-  useLayoutEffect(() => {
-    if (!me.administrator) forbidden(APPS_FORBIDDEN);
-  }, [me.administrator, forbidden]);
 
   useEffect(() => {
     // The code leaves the address bar and this tab's history.
     history.replaceState(history.state, "", location.pathname);
-    if (!me.administrator || typeof back === "string") return;
+    if (typeof back === "string") return;
     let stopped = false;
     finishOnce(back).then(
-      ({ app, again }) => {
+      (signedIn) => {
         if (stopped) return;
-        navigate(appSettingsPath(app.id), { replace: true });
-        flash("notice", again ? signedInAgainNotice(app) : connectedNotice(app));
+        navigate("yours" in signedIn ? PROFILE_PATH : appSettingsPath(signedIn.app.id), { replace: true });
+        flash("notice", "yours" in signedIn ? signedInYourselfNotice(signedIn.yours) : signedIn.again ? signedInAgainNotice(signedIn.app) : connectedNotice(signedIn.app));
       },
       (error: unknown) => {
         if (stopped && !isSignedOut(error)) return;
-        if (error instanceof ApiError && error.status === 422) setProblem(error.message);
+        // Your own is refused in words for you, which the page says: the apps' tab isn't yours to be sent to.
+        if (error instanceof ApiError && (error.status === 422 || (own && !isSignedOut(error)))) setProblem(error.message);
         else failed(error);
       },
     );
     return () => void (stopped = true);
-  }, [me.administrator, back, flash, failed]);
+  }, [own, back, flash, failed]);
 
   return (
-    <SettingsPage back={AGENTS_PATH}>
+    <SettingsPage back={own ? PROFILE_PATH : AGENTS_PATH}>
       <Panel aria-busy={problem === null}>
         {problem === null ? (
-          <PageHeading title="Signing in…">{FINISHING_SIGN_IN}</PageHeading>
+          <PageHeading title="Signing in…">{own ? FINISHING_OWN_SIGN_IN : FINISHING_SIGN_IN}</PageHeading>
         ) : (
           <>
-            <PageHeading title="The app isn't signed in to">
+            <PageHeading title={own ? "You aren't signed in to the app" : "The app isn't signed in to"}>
               <span role="alert" className="wrap-anywhere">
                 {problem}
               </span>
             </PageHeading>
-            <PageLink href={AGENTS_PATH} className={BUTTON}>
-              Back to the apps
+            <PageLink href={own ? PROFILE_PATH : AGENTS_PATH} className={BUTTON}>
+              {own ? "Back to your profile" : "Back to the apps"}
             </PageLink>
           </>
         )}

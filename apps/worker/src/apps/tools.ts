@@ -3,7 +3,7 @@ import { CALL_ACTIONS, type AppId, type CallDecision } from "@ember/protocol/app
 import { ToolError, type EmberTool } from "../assistant/tool-calls";
 import type { SlackPayload } from "../bots/slack";
 import type { Env } from "../env";
-import { workspace, type AppCallAccess } from "../workspace";
+import { workspace, type AppCallAccess, type AskedBy } from "../workspace";
 import { toolCard, type Clicked } from "./cards";
 import { appConnector } from "./connector";
 
@@ -13,13 +13,16 @@ import { appConnector } from "./connector";
 // unless the administrator has that agent's calls of the tool always allowed: those are made at once,
 // each shown on a card in the room as it is. A tool that answers with a card of its own, in Slack's
 // Block Kit, has the room shown it, and a click on a button of that card calls the tool it names, for
-// whoever clicked (cards.ts).
+// whoever clicked (cards.ts). In someone's direct conversation with an agent, a call of a tool of an
+// app they've signed in to themselves goes as them, with their sign-in, and always asks them first.
 // The model never has an app's address or its token: it names a tool, and Ember calls it.
 
 /**
  * A connected app's tool picked for an agent: its app, by its id and name, and the tool as its server
  * described it when it was picked, with the JSON Schema of what it takes as JSON, as the Workspace
- * hands it to a room, and whether the agent's calls of it are made without asking first.
+ * hands it to a room, and whether the agent's calls of it are made without asking first. One that's
+ * whoever asked's `own` is called as them, with the sign-in they made to its app themselves, in their
+ * direct conversation with the agent, and never without asking first.
  */
 export interface PickedTool {
   appId: AppId;
@@ -30,13 +33,14 @@ export interface PickedTool {
   takes: string;
   fingerprint: string;
   alwaysAllowed: boolean;
+  own?: true;
 }
 
-/** An app's tool as a model was given it: the name the model calls it by, `as`, and which tool that is, as it was picked. */
-export type GivenTool = Pick<PickedTool, "appId" | "appName" | "name" | "fingerprint"> & { as: string };
+/** An app's tool as a model was given it: the name the model calls it by, `as`, and which tool that is, as it was picked, and whether as whoever asked's `own`. */
+export type GivenTool = Pick<PickedTool, "appId" | "appName" | "name" | "fingerprint" | "own"> & { as: string };
 
 /** `tool` as its model was given it, without what the model read of it. */
-export const givenAs = ({ as, appId, appName, name, fingerprint }: GivenTool): GivenTool => ({ as, appId, appName, name, fingerprint });
+export const givenAs = ({ as, appId, appName, name, fingerprint, own }: GivenTool): GivenTool => ({ as, appId, appName, name, fingerprint, ...(own && { own }) });
 
 /** The longest name a provider takes for a tool, of letters, digits, `_` and `-`. */
 const MAX_NAME_LENGTH = 64;
@@ -59,12 +63,14 @@ export function givenTools(picked: readonly PickedTool[]): Array<PickedTool & Gi
   });
 }
 
-/** What a model reads of an app's tool: whose it is, that each call waits to be allowed, or is shown to the room, and the app's own words for it, which are the app's. */
-const describedAs = ({ appName, title, description, alwaysAllowed }: PickedTool) =>
+/** What a model reads of an app's tool: whose it is, that each call waits to be allowed, or is shown to the room, or goes as whoever asked, and the app's own words for it, which are the app's. */
+const describedAs = ({ appName, title, description, alwaysAllowed, own }: PickedTool) =>
   [
-    alwaysAllowed
-      ? `A tool of ${appName}, an app this workspace's administrators connected. Each call is made at once and shown to everyone in the room, so call it only when the person you're answering asked for what it does, with what they'd expect.`
-      : `A tool of ${appName}, an app this workspace's administrators connected. Each call waits until the person you're answering allows it, so call it only when they asked for what it does, with what they'd expect.`,
+    own
+      ? `A tool of ${appName}, an app this workspace's administrators connected, which the person you're answering has signed in to themselves: here, a call of it is made as them. Each call waits until they allow it, so call it only when they asked for what it does, with what they'd expect.`
+      : alwaysAllowed
+        ? `A tool of ${appName}, an app this workspace's administrators connected. Each call is made at once and shown to everyone in the room, so call it only when the person you're answering asked for what it does, with what they'd expect.`
+        : `A tool of ${appName}, an app this workspace's administrators connected. Each call waits until the person you're answering allows it, so call it only when they asked for what it does, with what they'd expect.`,
     title === null ? "" : `${appName} calls it: ${title}`,
     description === "" ? "" : `${appName} describes it: ${description}`,
   ]
@@ -86,13 +92,13 @@ export type ShowsCall = (input: Record<string, unknown>) => Promise<string | Sho
 export type ShowsCard = (card: SlackPayload) => Promise<string | null>;
 
 /**
- * The tool `given` for `agentId`'s model: with its description and what it takes for a question,
- * `described`, or without them going on from a call, whose request lists them already. It asks first,
- * unless the agent's calls of it are always allowed, which `shown` being there says: such a call is
- * made once the room is shown it, and not when it can't be. The room is shown the card a call is
- * answered with, if it is with one, through `cards`.
+ * The tool `given` for `agentId`'s model, answering whoever `asked`: with its description and what it
+ * takes for a question, `described`, or without them going on from a call, whose request lists them
+ * already. It asks first, unless the agent's calls of it are always allowed, which `shown` being there
+ * says: such a call is made once the room is shown it, and not when it can't be. The room is shown the
+ * card a call is answered with, if it is with one, through `cards`.
  */
-export function appTool(env: Env, agentId: UserId, given: GivenTool, { described, shown, cards }: { described?: PickedTool; shown?: ShowsCall; cards?: ShowsCard } = {}): EmberTool {
+export function appTool(env: Env, agentId: UserId, given: GivenTool, asked: AskedBy, { described, shown, cards }: { described?: PickedTool; shown?: ShowsCall; cards?: ShowsCard } = {}): EmberTool {
   const unshowable = (input: Record<string, unknown>) => (written(input).length > MAX_SHOWN_INPUT_LENGTH ? TOO_LONG_TO_SHOW : null);
   return {
     name: given.as,
@@ -102,12 +108,12 @@ export function appTool(env: Env, agentId: UserId, given: GivenTool, { described
     run: async (input) => {
       const tooLong = shown ? unshowable(input) : null;
       if (tooLong !== null) throw new ToolError(tooLong);
-      return called(env, agentId, given, input, shown, cards);
+      return called(env, agentId, given, input, asked, shown, cards);
     },
   };
 }
 
-/** Whether the sign-in to the app asked as `access` has ended, so that its server isn't asked until an administrator signs in again. */
+/** Whether the sign-in to the app asked as `access` has ended, so that its server isn't asked until an administrator signs in again, or the person whose own it is does. */
 export const hasEnded = (access: Pick<AppCallAccess, "signedIn" | "key">) => access.signedIn && access.key === null;
 
 /** What's said of an app whose sign-in has ended, to a model whose call of its tool isn't made, and to an administrator who has its tools read. */
@@ -115,6 +121,14 @@ export const signInEnded = (appName: string) => `Ember's sign-in to ${appName} h
 
 /** What's said to a model of a call an app's server refused as more than Ember's sign-in to it allows, which signing in again asks for. */
 export const wantsMoreAccess = (appName: string) => `${appName} says this takes more access than Ember's sign-in to it has. An administrator has to sign in to it again, on its page, to allow it.`;
+
+/** What's said to a model of a call that was to go as the person it's answering, whose own sign-in to the app has ended, or who has signed out of it since it was to. */
+export const ownSignInEnded = (appName: string) =>
+  `The sign-in to ${appName} of the person you're answering has ended. They have to sign in to it again, under Apps on their profile, or sign out of it there to use the one this workspace shares.`;
+
+/** What's said to a model of a call an app's server refused as more than the own sign-in of the person it's answering allows, which their signing in again asks for. */
+export const ownWantsMoreAccess = (appName: string) =>
+  `${appName} says this takes more access than the sign-in to it of the person you're answering has. They have to sign in to it again, under Apps on their profile, to allow it.`;
 
 /** Why a call isn't made of a tool that isn't its agent's to call any more. */
 export class ToolGone extends ToolError {}
@@ -130,8 +144,8 @@ export const shownAsCard = (appName: string) => `(The room has been shown this o
  * shown the card the call was answered with, if it was with one, through `cards`, which the model is
  * then told.
  */
-async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, shown?: ShowsCall, cards?: ShowsCard): Promise<string> {
-  const { text, blocks } = await answered(env, agentId, tool, input, shown);
+async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, asked: AskedBy, shown?: ShowsCall, cards?: ShowsCard): Promise<string> {
+  const { text, blocks } = await answered(env, agentId, tool, input, asked, shown);
   return blocks !== undefined && cards && (await carded(tool, blocks, cards)) ? `${text}\n\n${shownAsCard(tool.appName)}` : text;
 }
 
@@ -139,10 +153,10 @@ async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<
  * What a click on a button of a tool's card comes to, by `clicked`: what calling `tool` with `input`,
  * what the button holds, for `agentId`, whose card it is, was answered with (`answered`), its text,
  * and the card to put in the clicked one's place, if it was answered with one Ember draws. The click
- * is its own leave: nobody is asked first, as whoever clicked chose to.
+ * is its own leave: nobody is asked first, as whoever clicked chose to, and it's they who `asked`.
  */
-export async function calledFromCard(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, clicked: Clicked): Promise<{ text: string; card: SlackPayload | null }> {
-  const { text, blocks } = await answered(env, agentId, tool, input);
+export async function calledFromCard(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, clicked: Clicked, asked: AskedBy): Promise<{ text: string; card: SlackPayload | null }> {
+  const { text, blocks } = await answered(env, agentId, tool, input, asked);
   return { text, card: blocks === undefined ? null : toolCard(tool, blocks, clicked) };
 }
 
@@ -155,20 +169,22 @@ export async function calledFromCard(env: Env, agentId: UserId, tool: GivenTool,
  * shown, or one of an app whose sign-in has ended. A call shown that then isn't made, as its tool is
  * found changed, its server can't be asked, or its server refuses it as more than Ember's sign-in
  * allows, has the room told so, and why. One refused so has the Workspace keep what its server asked
- * for, for an administrator to sign in again with.
+ * for, for an administrator to sign in again with. A tool that's whoever `asked`'s own is called as
+ * them, with the sign-in they made to its app themselves, or not at all once that has ended: what its
+ * server asks for beyond it is kept for them, and what it lists to them isn't read as the app's tools.
  */
-async function answered(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, shown?: ShowsCall): Promise<{ text: string; blocks?: string }> {
-  const access = await workspace(env).appToolCall(agentId, tool, shown !== undefined);
+async function answered(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, asked: AskedBy, shown?: ShowsCall): Promise<{ text: string; blocks?: string }> {
+  const access = await workspace(env).appToolCall(agentId, tool, shown !== undefined, tool.own ? asked : undefined);
   if (!access) throw new ToolGone(`Not run: ${tool.as} isn't one of your tools any more${shown ? ", or each call of it has to be allowed now" : ""}.`);
-  if (hasEnded(access)) throw new ToolError(`Not run: ${signInEnded(tool.appName)}`);
+  if (hasEnded(access)) throw new ToolError(`Not run: ${(access.own ? ownSignInEnded : signInEnded)(tool.appName)}`);
   const shownCall = await shown?.(input);
   if (typeof shownCall === "string") {
     console.error(`A call of the tool ${tool.name} of app ${tool.appId} wasn't made, as the room couldn't be shown it: ${shownCall}`);
     throw new ToolError(CALL_NOT_SHOWN);
   }
   const { text, failed, unmade, changed, scope, blocks } = await appConnector(env).call(access.url, access.key, { name: tool.name, fingerprint: tool.fingerprint }, input);
-  await Promise.all([changed && readAgain(env, tool, access), scope !== undefined && wantsScope(env, tool, scope, access), unmade && shownCall?.unmade(changed ? "changed" : scope !== undefined ? "refused" : "unasked")]);
-  if (scope !== undefined) throw new ToolError(`Not run: ${wantsMoreAccess(tool.appName)}`);
+  await Promise.all([changed && !access.own && readAgain(env, tool, access), scope !== undefined && wantsScope(env, tool, scope, access), unmade && shownCall?.unmade(changed ? "changed" : scope !== undefined ? "refused" : "unasked")]);
+  if (scope !== undefined) throw new ToolError(`Not run: ${(access.own ? ownWantsMoreAccess : wantsMoreAccess)(tool.appName)}`);
   if (failed) throw new ToolError(text);
   return { text, ...(blocks !== undefined && { blocks }) };
 }
@@ -251,13 +267,19 @@ function callBlocks(header: string, { name }: GivenTool, input: Record<string, u
   ];
 }
 
+/** What the card of a call that waits says of who can allow it, and as whom it goes: with Ember's token or sign-in, or, for a tool that's the asker's `own`, as them. */
+export const callNote = (askerName: string, { appName, own }: Pick<GivenTool, "appName" | "own">) =>
+  own
+    ? `${askerName} can allow this call. It goes to ${appName} as ${askerName}, with the sign-in they made to it themselves.`
+    : `${askerName} or an administrator can allow this call. It goes to ${appName} with the token an administrator connected it with.`;
+
 /**
  * The card a room posts for a call that waits, as a Slack payload: who wants to use which app, the tool
  * and what it's called with, and Allow once and Deny, or, once it's answered, `outcome` in their place.
  */
 export function callCard(botName: string, askerName: string, tool: GivenTool, input: Record<string, unknown>, outcome?: string): SlackPayload {
   const button = (decision: CallDecision, label: string, style?: string) => ({ type: "button", text: plainText(label), action_id: CALL_ACTIONS[decision], ...(style && { style }) });
-  const note = outcome ?? `${askerName} or an administrator can allow this call. It goes to ${tool.appName} with the token an administrator connected it with.`;
+  const note = outcome ?? callNote(askerName, tool);
   return {
     blocks: [
       ...callBlocks(`${botName} wants to use ${tool.appName}`, tool, input, note),

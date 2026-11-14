@@ -2,14 +2,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "@ember/protocol";
-import { APP_SIGN_IN_ENDED, APPS_FORBIDDEN, type App, type AppSignedIn } from "@ember/protocol/apps";
+import { APP_SIGN_IN_ENDED, APPS_FORBIDDEN, YOUR_APP_GONE, type App, type AppSignedIn, type YourAppSignedIn } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
-import { APP_SIGNED_IN_PATH } from "@ember/protocol";
+import { APP_SIGNED_IN_PATH, PROFILE_PATH } from "@ember/protocol";
 import { appSettingsPath, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { AGENTS_PATH } from "./agent-list";
-import { AppSignedInPage, FINISHING_SIGN_IN, SIGN_IN_NOT_FINISHED, SIGN_IN_TURNED_DOWN } from "./app-signed-in-page";
+import { AppSignedInPage, FINISHING_OWN_SIGN_IN, FINISHING_SIGN_IN, SIGN_IN_NOT_FINISHED, SIGN_IN_TURNED_DOWN, signedInYourselfNotice } from "./app-signed-in-page";
 
 const ada: Me = { id: "0mgk3x2a9b4c5d", name: "Ada Lovelace", administrator: true };
 
@@ -61,7 +61,14 @@ function comeBack(query: string, { me = ada, strict = false } = {}) {
 
 const flashed = () => screen.findByRole("alert");
 
-afterEach(() => vi.restoreAllMocks());
+/** Grace, a member, and Linear as her profile lists it once she has signed in to it herself. */
+const grace: Me = { id: "0mgk3x2a9b4c5e", name: "Grace Hopper", administrator: false };
+const YOURS: YourAppSignedIn = { yours: { id: LINEAR.id, name: "Linear", signedInAt: "2026-11-14T09:00:00.000Z", ended: false, wantsMore: false } };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  sessionStorage.clear();
+});
 
 describe("The page an app's sign-in comes back to", () => {
   it("has Ember finish the sign-in with what came back, which leaves the address at once, then goes to the app's page, saying it's connected", async () => {
@@ -131,12 +138,56 @@ describe("The page an app's sign-in comes back to", () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
-  it("sends anyone but an administrator to workspace settings at once, saying why, and asks Ember nothing", async () => {
-    const requests = serve();
-    comeBack("code=c0de-7&state=5f2c07", { me: { ...ada, administrator: false } });
+  it("sends an administrator who isn't one any more to workspace settings, saying why", async () => {
+    serve(() => Response.json({ error: APPS_FORBIDDEN }, { status: 403 }));
+    comeBack("code=c0de-7&state=5f2c07");
 
     expect(await flashed()).toHaveTextContent(APPS_FORBIDDEN);
     expect(location.pathname).toBe(WORKSPACE_SETTINGS_PATH);
+  });
+
+  it("has Ember finish a sign-in someone made themselves, and goes back to their profile, saying they're signed in", async () => {
+    let finished!: (response: Response) => void;
+    const requests = serve(() => new Promise((resolve) => (finished = resolve)));
+    comeBack("code=c0de-9&state=5f2c09", { me: grace });
+
+    expect(screen.getByText(FINISHING_OWN_SIGN_IN)).toBeVisible();
+    await waitFor(() => expect(requests).toEqual([{ state: "5f2c09", code: "c0de-9" }]));
+    finished(Response.json(YOURS));
+    expect(await flashed()).toHaveTextContent(signedInYourselfNotice({ name: "Linear" }));
+    expect(location.pathname).toBe(PROFILE_PATH);
+  });
+
+  it("takes an administrator's sign-in for their own when this tab noted it as that, and for Ember's otherwise, and goes where Ember says either way", async () => {
+    sessionStorage.setItem("ember:own-app-sign-in", "5f2c10");
+    serve(() => Response.json(YOURS));
+    comeBack("code=c0de-10&state=5f2c10");
+    expect(screen.getByText(FINISHING_OWN_SIGN_IN)).toBeVisible();
+    await waitFor(() => expect(location.pathname).toBe(PROFILE_PATH));
+
+    // Another sign-in than the one noted is Ember's to the page, and goes to the profile all the same when Ember says it's theirs.
+    comeBack("code=c0de-11&state=5f2c11");
+    expect(screen.getByText(FINISHING_SIGN_IN)).toBeVisible();
+    await waitFor(() => expect(location.pathname).toBe(PROFILE_PATH));
+  });
+
+  it("says why a sign-in someone made themselves wasn't finished, with the way back to their profile", async () => {
+    serve(() => Response.json({ error: YOUR_APP_GONE }, { status: 404 }));
+    const { onFailed } = comeBack("code=c0de-12&state=5f2c12", { me: grace });
+
+    expect(await flashed()).toHaveTextContent(YOUR_APP_GONE);
+    expect(screen.getByRole("heading", { level: 1, name: "You aren't signed in to the app" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Back to your profile" })).toHaveAttribute("href", PROFILE_PATH);
+    expect(location.pathname).toBe(APP_SIGNED_IN_PATH);
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("says a sign-in someone turned down for themselves changed nothing, with the way back to their profile", async () => {
+    const requests = serve();
+    comeBack("error=access_denied&state=5f2c13", { me: grace });
+
+    expect(await flashed()).toHaveTextContent(SIGN_IN_TURNED_DOWN);
+    expect(screen.getByRole("link", { name: "Back to your profile" })).toHaveAttribute("href", PROFILE_PATH);
     expect(requests).toEqual([]);
   });
 

@@ -1203,7 +1203,7 @@ describe("Search box", () => {
 
 describe("Edit your profile", () => {
   it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [] } }) });
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
     await user.click(screen.getByRole("link", { name: "Your profile" }));
@@ -1217,7 +1217,7 @@ describe("Edit your profile", () => {
   });
 
   it("logs out from your profile", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [] } }) });
     const { onSignOut, user } = showWorkspace("/users/me/profile");
     await user.click(screen.getByRole("button", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
@@ -1229,7 +1229,7 @@ describe("Connect Memberful", () => {
 
   it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
     const memberful = { membersOnly: true, connected: { name: "Ada Lovelace", emailAddress: "ada@example.com" } };
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [] } }) });
     const { unmount } = showWorkspace("/users/me/profile?memberful=connected#top");
     expect(await screen.findByRole("alert")).toHaveTextContent("Your Memberful account is connected.");
     expect(address()).toBe("/users/me/profile#top");

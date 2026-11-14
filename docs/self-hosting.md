@@ -967,7 +967,8 @@ app's page says who signed in, and when, in place of a token.
 - **It's one sign-in for the app**, made by an administrator and used for every agent given the
   app's tools, as a token is. So what an agent can do there is what the administrator who signed in
   can, for anyone who can ask the agent: sign in as an account made for Ember where the service lets
-  you, and pick tools with that in mind.
+  you, and pick tools with that in mind. Each person can add [their own](#each-persons-own-sign-in),
+  for their direct conversation with an agent.
 - **Ember finds the sign-in from the server**, as the protocol says to: the server names its
   authorization server, which describes itself. Ember says who it is with a document it serves at
   `/oauth/client.json` where the authorization server reads one, and otherwise registers itself
@@ -1017,6 +1018,29 @@ app's page says who signed in, and when, in place of a token.
   seconds. The tab then says whether the service took them back. Where it didn't, couldn't be
   reached, or doesn't say how, remove Ember's access at the service yourself. A sign-in replaced
   by signing in again isn't taken back: the service decides what becomes of the last one.
+
+#### Each person's own sign-in
+
+Anyone but a guest can sign in themselves to an app Ember signs in to, under **Apps** on their
+profile, which lists those apps while Ember AI is on. It's the same sign-in at the same service, as
+the same client, made as them, and kept beside Ember's, sealed for that app and that person alone.
+
+- **It's used in one place:** their direct conversation with @ember or an agent, the two of them
+  alone. A call the agent makes of that app's tools there goes as them, with their sign-in.
+  Everywhere else, and for everyone who hasn't signed in themselves, calls go with the sign-in the
+  administrator made, as before.
+- **Every call as a person asks them first**, on a card that says the call goes as them. What an
+  administrator always allows an agent was said of Ember's sign-in, and doesn't cover theirs.
+- **Which tools an agent has is still the administrator's pick.** A person's sign-in changes whose
+  account a call acts as, not what the agent may call.
+- **Their sign-in ends, or wants more, for them alone.** Once it has ended, the call isn't made with
+  Ember's instead: the model says they have to sign in again, and their profile says so, with
+  **Sign in again**, or **Sign out** to go back to the shared one. When the app's server asks for
+  more access than their sign-in has, their profile says so, and signing in again asks for it.
+- **Sign out forgets it and takes it back at the service**, where the service says how, as removing
+  an app does. Removing the app forgets everyone's sign-in to it and takes back up to 20 of them
+  there too, saying it couldn't take everything back when there were more. Removing or banning
+  someone forgets theirs, without asking the service.
 
 ### Huddles
 
