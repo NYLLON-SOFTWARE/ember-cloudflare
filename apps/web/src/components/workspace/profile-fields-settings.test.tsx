@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_PROFILE_FIELD_NAME_LENGTH, MAX_PROFILE_FIELDS, PROFILE_FIELD_OPTIONS_REFUSED, PROFILE_FIELDS_FULL, type ProfileField } from "@ember/protocol";
@@ -245,6 +245,36 @@ describe("Profile fields on workspace settings", () => {
     // The form stays, with what was typed, and the field is as it was.
     expect(within(form).getByLabelText("Name")).toHaveValue("Job title");
     expect(listed()).toEqual(["(editing)", "Pronouns"]);
+  });
+
+  it("keeps what's typed while a save is pending, closing the form only when it still holds what was sent", async () => {
+    let answer = (_: Response) => {};
+    const { user } = show({ changed: () => new Promise((resolve) => (answer = resolve)) });
+    await shown();
+    await user.click(screen.getByRole("button", { name: "Edit Title" }));
+    const form = screen.getByRole("form", { name: "Edit Title" });
+    await user.clear(within(form).getByLabelText("Name"));
+    await user.type(within(form).getByLabelText("Name"), "Job title");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    // Typed while the save waits.
+    await user.type(within(form).getByLabelText("Name"), " (senior)");
+
+    await act(async () => answer(Response.json({ fields: [{ id: "field-1", name: "Job title", options: null }, FIELDS[1]!] })));
+    await waitFor(() => expect(listed()).toEqual(["(editing)", "Pronouns"]));
+    expect(within(screen.getByRole("form", { name: "Edit Job title" })).getByLabelText("Name")).toHaveValue("Job title (senior)");
+  });
+
+  it("keeps what's typed in the form that adds a field while it saves, emptying it only when it's as it was sent", async () => {
+    let answer = (_: Response) => {};
+    const { user } = show({ added: () => new Promise((resolve) => (answer = resolve)) });
+    await shown();
+    await user.type(screen.getByLabelText("Name"), "Phone");
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    await user.type(screen.getByLabelText("Name"), " number");
+
+    await act(async () => answer(Response.json({ fields: [...FIELDS, { id: "field-3", name: "Phone", options: null }] })));
+    await waitFor(() => expect(listed()).toEqual(["Title", "Pronouns", "Phone"]));
+    expect(screen.getByLabelText("Name")).toHaveValue("Phone number");
   });
 
   it("says Changes saved. once a field is added", async () => {
