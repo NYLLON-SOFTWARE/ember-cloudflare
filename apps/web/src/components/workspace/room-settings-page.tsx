@@ -141,8 +141,8 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     }, failed);
   };
 
-  /** Shows a guest as their stay's answer named them, adding one who isn't listed yet, in place. */
-  const guestSaved = (guest: RoomGuest) =>
+  /** Shows a guest as their stay's answer named them, adding one who isn't listed yet, in place, and keeping them in the private form's chosen, whose saving would otherwise take their membership out. */
+  const guestSaved = (guest: RoomGuest) => {
     setSettings((settings) => {
       if (!settings) return settings;
       const listed = settings.people.some((person) => person.id === guest.userId);
@@ -151,6 +151,8 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
         : [...settings.people, { id: guest.userId, name: guest.name, member: true, guestUntil: guest.untilAt }];
       return { ...settings, people };
     });
+    setChosen((chosen) => (chosen.has(guest.userId) ? chosen : new Set([...chosen, guest.userId])));
+  };
 
   /** Stops marking a guest whose stay has ended, which takes them out of the list once the server has heard of it. */
   const guestEnded = (userId: UserId) =>
