@@ -7,10 +7,10 @@ import type { Env } from "./env";
 import { messagesInRoomWithIds } from "./store";
 import { workspace, type Searcher } from "./workspace";
 
-// Saving messages for later: a person's own list, in whatever rooms the messages live in. The rows keep
-// only the ids, so the Saved pane asks each room for its messages as it shows them, as search results
-// do, and each room answers only what it keeps, so a save naming another room's message reads nothing
-// of it.
+// Saving messages for later: a person's own list, at most MAX_SAVES long, in whatever rooms the messages
+// live in. The rows keep only the ids, so the Saved pane asks each room for its messages as it shows
+// them, as search results do, and each room answers only what it keeps, so a save naming another room's
+// message reads nothing of it.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
