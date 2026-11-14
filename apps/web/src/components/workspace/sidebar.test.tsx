@@ -26,6 +26,7 @@ const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: tru
 function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: readonly DirectoryUser[] = []) {
   const all: Props = {
     workspaceName: "Ember",
+    meId: "u1",
     rooms,
     favorites: unstarred,
     sharedOrder: [],
@@ -52,7 +53,9 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
   return { ...view, ...all, rerender: (changes: Partial<Props>, changed = account) => view.rerender(sidebar(changes, changed)) };
 }
 
-const [ada, grace]: User[] = ["Ada", "Grace"].map((name, i) => ({ id: `u${i + 1}`, name }));
+const [ada, grace, linus, alan]: User[] = ["Ada", "Grace", "Linus", "Alan"].map((name, i) => ({ id: `u${i + 1}`, name }));
+/** A time on 15 October 2026, `minutes` past noon UTC. */
+const at = (minutes: number) => new Date(Date.UTC(2026, 9, 15, 12, minutes)).toISOString();
 /** A DM between `members`, as the list has it for Ada, who's always in it. */
 const direct = (id: string, members: User[], unread = false): SidebarRoom => ({ id, kind: "direct", members, activeAt: new Date(0).toISOString(), unread, involvement: "everything" });
 
@@ -350,25 +353,20 @@ describe("Rooms with a huddle", () => {
     expect(faces(general())).toEqual([]);
   });
 
-  it("comes before the row's unread dot and its star, and takes the space before them", () => {
-    const starred: Favorites = { rooms: ["general", "random"], version: 2 };
-    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], favorites: starred, huddles: { general: huddleOf(grace!), random: huddleOf(linus!) } }, EMBER, everyone);
+  it("comes before the row's unread dot, and takes the space before it", () => {
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], huddles: { general: huddleOf(grace!), random: huddleOf(linus!) } }, EMBER, everyone);
     const [general, random] = rows();
-    const [first, words, dot, star] = Array.from(general!.children).slice(-4);
+    const [first, words, dot] = Array.from(general!.children).slice(-3);
     expect(first).toBe(mark(general!));
     expect(first).toHaveClass("ml-auto");
     expect(words).not.toBeVisible();
     expect(dot).toHaveClass("size-[7px]", "rounded-full");
     expect(dot).not.toHaveClass("ml-auto");
-    expect(star).toHaveAccessibleName("Favorite");
-    expect(star).not.toHaveClass("ml-auto");
     expect(general).toHaveAccessibleDescription(`Grace is in the huddle Unread ${HELP}`);
 
-    const [its, , itsStar] = Array.from(random!.children).slice(-3);
+    const [its] = Array.from(random!.children).slice(-2);
     expect(its).toBe(mark(random!));
     expect(its).toHaveClass("ml-auto");
-    expect(itsStar).toHaveAccessibleName("Favorite");
-    expect(itsStar).not.toHaveClass("ml-auto");
   });
 
   it("follows the huddle as people join and leave it, and goes when it ends", () => {

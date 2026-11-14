@@ -53,10 +53,10 @@ import agentPromptTemplates from "../migrations/0052_agent_prompt_templates.sql"
 import unbannedOpenRooms from "../migrations/0053_unbanned_open_rooms.sql";
 import agentThinkingLevels from "../migrations/0054_agent_thinking_levels.sql";
 import apps from "../migrations/0055_apps.sql";
-import agentTools from "../migrations/0056_agent_tools.sql";
-import waitingCalls from "../migrations/0057_waiting_calls.sql";
 import unreadCounts from "../migrations/0055_unread_counts.sql";
+import agentTools from "../migrations/0056_agent_tools.sql";
 import unreadMentions from "../migrations/0056_unread_mentions.sql";
+import waitingCalls from "../migrations/0057_waiting_calls.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -138,10 +138,10 @@ export const MIGRATIONS: Migration[] = [
   { name: "0053_unbanned_open_rooms.sql", scope: "workspace", sql: unbannedOpenRooms },
   { name: "0054_agent_thinking_levels.sql", scope: "workspace", sql: agentThinkingLevels },
   { name: "0055_apps.sql", scope: "workspace", sql: apps },
-  { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
-  { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
   { name: "0055_unread_counts.sql", scope: "workspace", sql: unreadCounts },
+  { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
   { name: "0056_unread_mentions.sql", scope: "workspace", sql: unreadMentions },
+  { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
 ];
 
 /**
