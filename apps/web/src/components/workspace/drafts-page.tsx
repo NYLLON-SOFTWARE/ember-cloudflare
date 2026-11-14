@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ListedScheduledMessage, Me, Room, SearchMatch } from "@ember/protocol";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type Ref } from "react";
+import type { ListedScheduledMessage, Me, Room, ScheduledMessage, SearchMatch } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
-import { EditPencil, Trash } from "@/components/icons/iconoir";
+import { useOptionalFlash } from "@/components/flash";
+import { Clock, EditPencil, Trash } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
+import { useLongPress } from "@/components/mobile/use-long-press";
 import { PageLink } from "@/components/page-link";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
 import { DRAFTS_PATH, permalinkOf, roomPath, SCHEDULED_PATH, SENT_PATH, threadPath } from "@/hooks/use-route";
 import { useAllScheduled } from "@/hooks/use-scheduled";
@@ -12,9 +15,13 @@ import { fetchScheduled, fetchSearch, isSignedOut } from "@/lib/api";
 import { discardDraft, draftsOf, type Draft } from "@/lib/drafts";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { activityLabel } from "@/lib/direct-list";
+import { changeScheduled, type ScheduledChange } from "@/lib/scheduled-actions";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "./page-header";
+import { UNDO_MS } from "./schedule-send";
+import { ScheduledSheet } from "./scheduled-list";
 import { RoomMark, useSearchNames, type SearchNames } from "./search-box";
+import { TimeDialog } from "./time-dialog";
 
 /** A `.btn` under the list, 44px tall for fingers. */
 const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium hover:bg-hover touch:min-h-11";
@@ -126,6 +133,9 @@ interface ItemRowProps {
   text: string;
   /** What the row offers besides opening it, shown on hover, and always on touch screens. */
   action?: ReactNode;
+  /** What it offers over its end, placed by itself. */
+  overlay?: ReactNode;
+  rowRef?: Ref<HTMLDivElement>;
 }
 
 /**
@@ -133,9 +143,9 @@ interface ItemRowProps {
  * and "· Thread reply" for a reply, when it was sent at the right edge, and a line or two of what it
  * says, the whole row opening where it is.
  */
-function ItemRow({ room, roomName, threadReply, href, at, atLabel = at && sentLabel(at), text, action }: ItemRowProps) {
+function ItemRow({ room, roomName, threadReply, href, at, atLabel = at && sentLabel(at), text, action, overlay, rowRef }: ItemRowProps) {
   return (
-    <div className="group/item relative flex items-start hover:bg-hover">
+    <div ref={rowRef} className="group/item relative flex items-start hover:bg-hover">
       <PageLink
         href={href}
         className="flex min-w-0 flex-1 items-start gap-3 px-[18px] py-3 text-foreground no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset max-md:px-4"
@@ -159,6 +169,7 @@ function ItemRow({ room, roomName, threadReply, href, at, atLabel = at && sentLa
         </span>
       </PageLink>
       {action && <span className="self-center pr-3">{action}</span>}
+      {overlay}
     </div>
   );
 }
@@ -166,16 +177,36 @@ function ItemRow({ room, roomName, threadReply, href, at, atLabel = at && sentLa
 /** How long after a room says your scheduled messages changed they're asked for again, as the list trails the room. */
 export const SCHEDULED_DELAY_MS = 1000;
 
+/** What's said when a change to a scheduled message from here doesn't go. */
+export const SCHEDULED_CHANGE_FAILED = "Couldn't change the scheduled message. Try again.";
+
+/** One deleted from here, which keeps its place with Undo while it can be scheduled again. */
+interface Deleted {
+  row: ListedScheduledMessage;
+  /** As the room had it, which Undo schedules again. */
+  message: ScheduledMessage;
+}
+
 /**
  * What you've scheduled to send later, in every room you're in, soonest first, as GET /api/scheduled lists
- * it: each with when it's to go, or that it couldn't, opening where it is to go, where its composer sends
- * it now, moves it or deletes it. It's asked for as the tab opens, and again a moment after a room open
- * here says your scheduled messages there have changed.
+ * it: each with when it's to go, or that it couldn't, opening where it is to go. Each can be sent now, moved
+ * or deleted from here, over a socket to its room (`changeScheduled`): on hover or focus, or on a phone, from
+ * the sheet a long press opens, as the composer's list has them, and a deletion can be undone for a few
+ * seconds. It's asked for as the tab opens, and again a moment after a room open here says your scheduled
+ * messages there have changed, or a change made here has gone.
  */
 function Scheduled({ names, onFailed }: { names: SearchNames; onFailed: (error: unknown) => void }) {
   const [listed, setListed] = useState<ListedScheduledMessage[] | null>(null);
   // What the rooms open here say of your scheduled messages, which changes as you schedule, send or delete one.
   const heard = useAllScheduled();
+  // Bumped once a change made here has gone, which the list trails as it does a room's.
+  const [changed, setChanged] = useState(0);
+  const [changing, setChanging] = useState<ReadonlySet<string>>(new Set());
+  const [moving, setMoving] = useState<ListedScheduledMessage | null>(null);
+  const [acting, setActing] = useState<ListedScheduledMessage | null>(null);
+  const [deleted, setDeleted] = useState<Deleted | null>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const flash = useOptionalFlash();
   const first = useRef(true);
   useEffect(() => {
     let stopped = false;
@@ -192,33 +223,165 @@ function Scheduled({ names, onFailed }: { names: SearchNames; onFailed: (error: 
       stopped = true;
       clearTimeout(ask);
     };
-  }, [heard, onFailed]);
-  const shown = useMemo(
-    () =>
-      (listed ?? []).flatMap((message) => {
-        const room = names.room(message.roomId);
-        return room ? [{ room, message }] : [];
-      }),
-    [listed, names],
-  );
+  }, [heard, changed, onFailed]);
+  useEffect(() => {
+    if (!deleted) return;
+    // Focus stays where the message's Delete was, on Undo.
+    list.current?.querySelector<HTMLElement>("[data-undo]")?.focus();
+    const timer = setTimeout(() => setDeleted(null), UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [deleted]);
+
+  const change = async (row: ListedScheduledMessage, what: ScheduledChange, made: (message: ScheduledMessage) => void) => {
+    setChanging((ids) => new Set(ids).add(row.id));
+    const before = await changeScheduled(row.roomId, what);
+    setChanging((ids) => new Set([...ids].filter((id) => id !== row.id)));
+    if (!before) {
+      flash?.("alert", SCHEDULED_CHANGE_FAILED);
+      return;
+    }
+    made(before);
+    setChanged((times) => times + 1);
+  };
+  const without = (row: ListedScheduledMessage) => setListed((rows) => rows && rows.filter(({ id }) => id !== row.id));
+  const sendNow = (row: ListedScheduledMessage) => change(row, { type: "send", id: row.id }, () => without(row));
+  const move = (row: ListedScheduledMessage, at: Date) =>
+    change(row, { type: "move", id: row.id, sendAt: at.getTime() }, () =>
+      setListed((rows) => rows && rows.map((listedRow) => (listedRow.id === row.id ? { ...listedRow, sendAt: at.getTime() } : listedRow)).sort(bySendAt)),
+    );
+  const remove = (row: ListedScheduledMessage) =>
+    change(row, { type: "delete", id: row.id }, (message) => {
+      without(row);
+      // One that couldn't be sent is gone for good, as the composer's list has it.
+      if (row.failed === undefined) setDeleted({ row, message });
+    });
+  const undo = ({ row, message }: Deleted) => {
+    setDeleted(null);
+    void change(row, { type: "restore", message }, () => setListed((rows) => rows && [...rows, row].sort(bySendAt)));
+  };
+
+  // The deleted one keeps its place in the list while it can be brought back.
+  const rows = useMemo(() => {
+    const all = deleted && !listed?.some(({ id }) => id === deleted.row.id) ? [...(listed ?? []), deleted.row].sort(bySendAt) : (listed ?? []);
+    return all.flatMap((message) => {
+      const room = names.room(message.roomId);
+      return room ? [{ room, message }] : [];
+    });
+  }, [listed, deleted, names]);
   if (!listed) return <RowsLoading />;
-  if (shown.length === 0) return <Nothing title="Nothing scheduled" />;
+  if (rows.length === 0) return <Nothing title="Nothing scheduled" icon={Clock} />;
   return (
-    <ul className="flex flex-col">
-      {shown.map(({ room, message }) => (
-        <li key={message.id}>
-          <ItemRow
-            room={room}
-            roomName={names.roomName(room)}
-            threadReply={message.parentId !== undefined}
-            href={message.parentId ? threadPath(room.id, message.parentId) : roomPath(room.id)}
-            at={new Date(message.sendAt)}
-            atLabel={message.failed ? "Not sent" : scheduledLabel(new Date(message.sendAt))}
-            text={message.preview}
-          />
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul ref={list} className="flex flex-col">
+        {rows.map(({ room, message }) => (
+          <li key={message.id}>
+            {message.id === deleted?.row.id ? (
+              <p className="flex min-h-[68px] items-center gap-1.5 px-[18px] text-[13px] text-muted-foreground max-md:px-4 max-md:text-[15px]">
+                <span role="status">Scheduled message deleted</span>
+                <button
+                  type="button"
+                  data-undo
+                  onClick={() => undo(deleted)}
+                  className="inline-flex shrink-0 cursor-pointer items-center justify-center font-medium text-link hover:underline touch:min-h-11 touch:min-w-11"
+                >
+                  Undo
+                </button>
+              </p>
+            ) : (
+              <ScheduledRow
+                room={room}
+                roomName={names.roomName(room)}
+                message={message}
+                disabled={changing.has(message.id)}
+                onSendNow={() => sendNow(message)}
+                onMove={() => setMoving(message)}
+                onRemove={() => remove(message)}
+                onPress={() => setActing(message)}
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+      {acting && (
+        <ScheduledSheet
+          text={acting.preview}
+          failed={acting.failed !== undefined}
+          onClose={() => setActing(null)}
+          onSendNow={() => sendNow(acting)}
+          onMove={() => setMoving(acting)}
+          onRemove={() => remove(acting)}
+        />
+      )}
+      {moving && (
+        <TimeDialog
+          title="Edit time"
+          action="Save"
+          initial={new Date(moving.sendAt)}
+          onClose={() => setMoving(null)}
+          onPick={(at) => {
+            setMoving(null);
+            void move(moving, at);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+const bySendAt = (a: ListedScheduledMessage, b: ListedScheduledMessage) => a.sendAt - b.sendAt || (a.id < b.id ? -1 : 1);
+
+/** Where a scheduled message's actions are pressed for rather than shown: phones and touch screens. */
+const PRESSED_FOR_ACTIONS = "(width < 48rem), (pointer: coarse)";
+
+interface ScheduledRowProps {
+  room: Room;
+  roomName: string;
+  message: ListedScheduledMessage;
+  /** While a change to it is on its way. */
+  disabled: boolean;
+  onSendNow: () => void;
+  onMove: () => void;
+  onRemove: () => void;
+  /** A finger's long press, which opens the sheet of what can be done with it. */
+  onPress: () => void;
+}
+
+/**
+ * A scheduled message's row, which opens where it's to go, with Edit time, Send now and Delete over its end
+ * on hover or focus, but for one that couldn't be sent, which can't be moved. A finger presses it long for them.
+ */
+function ScheduledRow({ room, roomName, message, disabled, onSendNow, onMove, onRemove, onPress }: ScheduledRowProps) {
+  const row = useRef<HTMLDivElement>(null);
+  // Only where the actions don't show, so a mouse's right click keeps the browser's menu for the link.
+  const pressable = useMediaQuery(PRESSED_FOR_ACTIONS);
+  useLongPress(row, onPress, pressable && !disabled);
+  const action = "inline-flex h-8 cursor-pointer items-center rounded-lg px-2.5 text-[13px] font-medium hover:bg-hover disabled:pointer-events-none disabled:opacity-50";
+  return (
+    <ItemRow
+      rowRef={row}
+      room={room}
+      roomName={roomName}
+      threadReply={message.parentId !== undefined}
+      href={message.parentId ? threadPath(room.id, message.parentId) : roomPath(room.id)}
+      at={new Date(message.sendAt)}
+      atLabel={message.failed ? "Not sent" : scheduledLabel(new Date(message.sendAt))}
+      text={message.preview}
+      overlay={
+        <span className="pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 gap-0.5 rounded-[10px] border bg-background p-0.5 opacity-0 shadow-sm group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100 group-hover/item:pointer-events-auto group-hover/item:opacity-100 max-md:hidden pointer-coarse:hidden">
+          {message.failed === undefined && (
+            <button type="button" disabled={disabled} onClick={onMove} className={action}>
+              Edit time
+            </button>
+          )}
+          <button type="button" disabled={disabled} onClick={onSendNow} className={action}>
+            Send now
+          </button>
+          <button type="button" disabled={disabled} onClick={onRemove} className={cn(action, "text-negative")}>
+            Delete
+          </button>
+        </span>
+      }
+    />
   );
 }
 
@@ -342,10 +505,10 @@ export function scheduledLabel(date: Date, now = new Date()): string {
 }
 
 /** What a tab says when it has nothing to list, under a faded pencil: its title alone. */
-function Nothing({ title }: { title: string }) {
+function Nothing({ title, icon: Icon = EditPencil }: { title: string; icon?: ComponentType<{ className?: string }> }) {
   return (
     <div className={cn("grid justify-items-center px-6 pt-[8dvh] pb-6 text-center text-muted-foreground")}>
-      <EditPencil className="mb-4 h-auto w-16 max-w-[25vw] text-foreground opacity-20" />
+      <Icon className="mb-4 h-auto w-16 max-w-[25vw] text-foreground opacity-20" />
       <h2 className="text-xl font-bold text-foreground">{title}</h2>
     </div>
   );

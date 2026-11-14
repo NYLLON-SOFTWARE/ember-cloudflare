@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
+import { changeScheduled } from "@/lib/scheduled-actions";
 import { DraftsPage, SCHEDULED_DELAY_MS, scheduledLabel } from "./drafts-page";
+
+vi.mock("@/lib/scheduled-actions", () => ({ changeScheduled: vi.fn() }));
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
@@ -76,6 +79,72 @@ describe("Drafts & sent", () => {
     render(<RoomScheduling roomId="general" messages={[{ id: "s9", body: "<p>just now</p>", sendAt: Date.now() + 60_000 }]} />);
     expect(await screen.findByText("just now", {}, { timeout: SCHEDULED_DELAY_MS + 2000 })).toBeInTheDocument();
     expect(asked()).toBe(2);
+  });
+
+  it("sends one now, moves one, and deletes one with Undo, from each row's actions, over its room's socket", async () => {
+    const later = Date.now() + 3_600_000;
+    const messages: ListedScheduledMessage[] = [
+      { id: "s1", roomId: "general", sendAt: later, preview: "for soon" },
+      { id: "s2", roomId: "random", sendAt: later + 1, preview: "for later" },
+      { id: "s3", roomId: "general", sendAt: later + 2, preview: "stuck", failed: "You left the room" },
+    ];
+    vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json({ messages }));
+    const asTheRoomHadIt = { id: "s2", body: "<p>for later</p>", sendAt: later + 1 };
+    vi.mocked(changeScheduled).mockClear().mockImplementation(async (_roomId, change) => (change.type === "restore" ? change.message : asTheRoomHadIt));
+    showPage("scheduled");
+    const user = userEvent.setup();
+    const row = async (text: string) => (await screen.findByText(text)).closest("li")!;
+
+    // One that couldn't be sent can't be moved.
+    expect(within(await row("stuck")).queryByRole("button", { name: "Edit time" })).not.toBeInTheDocument();
+    expect(within(await row("stuck")).getByRole("button", { name: "Send now" })).toBeInTheDocument();
+
+    await user.click(within(await row("for soon")).getByRole("button", { name: "Send now" }));
+    expect(changeScheduled).toHaveBeenLastCalledWith("general", { type: "send", id: "s1" });
+    await vi.waitFor(() => expect(screen.queryByText("for soon")).not.toBeInTheDocument());
+
+    await user.click(within(await row("for later")).getByRole("button", { name: "Edit time" }));
+    expect(await screen.findByRole("dialog", { name: "Edit time" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(within(await row("for later")).getByRole("button", { name: "Delete" }));
+    expect(changeScheduled).toHaveBeenLastCalledWith("random", { type: "delete", id: "s2" });
+    expect(await screen.findByText("Scheduled message deleted")).toBeInTheDocument();
+    expect(screen.queryByText("for later")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(changeScheduled).toHaveBeenLastCalledWith("random", { type: "restore", message: asTheRoomHadIt });
+    expect(await screen.findByText("for later")).toBeInTheDocument();
+  });
+
+  it("keeps a row whose change didn't go", async () => {
+    const messages: ListedScheduledMessage[] = [{ id: "s1", roomId: "general", sendAt: Date.now() + 3_600_000, preview: "for soon" }];
+    vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json({ messages }));
+    vi.mocked(changeScheduled).mockClear().mockResolvedValue(null);
+    showPage("scheduled");
+    const user = userEvent.setup();
+    await user.click(within((await screen.findByText("for soon")).closest("li")!).getByRole("button", { name: "Delete" }));
+    await vi.waitFor(() => expect(changeScheduled).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Scheduled message deleted")).not.toBeInTheDocument();
+    expect(screen.getByText("for soon")).toBeInTheDocument();
+  });
+
+  it("opens the sheet of what can be done with one on a phone's long press", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media.includes("width < 48rem"), media, addEventListener() {}, removeEventListener() {} }));
+    const messages: ListedScheduledMessage[] = [{ id: "s1", roomId: "general", sendAt: Date.now() + 3_600_000, preview: "for soon" }];
+    vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json({ messages }));
+    vi.mocked(changeScheduled).mockClear().mockResolvedValue({ id: "s1", body: "<p>for soon</p>", sendAt: messages[0]!.sendAt });
+    showPage("scheduled");
+    const link = await screen.findByRole("link", { name: /^general/ });
+    // A finger rests on it, and the browser's own long press comes first.
+    link.dispatchEvent(Object.assign(new MouseEvent("pointerdown", { bubbles: true }), { pointerType: "touch", isPrimary: true }));
+    link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    const sheet = await screen.findByRole("dialog", { name: "for soon" });
+    expect(within(sheet).getAllByRole("button").map((button) => button.textContent)).toEqual(["Send now", "Edit time", "Delete", "Cancel"]);
+    await userEvent.setup().click(within(sheet).getByRole("button", { name: "Delete" }));
+    expect(changeScheduled).toHaveBeenLastCalledWith("general", { type: "delete", id: "s1" });
+    expect(await screen.findByText("Scheduled message deleted")).toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 
   it("says when a scheduled message goes: its time today, tomorrow, its weekday this week, and else its date", () => {
