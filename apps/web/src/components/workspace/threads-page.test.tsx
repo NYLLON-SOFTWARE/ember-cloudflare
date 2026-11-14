@@ -190,28 +190,38 @@ describe("Threads page", () => {
     const mine = vi.mocked(handOver).mock.calls[0]![1][0]!;
     // The room has it, so the outbox lets it go, and the thread comes back with it.
     act(() => outbox.keep([]));
-    const echoed: ListedThread = { ...thread, replies: [...thread.replies, { ...mine, id: "r5" } as Message], count: 6 };
-    const refresh = async (now: ListedThread) => {
+    const { pending: _, queued: __, ...stored } = mine;
+    const echoed: ListedThread = { ...thread, replies: [...thread.replies, { ...stored, id: "r5" }, message("r6", "Shipped", grace, 41, "p1")], count: 7 };
+    /** Shows the tab again, which asks for the threads again, answered with `now`, and waits for the card to show `shown`. */
+    const refresh = async (now: ListedThread, shown: string) => {
       vi.mocked(fetch).mockImplementation(async () => Response.json({ threads: [now], next: null }));
       vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
       act(() => void document.dispatchEvent(new Event("visibilitychange")));
-      await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(fetches + 1));
-      fetches++;
+      expect(await within(card).findByText(shown)).toBeInTheDocument();
     };
-    let fetches = vi.mocked(fetch).mock.calls.length;
-    await refresh(echoed);
+    await refresh(echoed, "Shipped");
     await vi.waitFor(() => expect(within(card).getAllByText("On it")).toHaveLength(1));
     // Five newer replies push it out of those the thread comes back with.
     const newer = Array.from({ length: 5 }, (_, i) => message(`n${i}`, `Newer ${i}`, grace, 50 + i, "p1"));
-    await refresh({ ...thread, replies: newer, count: 11 });
-    expect(await within(card).findByText("Newer 4")).toBeInTheDocument();
-    expect(within(card).queryByText("On it")).not.toBeInTheDocument();
+    await refresh({ ...thread, replies: newer, count: 12 }, "Newer 4");
+    await vi.waitFor(() => expect(within(card).queryByText("On it")).not.toBeInTheDocument());
     expect(within(card).queryByText("Sending…")).not.toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "7 more replies" })).toBeInTheDocument();
   });
 
   it("puts the first page asked for again first, keeping the threads loaded after it and the cursor after those", () => {
     const [a, b, c] = ["a", "b", "c"].map((id): ListedThread => ({ ...thread, parent: message(id, id, grace, 0) }));
     expect(withFirstPage({ threads: [a!, b!], next: 7 }, { threads: [c!, b!], next: 3 })).toEqual({ threads: [c, b, a], next: 7 });
+  });
+
+  it("takes the cursor of a first page asked for again that has more after it, where none were left to load, or every thread loaded", () => {
+    const [a, b, c] = ["a", "b", "c"].map((id): ListedThread => ({ ...thread, parent: message(id, id, grace, 0) }));
+    // All of them had loaded; since, more threads became active than a page holds.
+    expect(withFirstPage({ threads: [a!, b!], next: null }, { threads: [c!, a!], next: 3 })).toEqual({ threads: [c, a], next: 3 });
+    // The page has every thread loaded among its own.
+    expect(withFirstPage({ threads: [a!, b!], next: 7 }, { threads: [b!, a!], next: 3 })).toEqual({ threads: [b, a], next: 3 });
+    // None more anywhere.
+    expect(withFirstPage({ threads: [a!, b!], next: null }, { threads: [c!, b!], next: null })).toEqual({ threads: [c, b, a], next: null });
   });
 
   it("starts the first reply after the ones left out with its author, though they wrote the first message just before", async () => {

@@ -157,11 +157,14 @@ export const THREADS_REFRESH_MS = 30_000;
 /**
  * `loaded` with the first page of threads asked for again, `page`: its threads first, latest active
  * first, as they are now, then the others loaded, which the page ends before, keeping the cursor of the
- * page after those.
+ * page after those. A page with every thread loaded among its own, or more after it where none were left
+ * to load, is all there is, and its cursor goes on from it.
  */
 export function withFirstPage(loaded: Loaded, page: Loaded): Loaded {
   const fresh = new Set(page.threads.map(({ parent }) => parent.id));
-  return { threads: [...page.threads, ...loaded.threads.filter(({ parent }) => !fresh.has(parent.id))], next: loaded.next };
+  const others = loaded.threads.filter(({ parent }) => !fresh.has(parent.id));
+  if (others.length === 0 || (loaded.next === null && page.next !== null)) return page;
+  return { threads: [...page.threads, ...others], next: loaded.next };
 }
 
 /** Whether `thread` has come back with `reply`, among its latest replies. */
@@ -194,8 +197,7 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
   // the outbox no longer keeps the room has, or its thread, opened, took back, so the thread has it.
   const settle = useEffectEvent(() =>
     setWritten((written) => {
-      const kept = written.filter((reply) => !echoed(thread, reply) && outboxed.some(({ clientMessageId }) => clientMessageId === reply.clientMessageId));
-      return kept.length === written.length ? written : kept;
+      const kept = written.filter((reply) => !echoed(thread, reply) && outboxed.some(({ clientMessageId }) => clientMessageId === reply.clientMessageId));      return kept.length === written.length ? written : kept;
     }),
   );
   useEffect(() => settle(), [thread]);
