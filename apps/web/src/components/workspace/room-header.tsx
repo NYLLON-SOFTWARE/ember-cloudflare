@@ -95,7 +95,8 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
       {/* The room's actions, 6px apart, and touching at 900px and below. */}
       <div className="flex shrink-0 items-center gap-1.5 max-md:gap-0">
         {huddles && <HuddleButton roomId={room.id} />}
-        {/* A phone under 430px wide has no room for both, and Search is in the drawer's rail too. */}
+        {/* A phone under 430px wide has no room for both, and Search is in the drawer's rail too. Download
+            transcript never fits there, and the room's settings have it. */}
         <PageLink
           href={SEARCHES_PATH}
           title="Search messages"
@@ -105,7 +106,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
           <Search className="size-5" />
           <span className="sr-only">Search messages</span>
         </PageLink>
-        <a href={roomTranscriptPath(room.id)} download title="Download transcript" className={cn(HEADER_BUTTON, huddles && "max-[429px]:hidden")}>
+        <a href={roomTranscriptPath(room.id)} download title="Download transcript" className={cn(HEADER_BUTTON, "max-[429px]:hidden")}>
           <Download className="size-5" />
           <span className="sr-only">Download transcript</span>
         </a>

@@ -346,10 +346,11 @@ describe("Huddles", () => {
     );
   const following = (a: Element, b: Element) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
 
-  it("has no huddle button until huddles are on, and Search stays on the narrowest phones", () => {
+  it("has no huddle button until huddles are on, and Search stays on the narrowest phones while Download doesn't", () => {
     renderHeader();
     expect(screen.queryByRole("button", { name: "Start huddle" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Search messages" })).not.toHaveClass("max-[429px]:hidden");
+    expect(screen.getByRole("link", { name: "Download transcript" })).toHaveClass("max-[429px]:hidden");
   });
 
   it("starts its actions with the huddle button once they are, and gives up Search and Download for it under 430px wide", () => {
