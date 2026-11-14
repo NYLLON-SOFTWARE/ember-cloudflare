@@ -73,6 +73,8 @@ import {
   type RoomId,
   type RoomSettings,
   type RoomSocketParams,
+  type SavedItems,
+  type SavedMessage,
   type SavedPushSubscription,
   type Search,
   type SearchResults,
@@ -1021,6 +1023,22 @@ export async function recordSearch(search: Search, sort: SearchSort = "newest"):
 /** Forgets your recent searches. */
 export async function clearSearches(): Promise<void> {
   await request("/api/searches", { method: "DELETE" });
+}
+
+/** The messages you've saved for later, newest save first, each as its room has it now. */
+export async function fetchSaves(): Promise<SavedItems> {
+  return request<SavedItems>("/api/saves");
+}
+
+/** Saves the message `messageId` of room `roomId` for later, answering the save. */
+export async function saveForLater(roomId: RoomId, messageId: string): Promise<SavedMessage> {
+  const { save } = await request<{ save: SavedMessage }>("/api/saves", { method: "POST", body: JSON.stringify({ roomId, messageId }) });
+  return save;
+}
+
+/** Forgets your save `id`. */
+export async function forgetSave(id: string): Promise<void> {
+  await request(`/api/saves/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /**

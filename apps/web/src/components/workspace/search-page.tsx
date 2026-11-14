@@ -28,13 +28,10 @@ import { clearSearches, fetchSearch, isSignedOut } from "@/lib/api";
 import { dateLabel, dateTimeLabel } from "@/lib/messages";
 import { FLAG_LABELS, marksFor, takeAnswer } from "@/lib/search";
 import { cn } from "@/lib/utils";
-import { MessageItem, type MessageEditors } from "./message-item";
+import { MessageItem, NO_EDITORS, type MessageEditors } from "./message-item";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { Chip, CHIPS_ROW, CONFIRM_CLEAR_SEARCHES, FLAG_ICONS, OpenSearchContext, RoomMark, searchLabel, SearchLine, useSearchNames, type SearchNames } from "./search-box";
 import { SearchMarks } from "./search-marks";
-
-/** Results can't be edited or replied to, so nothing opens an editor or writes in a composer. */
-const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, attach() {}, reply() {} };
 
 /** What the sort menu calls each order. */
 const SORT_LABELS: Record<SearchSort, string> = { newest: "Newest first", oldest: "Oldest first" };
