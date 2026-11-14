@@ -992,6 +992,26 @@ describe("Save a message for later", () => {
     await user.click(item);
     expect(saver.forget).toHaveBeenCalledWith("saved-1");
   });
+
+  it("offers Save for later in the bar on touch, where no More actions opens, and saves from there", async () => {
+    const { saver, user, open } = showSaved(false);
+    await open();
+    const bar = screen.getByRole("group", { name: "Message actions" });
+    const item = within(bar).getByRole("button", { name: "Save for later" });
+    expect(item).toHaveAttribute("aria-pressed", "false");
+    await user.click(item);
+    expect(saver.save).toHaveBeenCalledWith("general", "m1");
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+  });
+
+  it("says Saved in the bar on touch, and forgets it from there", async () => {
+    const { saver, user, open } = showSaved(true);
+    await open();
+    const item = within(screen.getByRole("group", { name: "Message actions" })).getByRole("button", { name: "Saved" });
+    expect(item).toHaveAttribute("aria-pressed", "true");
+    await user.click(item);
+    expect(saver.forget).toHaveBeenCalledWith("saved-1");
+  });
 });
 
 describe("Quote a message", () => {
