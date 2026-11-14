@@ -21,6 +21,22 @@ interface Outbox {
 /** By room. */
 const outboxes = new Map<string, Outbox>();
 
+const NOTHING: readonly PendingMessage[] = [];
+const watchers = new Set<() => void>();
+
+/** Hears each change to what the outbox keeps, as a Threads card does for the replies it hands over, until the function it answers is called. */
+export function watchOutbox(watcher: () => void): () => void {
+  watchers.add(watcher);
+  return () => void watchers.delete(watcher);
+}
+
+/** What the outbox keeps for room `roomId` now, the same list until it changes: what's waiting, sent without an answer, or not sent. */
+export const outboxOf = (roomId: string): readonly PendingMessage[] => outboxes.get(roomId)?.messages ?? NOTHING;
+
+const changed = () => {
+  for (const watcher of watchers) watcher();
+};
+
 /**
  * What a view showing `state` leaves unsent as it goes: what was written while the room was away, and
  * what went without the room saying it has it, which it may never have had, but for what went over the
@@ -43,6 +59,7 @@ export function handOver(roomId: string, messages: PendingMessage[]): void {
   const outbox = outboxes.get(roomId) ?? opened(roomId);
   outboxes.set(roomId, outbox);
   outbox.messages = [...outbox.messages, ...messages].sort(byWritten);
+  changed();
   queueMicrotask(() => (outbox.socket ? deliver(outbox) : connect(roomId, outbox)));
 }
 
@@ -156,6 +173,7 @@ function deliver(outbox: Outbox): void {
   for (let i = 0; i < asked.length; i += MAX_CHECKED_MESSAGES) room.send({ type: "message.check", clientMessageIds: asked.slice(i, i + MAX_CHECKED_MESSAGES) });
   const sent = new Set(outbox.messages.filter((m) => isQueued(m) && room.send(createFrame(m))));
   outbox.messages = outbox.messages.map((m) => (sent.has(m) ? dequeued(m) : m));
+  changed();
 }
 
 /** What sends `message` as its view would have: a reply to its thread, and to the room too if it was asked to go there. */
@@ -187,4 +205,5 @@ function settle(roomId: string, outbox: Outbox): void {
   if (outbox.messages.length > 0 || outboxes.get(roomId) !== outbox) return;
   outboxes.delete(roomId);
   outbox.stopHearing();
+  changed();
 }

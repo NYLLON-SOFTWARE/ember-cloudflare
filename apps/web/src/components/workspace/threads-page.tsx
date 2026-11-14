@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { THREAD_CONTEXT, type ListedThread, type Me, type Message, type Room, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import { MultiBubble, NavArrowRight } from "@/components/icons/iconoir";
@@ -11,7 +11,9 @@ import { useTitle } from "@/hooks/use-title";
 import { isSignedOut } from "@/lib/api";
 import { fetchThreads } from "@/lib/conversations";
 import { timeline } from "@/lib/messages";
-import { handOver } from "@/lib/outbox";
+import { handOver, outboxOf, watchOutbox } from "@/lib/outbox";
+import type { PendingMessage } from "@/lib/room-state";
+import { keepUnsent } from "@/lib/unsent-store";
 import { Composer } from "./composer";
 import { MessageItem, type MessageEditors, type ThreadPlace } from "./message-item";
 import { PageHeader } from "./page-header";
@@ -162,6 +164,14 @@ export function withFirstPage(loaded: Loaded, page: Loaded): Loaded {
   return { threads: [...page.threads, ...loaded.threads.filter(({ parent }) => !fresh.has(parent.id))], next: loaded.next };
 }
 
+/** Whether `thread` has come back with `reply`, among its latest replies. */
+const echoed = (thread: ListedThread, reply: PendingMessage) => thread.replies.some(({ clientMessageId }) => clientMessageId === reply.clientMessageId);
+
+/** `reply` as the room has it, once the outbox no longer keeps it. */
+function sentCopy({ pending: _, queued: __, queuedAt: ___, sentOver: ____, failed: _____, ...sent }: PendingMessage): Message {
+  return sent;
+}
+
 /** How many replies a card leaves out, as its link to them says. */
 const moreRepliesLabel = (count: number) => (count === 1 ? "1 more reply" : `${count} more replies`);
 
@@ -175,11 +185,25 @@ const markOf = ({ mentioned, following }: Pick<ListedThread, "mentioned" | "foll
  */
 function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names: SearchNames }) {
   const room = names.room(thread.roomId);
-  // The replies written here, shown at once and sent by the outbox, as a thread closed while its room is
-  // away hands over what it couldn't send.
-  const [written, setWritten] = useState<Message[]>([]);
-  // Those the thread has come back with since are its own.
-  const unechoed = useMemo(() => written.filter((reply) => !thread.replies.some((other) => other.clientMessageId === reply.clientMessageId)), [thread, written]);
+  // The replies written here, shown at once, kept in this browser as a thread's own view keeps what it
+  // hasn't sent, and sent by the outbox, as a thread closed while its room is away hands over what it couldn't send.
+  const [written, setWritten] = useState<PendingMessage[]>([]);
+  // What the outbox keeps of them now: waiting, sent without the room's answer, or not sent.
+  const outboxed = useSyncExternalStore(watchOutbox, () => outboxOf(thread.roomId));
+  // Each time the thread comes back, what was written here settles: one it came back with is its own, and one
+  // the outbox no longer keeps the room has, or its thread, opened, took back, so the thread has it.
+  const settle = useEffectEvent(() =>
+    setWritten((written) => {
+      const kept = written.filter((reply) => !echoed(thread, reply) && outboxed.some(({ clientMessageId }) => clientMessageId === reply.clientMessageId));
+      return kept.length === written.length ? written : kept;
+    }),
+  );
+  useEffect(() => settle(), [thread]);
+  // Each as the outbox has it, or as sent once the room has it.
+  const unechoed = useMemo(
+    () => written.filter((reply) => !echoed(thread, reply)).map((reply) => outboxed.find(({ clientMessageId }) => clientMessageId === reply.clientMessageId) ?? sentCopy(reply)),
+    [thread, written, outboxed],
+  );
   const replies = useMemo(() => [...thread.replies, ...unechoed].slice(-(THREAD_CONTEXT - 1)), [thread, unechoed]);
   const items = useMemo(() => timeline([thread.parent, ...replies]), [thread, replies]);
   const left = thread.count + unechoed.length - replies.length;
@@ -189,6 +213,8 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
   const reply = (body: string) => {
     const { plainText, mentions } = writtenBody(body);
     const message = { ...pendingMessage(crypto.randomUUID(), thread.roomId, me, body, plainText, mentions, new Date().toISOString()), parentId: thread.parent.id, alsoSent: false, queued: true as const };
+    // Kept for the thread, so a reload before the room has it leaves it for the thread to send.
+    keepUnsent(thread.roomId, me.id, thread.parent.id, [message]);
     handOver(thread.roomId, [message]);
     setWritten((written) => [...written, message]);
   };

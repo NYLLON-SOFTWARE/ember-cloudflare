@@ -1,6 +1,6 @@
 import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handOver, leftUnsent, takeBack, takeBackAll } from "./outbox";
+import { handOver, leftUnsent, outboxOf, takeBack, takeBackAll, watchOutbox } from "./outbox";
 import { OFFLINE_AFTER_MS } from "./reconnecting-socket";
 import { initialRoomState, type PendingMessage } from "./room-state";
 import { forgetInRoom, keepUnsent, keptUnsent } from "./unsent-store";
@@ -156,6 +156,24 @@ describe("Send what was left unsent", () => {
     socket().receive({ type: "message.created", message: stored(reply), seq: 2 });
     expect(socket().closedWith).toBe(1000);
     expect(takeBack("general", ada)).toEqual([]);
+  });
+
+  it("tells those watching as what it keeps changes: handed over, sent, refused", async () => {
+    const watcher = vi.fn();
+    const stop = watchOutbox(watcher);
+    handOver("general", [waiting("On it", { parentId: "m1" })]);
+    expect(watcher).toHaveBeenCalled();
+    expect(outboxOf("general").map((m) => [m.body, m.queued])).toEqual([["On it", true]]);
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    expect(outboxOf("general").map((m) => m.queued)).toEqual([undefined]);
+    watcher.mockClear();
+    socket().receive({ type: "error", message: "That message was deleted.", clientMessageId: "On it" });
+    expect(watcher).toHaveBeenCalled();
+    expect(outboxOf("general").map((m) => m.failed)).toEqual([true]);
+    expect(outboxOf("random")).toBe(outboxOf("random"));
+    stop();
   });
 
   it("takes one by someone else with the same id as theirs, not as the room having it", async () => {

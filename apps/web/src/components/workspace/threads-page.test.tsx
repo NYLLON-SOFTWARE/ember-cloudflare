@@ -5,9 +5,32 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { handOver } from "@/lib/outbox";
+import type { PendingMessage } from "@/lib/room-state";
+import { keptUnsent } from "@/lib/unsent-store";
 import { ThreadsPage, withFirstPage } from "./threads-page";
 
-vi.mock("@/lib/outbox", () => ({ handOver: vi.fn() }));
+/** Stands in for the outbox: what's handed over it keeps, and tests settle, telling those that watch. */
+const outbox = vi.hoisted(() => {
+  const watchers = new Set<() => void>();
+  let kept: PendingMessage[] = [];
+  return {
+    kept: () => kept,
+    keep: (messages: PendingMessage[]) => {
+      kept = messages;
+      for (const watcher of watchers) watcher();
+    },
+    watch: (watcher: () => void) => {
+      watchers.add(watcher);
+      return () => void watchers.delete(watcher);
+    },
+  };
+});
+
+vi.mock("@/lib/outbox", () => ({
+  handOver: vi.fn((_roomId: string, messages: PendingMessage[]) => outbox.keep([...outbox.kept(), ...messages])),
+  outboxOf: () => outbox.kept(),
+  watchOutbox: outbox.watch,
+}));
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: User = { id: "u2", name: "Grace" };
@@ -58,6 +81,8 @@ const shownIn = (card: HTMLElement) =>
 function showPage(answer: ListedThreads) {
   vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json(answer));
   vi.mocked(handOver).mockClear();
+  outbox.keep([]);
+  localStorage.clear();
   render(
     <Sheet>
       <ThreadsPage me={ada} rooms={[general, secret]} onFailed={vi.fn()} />
@@ -143,6 +168,45 @@ describe("Threads page", () => {
     act(() => void document.dispatchEvent(new Event("visibilitychange")));
     expect(await within(card).findByText("Shipped")).toBeInTheDocument();
     expect(within(card).getAllByText("On it")).toHaveLength(1);
+  });
+
+  it("keeps a reply written in a card for its thread until the room has it, and says when it's not sent", async () => {
+    showPage({ threads: [thread], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in general" });
+    await userEvent.type(await replyBox(card), "On it{Enter}");
+    // A reload now leaves it for the thread's own view to send.
+    expect(keptUnsent("general", ada.id, "p1").map(({ plainText }) => plainText)).toEqual(["On it"]);
+    expect(within(card).getByText("Sending…")).toBeInTheDocument();
+    // The room refuses it, as when the thread's first message was deleted.
+    act(() => outbox.keep(outbox.kept().map((reply) => ({ ...reply, queued: undefined, failed: true }))));
+    expect(within(card).getByText("Not sent")).toBeInTheDocument();
+    expect(within(card).queryByText("Sending…")).not.toBeInTheDocument();
+  });
+
+  it("lets a reply the thread came back with go, so it doesn't return as sending once newer replies push it out", async () => {
+    showPage({ threads: [thread], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in general" });
+    await userEvent.type(await replyBox(card), "On it{Enter}");
+    const mine = vi.mocked(handOver).mock.calls[0]![1][0]!;
+    // The room has it, so the outbox lets it go, and the thread comes back with it.
+    act(() => outbox.keep([]));
+    const echoed: ListedThread = { ...thread, replies: [...thread.replies, { ...mine, id: "r5" } as Message], count: 6 };
+    const refresh = async (now: ListedThread) => {
+      vi.mocked(fetch).mockImplementation(async () => Response.json({ threads: [now], next: null }));
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      act(() => void document.dispatchEvent(new Event("visibilitychange")));
+      await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(fetches + 1));
+      fetches++;
+    };
+    let fetches = vi.mocked(fetch).mock.calls.length;
+    await refresh(echoed);
+    await vi.waitFor(() => expect(within(card).getAllByText("On it")).toHaveLength(1));
+    // Five newer replies push it out of those the thread comes back with.
+    const newer = Array.from({ length: 5 }, (_, i) => message(`n${i}`, `Newer ${i}`, grace, 50 + i, "p1"));
+    await refresh({ ...thread, replies: newer, count: 11 });
+    expect(await within(card).findByText("Newer 4")).toBeInTheDocument();
+    expect(within(card).queryByText("On it")).not.toBeInTheDocument();
+    expect(within(card).queryByText("Sending…")).not.toBeInTheDocument();
   });
 
   it("puts the first page asked for again first, keeping the threads loaded after it and the cursor after those", () => {
