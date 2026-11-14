@@ -1,4 +1,4 @@
-import { threadPath, type RoomId, type RoomKind } from "@ember/protocol";
+import { messagePath, threadPath, type RoomId, type RoomKind } from "@ember/protocol";
 
 // What a push of a new message says, for the service worker to show as it is.
 
@@ -29,6 +29,18 @@ export interface PushedReply {
   replyId: string;
 }
 
+/** A reminder that has come due, as its push keeps it. */
+export interface PushedReminder {
+  roomId: RoomId;
+  messageId: string;
+  /** The message's parent, for a reply: the push opens the thread at the reply. */
+  parentId?: string | null;
+  /** Who wrote the message the reminder is of, named as they were when the reminder was set. */
+  creatorName: string;
+  /** The start of the message's plain text, as it read then. */
+  excerpt: string;
+}
+
 /**
  * A new message's push: a DM's is titled with the sender's name and reads the message's plain text, and
  * any other room's is titled with the room's name and reads "<sender>: <text>". Opening it opens the
@@ -43,6 +55,19 @@ export function messagePayload(roomId: RoomId, room: PushedRoom, senderName: str
   const body = direct ? plainText : `${senderName}: ${plainText}`;
   const path = reply === undefined ? `/rooms/${roomId}` : threadPath(roomId, reply.parentId, reply.replyId);
   return { title: truncated(title, MAX_TITLE_BYTES), body: truncated(body, MAX_BODY_BYTES), path };
+}
+
+/**
+ * A reminder that has come due: titled "Reminder", reading the message's plain text as the reminder
+ * keeps it, or "<who> wrote" for a message that had no text, and opening the message — a reply's in
+ * its thread. A message that had a file keeps the file's name, which its plain text is.
+ */
+export function reminderPayload({ roomId, messageId, parentId, creatorName, excerpt }: PushedReminder): PushPayload {
+  return {
+    title: "Reminder",
+    body: excerpt === "" ? `${creatorName} wrote` : excerpt,
+    path: parentId ? threadPath(roomId, parentId, messageId) : messagePath(roomId, messageId),
+  };
 }
 
 /**

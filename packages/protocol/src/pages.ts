@@ -87,6 +87,9 @@ export const SEARCHES_PATH = "/searches";
 export const threadPath = (roomId: RoomId, parentId: string, replyId?: string) =>
   `/rooms/${encodeURIComponent(roomId)}/threads/${encodeURIComponent(parentId)}` + (replyId === undefined ? "" : `/@${encodeURIComponent(replyId)}`);
 
+/** A message's permalink, as Campfire's `room_at_message_path` gives it, which opens its room. */
+export const messagePath = (roomId: RoomId, messageId: string) => `/rooms/${encodeURIComponent(roomId)}/@${encodeURIComponent(messageId)}`;
+
 /** A room's huddle's link, as Copy huddle link gives it, which opens the room and offers to join its huddle. */
 export const huddlePath = (roomId: RoomId) => `/rooms/${encodeURIComponent(roomId)}/huddle`;
 

@@ -221,6 +221,12 @@ Objects, D1 or speed call for something else.
   many sessions there were. Someone banned keeps their memberships, but a room opened to everyone
   meanwhile leaves them out, as it does anyone not active, so the batch that lifts the ban puts them
   in every open room, as joining does.
+- **Reminders are the person's, not the room's.** A reminder of a message (workspace migration 0055)
+  keeps, beside who asked for it and when it comes due, what the message read when they asked: its
+  author's id and name, and the start of its plain text. So it comes back with what it said whatever
+  happens to the message or the room after, and the Workspace never has to call the room when it
+  does. `reminded_at` says the alarm has told every tab and pushed every browser once, so it isn't
+  told again; the row stays until the person dismisses it, so a tab that opens later still finds it.
 - **Banned addresses are kept in memory.** Campfire reads `bans` for every request that would change
   something. Here the Worker asks the Workspace before each such request, and the Workspace answers
   from the set of banned addresses it keeps, so the check costs that call but never a database read,

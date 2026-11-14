@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type Reminder, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
 import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
@@ -89,6 +89,8 @@ export function useSidebar(
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
+  onReminderDue: (reminder: Reminder) => void = () => {},
+  onReminderGone: (id: string) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -213,6 +215,10 @@ export function useSidebar(
         case "account.updated":
           toldOf.account = true;
           return accountChanged(frame.account);
+        case "reminder.due":
+          return onReminderDue(frame.reminder);
+        case "reminder.dismissed":
+          return onReminderGone(frame.id);
       }
     };
 

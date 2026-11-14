@@ -66,6 +66,7 @@ import {
   type PushSubscriptionKeys,
   type PushSubscriptionSave,
   type PushSubscriptions,
+  type Reminder,
   type ReleaseCheck,
   type ResentInvitation,
   type Room,
@@ -812,6 +813,29 @@ export async function fetchSidebar(copy: SidebarCopy | null): Promise<SidebarCop
 /** Dismisses the welcome card for this person, for good: their sidebar, on any device, has no invitation from then on. */
 export async function dismissInvitation(): Promise<void> {
   await request("/api/sidebar/invitation", { method: "DELETE" });
+}
+
+/** The reminders of theirs the person hasn't dismissed yet, the one coming soonest first. */
+export async function fetchReminders(): Promise<Reminder[]> {
+  const { reminders } = await request<{ reminders: Reminder[] }>("/api/reminders");
+  return reminders;
+}
+
+/**
+ * Asks that a message of a room the person is in come back to them when they choose, answering what the
+ * Worker kept of it. A refusal (a time that makes no sense, a message that's gone) comes as an ApiError.
+ */
+export async function setReminder(roomId: RoomId, messageId: string, remindAt: string): Promise<Reminder> {
+  const { reminder } = await request<{ reminder: Reminder }>("/api/reminders", {
+    method: "POST",
+    body: JSON.stringify({ roomId, messageId, remindAt }),
+  });
+  return reminder;
+}
+
+/** Dismisses a reminder of theirs, which is being done with it, or taking it back before it comes. */
+export async function dismissReminder(id: string): Promise<void> {
+  await request(`/api/reminders/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /** A copy of the people directory, and the ETag the server sent it with. */

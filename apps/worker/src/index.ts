@@ -17,6 +17,8 @@ import {
   MEMBERFUL_NOT_CONNECTED,
   MEMBERFUL_PASSWORD_NEEDED,
   MEMBERFUL_SIGN_IN_NEEDED,
+  KIND_SEGMENTS,
+  MAX_ID_LENGTH,
   MEMBERFUL_SIGN_IN_PATH,
   MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
@@ -61,6 +63,7 @@ import {
   type EmailSettings,
   type Favorites,
   type Involvement,
+  type Reminder,
   type MemberfulConnection,
   type MemberfulStatus,
   type NewJoinCode,
@@ -1004,6 +1007,56 @@ async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   return json({ favorites } satisfies { favorites: Favorites });
 }
 
+/** The reminders the signed-in person hasn't dismissed yet, the one coming soonest first. */
+async function remindersOf(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const reminders = credentials && (await workspace(env).reminders(credentials));
+  if (!reminders) return problem(401, "Not signed in");
+  return json({ reminders } satisfies { reminders: Reminder[] });
+}
+
+/** What a reminder must be asked with, and what a body that asks otherwise is told. */
+function parseReminderAsk(body: unknown): { roomId: RoomId; messageId: string; remindAt: number } | string {
+  if (typeof body !== "object" || body === null) return "The reminder must be asked with an object";
+  const { roomId, messageId, remindAt } = body as Record<string, unknown>;
+  if (typeof roomId !== "string" || !isRoomId(roomId)) return "invalid room ID";
+  if (typeof messageId !== "string" || messageId === "" || messageId.length > MAX_ID_LENGTH) return "invalid message ID";
+  if (typeof remindAt !== "string" || !Number.isFinite(Date.parse(remindAt))) return "remindAt must be a date's text";
+  return { roomId, messageId, remindAt: Date.parse(remindAt) };
+}
+
+/**
+ * Asks that a message of a room the signed-in person is in come back to them when they choose,
+ * answering the reminder: 400 for what it can't read, 403 for a room they aren't in, 404 for a message
+ * the room has no more, and 422 for a time that makes no sense.
+ */
+async function setReminder(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const asked = parseReminderAsk(await jsonBodyOf(request));
+  if (typeof asked === "string") return problem(400, asked);
+  const reminded = await workspace(env).setReminder(credentials, asked.roomId, asked.messageId, asked.remindAt);
+  if (!reminded) return problem(401, "Not signed in");
+  if (reminded === "forbidden") return problem(403, "You aren't in that room");
+  if (reminded === "gone") return problem(404, "That message isn't there any more");
+  if (reminded === "too soon") return problem(422, "Choose a time a little later from now");
+  if (reminded === "too late") return problem(422, "Choose a time within a year from now");
+  return json({ reminder: reminded } satisfies { reminder: Reminder }, { status: 201 });
+}
+
+/**
+ * Takes the signed-in person's reminder `id` away, which is being done with one that has come due, or
+ * taking back one that hasn't: 404 for one that isn't theirs or isn't there.
+ */
+async function dismissReminder(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const dismissed = await workspace(env).dismissReminder(credentials, id);
+  if (dismissed === null) return problem(401, "Not signed in");
+  if (!dismissed) return problem(404, "No reminder of yours by that id");
+  return new Response(null, { status: 204 });
+}
+
 /** What someone hears when they can't put rooms in the shared order. */
 const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for everyone, and only the rooms in their sidebar";
 
@@ -1148,6 +1201,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
+  if (pathname === "/api/reminders" && request.method === "GET") return () => remindersOf(request, env);
+  if (pathname === "/api/reminders" && request.method === "POST") return () => setReminder(request, env);
+  // A reminder's id is a sortable id, which never needs percent-encoding, so an encoded segment names none.
+  const reminder = pathname.match(/^\/api\/reminders\/([^/]+)$/);
+  if (reminder && request.method === "DELETE") return () => dismissReminder(request, env, reminder[1]!);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
