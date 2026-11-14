@@ -333,6 +333,8 @@ export class ChatRoom extends DurableObject<Env> {
   private readonly clicking = new Map<UserId, number>();
   /** How many commands each person has waiting on bots' webhooks, as clicks are. */
   private readonly commanding = new Map<UserId, number>();
+  /** How many of a room's message events each person has waiting on bots' webhooks, as their commands are. */
+  private readonly eventing = new Map<UserId, number>();
   private readonly answers = new JobQueue(ANSWERS_AT_ONCE, ANSWERS_WAITING);
   /** The tools' cards a click's call is being made for, by their messages' ids: one at a time each, as what it answers takes the card's place. */
   private readonly calling = new Set<string>();
@@ -1329,7 +1331,19 @@ export class ChatRoom extends DurableObject<Env> {
     // The Workspace answers a message's pushes, webhooks and question for @ember once, so they're sent
     // whatever happens next, and the log's next call doesn't wait on push services, bots or models.
     if (pushes.length > 0) this.ctx.waitUntil(this.push(pushes));
-    for (const webhook of webhooks) this.ctx.waitUntil(this.deliver(roomId, webhook));
+    for (const webhook of webhooks) {
+      // A watched room's events wait as their author's commands do, that one burst can't queue webhook
+      // work for every subscribed bot and hold up everyone else's.
+      if (webhook.subscribed) {
+        const waiting = this.eventing.get(webhook.author.id) ?? 0;
+        if (waiting >= COMMANDS_WAITING_EACH) {
+          console.error(`Bot::WebhookJob of message ${webhook.messageId} to bot ${webhook.botId} dropped: ${webhook.author.id}'s earlier events are still waiting`);
+          continue;
+        }
+        this.eventing.set(webhook.author.id, waiting + 1);
+      }
+      this.ctx.waitUntil(this.deliver(roomId, webhook));
+    }
     for (const question of asks) this.ctx.waitUntil(this.answer(roomId, question));
     await log.delivered(events.at(-1)!.seq);
     for (const { message } of events) if (message) this.seenBy.delete(message.id);
@@ -1346,27 +1360,43 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async deliver(roomId: RoomId, delivery: MessageWebhook): Promise<void> {
     const job = `Bot::WebhookJob of message ${delivery.messageId} to bot ${delivery.botId}`;
-    const ran = await this.webhooks.run(async () => {
-      try {
-        const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(delivery.messageId);
-        if (!message) throw new WebhookError("the message is gone");
-        const webhook = await workspace(this.env).botWebhook(roomId, delivery.botId);
-        if (!webhook) throw new WebhookError(NO_WEBHOOK);
-        // A message event's payload says who wrote what, where, as a command's does; a mention's, as a
-        // delivery always has. Whatever the shape, the bot answers as it answers any delivery.
-        const payload = delivery.subscribed
-          ? eventPayload(roomId, delivery.author, delivery.roomName, message)
-          : webhookPayload(roomId, delivery, webhook, message);
-        const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
-        const { status, reply } = await postWebhook(webhook.url, payload, keep);
-        const refused = reply && (await this.postReply(roomId, webhook, reply, message.parentId));
-        if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
-        console.log(`${job} performed: ${status ?? "no answer in time"}`);
-      } catch (error) {
-        console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+    try {
+      const ran = await this.webhooks.run(async () => {
+        try {
+          const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(delivery.messageId);
+          if (!message) throw new WebhookError("the message is gone");
+          const webhook = await workspace(this.env).botWebhook(roomId, delivery.botId);
+          if (!webhook) throw new WebhookError(NO_WEBHOOK);
+          const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
+          // A message event's payload says who wrote what, where, as a command's does, and its answer is
+          // read as a command's is, that a payload of blocks posts as the bot's cards, where a delivery's
+          // JSON answer would be kept as a file. A mention's is read and posted as a delivery's always
+          // was, its answer in its thread when it's in one.
+          const { status, refused } = delivery.subscribed
+            ? await postCommand(webhook.url, eventPayload(roomId, delivery.author, delivery.roomName, message), keep).then(async ({ status, answer }) => ({
+                status,
+                refused: answer && (await this.postCommandAnswer(roomId, webhook, answer, message.parentId)),
+              }))
+            : await postWebhook(webhook.url, webhookPayload(roomId, delivery, webhook, message), keep).then(async ({ status, reply }) => ({
+                status,
+                refused: reply && (await this.postReply(roomId, webhook, reply, message.parentId)),
+              }));
+          if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
+          console.log(`${job} performed: ${status ?? "no answer in time"}`);
+        } catch (error) {
+          console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+        }
+      });
+      if (!ran) console.error(`${job} dropped: the room's webhook queue is full`);
+    } finally {
+      // One of a person's events gives their share of the room's queue back once it's had its turn, as
+      // a command does.
+      if (delivery.subscribed) {
+        const waiting = (this.eventing.get(delivery.author.id) ?? 1) - 1;
+        if (waiting > 0) this.eventing.set(delivery.author.id, waiting);
+        else this.eventing.delete(delivery.author.id);
       }
-    });
-    if (!ran) console.error(`${job} dropped: the room's webhook queue is full`);
+    }
   }
 
   /**
@@ -1423,14 +1453,15 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Posts what a bot answers a command with: what it says back, text or a file, is its reply, as
-   * `postReply` posts one to a delivery, and a payload of blocks is a new message of its with the cards
-   * the blocks make, as a click's payload takes the clicked card's place. A payload that shows nothing
-   * does nothing, as an answer without one does, and as blank text does, which is a webhook's bare 200.
-   * Answers why the room keeps nothing of it, if it doesn't.
+   * `postReply` posts one to a delivery — in the thread `threadId` names, when it's one an event came
+   * by — and a payload of blocks is a new message of its with the cards the blocks make, as a click's
+   * payload takes the clicked card's place. A payload that shows nothing does nothing, as an answer
+   * without one does, and as blank text does, which is a webhook's bare 200. Answers why the room keeps
+   * nothing of it, if it doesn't.
    */
-  private async postCommandAnswer(roomId: RoomId, webhook: WebhookAccess, answer: ClickAnswer<KeptFile>): Promise<string | null> {
+  private async postCommandAnswer(roomId: RoomId, webhook: WebhookAccess, answer: ClickAnswer<KeptFile>, threadId?: string): Promise<string | null> {
     // Blank text is a webhook's bare 200, which says nothing, as an answer without a payload doesn't.
-    if (!("payload" in answer)) return "text" in answer && answer.text.trim() === "" ? null : this.postReply(roomId, webhook, answer);
+    if (!("payload" in answer)) return "text" in answer && answer.text.trim() === "" ? null : this.postReply(roomId, webhook, answer, threadId);
     if (answer.payload.trim() === "") return null;
     const payload = payloadOf(answer.payload);
     if (!payload) return "it isn't a JSON object";
