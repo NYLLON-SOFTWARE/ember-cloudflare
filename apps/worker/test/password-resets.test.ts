@@ -15,6 +15,7 @@ import {
   PASSWORD_TOO_LONG,
   PASSWORD_TOO_SHORT,
   TURNSTILE_FAILED,
+  type ApiTokenCreated,
   type Bootstrap,
   type Me,
   type NewWorkspace,
@@ -376,6 +377,21 @@ describe("Reset a forgotten password with an emailed code", () => {
 
       expect(await count("password_resets")).toBe(0);
       await expectWrong(await reset("ada@example.com", code, "another password"));
+    });
+
+    it("revokes the person's API tokens, which open nothing afterwards", async () => {
+      const administrator = await setUp();
+      const made = await api("/api/account/tokens", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name: "Deploy bot" }) });
+      expect(made.status).toBe(201);
+      const { token } = (await made.json()) as ApiTokenCreated;
+      const opens = (bearer: string) => api("/mcp", { method: "POST", headers: { Authorization: `Bearer ${bearer}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+      expect((await opens(token)).status).toBe(200);
+
+      const code = await codeFor("ada@example.com");
+      expect((await reset("ada@example.com", code)).status).toBe(201);
+      expect((await opens(token)).status).toBe(401);
+      const [revoked] = (await workspaceSql("SELECT revoked_at FROM api_tokens")) as Array<{ revoked_at: number | null }>;
+      expect(revoked!.revoked_at).not.toBeNull();
     });
 
     it("keeps the code working when the new password can't be saved", async () => {

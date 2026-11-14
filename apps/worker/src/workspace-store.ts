@@ -3241,10 +3241,10 @@ export class WorkspaceStore {
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
    * sessions, keeping their role and status, and forgets their push subscriptions, the accounts
-   * elsewhere their old password started connecting, or connected (`UNLINK_ON_RESET`), and any
-   * code they were emailed to reset it. In the same transaction it queues closing each session's
-   * sockets with `code` in every room they're in, due at `dueAt`, as signing out does. Answers whether
-   * it queued any.
+   * elsewhere their old password started connecting, or connected (`UNLINK_ON_RESET`), any code they
+   * were emailed to reset it, and revokes their API tokens, which opened without a session. In the same
+   * transaction it queues closing each session's sockets with `code` in every room they're in, due at
+   * `dueAt`, as signing out does. Answers whether it queued any.
    */
   async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
@@ -3252,6 +3252,7 @@ export class WorkspaceStore {
       statement(UNLINK_ON_RESET, userId),
       statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(`UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, Date.parse(now), userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
       statement(`DELETE FROM password_resets WHERE user_id = ?`, userId),
