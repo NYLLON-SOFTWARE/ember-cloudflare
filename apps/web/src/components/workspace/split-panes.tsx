@@ -1,6 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PaneSeparator } from "./pane-separator";
+import { fitted, fittingCount, moved, normalized, storedShares, storeShares, type Shares } from "@/lib/pane-sizes";
 import { cn } from "@/lib/utils";
 
 // Panes side by side, as Slack lays out a conversation beside Activity and a thread or a profile beside

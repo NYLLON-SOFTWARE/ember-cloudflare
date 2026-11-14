@@ -12,7 +12,7 @@ import { useTitle } from "@/hooks/use-title";
 import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PhoneProfile } from "../mobile/profile";
-import { LocalTime } from "./profile-pane";
+import { LocalTime } from "./profile-panel";
 import { AgentBadge, isAgent } from "./agent-badge";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";

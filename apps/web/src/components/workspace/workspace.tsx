@@ -39,6 +39,7 @@ import { MovedNotice } from "./moved-notice";
 import { opensProfile, PROFILE_PARAM, ProfilePaneContext, type ProfilePane } from "./profile-pane";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
+import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, type SearchBoxOptions } from "./search-box";
 import { RoomUnavailable } from "./room-unavailable";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
