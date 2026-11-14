@@ -537,7 +537,9 @@ async function changeProfileField(request: Request, env: Env, id: string): Promi
   const fields = await workspace(env).changeProfileField(credentials, id, typeof change === "string" ? undefined : change);
   if (fields === "not found") return problem(404, "Not found");
   if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
-  return typeof change === "string" ? problem(422, change) : profileFieldsAnswer(fields);
+  if (typeof change === "string") return problem(422, change);
+  if (fields === "taken") return problem(422, PROFILE_FIELD_NAME_TAKEN);
+  return profileFieldsAnswer(fields);
 }
 
 /** Puts the fields in the order `ids` name them, answering the fields as they are then. */

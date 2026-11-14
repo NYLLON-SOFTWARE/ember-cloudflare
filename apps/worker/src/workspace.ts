@@ -1129,9 +1129,10 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Saves a field's new name and choices, which its values keep, as the person `credentials` signs in,
    * answering the fields then: undefined changes nothing, once who's asking is checked, "not found" for
-   * an id nobody has, "forbidden" unless they're an administrator, or null without a valid session.
+   * an id nobody has, "taken" while another field has the name the change gives, as `sameName` compares
+   * names, "forbidden" unless they're an administrator, or null without a valid session.
    */
-  async changeProfileField(credentials: Credentials, id: string, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "not found" | null> {
+  async changeProfileField(credentials: Credentials, id: string, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "not found" | "taken" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
@@ -1139,6 +1140,8 @@ export class Workspace extends DurableObject<Env> {
       const fields = await this.store.profileFields();
       if (!fields.some((field) => field.id === id)) return "not found";
       if (change === undefined) return this.profileFieldList();
+      // Its own name is no one else's, so a field can keep it.
+      if (fields.some((field) => field.id !== id && sameName(field.name, change.name))) return "taken";
       await this.store.changeProfileField(id, change.name, change.options, new Date().toISOString());
       return this.profileFieldList();
     });

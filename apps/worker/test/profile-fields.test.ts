@@ -140,6 +140,12 @@ describe("Profile fields", () => {
     expect(await (await add(administrator, { name: "  title " })).json()).toEqual({ error: PROFILE_FIELD_NAME_TAKEN });
     expect((await add(administrator, { name: "Tïtle" })).status).toBe(200);
     expect((await fieldsOf(administrator)).map((field) => field.name)).toEqual(["Title", "Tïtle"]);
+    // Renaming another onto a name one has is refused too, changing nothing.
+    const [, tïtle] = await fieldsOf(administrator);
+    expect(await (await change(administrator, tïtle!.id, { name: "title" })).json()).toEqual({ error: PROFILE_FIELD_NAME_TAKEN });
+    expect((await fieldsOf(administrator)).map((field) => field.name)).toEqual(["Title", "Tïtle"]);
+    // Its own name is its own to keep.
+    expect((await change(administrator, tïtle!.id, { name: "Tïtle" })).status).toBe(200);
   });
 
   it("saves choices without the spaces at their ends, as it saves the name", async () => {
