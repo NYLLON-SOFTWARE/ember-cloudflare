@@ -39,13 +39,14 @@ const foldedCase = (text: string) => text.replace(/[A-Z]/g, (letter) => letter.t
 
 /**
  * The people New direct message lists for `name`: everyone active, bots included, whose name has `name`
- * in it, ignoring the case of A to Z, by name in lower case. It leaves out `meId`, and orders people
- * with the same name by id, where SQLite leaves them in no particular order.
+ * in it, ignoring the case of A to Z, by name in lower case — you among them, since your DM with
+ * yourself is one the picker starts too. Orders people with the same name by id, where SQLite leaves
+ * them in no particular order.
  */
-export function peopleMatching(people: Iterable<DirectoryUser>, meId: UserId, name: string): DirectoryUser[] {
+export function peopleMatching(people: Iterable<DirectoryUser>, name: string): DirectoryUser[] {
   const sought = foldedCase(name);
   return [...people]
-    .filter((person) => person.status === "active" && person.id !== meId && foldedCase(person.name).includes(sought))
+    .filter((person) => person.status === "active" && foldedCase(person.name).includes(sought))
     .map((person) => ({ person, key: foldedCase(person.name) }))
     .sort((a, b) => (a.key !== b.key ? (a.key < b.key ? -1 : 1) : a.person.id < b.person.id ? -1 : 1))
     .map(({ person }) => person);

@@ -63,10 +63,11 @@ interface Props {
 }
 
 /**
- * New direct message: a search of the active people, 20 at a time, to pick one or more of, by pointer or
- * with the arrow keys and Enter, as chips that take them back out, and Start conversation, which opens
- * the DM between them and you, starting it if they don't have one, and goes there. It's open from when
- * it's shown until it closes, which it can't while a DM is starting.
+ * New direct message: a search of the active people, you among them for your DM with yourself, 20 at a
+ * time, to pick one or more of, by pointer or with the arrow keys and Enter, as chips that take them
+ * back out, and Start conversation, which opens the DM between them and you, starting it if they don't
+ * have one, and goes there. It's open from when it's shown until it closes, which it can't while a DM
+ * is starting.
  */
 export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClose, onFailed }: Props) {
   const people = useContext(PeopleContext);
@@ -90,7 +91,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
   const started = useRef<"opened" | "shown" | null>(null);
 
   const name = soughtName(typed);
-  const matches = useMemo(() => peopleMatching(people.values(), meId, name), [people, meId, name]);
+  const matches = useMemo(() => peopleMatching(people.values(), name), [people, name]);
   const shown = matches.slice(0, pages * PEOPLE_PAGE);
   const options = shown.filter((person) => !picked.some((p) => p.id === person.id));
   // The directory lists everyone, you included, once it's loaded.
@@ -214,7 +215,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
             ? "Everyone shown is selected."
             : name
               ? "No people found. Try another name."
-              : "No other people are available to message yet.";
+              : "No people are available to message yet.";
 
   return (
     <Dialog open={open} onOpenChange={(open) => open || close()}>
@@ -303,6 +304,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
                   <UserAvatar user={person} />
                   <span className="min-w-0 wrap-anywhere">
                     {nameOf(person)}
+                    {person.id === meId && " (you)"}
                     {isAgent(person) && <AgentBadge className="ms-0.5" />}
                   </span>
                 </button>

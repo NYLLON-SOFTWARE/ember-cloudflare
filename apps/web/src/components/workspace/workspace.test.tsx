@@ -752,6 +752,26 @@ describe("New direct message dialog", () => {
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
 
+  it("starts your DM with yourself when you pick yourself, named for you in the tab, header, sidebar and composer", async () => {
+    const withSelf: DirectRoom = { id: "d2", kind: "direct", members: [{ id: ada.id, name: ada.name }], activeAt: NOON };
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({
+      "GET /api/users": () => Response.json({ users: people }),
+      "POST /api/directs": () => Response.json({ room: withSelf }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(dms());
+    await user.click(await screen.findByRole("option", { name: "Ada (you)" }));
+    await user.click(screen.getByRole("button", { name: "Start conversation" }));
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: ["u1"] }) }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Ada" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/d2");
+    await waitFor(() => expect(document.title).toBe("Ada"));
+    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Ada (you)" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message Ada");
+  });
+
   it("gives focus to the composer of the DM shown when that's the one started, which stays as it is", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
