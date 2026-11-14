@@ -128,7 +128,8 @@ export function AgentTools({ agentId, name, onFailed }: Props) {
           <ul className="flex max-h-[24em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background">
             {tools.map(({ name: tool, title, description, fingerprint, picked, changed }) => (
               <li key={tool} className="border-t first:border-t-0">
-                <label className="flex cursor-pointer items-start gap-[1.5ch] px-[1.5ch] py-2.5 has-disabled:cursor-default">
+                {/* For fingers, the box sits far enough into its label, whatever the font, for a fingertip on it to land on the label. */}
+                <label className="flex cursor-pointer items-start gap-[1.5ch] px-[1.5ch] py-2.5 has-disabled:cursor-default touch:min-h-11 touch:ps-4">
                   <input
                     type="checkbox"
                     checked={picked}
