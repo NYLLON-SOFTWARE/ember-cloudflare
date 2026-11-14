@@ -1216,6 +1216,16 @@ describe("Edit your profile", () => {
     expect(await roomHeading()).toHaveTextContent("random");
   });
 
+  it("drops the rail's crescent the moment your hush lapses, without a reload", async () => {
+    const hushedUntil = new Date(Date.now() + 300).toISOString();
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: hushedUntil } }) });
+    showWorkspace("/users/me/profile");
+    const avatar = screen.getByRole("link", { name: "Your profile" });
+    await waitFor(() => expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // The hush ends of its own accord, and the crescent goes with it.
+    await waitFor(() => expect(avatar).toHaveAttribute("title", "Ada"), { timeout: 2_000 });
+  });
+
   it("logs out from your profile", async () => {
     serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
     const { onSignOut, user } = showWorkspace("/users/me/profile");

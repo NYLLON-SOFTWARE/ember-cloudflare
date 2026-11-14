@@ -280,6 +280,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // When your push notifications are hushed until, which Do not disturb on your profile loads and
   // saves, and the rail shows by the crescent on your avatar.
   const [dndUntil, setDndUntil] = useState<string | null>(null);
+  // The hush ends of its own accord, so the crescent goes the moment it lapses, without a reload.
+  useEffect(() => {
+    if (dndUntil === null) return;
+    const lapse = setTimeout(() => setDndUntil(null), Math.max(0, Date.parse(dndUntil) - Date.now()));
+    return () => clearTimeout(lapse);
+  }, [dndUntil]);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const drawerRail = useRef<HTMLDivElement>(null);
   const roomView = useRef<RoomViewHandle>(null);
