@@ -1346,8 +1346,7 @@ export class ChatRoom extends DurableObject<Env> {
     const decision = callDecisionOf(button.action);
     const decided = decision && (await this.decideCall(roomId, user, message, decision));
     if (decided) return decided;
-    const call = toolCallOf(button.action);
-    if (call) return this.callFromCard(roomId, user, message, button.text, call);
+    if (toolCallOf(button.action)) return this.callFromCard(roomId, user, click);
     const { name } = message.creator;
     const webhook = await workspace(this.env).clickWebhook(roomId, message.creator.id, user.id);
     if (!webhook) throw new ClickError(`${name} isn't taking clicks here`, `${NO_WEBHOOK}, or whoever clicked has left the room`);
@@ -1361,21 +1360,39 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * Makes the call `user`'s `click` on a button of a tool's card asks for, one click a card at a time.
+   * The click has the card to itself before its button is looked for again, so one that waited while
+   * another's answer took the card's place calls nothing the card no longer offers. Answers what came
+   * of it, or throws why the click came to nothing, which whoever clicked is told.
+   */
+  private async callFromCard(roomId: RoomId, user: User, click: CardClick): Promise<string> {
+    if (this.calling.has(click.messageId)) throw new ClickError(CARD_BUSY, "another click on the card is being answered");
+    this.calling.add(click.messageId);
+    try {
+      const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), click.messageId);
+      const button = message?.cards && actingButton(message.cards, clickedIn(click));
+      const call = button ? toolCallOf(button.action) : undefined;
+      if (!message || !button || !call) throw new ClickError(BUTTON_GONE, "the button is gone");
+      return await this.callForClick(roomId, user, message, button.text, call);
+    } finally {
+      this.calling.delete(click.messageId);
+    }
+  }
+
+  /**
    * Makes the call `call`, which `user`'s click on the button `label` of the tool's card `message`
    * asks for: of a tool the card's answerer still has, of the app whose tool answered with the card,
-   * for someone in the room, while Ember AI is on and the answerer there, one click a card at a time.
-   * The card the tool answers with takes the clicked one's place, saying who clicked what, and what a
-   * tool only says is the answerer's new message beside it. Answers what came of it, or throws why the
-   * click came to nothing, which whoever clicked is told: a tool's own word for it, cut short.
+   * for someone in the room, while Ember AI is on and the answerer there. The card the tool answers
+   * with takes the clicked one's place, saying who clicked what, and what a tool only says is the
+   * answerer's new message beside it. Answers what came of it, or throws why the click came to nothing,
+   * which whoever clicked is told: a tool's own word for it, cut short.
    */
-  private async callFromCard(roomId: RoomId, user: User, message: Message, label: string, call: CardCall): Promise<string> {
+  private async callForClick(roomId: RoomId, user: User, message: Message, label: string, call: CardCall): Promise<string> {
     const { name } = message.creator;
     const [clicker, access] = await Promise.all([workspace(this.env).callDecider(roomId, user.id), workspace(this.env).answererIn(roomId, message.creator.id, user.id)]);
     if (!clicker || !access) throw new ClickError(`${name} isn't answering here`, `${answererGone(message.creator.id)}, or whoever clicked has left the room`);
     const tool = givenTools(access.appTools).find(({ appId, name }) => appId === call.appId && name === call.name);
     if (!tool) throw new ClickError(`${name} no longer has that tool`, "the tool isn't the answerer's any more");
-    if (this.calling.has(message.id)) throw new ClickError(CARD_BUSY, "another click on the card is being answered");
-    this.calling.add(message.id);
     try {
       const clicked = { who: clicker.member.name, button: label };
       const { text, card } = await calledFromCard(this.env, access.bot.id, givenAs(tool), call.input, clicked);
@@ -1388,8 +1405,6 @@ export class ChatRoom extends DurableObject<Env> {
       // What a server says of a call isn't logged, as it could write the token there.
       if (error instanceof ToolError) throw new ClickError(toldOf(error.message), "the call came to nothing");
       throw error;
-    } finally {
-      this.calling.delete(message.id);
     }
   }
 

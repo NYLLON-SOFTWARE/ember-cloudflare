@@ -64,11 +64,11 @@ export function saidCard(tool: Pick<GivenTool, "appName" | "name">, text: string
  * a tool of the app `appId` that's one of `picked`, the app's tools its answerer has, by their names,
  * with what an object's JSON writes, each then naming the app. Any other button that acts goes, as
  * nothing would take its click. Null for a card that then shows nothing but whose it is, or that the
- * room couldn't keep.
+ * room couldn't keep whole.
  */
 export function toolCards(card: SlackPayload, appId: AppId, picked: ReadonlySet<string>): SlackMessage | null {
   const message = slackMessage(card, true);
-  if (typeof message === "string") return null;
+  if (typeof message === "string" || !isKeptWhole(Array.isArray(card.blocks) ? card.blocks : [], message)) return null;
   const calls = (action: CardAction) => {
     const call = toolCallOf({ ...action, appId });
     return call !== undefined && picked.has(call.name);
@@ -76,6 +76,29 @@ export function toolCards(card: SlackPayload, appId: AppId, picked: ReadonlySet<
   const cards = message.cards.map(({ parts, ...rest }) => ({ ...rest, parts: parts.flatMap((part) => callingPart(part, appId, calls) ?? []) }));
   // The last part says whose the card is, which is nothing to show by itself.
   return cards.some(({ parts }) => parts.slice(0, -1).some(({ kind }) => kind !== "divider")) ? { ...message, cards } : null;
+}
+
+/**
+ * Whether the room keeps all that `blocks` show in `kept`, the message they made: a part for each
+ * block, and each of their pictures. It leaves out a block that shows nothing here, and a picture at
+ * an address it doesn't show, such as one on a host with no name, and a card missing either isn't the
+ * card its tool answered with. Buttons aren't counted, as those nothing would answer go either way.
+ */
+function isKeptWhole(blocks: unknown[], kept: SlackMessage): boolean {
+  const parts = kept.cards.flatMap(({ parts }) => parts);
+  const shown = blocks.filter((block) => !isObject(block) || block.type !== "actions");
+  return shown.length === parts.filter(({ kind }) => kind !== "buttons").length && count(blocks, isPicture) === count(parts, isKeptPicture);
+}
+
+/** A picture as a block holds one, by its address or as a file of Slack's, and as a card's part keeps one. */
+const isPicture = (value: Record<string, unknown>) => "image_url" in value || "slack_file" in value;
+const isKeptPicture = (value: Record<string, unknown>) => typeof value.url === "string" && typeof value.alt === "string";
+
+/** How many of the objects `value` holds, at any depth, `counts` counts. */
+function count(value: unknown, counts: (value: Record<string, unknown>) => boolean): number {
+  if (Array.isArray(value)) return value.reduce((sum: number, item) => sum + count(item, counts), 0);
+  if (!isObject(value)) return 0;
+  return Object.values(value).reduce((sum: number, item) => sum + count(item, counts), counts(value) ? 1 : 0);
 }
 
 /** `part` with only the buttons that link somewhere or that `calls` says call a tool, each of those naming the app `appId`, or null when that leaves nothing of it. */

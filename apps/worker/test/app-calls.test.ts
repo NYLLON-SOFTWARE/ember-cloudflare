@@ -773,6 +773,10 @@ describe("A card a connected app's tool answers a call with", () => {
       withCard(ISSUE, { isError: true }),
       withCard("not blocks"),
       withCard([{ type: "divider" }]),
+      // A picture at an address the room doesn't show, by itself or beside a section's text, and a block that shows nothing, would each leave less than the tool's card.
+      withCard([...ISSUE, { type: "image", image_url: "https://203.0.113.7/chart.png", alt_text: "Burndown" }]),
+      withCard([{ type: "section", text: { type: "mrkdwn", text: "*Open*" }, accessory: { type: "image", image_url: "https://203.0.113.7/chart.png", alt_text: "Burndown" } }]),
+      withCard([...ISSUE, { type: "header", text: { type: "plain_text", text: "" } }]),
     ];
     for (const result of unshown) {
       server.result = () => result;
