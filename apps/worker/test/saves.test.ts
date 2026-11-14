@@ -101,6 +101,24 @@ describe("Save a message for later", () => {
     expect(await storedSaves(ada)).toEqual([]);
   });
 
+  it("answers nothing, and leaves nothing kept, for a save naming another room's message, so a room you're in can't hand you one you can't see", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await createRoom("Design");
+    const secret = await createRoom("Secret", { closedTo: [grace.user.id] });
+    const { message, done } = await messageIn(secret.id, grace, "Not for you");
+    // Ada is in Design, so the save passes the room's check naming a message Design doesn't keep.
+    await saved(save(ada, room.id, message.id));
+    await done();
+
+    const saves = await savesOf(ada);
+    expect(saves.map(({ messageId }) => messageId)).not.toContain(message.id);
+    expect(saves).toEqual([]);
+    expect(await storedSaves(ada)).toEqual([]);
+    // Nothing of it is left for the next look either.
+    expect(await savesOf(ada)).toEqual([]);
+  });
+
   it("saves a reply of a DM you're in, whose room nobody joins", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
