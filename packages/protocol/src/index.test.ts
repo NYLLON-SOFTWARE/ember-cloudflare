@@ -1063,6 +1063,7 @@ describe("Profile fields", () => {
     ["a name longer than it can keep", { name: "x".repeat(101) }, PROFILE_FIELD_NAME_REFUSED],
     ["a name that isn't text", { name: 1 }, PROFILE_FIELD_NAME_REFUSED],
     ["choices that aren't a list", { name: "Title", options: "Free text" }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["an empty list of choices", { name: "Title", options: [] }, PROFILE_FIELD_OPTIONS_REFUSED],
     ["a choice that isn't text", { name: "Title", options: ["she/her", 2] }, PROFILE_FIELD_OPTIONS_REFUSED],
     ["a choice without anything in it", { name: "Title", options: ["she/her", "  "] }, PROFILE_FIELD_OPTIONS_REFUSED],
     ["a choice longer than a value can be", { name: "Title", options: ["x".repeat(201)] }, PROFILE_FIELD_OPTIONS_REFUSED],

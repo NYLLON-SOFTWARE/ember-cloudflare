@@ -46,6 +46,7 @@ import {
   parseRoomChanges,
   parseTurnstileKeysChange,
   PROFILE_FIELD_ORDER_REFUSED,
+  PROFILE_FIELD_NAME_TAKEN,
   PROFILE_FIELD_UNKNOWN,
   PROFILE_FIELD_VALUE_NOT_A_CHOICE,
   PROFILE_FIELDS_FULL,
@@ -523,6 +524,7 @@ async function addProfileField(request: Request, env: Env): Promise<Response> {
   if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
   if (typeof change === "string") return problem(422, change);
   if (fields === "full") return problem(422, PROFILE_FIELDS_FULL);
+  if (fields === "taken") return problem(422, PROFILE_FIELD_NAME_TAKEN);
   return profileFieldsAnswer(fields);
 }
 

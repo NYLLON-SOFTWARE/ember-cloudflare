@@ -1109,17 +1109,19 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Adds a field named `change.name`, with its choices or none, as the person `credentials` signs in,
    * answering the fields then: undefined adds nothing, once who's asking is checked, "full" once the
-   * workspace has as many fields as it can, "forbidden" unless they're an administrator, or null
-   * without a valid session.
+   * workspace has as many fields as it can, "taken" while it has one named the same, as `sameName`
+   * compares names, "forbidden" unless they're an administrator, or null without a valid session.
    */
-  async createProfileField(credentials: Credentials, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "full" | null> {
+  async createProfileField(credentials: Credentials, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "full" | "taken" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       if (change === undefined) return this.profileFieldList();
-      if ((await this.store.profileFields()).length >= MAX_PROFILE_FIELDS) return "full";
-      await this.store.createProfileField({ id: sortableId(), name: change.name, options: change.options }, Date.now());
+      const fields = await this.store.profileFields();
+      if (fields.length >= MAX_PROFILE_FIELDS) return "full";
+      if (fields.some((field) => sameName(field.name, change.name))) return "taken";
+      await this.store.createProfileField({ id: sortableId(), name: change.name, options: change.options }, new Date().toISOString());
       return this.profileFieldList();
     });
   }
@@ -1137,7 +1139,7 @@ export class Workspace extends DurableObject<Env> {
       const fields = await this.store.profileFields();
       if (!fields.some((field) => field.id === id)) return "not found";
       if (change === undefined) return this.profileFieldList();
-      await this.store.changeProfileField(id, change.name, change.options, Date.now());
+      await this.store.changeProfileField(id, change.name, change.options, new Date().toISOString());
       return this.profileFieldList();
     });
   }
@@ -1155,7 +1157,7 @@ export class Workspace extends DurableObject<Env> {
       const fields = await this.store.profileFields();
       // The same ids, whatever their order, each once.
       if (fields.length !== ids.length || new Set([...fields.map((field) => field.id), ...ids]).size !== fields.length) return "not the fields";
-      await this.store.reorderProfileFields(ids, Date.now());
+      await this.store.reorderProfileFields(ids, new Date().toISOString());
       return this.profileFieldList();
     });
   }

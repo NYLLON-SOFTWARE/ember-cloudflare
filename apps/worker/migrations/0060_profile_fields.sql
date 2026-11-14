@@ -7,8 +7,8 @@ CREATE TABLE profile_fields (
   name TEXT NOT NULL,
   options TEXT,
   position INTEGER NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 -- What each person saved for each field, "" never saved: clearing takes the row out. Deleting a field
 -- takes its values with it, in the same batch, which SQLite only does itself with PRAGMA

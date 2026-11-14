@@ -968,6 +968,7 @@ export const MAX_PROFILE_FIELD_OPTIONS = 10;
 
 /** Why a field is refused, or a workspace can't take another one. */
 export const PROFILE_FIELD_NAME_REFUSED = `Give the field a name of at most ${MAX_PROFILE_FIELD_NAME_LENGTH} characters.`;
+export const PROFILE_FIELD_NAME_TAKEN = "There's a field with that name already.";
 export const PROFILE_FIELD_OPTIONS_REFUSED = `Set choices as one per line, at most ${MAX_PROFILE_FIELD_OPTIONS} of at most ${MAX_PROFILE_FIELD_VALUE_LENGTH} characters each.`;
 export const PROFILE_FIELDS_FULL = `A workspace can have at most ${MAX_PROFILE_FIELDS} profile fields. Delete one first.`;
 export const PROFILE_FIELD_VALUES_REFUSED = `Field values must be a JSON object of at most ${MAX_PROFILE_FIELD_VALUE_LENGTH} characters each.`;
@@ -2450,7 +2451,7 @@ export function parseProfileFieldChange(data: unknown): ProfileFieldChange | str
   const name = typeof data.name === "string" ? data.name.trim() : "";
   if (!name || name.length > MAX_PROFILE_FIELD_NAME_LENGTH) return PROFILE_FIELD_NAME_REFUSED;
   if (data.options === undefined || data.options === null) return { name, options: null };
-  if (!Array.isArray(data.options)) return PROFILE_FIELD_OPTIONS_REFUSED;
+  if (!Array.isArray(data.options) || data.options.length === 0) return PROFILE_FIELD_OPTIONS_REFUSED;
   const options: string[] = [];
   for (const option of data.options) {
     if (typeof option !== "string") return PROFILE_FIELD_OPTIONS_REFUSED;

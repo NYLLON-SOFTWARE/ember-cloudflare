@@ -3760,7 +3760,7 @@ export class WorkspaceStore {
   }
 
   /** Adds a field after the workspace's last, which the Workspace counts against the cap beforehand. */
-  async createProfileField({ id, name, options }: { id: string; name: string; options: string[] | null }, now: number): Promise<void> {
+  async createProfileField({ id, name, options }: { id: string; name: string; options: string[] | null }, now: string): Promise<void> {
     const [row] = await this.db.all<{ position: number }>(NEXT_FIELD_POSITION);
     await this.db.run(
       `INSERT INTO profile_fields (id, name, options, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -3774,7 +3774,7 @@ export class WorkspaceStore {
   }
 
   /** Saves a field's new name and choices. Whether it's still there, the Workspace has checked. */
-  async changeProfileField(id: string, name: string, options: string[] | null, now: number): Promise<void> {
+  async changeProfileField(id: string, name: string, options: string[] | null, now: string): Promise<void> {
     await this.db.run(`UPDATE profile_fields SET name = ?, options = ?, updated_at = ? WHERE id = ?`, name, options === null ? null : JSON.stringify(options), now, id);
   }
 
@@ -3784,7 +3784,7 @@ export class WorkspaceStore {
   }
 
   /** Puts the fields in the order `ids` lists them, which the Workspace has checked names them all, once each. */
-  async reorderProfileFields(ids: string[], now: number): Promise<void> {
+  async reorderProfileFields(ids: string[], now: string): Promise<void> {
     await this.db.batch(ids.map((id, position) => statement(`UPDATE profile_fields SET position = ?, updated_at = ? WHERE id = ?`, position + 1, now, id)));
   }
 

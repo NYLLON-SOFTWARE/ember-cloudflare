@@ -377,7 +377,6 @@ export function WorkspaceSettingsPage({
         aria-busy={settings === null}
         className="flex flex-col gap-6"
       >
-
         <PageHeading id="community-settings-heading" title="Basic community settings" className={SECTION_HEADING}>
           Manage your community name, icon, and preferences.
         </PageHeading>

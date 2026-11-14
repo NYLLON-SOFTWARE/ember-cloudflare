@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { MAX_PROFILE_FIELDS, PROFILE_FIELDS_FULL, type ProfileField } from "@ember/protocol";
+import { MAX_PROFILE_FIELD_NAME_LENGTH, MAX_PROFILE_FIELDS, PROFILE_FIELD_OPTIONS_REFUSED, PROFILE_FIELDS_FULL, type ProfileField } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { ArrowDown, ArrowUp, EditPencil, Plus, Trash } from "@/components/icons/iconoir";
@@ -95,9 +95,13 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
 
   const addField = (event: FormEvent) => {
     event.preventDefault();
-    if (!newName.trim() || busy) return;
+    const name = newName.trim();
+    if (!name || busy) return;
+    const choices = newKind === "choices" ? choicesOf(newChoices) : null;
+    // Set choices need at least one choice to take, which the server refuses too, as does an empty list.
+    if (newKind === "choices" && choices === null) return flash("alert", PROFILE_FIELD_OPTIONS_REFUSED);
     setBusy("add");
-    shown(addProfileField({ name: newName.trim(), options: newKind === "choices" ? choicesOf(newChoices) : null }), () => {
+    shown(addProfileField({ name, options: choices }), () => {
       setNewName("");
       setNewKind("text");
       setNewChoices("");
@@ -159,7 +163,7 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
                     <input
                       id={`edit_field_name_${field.id}`}
                       autoComplete="off"
-                      maxLength={100}
+                      maxLength={MAX_PROFILE_FIELD_NAME_LENGTH}
                       value={editedName}
                       onChange={(event) => setEditedName(event.target.value)}
                       className={FIELD_INPUT}
@@ -238,7 +242,15 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
       ) : (
         <form onSubmit={addField} className={FORM} aria-label="Add a profile field">
           <Field id="new_field_name" label="Name">
-            <input id="new_field_name" autoComplete="off" placeholder="Title" maxLength={100} value={newName} onChange={(event) => setNewName(event.target.value)} className={FIELD_INPUT} />
+            <input
+              id="new_field_name"
+              autoComplete="off"
+              placeholder="Title"
+              maxLength={MAX_PROFILE_FIELD_NAME_LENGTH}
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              className={FIELD_INPUT}
+            />
           </Field>
           <Field id="new_field_kind" label="Kind">
             <select id="new_field_kind" value={newKind} onChange={(event) => setNewKind(event.target.value as Kind)} className={SELECT}>
