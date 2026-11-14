@@ -285,6 +285,8 @@ export interface Canvas {
   version: number;
   updatedAt: string;
   updatedBy: User;
+  /** The `saveId` of the last save of it whole that it took, if that had one. */
+  saveId?: string;
 }
 
 /** What opening a tab answers: the tab, a folder's files and links, or a canvas's document. */
@@ -327,6 +329,8 @@ export interface TabChange {
 export interface CanvasSave {
   body: string;
   version: number;
+  /** An id the page gives a save it sends as it goes, which can't hear whether it landed, to ask the canvas later. */
+  saveId?: string;
 }
 
 function isObject(data: unknown): data is Record<string, unknown> {
@@ -449,10 +453,11 @@ function isDocument(body: string): boolean {
 /** Parses an untrusted `CanvasSave`, or returns why it's refused. */
 export function parseCanvasSave(data: unknown): CanvasSave | string {
   if (!isObject(data)) return "Expected a JSON object";
-  const { body, version } = data;
+  const { body, version, saveId } = data;
   if (typeof body !== "string") return "A canvas is a document";
   if (body.length > MAX_CANVAS_LENGTH) return CANVAS_TOO_LONG;
   if (!isDocument(body)) return "A canvas is a document";
   if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 0) return "A canvas's version is a number";
-  return { body, version };
+  if (saveId !== undefined && !isId(saveId)) return "A save's id is a short string";
+  return { body, version, ...(saveId !== undefined && { saveId }) };
 }

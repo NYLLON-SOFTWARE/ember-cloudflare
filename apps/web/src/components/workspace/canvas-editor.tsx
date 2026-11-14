@@ -139,9 +139,9 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
     const unsaved = takeUnsaved(opened.tab.id);
     if (!unsaved) return;
     const now = bodyOf(editor);
-    // The save the page sent as it went arrived: the canvas has moved past what it was written over, or
-    // holds it still. Merging it in again would bring back what others have changed or taken out since.
-    if ((unsaved.sent && canvas.version > unsaved.version) || holdsChange(unsaved.base, unsaved.body, now)) return;
+    // The save the page sent as it went landed, as the canvas says, or the canvas holds what was written
+    // still. Merging it in again would bring back what others have changed or taken out since.
+    if ((unsaved.saveId !== undefined && canvas.saveId === unsaved.saveId) || holdsChange(unsaved.base, unsaved.body, now)) return;
     const merge = mergeCanvas(unsaved.base, unsaved.body, now);
     if (merge.body === now) return;
     showDocument(editor, merge.body, MERGED);
@@ -242,13 +242,15 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
     if (live) {
       const confirmed = together.flush();
       if (!together.pending()) return;
-      const sent = saveCanvasOnLeaving(room.id, opened.tab.id, body, confirmed, (saved) => settleUnsaved(opened.tab.id, saved));
-      keepUnsaved(opened.tab.id, { base: together.confirmed() ?? canvas.body, body, version: confirmed, sent: sent && navigator.onLine });
+      const saveId = crypto.randomUUID();
+      const sent = saveCanvasOnLeaving(room.id, opened.tab.id, body, confirmed, saveId, (saved) => settleUnsaved(opened.tab.id, saved));
+      keepUnsaved(opened.tab.id, { base: together.confirmed() ?? canvas.body, body, version: confirmed, sent: sent && navigator.onLine, ...(sent && { saveId }) });
       return;
     }
     if (body === saved.current) return;
-    const sent = body.length <= MAX_CANVAS_LENGTH && saveCanvasOnLeaving(room.id, opened.tab.id, body, version.current, (saved) => settleUnsaved(opened.tab.id, saved));
-    keepUnsaved(opened.tab.id, { base: saved.current, body, version: version.current, sent: sent && navigator.onLine });
+    const saveId = crypto.randomUUID();
+    const sent = body.length <= MAX_CANVAS_LENGTH && saveCanvasOnLeaving(room.id, opened.tab.id, body, version.current, saveId, (saved) => settleUnsaved(opened.tab.id, saved));
+    keepUnsaved(opened.tab.id, { base: saved.current, body, version: version.current, sent: sent && navigator.onLine, ...(sent && { saveId }) });
   });
   const unsavedOnLeaving = useEffectEvent((event: BeforeUnloadEvent) => {
     if (live ? together.pending() : timer.current || saving.current) event.preventDefault();

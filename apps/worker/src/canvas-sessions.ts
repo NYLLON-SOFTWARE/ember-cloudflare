@@ -46,6 +46,8 @@ interface Session {
   changedAt: number;
   /** When the first change since the canvas was last saved came. */
   unsavedSince: number | null;
+  /** The id of a save sent whole that it holds and the Workspace hasn't, for the page that sent it to ask after. */
+  saveId: string | null;
 }
 
 /** What the room gives its canvases: its sockets, the Workspace, and a way to run work in turn with its other events. */
@@ -57,7 +59,7 @@ export interface CanvasRoom {
   /** Sets the room's alarm to ring by `time`, from within one of its events, to call `ring`. */
   ringBy(time: number): Promise<void>;
   load(tabId: string): Promise<Canvas | null>;
-  keep(tabId: string, body: string, version: number, by: User): Promise<boolean>;
+  keep(tabId: string, body: string, version: number, by: User, saveId: string | null): Promise<boolean>;
   /** Saves over `save.version` when nobody's writing the canvas together. */
   save(tabId: string, actor: User, save: CanvasSave): Promise<CanvasAnswer>;
 }
@@ -84,7 +86,7 @@ export class CanvasSessions {
     // nothing else; one it can't read starts empty for nobody, and stays as it is.
     const doc = tools.docOf(canvas.body);
     if (!doc) return null;
-    const session: Session = { doc, version: canvas.version, steps: [], saved: canvas.version, updatedBy: canvas.updatedBy, updatedAt: canvas.updatedAt, changedAt: Date.now(), unsavedSince: null };
+    const session: Session = { doc, version: canvas.version, steps: [], saved: canvas.version, updatedBy: canvas.updatedBy, updatedAt: canvas.updatedAt, changedAt: Date.now(), unsavedSince: null, saveId: null };
     this.sessions.set(tabId, session);
     return session;
   }
@@ -192,15 +194,17 @@ export class CanvasSessions {
   /** Saves what canvas `tabId` holds to the Workspace, if it holds anything unsaved. */
   private async keep(tabId: string): Promise<void> {
     const session = this.sessions.get(tabId);
-    if (!session || session.saved === session.version) return;
+    if (!session || (session.saved === session.version && session.saveId === null)) return;
     const version = session.version;
     const body = JSON.stringify(session.doc.toJSON());
     session.unsavedSince = null;
     try {
-      const kept = await this.room.keep(tabId, body, version, session.updatedBy);
+      const { saveId } = session;
+      const kept = await this.room.keep(tabId, body, version, session.updatedBy, saveId);
       // Deleted as people wrote it: they hear so, and stop.
       if (!kept && !(await this.room.load(tabId))) return this.gone(tabId);
       session.saved = version;
+      if (session.saveId === saveId) session.saveId = null;
     } catch (error) {
       console.error("Couldn't keep a canvas", error instanceof Error ? error.message : error);
       // The alarm tries again as it next rings.
@@ -210,17 +214,19 @@ export class CanvasSessions {
 
   /**
    * Saves a canvas sent whole over `save.version`, as a page going away sends one: through what people
-   * writing it together have, as one change from what they have, or as it's saved, when nobody is.
+   * writing it together have, as one change from what they have, or as it's saved, when nobody is. One over
+   * an older version that holds what they have already, as the same page's steps came first over its socket,
+   * is taken too, as it changes nothing.
    */
   async saveWhole(tabId: string, actor: User, save: CanvasSave): Promise<CanvasAnswer> {
     const session = this.sessions.get(tabId);
     if (!session) return this.room.save(tabId, actor, save);
-    if (save.version !== session.version) return { conflict: this.canvasOf(session) };
     const tools = await this.tools();
     const doc = tools.docOf(save.body);
-    if (!doc) return { conflict: this.canvasOf(session) };
+    if (!doc || (save.version !== session.version && !doc.eq(session.doc))) return { conflict: this.canvasOf(session) };
     const steps = tools.stepsBetween(session.doc, doc);
     if (steps.length > 0) await this.advance(tabId, session, doc, steps, `whole-${actor.id}`, actor);
+    if (save.saveId) session.saveId = save.saveId;
     await this.keep(tabId);
     return this.sessions.has(tabId) ? { canvas: this.canvasOf(session) } : "not found";
   }

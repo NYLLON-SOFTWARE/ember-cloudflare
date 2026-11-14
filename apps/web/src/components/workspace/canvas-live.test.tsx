@@ -2,13 +2,16 @@ import type { ClientFrame, Me, Room, ServerFrame, User } from "@ember/protocol";
 import { EMPTY_CANVAS, type Canvas, type OpenedTab } from "@ember/protocol/library";
 import type { Editor } from "@tiptap/core";
 import { getSchema } from "@tiptap/core";
+import { EditorState, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { act, render, waitFor } from "@testing-library/react";
+import { collab, sendableSteps } from "prosemirror-collab";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RoomFrames } from "@/hooks/use-room";
 import { canvasExtensions } from "../../../../worker/src/canvas-schema";
 import { CanvasSessions } from "../../../../worker/src/canvas-sessions";
 import { CanvasEditor } from "./canvas-editor";
+import { fromRoom } from "./canvas-live";
 import { RoomFramesContext } from "./room-tab-icons";
 
 // Two editors writing one canvas through a room that runs the room object's own canvas sessions, over
@@ -219,7 +222,7 @@ describe("Writing a canvas together", () => {
     expect(fake.writing.has(socket)).toBe(false);
   });
 
-  it("keeps every key of two people typing at the same spot, in order", async () => {
+  it("keeps each person's keys together, in order, as two people type at the same spot (D6)", async () => {
     const { sockets, editors } = writeTogether();
     await waitFor(() => expect(editors()).toHaveLength(2));
     const [mayas, sams] = editors();
@@ -234,11 +237,48 @@ describe("Writing a canvas together", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     await waitFor(() => expect(mayas!.getText()).toBe(sams!.getText()), { timeout: 10_000 });
-    // Every key is kept, in each person's order. Runs stay whole at an even pace; a busy machine's timers
-    // can still split one where its steps cross the other's (E-R5-32's residue).
+    // Every key is kept, each person's in one run, however their steps crossed on the way.
     const typed = mayas!.getText().slice(mayas!.getText().indexOf("Bravo") + "Bravo".length);
-    expect(typed.replaceAll("s", "")).toBe("m".repeat(12));
-    expect(typed.replaceAll("m", "")).toBe("s".repeat(12));
+    expect(typed).toMatch(/^(m{12}s{12}|s{12}m{12})$/);
+  });
+
+  it("keeps each run whole when someone else's key lands where keys here wait for the room (D6)", () => {
+    const schema = getSchema(canvasExtensions());
+    const start = schema.nodeFromJSON({ type: "doc", content: [paragraph("Bravo")] });
+    // Each at the end of "Bravo", which ends at 6.
+    const writer = (clientID: string) => EditorState.create({ doc: start, plugins: [collab({ clientID })], selection: TextSelection.create(start, 6) });
+    const typed = (state: EditorState, text: string) => state.apply(state.tr.insertText(text));
+    const pending = (state: EditorState) => sendableSteps(state)!.steps;
+    let [maya, sam] = [writer("maya"), writer("sam")];
+
+    // Maya's first key reaches the room first; Sam's, typed meanwhile, goes in beside it.
+    maya = typed(maya, "m");
+    const first = pending(maya);
+    maya = maya.apply(fromRoom(maya, first, ["maya"]));
+    sam = typed(sam, "s");
+    sam = sam.apply(fromRoom(sam, first, ["maya"]));
+    const sams = pending(sam);
+    // Maya types again before Sam's key reaches her, and again after.
+    maya = typed(maya, "m");
+    maya = maya.apply(fromRoom(maya, sams, ["sam"]));
+    const second = pending(maya);
+    maya = typed(maya, "m");
+    expect(maya.doc.textContent).toBe("Bravosmmm");
+    sam = sam.apply(fromRoom(sam, sams, ["sam"]));
+    sam = sam.apply(fromRoom(sam, second, ["maya"]));
+    expect(sam.doc.textContent).toBe("Bravosmm");
+  });
+
+  it("deletes only what was there as someone else writes at its edge", () => {
+    const schema = getSchema(canvasExtensions());
+    const start = schema.nodeFromJSON({ type: "doc", content: [paragraph("Bravo")] });
+    let maya = EditorState.create({ doc: start, plugins: [collab({ clientID: "maya" })] });
+    let sam = EditorState.create({ doc: start, plugins: [collab({ clientID: "sam" })] });
+    // Sam writes where the "vo" Maya deletes begins, and reaches the room first.
+    sam = sam.apply(sam.tr.insertText("s", 4));
+    maya = maya.apply(maya.tr.delete(4, 6));
+    maya = maya.apply(fromRoom(maya, sendableSteps(sam)!.steps, ["sam"]));
+    expect(maya.doc.textContent).toBe("Bras");
   });
 
   it("applies steps in the editor's schema on the room, configured as the editor configures it", () => {

@@ -10,8 +10,10 @@ export interface Unsaved {
   body: string;
   /** The version `base` is, which a save sent as the page went went over. */
   version: number;
-  /** Whether the page could send that save, being online: one that went needn't be merged in again. */
+  /** Whether the page could send that save, being online. */
   sent: boolean;
+  /** That save's id, which the canvas names as it opens if the save landed, leaving nothing to merge in. */
+  saveId?: string;
 }
 
 const unsavedKey = (tabId: string) => `ember:canvas-unsaved:${tabId}`;
@@ -32,7 +34,8 @@ export function takeUnsaved(tabId: string): Unsaved | null {
     const unsaved = kept === null ? null : (JSON.parse(kept) as Partial<Unsaved> | null);
     if (typeof unsaved?.base !== "string" || typeof unsaved.body !== "string") return null;
     // One kept before the version was, as if never sent.
-    return { base: unsaved.base, body: unsaved.body, version: typeof unsaved.version === "number" ? unsaved.version : -1, sent: unsaved.sent === true };
+    const saved = typeof unsaved.saveId === "string" ? { saveId: unsaved.saveId } : {};
+    return { base: unsaved.base, body: unsaved.body, version: typeof unsaved.version === "number" ? unsaved.version : -1, sent: unsaved.sent === true, ...saved };
   } catch {
     return null;
   }

@@ -1357,7 +1357,7 @@ export class ChatRoom extends DurableObject<Env> {
       send: (ws, frame) => this.send(ws, frame),
       ringBy: (time) => this.ringBy(time),
       load: (tabId) => workspace(this.env).roomCanvas(roomId, tabId),
-      keep: (tabId, body, version, by) => workspace(this.env).keepRoomCanvas(roomId, tabId, body, version, by),
+      keep: (tabId, body, version, by, saveId) => workspace(this.env).keepRoomCanvas(roomId, tabId, body, version, by, saveId),
       save: async (tabId, actor, save) => {
         const answer = await workspace(this.env).saveRoomCanvas(roomId, tabId, actor, save);
         if (typeof answer === "object" && "conflict" in answer) return { conflict: answer.conflict };

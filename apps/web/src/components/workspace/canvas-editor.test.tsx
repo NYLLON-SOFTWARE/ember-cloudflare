@@ -86,7 +86,7 @@ describe("Canvas", () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0]!;
     expect(url).toBe("/api/rooms/design/tabs/t1/canvas");
     expect(init).toMatchObject({ method: "PUT", keepalive: true });
-    expect(saves()[0]).toEqual({ body: doc(paragraph("intro"), paragraph("RELOAD-FAST")), version: 1 });
+    expect(saves()[0]).toEqual({ body: doc(paragraph("intro"), paragraph("RELOAD-FAST")), version: 1, saveId: expect.any(String) });
   });
 
   it("merges what it had unsaved as the page went into the canvas as it next opens, and saves it, as that save may have been refused", async () => {
@@ -128,15 +128,31 @@ describe("Canvas", () => {
     expect(saves()).toHaveLength(0);
   });
 
-  it("lets go of a kept copy whose closing save went, once the canvas has moved past it, so nothing taken out since comes back (E-R5-31b)", async () => {
+  it("lets go of a kept copy whose closing save the canvas says it took, so nothing taken out since comes back (E-R5-31b)", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(opened(doc())));
     const base = doc(paragraph("Alpha"), paragraph("Bravo"), paragraph("Charlie"));
     const mine = doc(paragraph("Alpha"), paragraph("Bravo MAYA"), paragraph("Charlie"));
     // Maya's save landed as version 2; Sam then took " MAYA" out again, as version 3.
-    localStorage.setItem("ember:canvas-unsaved:t1", JSON.stringify({ base, body: mine, version: 1, sent: true }));
-    render(<CanvasEditor room={room} me={maya} opened={{ ...opened(base), canvas: canvas(base, 3, sam) }} onSaved={vi.fn()} onFailed={vi.fn()} />);
+    localStorage.setItem("ember:canvas-unsaved:t1", JSON.stringify({ base, body: mine, version: 1, sent: true, saveId: "maya-closing" }));
+    render(<CanvasEditor room={room} me={maya} opened={{ ...opened(base), canvas: { ...canvas(base, 3, sam), saveId: "maya-closing" } }} onSaved={vi.fn()} onFailed={vi.fn()} />);
     expect(editorOf().getText()).toBe("Alpha\n\nBravo\n\nCharlie");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
+  });
+
+  it("merges in a kept copy whose closing save the canvas didn't take, though the page closed before hearing so", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const sent = JSON.parse(String(init?.body ?? "{}")) as { body: string; version: number };
+      return Response.json({ ...opened(sent.body), canvas: canvas(sent.body, sent.version + 1) });
+    });
+    const base = doc(paragraph("Alpha"), paragraph("Bravo"), paragraph("Charlie"));
+    const mine = doc(paragraph("Alpha"), paragraph("Bravo MAYA"), paragraph("Charlie"));
+    const sams = doc(paragraph("Alpha"), paragraph("Bravo"), paragraph("Charlie SAM"));
+    // Sam typed first, so Maya's save over version 1 was refused after her page had gone.
+    localStorage.setItem("ember:canvas-unsaved:t1", JSON.stringify({ base, body: mine, version: 1, sent: true, saveId: "maya-closing" }));
+    render(<CanvasEditor room={room} me={maya} opened={{ ...opened(sams), canvas: canvas(sams, 3, sam) }} onSaved={vi.fn()} onFailed={vi.fn()} />);
+    expect(editorOf().getText()).toBe("Alpha\n\nBravo MAYA\n\nCharlie SAM");
+    await waitFor(() => expect(saves()).toHaveLength(1), { timeout: 5000 });
     expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
   });
 

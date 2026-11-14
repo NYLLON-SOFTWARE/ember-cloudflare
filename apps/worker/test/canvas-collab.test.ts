@@ -253,4 +253,31 @@ describe("Writing a canvas together", () => {
     expect(stale.status).toBe(409);
     expect(await stale.json()).toMatchObject({ canvas: { version: 2 } });
   });
+
+  it("names the last save sent whole that a canvas took, a page's closing save included once its steps came first", async () => {
+    const room = await freshRoom("canvas-save-ids");
+    const ada = await signIn("Ada");
+    const tabId = await canvasIn(room, ada);
+    const adas = await connect(room, ada);
+    await joining(adas, tabId);
+    adas.send({ type: "canvas.steps", tabId, version: 0, clientId: "ada-1", steps: [typing(1, "Hello")] });
+    await adas.next("canvas.steps");
+
+    // The page's closing save went over the version before its steps, which the room had by then.
+    const body = JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Hello" }] }] });
+    expect((await asking(ada, `${roomTabPath(room, tabId)}/canvas`, "PUT", { body, version: 0, saveId: "ada-closing" })).status).toBe(200);
+    expect(await saved(ada, room, tabId)).toMatchObject({ version: 1, saveId: "ada-closing" });
+    // Anything else over an older version is still refused, and leaves the id as it was.
+    expect((await asking(ada, `${roomTabPath(room, tabId)}/canvas`, "PUT", { body: EMPTY_CANVAS, version: 0, saveId: "ada-later" })).status).toBe(409);
+    expect((await saved(ada, room, tabId)).saveId).toBe("ada-closing");
+
+    // Written on together, the canvas keeps naming it; a save nobody's writing through names its own.
+    adas.send({ type: "canvas.steps", tabId, version: 1, clientId: "ada-1", steps: [typing(6, "!")] });
+    await adas.next("canvas.steps");
+    adas.send({ type: "canvas.leave", tabId });
+    await expect.poll(async () => (await saved(ada, room, tabId)).version).toBe(2);
+    expect((await saved(ada, room, tabId)).saveId).toBe("ada-closing");
+    const alone = await ok<OpenedTab>(await asking(ada, `${roomTabPath(room, tabId)}/canvas`, "PUT", { body: EMPTY_CANVAS, version: 2, saveId: "ada-alone" }));
+    expect(alone.canvas).toMatchObject({ version: 3, saveId: "ada-alone" });
+  });
 });

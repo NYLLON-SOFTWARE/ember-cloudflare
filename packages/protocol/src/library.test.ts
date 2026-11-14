@@ -159,6 +159,8 @@ describe("parsing what clients send", () => {
     expect(parseCanvasSave({ body: '{"type":"paragraph"}', version: 3 })).toBe("A canvas is a document");
     expect(parseCanvasSave({ body: "x".repeat(MAX_CANVAS_LENGTH + 1), version: 3 })).toBe(CANVAS_TOO_LONG);
     expect(parseCanvasSave({ body: EMPTY_CANVAS, version: -1 })).toBe("A canvas's version is a number");
+    expect(parseCanvasSave({ body: EMPTY_CANVAS, version: 3, saveId: "s1" })).toEqual({ body: EMPTY_CANVAS, version: 3, saveId: "s1" });
+    for (const saveId of ["", 1, "x".repeat(200)]) expect(parseCanvasSave({ body: EMPTY_CANVAS, version: 3, saveId }), String(saveId)).toBe("A save's id is a short string");
     expect(parseFileMark({ fileId: "f", roomId: "r", starred: false })).toEqual({ fileId: "f", roomId: "r", starred: false });
     expect(parseFileMark({ fileId: "f", roomId: "r", viewed: true })).toEqual({ fileId: "f", roomId: "r", viewed: true });
     expect(parseFileMark({ fileId: "f", roomId: "r" })).toBe("Nothing to mark");

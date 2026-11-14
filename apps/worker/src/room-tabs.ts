@@ -119,6 +119,7 @@ interface CanvasRow {
   updated_at: string;
   updater_id: UserId;
   updater_name: string;
+  save_id: string | null;
 }
 
 interface ItemRow {
@@ -136,7 +137,7 @@ const ROOM_TABS = `SELECT ${TAB_COLUMNS} FROM room_tabs WHERE room_id = ? ORDER 
 
 const ROOM_TAB = `SELECT ${TAB_COLUMNS} FROM room_tabs WHERE room_id = ? AND id = ?`;
 
-const CANVAS = `SELECT body, version, updated_at, updater_id, updater_name FROM room_tabs WHERE room_id = ? AND id = ? AND kind = 'canvas'`;
+const CANVAS = `SELECT body, version, updated_at, updater_id, updater_name, save_id FROM room_tabs WHERE room_id = ? AND id = ? AND kind = 'canvas'`;
 
 /**
  * Adds a tab after the room's others, unless it has `MAX_ROOM_TABS` already, answering its id if it was added:
@@ -154,16 +155,16 @@ const ORDER_TABS = `UPDATE room_tabs SET position = 1 + (SELECT key FROM json_ea
   WHERE room_id = ?1 AND id IN (SELECT value FROM json_each(?2))`;
 
 /** Saves a canvas over the version it was changed from, answering its new version, or nothing once someone else has saved it since. */
-const SAVE_CANVAS = `UPDATE room_tabs SET body = ?1, version = version + 1, updater_id = ?2, updater_name = ?3, updated_at = ?4
+const SAVE_CANVAS = `UPDATE room_tabs SET body = ?1, version = version + 1, updater_id = ?2, updater_name = ?3, updated_at = ?4, save_id = ?8
   WHERE room_id = ?5 AND id = ?6 AND kind = 'canvas' AND version = ?7
-  RETURNING body, version, updated_at, updater_id, updater_name`;
+  RETURNING body, version, updated_at, updater_id, updater_name, save_id`;
 
 /**
  * Keeps what people writing a canvas together left it at, as the room's object has it, at its version:
  * one past the version of each change they made, so it only ever goes over an older one.
  */
-const KEEP_CANVAS = `UPDATE room_tabs SET body = ?1, version = ?2, updater_id = ?3, updater_name = ?4, updated_at = ?5
-  WHERE room_id = ?6 AND id = ?7 AND kind = 'canvas' AND version < ?2
+const KEEP_CANVAS = `UPDATE room_tabs SET body = ?1, version = ?2, updater_id = ?3, updater_name = ?4, updated_at = ?5, save_id = coalesce(?8, save_id)
+  WHERE room_id = ?6 AND id = ?7 AND kind = 'canvas' AND (version < ?2 OR (version = ?2 AND ?8 IS NOT NULL))
   RETURNING id`;
 
 const FOLDER_ITEMS = `SELECT id, title, target, creator_id, creator_name, created_at FROM room_tab_items WHERE tab_id = ? ORDER BY created_at, id`;
@@ -222,6 +223,7 @@ const canvasOf = (row: CanvasRow): Canvas => ({
   version: row.version,
   updatedAt: row.updated_at,
   updatedBy: user(row.updater_id, row.updater_name),
+  ...(row.save_id !== null && { saveId: row.save_id }),
 });
 
 /** A target as a tab or item keeps it. */
@@ -304,8 +306,8 @@ export class RoomTabStore {
     return removed!.length > 0 ? { removed: true } : "not found";
   }
 
-  private async save(roomId: RoomId, actor: User, tabId: string, { body, version }: CanvasSave, now: string): Promise<TabAnswer> {
-    const [saved] = await this.db.all<CanvasRow>(SAVE_CANVAS, body, actor.id, actor.name, now, roomId, tabId, version);
+  private async save(roomId: RoomId, actor: User, tabId: string, { body, version, saveId }: CanvasSave, now: string): Promise<TabAnswer> {
+    const [saved] = await this.db.all<CanvasRow>(SAVE_CANVAS, body, actor.id, actor.name, now, roomId, tabId, version, saveId ?? null);
     if (saved) {
       const [row] = await this.db.all<TabRow>(ROOM_TAB, roomId, tabId);
       return { tab: tabOf(row!), canvas: canvasOf(saved) };
@@ -347,9 +349,12 @@ export class RoomTabStore {
     return row ? canvasOf(row) : null;
   }
 
-  /** Keeps `body` as canvas `tabId` at `version`, by `by`, unless it's saved at that version or a later one already. */
-  async keepCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User, now: string): Promise<boolean> {
-    return (await this.db.all(KEEP_CANVAS, body, version, by.id, by.name, now, roomId, tabId)).length > 0;
+  /**
+   * Keeps `body` as canvas `tabId` at `version`, by `by`, unless it's saved at that version or a later one already,
+   * with `saveId`, the save sent whole that it holds, if any.
+   */
+  async keepCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User, now: string, saveId: string | null = null): Promise<boolean> {
+    return (await this.db.all(KEEP_CANVAS, body, version, by.id, by.name, now, roomId, tabId, saveId)).length > 0;
   }
 
   /** Whether room `roomId` has a canvas tab `tabId`. */

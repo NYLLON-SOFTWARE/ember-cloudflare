@@ -5183,8 +5183,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** Keeps what people writing room `roomId`'s canvas together left it at, for the room's object, unless it's kept a later version. */
-  async keepRoomCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User): Promise<boolean> {
-    return new RoomTabStore(this.db).keepCanvas(roomId, tabId, body, version, by, new Date().toISOString());
+  async keepRoomCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User, saveId: string | null = null): Promise<boolean> {
+    return new RoomTabStore(this.db).keepCanvas(roomId, tabId, body, version, by, new Date().toISOString(), saveId);
   }
 
   /**

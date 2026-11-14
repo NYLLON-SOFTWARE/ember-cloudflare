@@ -3,8 +3,8 @@ import { MAX_CANVAS_STEPS, type User } from "@ember/protocol";
 import { CANVAS_GONE, type Canvas } from "@ember/protocol/library";
 import type { Editor } from "@tiptap/core";
 import type { Node } from "@tiptap/pm/model";
-import type { EditorState } from "@tiptap/pm/state";
-import { Step } from "@tiptap/pm/transform";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
+import { ReplaceStep, Step, type Mappable } from "@tiptap/pm/transform";
 import { collab, getVersion, receiveTransaction, sendableSteps } from "prosemirror-collab";
 import type { RoomFrames } from "@/hooks/use-room";
 import { mergeCanvas } from "@/lib/canvas-merge";
@@ -81,6 +81,32 @@ export interface LiveCanvas {
   confirmed: () => string | null;
 }
 
+/** An insertion here the room hasn't taken, which stays before someone else's at the very spot as it's rebased. */
+class OwnInsertion extends ReplaceStep {
+  override map(mapping: Mappable): ReplaceStep | null {
+    const at = mapping.mapResult(this.from, -1);
+    return at.deletedAcross ? null : new ReplaceStep(at.pos, at.pos, this.slice);
+  }
+}
+
+/** The steps an editor has written that the room hasn't taken, as prosemirror-collab keeps them. */
+const unconfirmedOf = (state: EditorState) =>
+  (state.plugins.find((plugin) => (plugin as unknown as { key: string }).key === "collab$")?.getState(state) as { unconfirmed: Array<{ step: Step }> } | undefined)?.unconfirmed ?? [];
+
+/**
+ * Takes in `steps`, which the room applied, from the editors `clientIds` names, rebasing what's
+ * here that it hasn't taken over them. Keys here waiting for the room stay before someone else's writing at
+ * the very spot, as the cursor does, beside the keys before them, so two people typing at one spot each
+ * keep their run whole rather than having their keys interleave (D6).
+ */
+export function fromRoom(state: EditorState, steps: readonly Step[], clientIds: string[]): Transaction {
+  for (const pending of unconfirmedOf(state)) {
+    const { step } = pending;
+    if (step instanceof ReplaceStep && !(step instanceof OwnInsertion) && step.from === step.to) pending.step = new OwnInsertion(step.from, step.to, step.slice);
+  }
+  return receiveTransaction(state, [...steps], clientIds, { mapSelectionBackward: true });
+}
+
 /** Ends what's still sending the steps a canvas closed with, by tab, as it opens again here. */
 const parting = new Map<string, () => void>();
 
@@ -118,7 +144,7 @@ function part(frames: RoomFrames, tabId: string, clientId: string, state: Editor
       const here = getVersion(state);
       if (frame.version > here) return void join();
       const fresh = frame.steps.slice(here - frame.version).map((json) => Step.fromJSON(state.schema, json));
-      if (fresh.length > 0) state = state.apply(receiveTransaction(state, fresh, frame.clientIds.slice(here - frame.version)));
+      if (fresh.length > 0) state = state.apply(fromRoom(state, fresh, frame.clientIds.slice(here - frame.version)));
       return send();
     }
     // A room that lost its steps sends the canvas whole, and the copy kept here is merged in as the canvas
@@ -184,7 +210,7 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
         confirmed = step.apply(confirmed).doc ?? confirmed;
         remember(here + at + 1, confirmed);
       });
-      editor.view.dispatch(receiveTransaction(editor.state, fresh, clientIds.slice(here - from), { mapSelectionBackward: true }).setMeta(FROM_ROOM, true));
+      editor.view.dispatch(fromRoom(editor.state, fresh, clientIds.slice(here - from)).setMeta(FROM_ROOM, true));
       return true;
     };
 
