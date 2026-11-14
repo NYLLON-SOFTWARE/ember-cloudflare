@@ -71,7 +71,13 @@ interface Props {
  */
 export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedOrder, huddles, currentRoomId, currentPage, draftCount, unreadOnly, onSelect, onStarred, onSessionChanged }: Props) {
   const { shared } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
-  const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
+  const [folded, setFolded] = useState(() => ({ starred: isFolded("starred"), rooms: isFolded("rooms") }));
+  // The rows Alt and an arrow move among: not the starred ones folding Starred hides.
+  const shown = useMemo(() => {
+    const stars = new Set(favorites.rooms);
+    const hidden = (room: SharedSidebarRoom) => folded.starred && stars.has(room.id) && room.id !== currentRoomId && !markedUnread(room, currentRoomId);
+    return new Set(shared.filter((room) => !hidden(room)).map((room) => room.id));
+  }, [shared, favorites, folded.starred, currentRoomId]);
   const nameOf = (roomId: RoomId) => {
     const room = rooms.find((r) => r.id === roomId);
     return room && room.kind !== "direct" ? room.name : "";
@@ -79,7 +85,6 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
   const { order, moving, status, listRef, scrollerRef, listProps } = useStarOrder({ favorites, shown, nameOf, onSaved: onStarred, onSessionChanged });
   const starred = useMemo(() => new Set(order), [order]);
   const listed = useMemo(() => inSidebarOrder(shared, order, sharedOrder), [shared, order, sharedOrder]);
-  const [folded, setFolded] = useState(() => ({ starred: isFolded("starred"), rooms: isFolded("rooms") }));
   const toggle = (section: SidebarSection) => {
     rememberFolded(section, !folded[section]);
     setFolded((folded) => ({ ...folded, [section]: !folded[section] }));

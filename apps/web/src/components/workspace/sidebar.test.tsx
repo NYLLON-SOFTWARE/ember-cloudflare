@@ -471,6 +471,19 @@ describe("Reorder starred rooms", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("moves past the next starred row shown with Starred folded, keeping the places of the stars folding hides", async () => {
+    localStorage.clear();
+    vi.mocked(fetch).mockResolvedValue(Response.json({ favorites: { rooms: ["design", "general", "random"], version: 4 } }));
+    const unread = team.map((room) => (room.id === "random" ? room : { ...room, unread: true }));
+    renderSidebar({ rooms: unread, favorites: stars });
+    await userEvent.click(screen.getByRole("button", { name: "Starred" }));
+    expect(listed()).toEqual(["#general", "#design", "#ops"]);
+
+    fireEvent.keyDown(row("general"), { key: "ArrowDown", altKey: true });
+    await act(async () => {});
+    expect(sent()).toEqual([["/api/sidebar/order", "PUT", { roomIds: ["design", "general", "random"] }]]);
+  });
+
   describe("dragged", () => {
     beforeEach(() => {
       vi.useFakeTimers();
