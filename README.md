@@ -156,6 +156,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Light and dark** | ✅ | ✅ |
 | **Incoming webhooks** | ✅ Slack-compatible, with attachments and Block Kit | ✅ |
 | **Bots that answer** | ✅ through a webhook per bot | ✅ through Slack apps |
+| **Export everything** | ✅ an administrator exports every message, DMs included, as NDJSON | ✅ on Business+ (compliance exports) |
 | **Ways to join** | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
 | **Single sign-on** | Memberful, for membership communities | Google on every plan, and SAML SSO with SCIM on Business+ |
 
