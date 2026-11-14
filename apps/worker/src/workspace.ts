@@ -3392,10 +3392,11 @@ export class Workspace extends DurableObject<Env> {
       // As when a password is reset, until the database says it queued nothing.
       let queued = ended !== null;
       try {
-        // Their sessions are read again, so they're signed in by the name they have now.
+        // Their sessions are read again, so they're signed in by the name they have now, and what they
+        // gave the fields saves with the rest, so the lot lands or none of it does.
         queued = await this.sessions.change(
           (session) => session.user.id === user.id,
-          () => this.store.changeProfile(user.id, { ...profile, passwordDigest }, at, ended),
+          () => this.store.changeProfile(user.id, { ...profile, passwordDigest, fieldValues }, at, ended),
         );
       } finally {
         // Whether or not it saved: the sockets of sessions that didn't end are let in again, and the sites
@@ -3406,7 +3407,6 @@ export class Workspace extends DurableObject<Env> {
       }
       const changed = { ...person, ...profile, password: person.password || passwordDigest !== null, accounts: unlinked ? [] : person.accounts, updatedAt: at };
       if (listed) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
-      if (fieldValues) await this.store.changeProfileFieldValues(user.id, fieldValues);
       return this.yourProfile(changed, session);
     });
   }

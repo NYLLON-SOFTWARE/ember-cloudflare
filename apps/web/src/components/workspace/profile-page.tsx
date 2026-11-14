@@ -92,12 +92,14 @@ function fieldChangesOf(saved: FieldValues, typed: FieldValues): Record<string, 
 }
 
 /**
- * The fields' values once `sent` is saved as `saved`: each still as it was typed shows what's typed,
- * which may hold another tab's change, and the rest what the server answered.
+ * The fields' values once `sent` is saved as `saved`: the fields the answer still asks, each still as
+ * it was typed shows what's typed, which may hold another tab's change, and the rest what the server
+ * answered. Its added fields are taken up, and its deleted ones dropped, so no later save names a
+ * field that's gone.
  */
 function settledFieldValues(typed: FieldValues, sent: FieldValues, saved: FieldValues): FieldValues {
-  const values = { ...typed };
-  for (const id of Object.keys(values)) if (typed[id] === sent[id]) values[id] = saved[id] ?? "";
+  const values: FieldValues = {};
+  for (const id of Object.keys(saved)) values[id] = typed[id] === sent[id] ? (saved[id] ?? "") : (typed[id] ?? "");
   return values;
 }
 
@@ -413,36 +415,42 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
             />
           </Field>
           {/* The workspace's fields, an input each, or a menu of its choices for one that has them. */}
-          {askedFields?.map((asked) => (
-            <Field key={asked.id} id={`user_field_${asked.id}`} label={asked.name}>
-              {asked.options === null ? (
-                <Input
-                  id={`user_field_${asked.id}`}
-                  autoComplete="off"
-                  maxLength={MAX_PROFILE_FIELD_VALUE_LENGTH}
-                  disabled={!fieldValues}
-                  value={fieldValues?.[asked.id] ?? ""}
-                  onChange={changeFieldValue(asked.id)}
-                  className={FIELD_INPUT}
-                />
-              ) : (
-                <select
-                  id={`user_field_${asked.id}`}
-                  disabled={!fieldValues}
-                  value={fieldValues?.[asked.id] ?? ""}
-                  onChange={changeFieldValue(asked.id)}
-                  className={SELECT}
-                >
-                  <option value="">Not set</option>
-                  {asked.options.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-          ))}
+          {askedFields?.map((asked) => {
+            // What they saved for it, which a menu shows even when it's no longer one of the choices.
+            const kept = fieldValues?.[asked.id] ?? "";
+            return (
+              <Field key={asked.id} id={`user_field_${asked.id}`} label={asked.name}>
+                {asked.options === null ? (
+                  <Input
+                    id={`user_field_${asked.id}`}
+                    autoComplete="off"
+                    maxLength={MAX_PROFILE_FIELD_VALUE_LENGTH}
+                    disabled={!fieldValues}
+                    value={fieldValues?.[asked.id] ?? ""}
+                    onChange={changeFieldValue(asked.id)}
+                    className={FIELD_INPUT}
+                  />
+                ) : (
+                  <select
+                    id={`user_field_${asked.id}`}
+                    disabled={!fieldValues}
+                    value={fieldValues?.[asked.id] ?? ""}
+                    onChange={changeFieldValue(asked.id)}
+                    className={SELECT}
+                  >
+                    <option value="">Not set</option>
+                    {asked.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                    {/* The Worker keeps an answer that's no longer a choice until one of the choices now takes its place, so it shows, and Not set can take it away. */}
+                    {kept !== "" && !asked.options.includes(kept) && <option value={kept}>{kept}</option>}
+                  </select>
+                )}
+              </Field>
+            );
+          })}
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
         {memberful && (

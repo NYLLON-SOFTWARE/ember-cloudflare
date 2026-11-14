@@ -1038,4 +1038,56 @@ describe("The workspace's fields on your profile", () => {
     // And saving again doesn't put back what the page loaded.
     expect(saved()).toEqual([{}, {}]);
   });
+
+  it("forgets a field an administrator has deleted once a save answers without it, so no later save names it", async () => {
+    // An administrator deleted Title while the page was open, and the save went before they did.
+    serve({
+      saved: () => Response.json({ profile: { ...profile, fields: [ASKED_FIELDS[1]!] }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(screen.queryByLabelText("Title")).toBeNull();
+    expect(pronouns()).toHaveValue("she/her");
+    // Saving again sends nothing for the field that's gone, which the server refuses a save for.
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{}, {}]);
+  });
+
+  it("takes up a field an administrator has added, with what it says another tab has saved for it", async () => {
+    const phone = { id: "field-phone", name: "Phone", options: null, value: "555-0101" };
+    // An administrator added Phone while the page was open, and another tab saved theirs before the save went.
+    serve({
+      saved: () => Response.json({ profile: { ...profile, fields: [...ASKED_FIELDS, phone] }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(screen.queryByLabelText("Phone")).toBeNull();
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(field("Phone")).toHaveValue("555-0101");
+    // And saving again doesn't clear what the other tab saved.
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{}, {}]);
+  });
+
+  it("shows what you saved even when it's no longer one of the choices, so that Not set can take it away", async () => {
+    // An administrator took she/her out of the choices after Ada saved hers, which the Worker keeps.
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, fields: [{ ...ASKED_FIELDS[1]!, options: ["they/them"] }] }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(pronouns()).toHaveValue("she/her");
+    expect(within(pronouns()).getAllByRole("option").map((option) => option.textContent)).toEqual(["Not set", "they/them", "she/her"]);
+
+    await user.selectOptions(pronouns(), "Not set");
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{ fieldValues: { "field-pronouns": "" } }]);
+    expect(pronouns()).toHaveValue("");
+  });
 });

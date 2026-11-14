@@ -23,6 +23,20 @@ export const CONFIRM_REMOVE_FIELD = "Delete this field? Everyone's answer to it 
 const KINDS = { text: "Plain text", choices: "Set choices" } as const;
 type Kind = keyof typeof KINDS;
 
+/** The field being renamed, with what's typed in its form. */
+interface Editing {
+  id: string;
+  name: string;
+  choices: string;
+}
+
+/** What the form that adds a field holds. */
+interface Adding {
+  name: string;
+  kind: Kind;
+  choices: string;
+}
+
 /** `text` as lines, which an options editor keeps one choice in each. */
 const linesOf = (options: string[] | null) => (options === null ? "" : options.join("\n"));
 
@@ -54,14 +68,10 @@ const FORM = "flex flex-col gap-3 rounded-[10px] border bg-surface p-4";
  */
 export function ProfileFieldsSettings({ onFailed }: Props) {
   const [fields, setFields] = useState<ProfileField[] | null>(null);
-  /** The field being renamed, and what's typed in its form. */
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editedName, setEditedName] = useState("");
-  const [editedChoices, setEditedChoices] = useState("");
+  /** The field being renamed, with what's typed in its form. */
+  const [editing, setEditing] = useState<Editing | null>(null);
   /** What the add form holds. */
-  const [newName, setNewName] = useState("");
-  const [newKind, setNewKind] = useState<Kind>("text");
-  const [newChoices, setNewChoices] = useState("");
+  const [adding, setAdding] = useState<Adding>({ name: "", kind: "text", choices: "" });
   /** What's on its way to the server: "add", or a field's id. */
   const [busy, setBusy] = useState<string | null>(null);
   const flash = useFlash();
@@ -95,33 +105,33 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
 
   const addField = (event: FormEvent) => {
     event.preventDefault();
-    const name = newName.trim();
+    const name = adding.name.trim();
     if (!name || busy) return;
-    const choices = newKind === "choices" ? choicesOf(newChoices) : null;
+    const choices = adding.kind === "choices" ? choicesOf(adding.choices) : null;
     // Set choices need at least one choice to take, which the server refuses too, as does an empty list.
-    if (newKind === "choices" && choices === null) return flash("alert", PROFILE_FIELD_OPTIONS_REFUSED);
+    if (adding.kind === "choices" && choices === null) return flash("alert", PROFILE_FIELD_OPTIONS_REFUSED);
+    const sent = adding;
     setBusy("add");
     shown(addProfileField({ name, options: choices }), () => {
-      setNewName("");
-      setNewKind("text");
-      setNewChoices("");
+      // The form empties only while it still holds what was sent, so what's typed meanwhile stays.
+      setAdding((typed) =>
+        typed.name === sent.name && typed.kind === sent.kind && typed.choices === sent.choices ? { name: "", kind: "text", choices: "" } : typed,
+      );
       flash("notice", CHANGES_SAVED);
     });
   };
 
   /** Puts the pencil to `field`, with its name and choices in the form. */
-  const edit = (field: ProfileField) => {
-    setEditing(field.id);
-    setEditedName(field.name);
-    setEditedChoices(linesOf(field.options));
-  };
+  const edit = (field: ProfileField) => setEditing({ id: field.id, name: field.name, choices: linesOf(field.options) });
 
   const saveEdited = (event: FormEvent) => {
     event.preventDefault();
-    if (editing === null || !editedName.trim() || busy) return;
-    setBusy(editing);
-    shown(changeProfileField(editing, { name: editedName.trim(), options: choicesOf(editedChoices) }), () => {
-      setEditing(null);
+    if (editing === null || !editing.name.trim() || busy) return;
+    const sent = editing;
+    setBusy(sent.id);
+    shown(changeProfileField(sent.id, { name: sent.name.trim(), options: choicesOf(sent.choices) }), () => {
+      // The form closes only while it still holds what was sent, so what's typed meanwhile stays.
+      setEditing((typed) => (typed !== null && typed.id === sent.id && typed.name === sent.name && typed.choices === sent.choices ? null : typed));
       flash("notice", CHANGES_SAVED);
     });
   };
@@ -157,15 +167,15 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
         <ul aria-label="Profile fields" className="flex flex-col">
           {fields.map((field, at) => (
             <li key={field.id} className="border-t py-3 first:border-t-0 first:pt-0">
-              {editing === field.id ? (
+              {editing !== null && editing.id === field.id ? (
                 <form onSubmit={saveEdited} className={FORM} aria-label={`Edit ${field.name}`}>
                   <Field id={`edit_field_name_${field.id}`} label="Name">
                     <input
                       id={`edit_field_name_${field.id}`}
                       autoComplete="off"
                       maxLength={MAX_PROFILE_FIELD_NAME_LENGTH}
-                      value={editedName}
-                      onChange={(event) => setEditedName(event.target.value)}
+                      value={editing.name}
+                      onChange={(event) => setEditing({ ...editing, name: event.target.value })}
                       className={FIELD_INPUT}
                     />
                   </Field>
@@ -174,8 +184,8 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
                       <textarea
                         id={`edit_field_options_${field.id}`}
                         rows={Math.max(2, field.options.length + 1)}
-                        value={editedChoices}
-                        onChange={(event) => setEditedChoices(event.target.value)}
+                        value={editing.choices}
+                        onChange={(event) => setEditing({ ...editing, choices: event.target.value })}
                         className={cn("w-full border placeholder:text-muted-foreground disabled:opacity-50", FIELD_INPUT, "resize-y")}
                       />
                     </Field>
@@ -184,7 +194,7 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
                     <button type="button" onClick={() => setEditing(null)} className={cn(BUTTON, "bg-background")}>
                       Cancel
                     </button>
-                    <button type="submit" disabled={busy !== null || editedName.trim() === ""} className={cn(BUTTON, "border-transparent bg-foreground text-background hover:not-active:brightness-70")}>
+                    <button type="submit" disabled={busy !== null || editing.name.trim() === ""} className={cn(BUTTON, "border-transparent bg-foreground text-background hover:not-active:brightness-70")}>
                       Save
                     </button>
                   </div>
@@ -247,30 +257,30 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
               autoComplete="off"
               placeholder="Title"
               maxLength={MAX_PROFILE_FIELD_NAME_LENGTH}
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
+              value={adding.name}
+              onChange={(event) => setAdding({ ...adding, name: event.target.value })}
               className={FIELD_INPUT}
             />
           </Field>
           <Field id="new_field_kind" label="Kind">
-            <select id="new_field_kind" value={newKind} onChange={(event) => setNewKind(event.target.value as Kind)} className={SELECT}>
+            <select id="new_field_kind" value={adding.kind} onChange={(event) => setAdding({ ...adding, kind: event.target.value as Kind })} className={SELECT}>
               <option value="text">{KINDS.text}</option>
               <option value="choices">{KINDS.choices}</option>
             </select>
           </Field>
-          {newKind === "choices" && (
+          {adding.kind === "choices" && (
             <Field id="new_field_choices" label="Choices, one per line">
               <textarea
                 id="new_field_choices"
                 rows={3}
                 placeholder={"Design\nEngineering\nOperations"}
-                value={newChoices}
-                onChange={(event) => setNewChoices(event.target.value)}
+                value={adding.choices}
+                onChange={(event) => setAdding({ ...adding, choices: event.target.value })}
                 className={cn("w-full border placeholder:text-muted-foreground disabled:opacity-50", FIELD_INPUT, "resize-y")}
               />
             </Field>
           )}
-          <button type="submit" disabled={busy !== null || newName.trim() === ""} className={cn(BUTTON, "self-end border-transparent bg-foreground text-background hover:not-active:brightness-70")}>
+          <button type="submit" disabled={busy !== null || adding.name.trim() === ""} className={cn(BUTTON, "self-end border-transparent bg-foreground text-background hover:not-active:brightness-70")}>
             <Plus className="size-[18px]" />
             <span>Add field</span>
           </button>

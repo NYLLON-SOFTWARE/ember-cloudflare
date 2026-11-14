@@ -469,10 +469,24 @@ export interface AvatarChange {
   dueAt: number;
 }
 
-/** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
+/** What `WorkspaceStore.changeProfile` saves: someone's profile, the digest of a new password or null to keep theirs, and what they gave the workspace's fields, or none. */
 export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio"> {
   passwordDigest: string | null;
+  fieldValues: Record<string, string> | null;
 }
+
+/** The statements saving what `userId` gave the workspace's fields: upserting each value, and taking out the rows of the ones cleared with "". */
+const changeProfileFieldValuesStatements = (userId: UserId, values: Record<string, string>): Statement[] =>
+  Object.entries(values).map(([fieldId, value]) =>
+    value === ""
+      ? statement(`DELETE FROM profile_field_values WHERE field_id = ? AND user_id = ?`, fieldId, userId)
+      : statement(
+          `INSERT INTO profile_field_values (field_id, user_id, value) VALUES (?, ?, ?) ON CONFLICT (field_id, user_id) DO UPDATE SET value = excluded.value`,
+          fieldId,
+          userId,
+          value,
+        ),
+  );
 
 /** A field of the workspace's profiles, as its tables keep it. */
 export interface StoredProfileField {
@@ -3719,16 +3733,18 @@ export class WorkspaceStore {
   }
 
   /**
-   * Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. With a
-   * new password, in the same transaction it ends the sessions and forgets the push subscriptions
+   * Saves someone's profile, what they gave the workspace's fields, and a new password when `passwordDigest`
+   * is one's, recording when, all in one batch, so a save of the lot can't land half-way. With a new
+   * password, in the same transaction it ends the sessions and forgets the push subscriptions
    * `ended` says, queuing closing those sessions' sockets, and forgets the accounts elsewhere their old
    * password started connecting, or connected, if they had one and keep an email address to sign in
    * with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it queued any.
    */
-  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest, fieldValues }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
     const change = statement(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
+    const asked = changeProfileFieldValuesStatements(userId, fieldValues ?? {});
     if (!ended) {
-      await this.db.batch([change]);
+      await this.db.batch([change, ...asked]);
       return false;
     }
     const [queued] = await this.db.batch([
@@ -3739,6 +3755,7 @@ export class WorkspaceStore {
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
       statement(UNLINK_ON_NEW_PASSWORD, userId, emailAddress),
       change,
+      ...asked,
     ]);
     return queued!.length > 0;
   }
@@ -3788,23 +3805,9 @@ export class WorkspaceStore {
     await this.db.batch(ids.map((id, position) => statement(`UPDATE profile_fields SET position = ?, updated_at = ? WHERE id = ?`, position + 1, now, id)));
   }
 
-  /**
-   * Saves what `userId` gave the fields named: upserting each value, and taking out the rows of the
-   * ones cleared with "", in one batch.
-   */
+  /** Saves what `userId` gave the fields named, in one batch. */
   async changeProfileFieldValues(userId: UserId, values: Record<string, string>): Promise<void> {
-    await this.db.batch(
-      Object.entries(values).map(([fieldId, value]) =>
-        value === ""
-          ? statement(`DELETE FROM profile_field_values WHERE field_id = ? AND user_id = ?`, fieldId, userId)
-          : statement(
-              `INSERT INTO profile_field_values (field_id, user_id, value) VALUES (?, ?, ?) ON CONFLICT (field_id, user_id) DO UPDATE SET value = excluded.value`,
-              fieldId,
-              userId,
-              value,
-            ),
-      ),
-    );
+    await this.db.batch(changeProfileFieldValuesStatements(userId, values));
   }
 
   /** What whoever has id `userId` signs in with, whatever their status, or null if nobody does. */
