@@ -1,15 +1,17 @@
-import { type Message, type User } from "@ember/protocol";
+import { type Message, type ServerFrame, type User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { usePins } from "@/hooks/use-pins";
+import type { RoomFrames } from "@/hooks/use-room";
 import { PinnedPanel } from "./pinned-panel";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
 
 /** A message, whose body is its plain text as typed. */
-const message = (id: string, plainText: string): Message => ({
+const message = (id: string, plainText: string, overrides: Partial<Message> = {}): Message => ({
   id,
   clientMessageId: id,
   roomId: "general",
@@ -21,6 +23,7 @@ const message = (id: string, plainText: string): Message => ({
   updatedAt: "2026-11-13T10:00:00.000Z",
   editedAt: null,
   boosts: [],
+  ...overrides,
 });
 
 const general = { id: "general", name: "general", kind: "open", icon: null } as const;
@@ -59,6 +62,43 @@ function show(pins: Parameters<typeof PinnedPanel>[0]["pins"], messages: Message
 }
 
 afterEach(cleanup);
+
+/**
+ * The panel over the pins of `frames`' room, which the pins hook keeps: what a test has the room say
+ * comes through `usePins` to the panel, as it does through the workspace.
+ */
+function Pinned({ frames }: { frames: RoomFrames }) {
+  const { pins, listed, refresh } = usePins("general", frames);
+  return (
+    <PinnedPanel
+      room={general}
+      name="general"
+      me={{ ...ada, administrator: false }}
+      pins={pins}
+      messages={new Map(listed)}
+      onUnpin={vi.fn()}
+      refresh={refresh}
+      roomNotice={null}
+      onDismissRoomNotice={vi.fn()}
+      onClose={vi.fn()}
+    />
+  );
+}
+
+/** The room's socket, as the pins hook hears it, and what a test has the room say over it. */
+function roomFrames() {
+  const listeners = new Set<(frame: ServerFrame) => void>();
+  return {
+    frames: {
+      send: () => true,
+      listen: (listener: (frame: ServerFrame) => void) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+    } satisfies RoomFrames,
+    hear: (frame: ServerFrame) => act(() => listeners.forEach((listener) => listener(frame))),
+  };
+}
 
 describe("The Pinned panel", () => {
   it("lists the room's pins in pin order, each with its message, who pinned it and when", () => {
@@ -147,5 +187,26 @@ describe("The Pinned panel", () => {
     expect(screen.getByRole("complementary", { name: "Pinned messages" })).toHaveTextContent("Grace");
     await user.click(screen.getByRole("button", { name: "Close pinned messages" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("retells a pinned reply as its parent's edit or keeping for its replies comes, as its room's timeline does", () => {
+    const { frames, hear } = roomFrames();
+    render(<Pinned frames={frames} />);
+
+    // The room lists a reply also sent to it, pinned, whose parent's start it shows.
+    hear({
+      type: "pins.listed",
+      pins: [{ message: message("r1", "A reply", { parentId: "p1", alsoSent: true, parentText: "The parent's first words" }), by: grace, at: "2026-11-13T10:01:00.000Z" }],
+    });
+    expect(screen.getByRole("link", { name: "The parent's first words" })).toBeInTheDocument();
+
+    // The parent's edit retells the reply the room also sent there, which the panel shows as the timeline does.
+    hear({ type: "message.updated", message: message("p1", "The parent's retold words", { editedAt: "2026-11-13T11:00:00.000Z" }), seq: 2 });
+    expect(screen.getByRole("link", { name: "The parent's retold words" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "The parent's first words" })).not.toBeInTheDocument();
+
+    // Deleted with its thread's replies left, the parent is kept for them without its text, which the reply then says.
+    hear({ type: "message.updated", message: message("p1", "", { deleted: true }), seq: 3 });
+    expect(screen.getByRole("link", { name: "This message was deleted." })).toBeInTheDocument();
   });
 });

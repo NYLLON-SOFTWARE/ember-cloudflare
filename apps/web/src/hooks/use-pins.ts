@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Message, User } from "@ember/protocol";
+import { parentTextOf, type Message, type User } from "@ember/protocol";
 import type { RoomFrames } from "./use-room";
 
 /** A pin, as this page keeps it: whose message, who pinned it and when the room has said. */
@@ -18,8 +18,20 @@ const forget = (listed: ReadonlyMap<string, Message>, id: string) => {
   return rest;
 };
 
-/** The listed messages with `message` as the room has it now, or as they were when it's none of theirs. */
-const retold = (listed: ReadonlyMap<string, Message>, message: Message) => (listed.has(message.id) ? new Map(listed).set(message.id, message) : listed);
+/**
+ * The listed messages with `message` as the room has it now, or as they were when it's none of theirs,
+ * and with the replies of its thread showing the start of its text as it is now, as a reply also sent
+ * to the room shows its parent: an edit of it retells them, and so does a deletion kept for its replies,
+ * whose text is gone.
+ */
+const retold = (listed: ReadonlyMap<string, Message>, message: Message) => {
+  const text = parentTextOf(message.plainText);
+  let told = listed.has(message.id) ? new Map(listed).set(message.id, message) : listed;
+  for (const [id, reply] of listed) {
+    if (reply.parentId === message.id && reply.parentText !== text) told = new Map(told).set(id, { ...reply, parentText: text });
+  }
+  return told;
+};
 
 /** The listed messages with the boosts of `id`'s as `boosts` makes them, as a reaction comes and goes. */
 const withBoosts = (listed: ReadonlyMap<string, Message>, id: string, boosts: (given: Message["boosts"]) => Message["boosts"]) => {
@@ -34,7 +46,7 @@ const withBoosts = (listed: ReadonlyMap<string, Message>, id: string, boosts: (g
  * who, whose `at` the next listing says — which the panel asks for, as it opens and as a pin changes
  * while it's open. A deleted message takes its pin, whether it went outright or was kept for its
  * thread's replies, as the room keeps none of one. Each listed message keeps pace with the room, as an
- * edit of, a reaction to or the going of one of theirs comes.
+ * edit of, a reaction to or the going of one of theirs comes, and a reply as its parent's changes come.
  */
 export function usePins(roomId: string, frames: RoomFrames) {
   const [pins, setPins] = useState<Pin[] | null>(null);
@@ -65,7 +77,7 @@ export function usePins(roomId: string, frames: RoomFrames) {
         case "message.updated":
           // A message deleted while its thread has replies is kept for them, so its pin's going comes as its update.
           setPins((pins) => (frame.message.deleted ? pins?.filter(({ messageId }) => messageId !== frame.message.id) ?? pins : pins));
-          setListed((listed) => (frame.message.deleted ? forget(listed, frame.message.id) : retold(listed, frame.message)));
+          setListed((listed) => retold(frame.message.deleted ? forget(listed, frame.message.id) : listed, frame.message));
           break;
         case "boost.created":
           setListed((listed) => withBoosts(listed, frame.boost.messageId, (boosts) => [...boosts, frame.boost]));
