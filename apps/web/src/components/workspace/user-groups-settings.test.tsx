@@ -22,7 +22,7 @@ function serve(route: (method: string, path: string, body: unknown) => Response 
 
 /** The card, with the workspace's people in the directory, and `groups` as the server lists them. */
 function showCard() {
-  const callbacks = { onSaved: vi.fn(), onFailed: vi.fn() };
+  const callbacks = { onSaved: vi.fn(), reloadDirectory: vi.fn(), onFailed: vi.fn() };
   render(
     <PeopleContext value={people}>
       <UserGroups {...callbacks} />
@@ -55,7 +55,7 @@ describe("User groups", () => {
       }
       return Response.json({ groups: [design] });
     });
-    const { user, onSaved } = showCard();
+    const { user, onSaved, reloadDirectory } = showCard();
     await user.click(within(card()).getByRole("button", { name: "New group" }));
     await user.type(within(card()).getByLabelText("Name"), "On Call");
     // Bots aren't offered, and nobody's checked to start with.
@@ -66,6 +66,8 @@ describe("User groups", () => {
     expect(sent).toEqual({ path: "/api/user_groups", body: { name: "On Call", memberIds: [grace.id] } });
     expect(within(card()).getByRole("list").lastChild).toHaveTextContent("on call");
     expect(onSaved).toHaveBeenCalledOnce();
+    // The people directory loads again, which reads the groups a mention shows and names by.
+    expect(reloadDirectory).toHaveBeenCalledOnce();
     expect(within(card()).queryByRole("button", { name: "Create group" })).toBeNull();
   });
 
@@ -109,15 +111,17 @@ describe("User groups", () => {
   it("deletes a group after asking, and keeps it when Cancel is pressed", async () => {
     const asking = vi.spyOn(globalThis, "confirm").mockReturnValue(false);
     const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ groups: [design] }));
-    const { user } = showCard();
+    const { user, reloadDirectory } = showCard();
     await user.click(await within(card()).findByRole("button", { name: "Delete design" }));
     expect(asking).toHaveBeenCalledWith(CONFIRM_DELETE);
     expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(reloadDirectory).not.toHaveBeenCalled();
 
     asking.mockReturnValue(true);
     fetcher.mockImplementation(async (input, init) => ((init?.method ?? "GET") === "DELETE" ? new Response(null, { status: 204 }) : Response.json({ groups: [design] })));
     await user.click(within(card()).getByRole("button", { name: "Delete design" }));
     expect(within(card()).queryByRole("button", { name: "Delete design" })).toBeNull();
+    expect(reloadDirectory).toHaveBeenCalledOnce();
   });
 
   it("says a session that has ended to the page, which goes to sign in", async () => {

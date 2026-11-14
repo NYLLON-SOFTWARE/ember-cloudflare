@@ -1,7 +1,7 @@
-import { GROUP_MEMBER_UNKNOWN, GROUP_NAME_TAKEN, GROUP_TOO_BIG, type Directory, type NewWorkspace, type UserGroup } from "@ember/protocol";
+import { GROUP_MEMBER_UNKNOWN, GROUP_NAME_TAKEN, GROUP_TOO_BIG, GROUPS_FULL, MAX_GROUPS, type Directory, type NewWorkspace, type UserGroup } from "@ember/protocol";
 import { GROUP_MENTION_CONTENT_TYPE, mentionGroupSgid } from "@ember/richtext";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { api, connect, cookieOf, freshDeploy, freshRoom, post, pushBrowser, roomSql, shown, signIn, workspaceSql, type PushBrowser, type Session } from "./support";
+import { api, connect, cookieOf, createRoom, direct, freshDeploy, freshRoom, post, pushBrowser, roomSql, shown, signIn, workspaceSql, type PushBrowser, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
@@ -11,6 +11,24 @@ async function setUp(): Promise<Session> {
   expect(response.status).toBe(201);
   return { user: shown(((await response.json()) as NewWorkspace).user), cookie: cookieOf(response) };
 }
+
+/** Adds someone to the workspace without signing them in, as person `role` (0 a member, 2 a bot), answering their id. */
+async function person(name: string, role = 0): Promise<string> {
+  const id = `user-${crypto.randomUUID()}`;
+  await workspaceSql(`INSERT INTO users (id, name, status, role, created_at, updated_at) VALUES (?, ?, 0, ?, 'now', 'now')`, id, name, role);
+  return id;
+}
+
+const as = (session: Session | null): Record<string, string> => (session ? { Cookie: session.cookie } : {});
+
+const list = (session: Session | null) => api("/api/user_groups", { headers: as(session) });
+const add = (session: Session | null, body: unknown) => api("/api/user_groups", { method: "POST", headers: as(session), body: JSON.stringify(body) });
+const change = (session: Session | null, id: string, body: unknown) => api(`/api/user_groups/${id}`, { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
+const remove = (session: Session | null, id: string) => api(`/api/user_groups/${id}`, { method: "DELETE", headers: as(session) });
+
+/** Gives `session`'s person `involvement` in room `roomId`, as their bell does. */
+const involve = (session: Session, roomId: string, involvement: string) =>
+  api(`/api/rooms/${roomId}/involvement`, { method: "PUT", headers: as(session), body: JSON.stringify({ involvement }) });
 
 /** Saves a subscription for `session` at Chrome's push service, at `/fcm/send/<label>`, for `browser`'s keys. */
 async function subscribe(session: Session, label: string, browser?: PushBrowser): Promise<void> {
@@ -29,20 +47,6 @@ function pushServices() {
   });
   return pushed;
 }
-
-/** Adds someone to the workspace without signing them in, answering their id. */
-async function person(name: string): Promise<string> {
-  const id = `user-${crypto.randomUUID()}`;
-  await workspaceSql(`INSERT INTO users (id, name, status, created_at, updated_at) VALUES (?, ?, 0, 'now', 'now')`, id, name);
-  return id;
-}
-
-const as = (session: Session | null): Record<string, string> => (session ? { Cookie: session.cookie } : {});
-
-const list = (session: Session | null) => api("/api/user_groups", { headers: as(session) });
-const add = (session: Session | null, body: unknown) => api("/api/user_groups", { method: "POST", headers: as(session), body: JSON.stringify(body) });
-const change = (session: Session | null, id: string, body: unknown) => api(`/api/user_groups/${id}`, { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
-const remove = (session: Session | null, id: string) => api(`/api/user_groups/${id}`, { method: "DELETE", headers: as(session) });
 
 /** The group an answer gives, once it's checked to have succeeded with `status`. */
 async function groupOf(response: Response, status = 200): Promise<UserGroup> {
@@ -121,6 +125,34 @@ describe("User groups", () => {
     expect(await unknown.json()).toEqual({ error: GROUP_MEMBER_UNKNOWN });
   });
 
+  it("keeps a group's members the active people alone, once each, dropping a bot and a repeated id", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const bender = await person("Bender", 2);
+    const group = await groupOf(await add(administrator, { name: "staff", memberIds: [grace.user.id, grace.user.id, bender] }), 201);
+    expect(group.memberIds).toEqual([grace.user.id]);
+    // And a change does the same, saving the rest of what's sent.
+    const changed = await groupOf(await change(administrator, group.id, { memberIds: [bender, grace.user.id] }));
+    expect(changed.memberIds).toEqual([grace.user.id]);
+  });
+
+  it("refuses another group once the workspace keeps 1,000, and takes one once a group goes", async () => {
+    const administrator = await setUp();
+    await workspaceSql(
+      `WITH RECURSIVE many(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM many WHERE i < ${MAX_GROUPS})
+       INSERT INTO user_groups (id, name, created_by, created_at, updated_at)
+       SELECT printf('g%015d', i), printf('group %04d', i), ?, 'now', 'now' FROM many`,
+      administrator.user.id,
+    );
+    const refused = await add(administrator, { name: "one too many", memberIds: [] });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: GROUPS_FULL });
+
+    await workspaceSql(`DELETE FROM user_groups WHERE id = 'g${"0".repeat(14)}1'`);
+    const created = await groupOf(await add(administrator, { name: "one more", memberIds: [] }), 201);
+    expect(created.name).toBe("one more");
+  });
+
   it("changes a group's name and members, and deletes it, which the directory drops", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
@@ -177,12 +209,56 @@ describe("User groups", () => {
     const group = await groupOf(await add(administrator, { name: "design", memberIds: [grace.user.id] }), 201);
     await subscribe(grace, "grace");
     await subscribe(linus, "linus");
+    // At only @mentions, which a group's mention is for everyone it stands for.
+    await involve(grace, room, "mentions");
+    await involve(linus, room, "mentions");
     const pushed = pushServices();
     const ada = await connect(room, administrator, { visible: true });
 
     await post(ada, `<p>Hi ${groupMention(group.id)}!</p>`);
     await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
     expect(pushed[0]!.endpoint.endsWith("/grace")).toBe(true);
+  });
+
+  it("mentions a group in a DM, where everyone hears all messages", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const alan = await signIn("Alan Turing");
+    const group = await groupOf(await add(administrator, { name: "design", memberIds: [grace.user.id, alan.user.id] }), 201);
+    const dm = await direct(administrator, grace, alan);
+    const ada = await connect(dm.id, administrator);
+
+    const message = await post(ada, `<p>Hi ${groupMention(group.id)}!</p>`);
+    expect(message).toMatchObject({
+      plainText: "Hi @design!",
+      mentions: [
+        { id: alan.user.id, name: "Alan Turing" },
+        { id: grace.user.id, name: "Grace Hopper" },
+      ],
+    });
+  });
+
+  it("mentions a group whose member isn't in the room, standing for them all the same", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const alan = await signIn("Alan Turing");
+    const group = await groupOf(await add(administrator, { name: "design", memberIds: [grace.user.id, alan.user.id] }), 201);
+    // A closed room Alan was never let into.
+    const room = await createRoom("Closed", { closedTo: [administrator.user.id, grace.user.id], as: administrator });
+    const ada = await connect(room.id, administrator);
+
+    const message = await post(ada, `<p>Hi ${groupMention(group.id)}!</p>`);
+    expect(message).toMatchObject({
+      plainText: "Hi @design!",
+      mentions: [
+        { id: alan.user.id, name: "Alan Turing" },
+        { id: grace.user.id, name: "Grace Hopper" },
+      ],
+    });
+    // But nothing marks the room for him, which isn't his.
+    expect(
+      (await workspaceSql("SELECT count(*) AS n FROM memberships WHERE room_id = ? AND user_id = ?", room.id, alan.user.id)) as [{ n: number }],
+    ).toEqual([{ n: 0 }]);
   });
 
   it("stores ☒ for a mention of a group that isn't one, as a person's", async () => {
