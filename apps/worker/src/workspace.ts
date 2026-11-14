@@ -113,6 +113,8 @@ import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
+import { RoomTabStore, type KeptTab, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
+import type { Canvas, CanvasSave, FileMark, FileMarks } from "@ember/protocol/library";
 import type { PickedTool } from "./apps/tools";
 import { seal, unseal } from "./sealed";
 import { isToken } from "./secrets";
@@ -3814,8 +3816,14 @@ export class Workspace extends DurableObject<Env> {
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
     if (events.length === 0) return { pushes: [], webhooks: [], asks: [] };
     const { on: pushing } = await webPush(this.env);
-    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
-    for (const [userId, at] of marks) this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at });
+    const { marks, counts, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
+    // Someone whose mark changed hears of it with their count, if a message counted, and someone already
+    // marked hears of their count as it changes.
+    for (const [userId, at] of marks) {
+      const counted = counts.get(userId);
+      this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at, ...(counted && { count: counted.count, ...(counted.mentioned && { mentioned: true }) }) });
+    }
+    for (const [userId, { at, count, mentioned }] of counts) if (!marks.has(userId)) this.tell([userId], { type: "room.unread", roomId, at, count, ...(mentioned && { mentioned: true }) });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
     return { pushes, webhooks, asks };
   }
@@ -3852,6 +3860,75 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (user) await this.store.clearSearches(user.id);
     return user !== null;
+  }
+
+  /**
+   * What the files of the person `credentials` signs in are listed with (library.ts): the rooms they're in,
+   * or only `roomId` when it's given, the canvases there and what they've starred and opened. Null without a
+   * valid session, and "not found" for a room they aren't in.
+   */
+  async library(credentials: Credentials, roomId: RoomId | null): Promise<LibraryShelf | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const { rooms } = await this.store.searcherOf(user.id, null);
+    const roomIds = rooms.flatMap(({ id }) => (roomId === null || id === roomId ? [id] : []));
+    if (roomId !== null && roomIds.length === 0) return "not found";
+    const tabs = new RoomTabStore(this.db);
+    const [canvases, marks] = await Promise.all([tabs.canvasesIn(roomIds), tabs.marksOf(user.id)]);
+    return { userId: user.id, roomIds, canvases, marks };
+  }
+
+  /** Stars a file, or records that it was opened, for the person `credentials` signs in, who must be in its room. */
+  async markFile(credentials: Credentials, mark: FileMark): Promise<FileMarks | "not found" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member } = await this.store.roomAccess(mark.roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const tabs = new RoomTabStore(this.db);
+    // A file's message is checked before it's asked here; anything else marked is one of the room's canvases.
+    if (mark.messageId === undefined && !(await tabs.hasCanvas(mark.roomId, mark.fileId))) return "not found";
+    return tabs.mark(session.user.id, mark, new Date().toISOString());
+  }
+
+  /** Does what `action` asks of room `roomId`'s tabs for the person `credentials` signs in, if they're in it (room-tabs.ts). */
+  async roomTabs(credentials: Credentials, roomId: RoomId, action: TabAction): Promise<TabAnswer | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const { id, name } = session.user;
+    return new RoomTabStore(this.db).act(roomId, { id, name }, banned, action, new Date().toISOString());
+  }
+
+  /**
+   * Whom `credentials` signs in, with the canvas, if they can change room `roomId`'s canvas `tabId`: they're
+   * in the room, and no ban blocks their address. Their save then goes through the room's object, where
+   * people may be writing the canvas together (canvas-sessions.ts).
+   */
+  async canvasWriter(credentials: Credentials, roomId: RoomId, tabId: string): Promise<{ actor: User; tab: KeptTab } | "forbidden" | "not found" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const actor = { id: session.user.id, name: session.user.name };
+    const opened = await new RoomTabStore(this.db).act(roomId, actor, banned, { act: "open", tabId }, new Date().toISOString());
+    if (typeof opened !== "object" || !("tab" in opened) || opened.tab.kind !== "canvas") return "not found";
+    return banned ? "forbidden" : { actor, tab: opened.tab };
+  }
+
+  /** Room `roomId`'s canvas `tabId`, for the room's object, which people write it together through. */
+  async roomCanvas(roomId: RoomId, tabId: string): Promise<Canvas | null> {
+    return new RoomTabStore(this.db).canvas(roomId, tabId);
+  }
+
+  /** Saves room `roomId`'s canvas over `save.version`, for the room's object, as a writer `canvasWriter` let through asked. */
+  async saveRoomCanvas(roomId: RoomId, tabId: string, actor: User, save: CanvasSave): Promise<TabAnswer> {
+    return new RoomTabStore(this.db).act(roomId, actor, false, { act: "save", tabId, save }, new Date().toISOString());
+  }
+
+  /** Keeps what people writing room `roomId`'s canvas together left it at, for the room's object, unless it's kept a later version. */
+  async keepRoomCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User): Promise<boolean> {
+    return new RoomTabStore(this.db).keepCanvas(roomId, tabId, body, version, by, new Date().toISOString());
   }
 
   /**

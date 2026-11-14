@@ -228,6 +228,13 @@ describe("Empty room", () => {
     expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
   });
 
+  it("welcomes people to a private room after a lock rather than a `#`", () => {
+    render(list({ messages: [] }, vi.fn(), null, { closed: true }));
+    const welcome = screen.getByRole("heading", { name: "Welcome to general" });
+    expect(welcome.querySelector("svg")).toHaveClass("iconoir-lock");
+    expect(welcome).not.toHaveTextContent("#");
+  });
+
   it("doesn't claim the room is empty before it has loaded", () => {
     render(list({ status: "connecting", messages: [] }));
     expect(screen.queryByRole("heading", { name: "Welcome to #general" })).not.toBeInTheDocument();

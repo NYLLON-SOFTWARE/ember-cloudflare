@@ -8,6 +8,8 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@
 import { useAccount } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { useDraftCount } from "@/hooks/use-draft-count";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -16,13 +18,13 @@ import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
 import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
-import { lastRoomVisited } from "@/lib/last-room";
+import { lastChannelVisited, lastRoomVisited, rememberLastChannel } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
-import { markedUnread } from "@/lib/room-list";
+import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
+import { afterNavigating, dmPath, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
@@ -32,7 +34,7 @@ import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
-import { Sidebar } from "./sidebar";
+import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 
 type RarePages = typeof import("./pages");
@@ -71,6 +73,11 @@ const RARE_PAGES = new Set<Route["page"]>([
   "push-subscriptions",
   "person",
   "search",
+  "dms",
+  "people",
+  "drafts",
+  "threads",
+  "files",
 ]);
 
 /**
@@ -83,10 +90,11 @@ export function loadPageAhead(pathname: string): Promise<unknown> {
 
 /**
  * What the rail marks on each page: the logo and Home at home, Home on a room's page and the pages that
- * go on to one, Search on search, Admin or Workspace on every page of community settings (a room's
- * forms, the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing on
- * a DM's settings or your push subscriptions, whose addresses none of its links have, nor on New direct
- * message's, which goes on to the last room visited at once.
+ * go on to one, and on the Home sidebar's pages, DMs on the DMs page and a DM's settings, as on a DM's
+ * own page, Search on search, Admin or Workspace on every page of community settings (a room's forms,
+ * the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing
+ * on your push subscriptions, whose address none of its links have, nor on New direct message's, which
+ * goes on to the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -97,7 +105,7 @@ const RAIL_PAGES = {
   "new-room": "workspace",
   "room-settings": "workspace",
   "new-direct": null,
-  "direct-settings": null,
+  "direct-settings": "dms",
   "workspace-settings": "workspace",
   "custom-styles": "workspace",
   bots: "workspace",
@@ -111,7 +119,15 @@ const RAIL_PAGES = {
   "push-subscriptions": null,
   person: null,
   search: "search",
+  dms: "dms",
+  people: "home",
+  drafts: "home",
+  threads: "home",
+  files: "files",
 } as const satisfies Record<Route["page"], RailPage>;
+
+/** The Home sidebar's link each of its pages marks. */
+const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "people", drafts: "drafts", threads: "threads" };
 
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
 const showNotFound = () => loadPage(location.pathname);
@@ -180,6 +196,7 @@ const reasonFor = (error: unknown) => (error instanceof ApiError ? error.message
  */
 function namedRoomId(route: Route): RoomId | null {
   if (route.page === "room-of-kind") return route.kind !== "direct" ? route.roomId : null;
+  if (route.page === "dms") return route.roomId ?? null;
   return route.page === "room" || route.page === "room-settings" || route.page === "direct-settings" ? route.roomId : null;
 }
 
@@ -198,7 +215,8 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
     case "home": {
-      const room = lastRoomVisited(rooms);
+      // Home lists no DMs, so it goes on to the last room visited that isn't one.
+      const room = lastChannelVisited(rooms);
       return room && { path: roomPath(room.id) };
     }
     case "newest-room":
@@ -212,6 +230,12 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
     }
     case "room":
       return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
+    // A DM beside the DMs page's list: a room that isn't a DM goes on to its own address.
+    case "dms": {
+      if (route.roomId === undefined) return null;
+      const room = rooms.find((r) => r.id === route.roomId);
+      return !room ? ROOM_NOT_FOUND : room.kind === "direct" ? null : { path: roomPath(room.id) };
+    }
     case "message":
       // Without looking, as the permalink checks the room.
       return { path: route.messageId ? messagePath(route.roomId, route.messageId) : roomPath(route.roomId) };
@@ -483,7 +507,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (!goingOn) keepDrawer.current = false;
   }, [route, goingOn]);
 
-  const room = route.page !== "room" || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === route.roomId) ?? null);
+  // The room the page shows: a room's page's, or the DM open beside the DMs page's list.
+  const shownRoomId = route.page === "room" ? route.roomId : route.page === "dms" ? (route.roomId ?? null) : null;
+  const room = shownRoomId === null || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === shownRoomId) ?? null);
   // When the room shown was marked unread as of as it opened, for its timeline's New line, kept while it
   // stays open, though opening it reads it. Coming back to it with nothing new draws none.
   const [opened, setOpened] = useState<{ roomId: RoomId | null; newSince: string | null }>({ roomId: null, newSince: null });
@@ -502,9 +528,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
   const select = (roomId: string) => navigate(roomPath(roomId));
+  // The DMs page's list opens a DM beside it, at its address there.
+  const selectDirect = (roomId: string) => navigate(dmPath(roomId));
   // A suggestion, or the button on someone's page, starts the DM with its person, or opens the one they
-  // have, and goes there, listing it as the server answers.
-  const startDirectWith = async (person: User) => {
+  // have, and goes there, listing it as the server answers: to its own address, or the DMs page's.
+  const startDirectWith = async (person: User, pathOf: (roomId: RoomId) => string = roomPath) => {
     const answered = askForRoom();
     const mark = pageMark();
     try {
@@ -512,7 +540,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       answered({ type: "saved", room });
       // A page the person has gone to meanwhile stays.
       if (!mounted.current || pageMark() !== mark) return false;
-      navigate(roomPath(room.id));
+      navigate(pathOf(room.id));
       return true;
     } catch (error) {
       failed(error);
@@ -611,28 +639,80 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
+  // A DM, and its settings, show beside the DMs page's list, as the DMs page does, and the rail marks DMs
+  // for them; any other page shows beside Home's, which goes back to the last room it showed.
+  const directsShown = route.page === "dms" || route.page === "direct-settings" || room?.kind === "direct";
+  const channelShown = room && room.kind !== "direct" ? room.id : null;
+  useEffect(() => {
+    if (channelShown !== null) rememberLastChannel(channelShown);
+  }, [channelShown]);
+  // How many DMs there are, but the hidden ones, how many are unread, and how many unread messages they
+  // have, as far as each counts them, or one for a DM marked unread without a count, which DMs on the rail
+  // counts, as Slack's does.
+  const directCounts = useMemo(() => {
+    if (rooms === null) return null;
+    const unread = apart(rooms).directs.filter((r) => markedUnread(r, currentRoomId));
+    return { conversations: apart(rooms).directs.length, unread: unread.length, messages: unread.reduce((sum, r) => sum + (r.unreadCount ?? 1), 0) };
+  }, [rooms, currentRoomId]);
+  const draftCount = useDraftCount(me.id);
+  // In the drawer layout the DMs page shows its list in the page itself, so the sidebar, hidden there,
+  // doesn't draw it a second time.
+  const directsInPage = useMediaQuery(DRAWER_LAYOUT) && route.page === "dms" && route.roomId === undefined;
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} onNewDirect={openNewDirect} />
+    <Rail
+      me={me}
+      workspaceName={workspaceName}
+      current={room?.kind === "direct" ? "dms" : RAIL_PAGES[route.page]}
+      activity={activity}
+      directsUnread={directCounts?.messages ?? 0}
+      newRelease={newRelease}
+    />
   );
-  const sidebar = (
+  // The DMs page's list loads with the pages few visits need, which load once the rooms have, while the
+  // browser is idle, so it's there by the time DMs is followed; until then its column is blank.
+  const directsPane = (
+    <RarePage
+      show={({ DirectsColumn }) => (
+        <DirectsColumn
+          meId={me.id}
+          rooms={rooms ?? NO_ROOMS}
+          loaded={rooms !== null}
+          onSignedOut={() => onSessionChanged(null)}
+          suggestions={suggestions}
+          currentRoomId={currentRoomId}
+          unreadOnly={unreadOnly}
+          onSelect={selectDirect}
+          onNewDirect={openNewDirect}
+          onStartDirect={(person) => startDirectWith(person, dmPath)}
+        />
+      )}
+      loading={<div className="h-full bg-surface" />}
+      onFailed={failed}
+    />
+  );
+  const sidebar = directsShown ? (
+    directsPane
+  ) : (
     <Sidebar
       workspaceName={workspaceName}
       meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
-      suggestions={suggestions}
       favorites={favorites}
       sharedOrder={sharedOrder}
       huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
+      currentPage={SIDEBAR_PAGES[route.page] ?? null}
+      draftCount={draftCount}
       unreadOnly={unreadOnly}
       onSelect={select}
-      onNewDirect={openNewDirect}
-      onStartDirect={startDirectWith}
       onStarred={starredRooms}
       onSessionChanged={onSessionChanged}
     />
   );
+  // The Files page has its own column in the sidebar's place, as Slack's has.
+  const filesNav =
+    route.page === "files" ? <RarePage show={({ FilesNav }) => <FilesNav me={me} place={route.place} />} loading={null} onFailed={failed} /> : null;
 
   /**
    * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
@@ -702,8 +782,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
+      case "files":
+        return rarePage(({ FilesPage }) => <FilesPage me={me} place={route.place} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "search":
         return rarePage(({ SearchPage }) => <SearchPage me={me} rooms={rooms ?? NO_ROOMS} back={back} onFailed={failed} />);
+      case "people":
+        return rarePage(({ PeoplePage }) => <PeoplePage />);
+      case "drafts":
+        return rarePage(({ DraftsPage }) => <DraftsPage key={route.tab} me={me} tab={route.tab} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
+      case "threads":
+        return rarePage(({ ThreadsPage }) => <ThreadsPage me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "person":
         return rarePage(({ PersonPage }) => (
           <PersonPage
@@ -717,7 +805,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             onFailed={failed}
           />
         ));
+      // The DMs page, with a DM picked there shown as a room's page shows it.
+      case "dms":
       default:
+        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} counts={directCounts} onNewDirect={openNewDirect} />);
         if (direct)
           return rarePage(({ DirectSettingsPage }) => (
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />
@@ -787,6 +878,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           className={cn(
             "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
+            // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
+            !settings && directsShown && "md:[--spacing-sidebar:340px]",
             // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
             "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
           )}
@@ -796,7 +889,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             {rail}
             {!settings && (
               <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
-                {sidebar}
+                {filesNav ?? (!directsInPage && sidebar)}
               </aside>
             )}
           </div>
@@ -837,7 +930,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
                 >
                   <Xmark className="size-5" />
                 </SheetClose>
-                {sidebar}
+                {filesNav ?? sidebar}
               </aside>
             )}
           </SheetContent>

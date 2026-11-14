@@ -203,7 +203,7 @@ export const NEGATIVE_BUTTON =
   "inline-flex min-h-9 max-w-full cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border border-transparent bg-negative-button px-[1.1em] py-[0.5em] text-start font-medium text-white touch:min-h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50";
 
 /**
- * A room's Delete, and a DM's Delete Ping: a negative button with a trash can.
+ * A room's Delete, and a DM's Delete DM: a negative button with a trash can.
  */
 export function DeleteButton({ label, text, disabled, onClick }: { label: string; text: string; disabled: boolean; onClick: () => void }) {
   return (
