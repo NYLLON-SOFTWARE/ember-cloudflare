@@ -445,6 +445,30 @@ describe("Extending and ending a stay", () => {
   });
 });
 
+describe("Renaming", () => {
+  it("keeps a guest from taking another guest's name, which would sign one of them in as the other", async () => {
+    const host = await setUp();
+    const room = (await createRoom("Designers", { closedTo: [host.user.id] })).id;
+    const other = (await createRoom("Lounge", { closedTo: [host.user.id] })).id;
+    await addGuest(host, room, "Pat");
+    const nia = await addGuest(host, other, "Nia");
+    const session = await guestSession("Pat");
+
+    const taken = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ name: "  nia " }) });
+    expect(taken.status).toBe(422);
+    expect(await taken.json()).toEqual({ error: "nia is another guest's way in. Choose another." });
+    // Nothing saved: each stay still signs nobody but its own guest in.
+    expect((await guestSession("Nia")).user.id).toBe(nia.userId);
+    expect((await guestSession("Pat")).user.id).toBe(session.user.id);
+
+    // Their profile is otherwise theirs to save, and a name no stay holds is theirs to take.
+    expect((await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ bio: "Here for the week" }) })).status).toBe(200);
+    const renamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ name: "Pat Doe" }) });
+    expect(renamed.status, await renamed.clone().text()).toBe(200);
+    expect((await guestSession("Pat Doe")).user.id).toBe(session.user.id);
+  });
+});
+
 describe("The guests of the open sign-in", () => {
   it("keeps the whole workspace the flag gives them, and lose it once it's turned off, as they did before stays", async () => {
     await setUp();

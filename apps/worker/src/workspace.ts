@@ -3367,7 +3367,7 @@ export class Workspace extends DurableObject<Env> {
       if (deliveries.length * 2 + 1 > left) break;
       const { gone, delivered, failed } =
         deliveries.length > 0
-          ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id))
+          ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id, Date.now()))
           : { gone: [], delivered: [], failed: 0 };
       left -= deliveries.length * 2;
       if (gone.length > 0) {
@@ -4837,9 +4837,16 @@ export class Workspace extends DurableObject<Env> {
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
    * browser's, at `pushEndpoint`, and a password that replaces one they had unlinks the accounts
+<<<<<<< HEAD
    * elsewhere they connected with it. Everyone's workspace sockets hear of a new name, bio or mood,
    * which the people directory lists. A new name can't be @ember's ("name reserved"), or an agent's
    * ("agent's name"), unless it was theirs before.
+=======
+   * elsewhere they connected with it. Everyone's workspace sockets hear of a new name or bio, which the
+   * people directory lists. A new name can't be @ember's ("name reserved"), an agent's ("agent's name"),
+   * or, for a guest of one room, another guest's, whose stay signs them in by it too ("another guest's
+   * name"), unless it was theirs before.
+>>>>>>> 89e01e94 (A guest can't take another guest's name, whose stay signs them in with it)
    */
   async changeProfile(
     credentials: Credentials,
@@ -4848,7 +4855,11 @@ export class Workspace extends DurableObject<Env> {
     checked: string | null,
     pushEndpoint: string | null,
     memberfulSite: string | null,
+<<<<<<< HEAD
   ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "unknown field" | "not a choice" | null> {
+=======
+  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "another guest's name" | null> {
+>>>>>>> 89e01e94 (A guest can't take another guest's name, whose stay signs them in with it)
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -4874,6 +4885,14 @@ export class Workspace extends DurableObject<Env> {
       }
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
+      // A guest of one room signs in by their name, so theirs is the only stay under it, as adding one
+      // can't take another's either. Renaming keeps it, and one they alone hold, while the stays last.
+      if (
+        session.guest &&
+        profile.name !== person.name &&
+        (await this.store.unexpiredGuestStays(Date.now())).some(({ userId, name }) => userId !== user.id && sameName(name, profile.name))
+      )
+        return "another guest's name";
       // Read again here, since a reset ahead of this in line, or another change, can have replaced the password checked.
       if (person.password && changesSignIn(person, changes.emailAddress, passwordDigest !== null) && (await this.store.signInOf(user.id))?.passwordDigest !== checked) {
         return "password needed";

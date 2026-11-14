@@ -30,6 +30,7 @@ import {
   NO_EMAIL_DOMAINS,
   PASSWORD_RESET_PATH,
   PASSWORD_WITH_MEMBERFUL,
+  guestsNameTaken,
   isPasswordTooLong,
   isReservedName,
   isRoomId,
@@ -783,6 +784,7 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "email address taken") return problem(422, "That email address has an account already");
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
+  if (yours === "another guest's name") return problem(422, guestsNameTaken(rest.name!));
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   if (yours === "unknown field") return problem(422, PROFILE_FIELD_UNKNOWN);
   if (yours === "not a choice") return problem(422, PROFILE_FIELD_VALUE_NOT_A_CHOICE);

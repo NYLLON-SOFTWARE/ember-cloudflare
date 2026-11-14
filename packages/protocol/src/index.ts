@@ -2103,6 +2103,8 @@ export const ASSISTANT_ID: UserId = "ember";
 /** @ember's name, which nobody else can take (`isReservedName`). */
 export const ASSISTANT_NAME = "Ember";
 export const NAME_RESERVED = `${ASSISTANT_NAME} is the AI assistant's name. Choose another.`;
+/** What saving a profile whose name is another guest's says: their stay is what signs them in with it. */
+export const guestsNameTaken = (name: string) => `${name.trim()} is another guest's way in. Choose another.`;
 
 /**
  * Whether `name` is @ember's, which nobody can take, whether or not Ember AI is on, so that nobody passes
