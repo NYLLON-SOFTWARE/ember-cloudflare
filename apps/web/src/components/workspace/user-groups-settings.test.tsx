@@ -1,8 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DirectoryUser, UserGroup } from "@ember/protocol";
-import { PeopleContext, type People } from "@/hooks/use-directory";
+import type { DirectoryUser, UserId, UserGroup } from "@ember/protocol";
+import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_DELETE, GROUPS_EXPLAINED, UserGroups } from "./user-groups-settings";
 
@@ -20,12 +20,14 @@ function serve(route: (method: string, path: string, body: unknown) => Response 
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => route(init?.method ?? "GET", String(input), init?.body ? JSON.parse(String(init.body)) : undefined));
 }
 
-/** The card, with the workspace's people in the directory, and `groups` as the server lists them. */
-function showCard() {
+/** The card, with `directory` in the people directory, which has loaded when `loaded`, and `groups` as the server lists them. */
+function showCard({ directory = people, loaded = false }: { directory?: People; loaded?: boolean } = {}) {
   const callbacks = { onSaved: vi.fn(), reloadDirectory: vi.fn(), onFailed: vi.fn() };
   render(
-    <PeopleContext value={people}>
-      <UserGroups {...callbacks} />
+    <PeopleContext value={directory}>
+      <DirectoryLoaded value={loaded}>
+        <UserGroups {...callbacks} />
+      </DirectoryLoaded>
     </PeopleContext>,
   );
   return { ...callbacks, user: userEvent.setup() };
@@ -122,6 +124,49 @@ describe("User groups", () => {
     await user.click(within(card()).getByRole("button", { name: "Delete design" }));
     expect(within(card()).queryByRole("button", { name: "Delete design" })).toBeNull();
     expect(reloadDirectory).toHaveBeenCalledOnce();
+  });
+
+  it("opens Edit on another group with its name and members, not the form still open's", async () => {
+    const onCall: UserGroup = { id: "g2", name: "on call", memberIds: [grace.id] };
+    serve((method) => (method === "GET" ? Response.json({ groups: [design, onCall] }) : Response.json({ groups: [] })));
+    const { user } = showCard();
+    await user.click(await within(card()).findByRole("button", { name: "Edit design" }));
+    await user.type(within(card()).getByLabelText("Name"), " for web");
+    await user.click(within(card()).getByRole("button", { name: "Edit on call" }));
+    expect(within(card()).getByLabelText("Name")).toHaveValue("on call");
+    expect(within(card()).getByRole("checkbox", { name: "Grace Hopper" })).toBeChecked();
+    expect(within(card()).getByRole("checkbox", { name: "Ada Lovelace" })).not.toBeChecked();
+  });
+
+  it("lets a member the directory lists gone go, whom no checkbox offers, so saving keeps who's checked alone", async () => {
+    const former: DirectoryUser = { id: "u4", name: "Former Hand", bio: null, role: "member", status: "deactivated", avatarUrl: "" };
+    const stale: UserGroup = { id: "g3", name: "launch", memberIds: [grace.id, former.id] };
+    let sent: unknown;
+    serve((method, _path, body) => {
+      if (method === "PATCH") {
+        sent = body;
+        return Response.json({ group: { ...stale, memberIds: [grace.id] } });
+      }
+      return Response.json({ groups: [stale] });
+    });
+    const { user } = showCard({ directory: new Map<UserId, DirectoryUser>([...people, [former.id, former]]), loaded: true });
+    await user.click(await within(card()).findByRole("button", { name: "Edit launch" }));
+    expect(within(card()).queryByRole("checkbox", { name: "Former Hand" })).toBeNull();
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    expect(sent).toEqual({ name: "launch", memberIds: [grace.id] });
+    expect(within(card()).getByRole("list")).toHaveTextContent("1 member");
+  });
+
+  it("says why a delete couldn't be sent, keeping the group to be tried again", async () => {
+    vi.spyOn(globalThis, "confirm").mockReturnValue(true);
+    serve((method) => (method === "DELETE" ? Response.json({ error: "Something went wrong" }, { status: 500 }) : Response.json({ groups: [design] })));
+    const { user, onFailed, reloadDirectory } = showCard();
+    await user.click(await within(card()).findByRole("button", { name: "Delete design" }));
+    expect(onFailed).toHaveBeenCalledOnce();
+    expect(onFailed.mock.calls[0]![0]).toBeInstanceOf(ApiError);
+    expect(onFailed.mock.calls[0]![0].status).toBe(500);
+    expect(within(card()).getByRole("button", { name: "Delete design" })).toBeVisible();
+    expect(reloadDirectory).not.toHaveBeenCalled();
   });
 
   it("says a session that has ended to the page, which goes to sign in", async () => {

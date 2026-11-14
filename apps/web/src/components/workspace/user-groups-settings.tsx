@@ -2,7 +2,7 @@ import { useContext, useEffect, useState, type FormEvent } from "react";
 import { MAX_GROUP_MEMBERS, MAX_GROUP_NAME_LENGTH, type GroupId, type UserGroup, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { EditPencil, Minus, Plus } from "@/components/icons/iconoir";
-import { PeopleContext } from "@/hooks/use-directory";
+import { DirectoryLoaded, PeopleContext } from "@/hooks/use-directory";
 import { ApiError, changeUserGroup, createUserGroup, deleteUserGroup, fetchUserGroups, isSignedOut } from "@/lib/api";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
@@ -68,9 +68,8 @@ export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
         setGroups((groups) => groups?.filter((listed) => listed.id !== group.id) ?? []);
         reloadDirectory();
       },
-      (error: unknown) => {
-        if (isSignedOut(error)) onFailed(error);
-      },
+      // A delete that couldn't be sent says so, as a save's does, and the group stays to be tried again.
+      onFailed,
     );
   };
 
@@ -111,7 +110,8 @@ export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
           </li>
         ))}
       </ul>
-      {editingGroup && <GroupForm group={editingGroup} onSaved={saved} onCancel={() => setEditing(null)} onFailed={onFailed} />}
+      {/* Keyed by the group's id, so Edit on another group opens with its name and members, not the last form's. */}
+      {editingGroup && <GroupForm key={editingGroup.id} group={editingGroup} onSaved={saved} onCancel={() => setEditing(null)} onFailed={onFailed} />}
     </section>
   );
 }
@@ -145,15 +145,28 @@ interface GroupFormProps {
  * The form for a group's name and members: a field for the name, then a checkbox for each active person,
  * and Create group or Save changes beside Cancel under them. Saving sends the name and the members
  * together, and shows what the server refused them with, as a name another group has, however it's
- * capitalised.
+ * capitalised. A member the directory lists gone, as a deactivated one's id is, is let go of, for no
+ * checkbox offers them to be unchecked.
  */
 function GroupForm({ group, onSaved, onCancel, onFailed }: GroupFormProps) {
   const directory = useContext(PeopleContext);
+  const loaded = useContext(DirectoryLoaded);
   const people = byName([...directory.values()].filter((person) => person.status === "active" && person.role !== "bot"));
   const [name, setName] = useState(group?.name ?? "");
   const [members, setMembers] = useState<ReadonlySet<UserId>>(() => new Set(group?.memberIds ?? []));
   const [saving, setSaving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+
+  // A group keeps the id of a member the directory lists gone, whom the checkboxes offer no line to
+  // uncheck: once the directory has loaded, let them go, so a save keeps only who's checked, and can't
+  // be refused for the one it would otherwise send back unseen.
+  useEffect(() => {
+    if (!loaded) return;
+    setMembers((members) => {
+      const next = [...members].filter((id) => directory.get(id)?.status === "active");
+      return next.length === members.size ? members : new Set(next);
+    });
+  }, [loaded, directory]);
 
   const toggle = (userId: UserId, checked: boolean) =>
     setMembers((members) => {

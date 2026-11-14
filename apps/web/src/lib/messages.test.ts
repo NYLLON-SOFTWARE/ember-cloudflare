@@ -127,4 +127,10 @@ describe("Quote a message", () => {
     expect(quote(preview({ filename: "Free cookies", description: "At www.example.com" }), "")).toBe(`<blockquote>http://www.example.com/</blockquote>${CITE}`);
     expect(quote(preview({ filename: "Unlinked" }), "")).toBe(`<blockquote></blockquote>${CITE}`);
   });
+
+  it("counts a group's mention as text, quoting it rather than the link its preview alone would give", () => {
+    const GROUP_MENTION = 'content-type="application/vnd.campfire.group-mention" sgid="group-0123456789abcdef"';
+    const nodes = displayBody(`<p><action-text-attachment ${GROUP_MENTION}></action-text-attachment></p>${preview({ href: "https://basecamp.com/", filename: "Basecamp" })}`, "@Design https://basecamp.com", "");
+    expect(replyQuote(nodes, "Ada", LINK, () => "Grace", () => "Design")).toBe(`<blockquote><p>Design</p></blockquote>${CITE}`);
+  });
 });

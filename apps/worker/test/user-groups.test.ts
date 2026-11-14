@@ -110,6 +110,21 @@ describe("User groups", () => {
     expect(again.name).toBe("on call");
   });
 
+  it("keeps an accented name to one group, and offers it however its capitals are typed", async () => {
+    const administrator = await setUp();
+    const group = await groupOf(await add(administrator, { name: "Équipe", memberIds: [] }), 201);
+    expect(group.name).toBe("équipe");
+    const refused = await add(administrator, { name: "ÉQUIPE", memberIds: [] });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: GROUP_NAME_TAKEN });
+    // The prompt lowercases what's typed as the name is kept, so either spelling finds it.
+    const prompt = async (query: string) => await (await api(`/api/autocompletable/users?filter=${encodeURIComponent(query)}`, { headers: as(administrator) })).text();
+    expect(await prompt("Équipe")).toContain(`search="équipe"`);
+    expect(await prompt("équipe")).toContain(`search="équipe"`);
+    expect(await prompt("ÉQUIPE")).toContain(`search="équipe"`);
+    expect(await prompt("zz")).not.toContain(`search="équipe"`);
+  });
+
   it("refuses a group of more than 100 people, and one naming someone who isn't an active person", async () => {
     const administrator = await setUp();
     const hundred = [];
@@ -123,6 +138,19 @@ describe("User groups", () => {
     const unknown = await add(administrator, { name: "design", memberIds: [gone, "nobody00000000000"] });
     expect(unknown.status).toBe(422);
     expect(await unknown.json()).toEqual({ error: GROUP_MEMBER_UNKNOWN });
+  });
+
+  it("keeps a group standing for a member no longer active, whom a change of the members lets go", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const gone = await person("Former");
+    const group = await groupOf(await add(administrator, { name: "design", memberIds: [grace.user.id, gone] }), 201);
+    await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", gone);
+    // The group keeps standing for everyone it was given: a change that renames it alone keeps them,
+    // and the settings' form, whose checkboxes are the active people alone, lets them go by sending
+    // the rest.
+    expect(await groupOf(await change(administrator, group.id, { name: "Design" }))).toEqual(group);
+    expect(await groupOf(await change(administrator, group.id, { memberIds: [grace.user.id] }))).toEqual({ ...group, memberIds: [grace.user.id] });
   });
 
   it("keeps a group's members the active people alone, once each, dropping a bot and a repeated id", async () => {

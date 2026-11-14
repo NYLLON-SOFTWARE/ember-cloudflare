@@ -671,10 +671,11 @@ const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, adminis
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
 
 /**
- * A group's name as it's kept: lowercased, as people's names are compared (the web app's `byName` folds
- * the same), so SQLite's case-sensitive UNIQUE keeps two names apart however they're capitalised.
+ * A group's name as it's kept: lowercased as JavaScript lowercases, as the mentions prompt lowercases
+ * its query, so a group named Équipe is found as @équipe however it's typed, and SQLite's
+ * case-sensitive UNIQUE keeps two names apart however they're capitalised.
  */
-const groupName = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+const groupName = (name: string) => name.toLowerCase();
 
 /**
  * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
