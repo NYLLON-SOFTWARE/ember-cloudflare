@@ -288,6 +288,16 @@ describe("The models Ember offers", () => {
     expect((await offered(ada, {}, WITH_THE_FILE)).models).toEqual([...FILE_MODELS, ...WORKERS_AI]);
   });
 
+  it("keep the file another read kept when a read that started before it fails", async () => {
+    const stub = workspaceStub();
+    await stub.keepModelsFile({ url: MODELS_URL, file: READ, triedAt: 1, read: true });
+    await stub.keepModelsFile({ url: MODELS_URL, file: null, triedAt: 2, read: false });
+    expect(await stub.keptModelsFile()).toEqual({ url: MODELS_URL, file: READ, triedAt: 2, read: false });
+    // But not one read at another address.
+    await stub.keepModelsFile({ url: `${MODELS_URL}?branch`, file: null, triedAt: 3, read: false });
+    expect(await stub.keptModelsFile()).toEqual({ url: `${MODELS_URL}?branch`, file: null, triedAt: 3, read: false });
+  });
+
   it("are the models file's alone when Cloudflare doesn't let the API token list Workers AI's, saying why, which forgets those kept", async () => {
     const ada = await setUpWithAssistant();
     vi.spyOn(console, "error").mockImplementation(() => {});

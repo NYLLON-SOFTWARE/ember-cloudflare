@@ -115,17 +115,17 @@ export async function modelsFileOf(env: Env, atOnce = false): Promise<ModelsFile
   if (url === null) return shipped();
   const found = await workspace(env).keptModelsFile();
   const kept = found?.url === url ? found : null;
-  if (!kept && atOnce) return (await readAndKeepModelsFile(env, url, null)) ?? shipped();
+  if (!kept && atOnce) return (await readAndKeepModelsFile(env, url)) ?? shipped();
   if (!kept || Date.now() - kept.triedAt >= (kept.read ? OFFERED_FRESH_MS : MODELS_FILE_RETRY_MS)) {
-    waitUntil(readAndKeepModelsFile(env, url, kept).catch((error: unknown) => console.error("Keeping the models file failed:", error)));
+    waitUntil(readAndKeepModelsFile(env, url).catch((error: unknown) => console.error("Keeping the models file failed:", error)));
   }
   return kept?.file ?? shipped();
 }
 
-/** Reads the models file at `url`, which the Workspace keeps, or else keeps the one it kept, `kept`, saying it couldn't, so that it tries again sooner. */
-async function readAndKeepModelsFile(env: Env, url: string, kept: KeptModelsFile | null): Promise<ModelsFile | null> {
+/** Reads the models file at `url`, which the Workspace keeps, or else keeps the one it kept, saying it couldn't, so that it tries again sooner. */
+async function readAndKeepModelsFile(env: Env, url: string): Promise<ModelsFile | null> {
   const file = await readModelsFile(url);
-  await workspace(env).keepModelsFile({ url, file: file ?? kept?.file ?? null, triedAt: Date.now(), read: file !== null });
+  await workspace(env).keepModelsFile({ url, file, triedAt: Date.now(), read: file !== null });
   return file;
 }
 

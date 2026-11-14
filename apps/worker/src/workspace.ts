@@ -1478,9 +1478,13 @@ export class Workspace extends DurableObject<Env> {
     return (await this.ctx.storage.get<KeptModelsFile>(KEPT_MODELS_FILE)) ?? null;
   }
 
-  /** Keeps `kept` for the listings and answers that follow, in place of the models file kept before. */
+  /**
+   * Keeps `kept` for the listings and answers that follow, in place of the models file kept before, but
+   * for the file itself when `kept` couldn't read one at the same address, as another read may have since.
+   */
   async keepModelsFile(kept: KeptModelsFile): Promise<void> {
-    await this.ctx.storage.put(KEPT_MODELS_FILE, kept);
+    const before = kept.read ? null : await this.keptModelsFile();
+    await this.ctx.storage.put(KEPT_MODELS_FILE, before?.url === kept.url ? { ...kept, file: before.file } : kept);
   }
 
   /** Workers AI's models the model search last listed for the account `accountId`, and when, if they're the ones kept. */
