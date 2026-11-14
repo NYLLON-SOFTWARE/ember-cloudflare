@@ -79,9 +79,10 @@ test.describe("Sign in with Memberful", () => {
     // Back on the page they were sent to sign in from.
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue(member.fullName);
     await expect(page.getByLabel("Email address")).toHaveValue(member.email);
-    // Their profile names the account, which they can't disconnect until they have a password to sign in with.
+    // Their profile names the account, which is how they sign in, so it offers them no password, and nothing to disconnect.
     await expect(memberfulSection(page)).toContainText(`Connected to Memberful as ${member.fullName} (${member.email}), so you sign in with it.`);
-    await expect(memberfulSection(page)).toContainText("Set a password above to disconnect it, so that you can still sign in.");
+    await expect(page.getByLabel("New password")).toHaveCount(0);
+    await expect(memberfulSection(page).getByRole("button", { name: "Disconnect Memberful" })).toHaveCount(0);
 
     await logOut(page);
     await signInWithMemberful(page, member);

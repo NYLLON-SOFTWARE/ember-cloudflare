@@ -23,6 +23,7 @@ import {
   NAME_RESERVED,
   NO_EMAIL_DOMAINS,
   PASSWORD_RESET_PATH,
+  PASSWORD_WITH_MEMBERFUL,
   isPasswordTooLong,
   isReservedName,
   isRoomId,
@@ -95,6 +96,24 @@ import {
   tokenDigest,
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
+import {
+  appPage,
+  beginAppSignIn,
+  beginNewAppSignIn,
+  beginOwnAppSignIn,
+  changeApp,
+  clientDocument,
+  connectApp,
+  disconnectApp,
+  finishAppSignIn,
+  listApps,
+  pickAgentTools,
+  readAppTools,
+  showAgentTools,
+  showApp,
+  signOutOfApp,
+} from "./apps/api";
+import { CLIENT_DOCUMENT_PATH } from "./apps/oauth";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
 import {
   addAssistantModel,
@@ -104,7 +123,7 @@ import {
   changeYourAssistant,
   deployedAccountIdOf,
   forgetAssistant,
-  listAssistantModels,
+  listOfferedModels,
   removeAssistantAvatar,
   removeAssistantModel,
   saveAssistant,
@@ -155,6 +174,7 @@ import { platformOf } from "./user-agent";
 import { versionOf } from "./version";
 import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, workspace, type YourProfile } from "./workspace";
 
+export { AppConnector } from "./apps/connector";
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
 export { SearchIndex } from "./search-index";
@@ -631,8 +651,11 @@ async function profile(request: Request, env: Env): Promise<Response> {
  * takes is refused (422). An email address someone else has is refused. Changing your email address or
  * password, while you have one, takes your current password too, so that holding your session isn't
  * enough to take your account: it's checked as sign-in checks a password, counting against the same
- * limit (429), and refused (422) when it's missing or wrong. A new password ends your other sessions,
- * keeping this browser's push subscription at `pushSubscriptionEndpoint` and forgetting the rest.
+ * limit (429), and refused (422) when it's missing or wrong. Someone without a password whom Memberful
+ * signs in, as it does while the deployment has the keys to the site they're linked at, is refused a
+ * first one (422), for the same reason: it would be a way in that holding their session was enough to
+ * make. A new password ends your other sessions, keeping this browser's push subscription at
+ * `pushSubscriptionEndpoint` and forgetting the rest.
  */
 async function changeProfile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -640,9 +663,11 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   const changes = parseProfileChanges(await jsonBodyOf(request));
   if (typeof changes === "string") return problem(422, changes);
   const { password, currentPassword, pushSubscriptionEndpoint, ...rest } = changes;
-  const check = await workspace(env).profileCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", rest.emailAddress, Boolean(password));
+  const memberfulSite = memberfulKeysOf(env)?.site ?? null;
+  const check = await workspace(env).profileCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", rest.emailAddress, Boolean(password), memberfulSite);
   if (!check) return problem(401, "Not signed in");
   if (check === "limited") return problem(429, SIGN_IN_LIMITED);
+  if (check === "memberful") return problem(422, PASSWORD_WITH_MEMBERFUL);
   const checked = check.passwordDigest;
   if (checked !== null) {
     if (!currentPassword) return problem(422, CURRENT_PASSWORD_NEEDED);
@@ -650,8 +675,9 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
     if (isPasswordTooLong(currentPassword) || !(await passwordHasher(env).verify(currentPassword, checked)).matches) return problem(422, CURRENT_PASSWORD_WRONG);
   }
   const passwordDigest = password ? await passwordHasher(env).hash(password) : null;
-  const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest, checked, pushSubscriptionEndpoint || null);
+  const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest, checked, pushSubscriptionEndpoint || null, memberfulSite);
   if (!yours) return problem(401, "Not signed in");
+  if (yours === "memberful") return problem(422, PASSWORD_WITH_MEMBERFUL);
   if (yours === "email address taken") return problem(422, "That email address has an account already");
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
@@ -1082,7 +1108,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/assistant" && request.method === "PUT") return () => saveAssistant(request, env);
   if (pathname === "/api/account/assistant" && request.method === "DELETE") return () => forgetAssistant(request, env);
   if (pathname === "/api/account/assistant" && request.method === "PATCH") return () => changeAssistantSettings(request, env);
-  if (pathname === "/api/account/assistant/catalog" && request.method === "POST") return () => listAssistantModels(request, env);
+  if (pathname === "/api/account/assistant/offered" && request.method === "POST") return () => listOfferedModels(request, env);
   if (pathname === "/api/account/assistant/models" && request.method === "POST") return () => addAssistantModel(request, env);
   if (pathname === "/api/account/assistant/models" && request.method === "DELETE") return () => removeAssistantModel(request, env);
   if (pathname === "/api/account/assistant/web_search" && request.method === "PUT") return () => changeWebSearch(request, env);
@@ -1100,6 +1126,21 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (agentAvatar && request.method === "DELETE") return () => removeAgentAvatar(request, env, agentAvatar[1]!);
   const agentTrials = pathname.match(/^\/api\/account\/agents\/([^/]+)\/trials$/);
   if (agentTrials && request.method === "POST") return () => tryAgent(request, env, agentTrials[1]!);
+  const agentTools = pathname.match(/^\/api\/account\/agents\/([^/]+)\/tools$/);
+  if (agentTools && request.method === "GET") return () => showAgentTools(request, env, agentTools[1]!);
+  if (agentTools && request.method === "PUT") return () => pickAgentTools(request, env, agentTools[1]!);
+  if (pathname === "/api/account/apps" && request.method === "GET") return () => listApps(request, env);
+  if (pathname === "/api/account/apps" && request.method === "POST") return () => connectApp(request, env);
+  const app = pathname.match(/^\/api\/account\/apps\/([^/]+)$/);
+  if (app && request.method === "GET") return () => showApp(request, env, app[1]!);
+  if (app && request.method === "PATCH") return () => changeApp(request, env, app[1]!);
+  if (app && request.method === "DELETE") return () => disconnectApp(request, env, app[1]!);
+  if (pathname === "/api/account/app-sign-ins" && request.method === "POST") return () => beginNewAppSignIn(request, env);
+  if (pathname === "/api/account/app-sign-ins/finish" && request.method === "POST") return () => finishAppSignIn(request, env);
+  const appSignIn = pathname.match(/^\/api\/account\/apps\/([^/]+)\/sign-in$/);
+  if (appSignIn && request.method === "POST") return () => beginAppSignIn(request, env, appSignIn[1]!);
+  const appTools = pathname.match(/^\/api\/account\/apps\/([^/]+)\/tools$/);
+  if (appTools && request.method === "POST") return () => readAppTools(request, env, appTools[1]!);
   if (pathname === "/api/account/huddles" && request.method === "PUT") return () => saveHuddles(request, env);
   if (pathname === "/api/account/huddles" && request.method === "DELETE") return () => forgetHuddles(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
@@ -1132,6 +1173,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
+  const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
+  if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);
+  if (ownAppSignIn && request.method === "DELETE") return () => signOutOfApp(request, env, ownAppSignIn[1]!);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "POST") return () => connectMemberful(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "DELETE") return () => disconnectMemberful(request, env);
   if (pathname === AVATAR_PATH && request.method === "PUT") return () => changeAvatar(request, env);
@@ -1231,6 +1275,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Nor is Memberful's webhook, which its servers sign with the webhook's secret.
   if (pathname === MEMBERFUL_WEBHOOK_PATH) return memberfulWebhook(request, env);
   const write = request.method !== "GET" && request.method !== "HEAD";
+  // Nor is an app's authorization server, reading who Ember is.
+  if (pathname === CLIENT_DOCUMENT_PATH && !write) return clientDocument(request);
   // Nor are a room's files, to whoever has the address, whatever their browser.
   const file = fileAddressOf(pathname);
   if (file) return write ? notFound(request) : serveFile(request, env, file);
@@ -1265,6 +1311,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (page?.page === "person") return personPage(request, env, pathname, page.userId);
   if (page?.page === "bot-settings") return botPage(request, env, pathname, page.userId);
   if (page?.page === "agent-settings") return agentPage(request, env, pathname, page.agentId);
+  if (page?.page === "app-settings") return appPage(request, env, pathname, page.appId);
   return anyOtherPage(request, env, pathname);
 }
 

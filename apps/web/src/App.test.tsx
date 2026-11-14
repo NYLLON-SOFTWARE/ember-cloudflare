@@ -187,7 +187,7 @@ function serve({
       return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId } });
     }
     if (route === "GET /api/users") return Response.json({ users: [] });
-    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
+    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null, apps: [] } });
     if (route === "PATCH /api/account") {
       const { name = account.name, tagline = account.tagline, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
       account = { ...account, name, tagline, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons, customDomain };
@@ -270,8 +270,9 @@ describe("Set up the workspace", () => {
     await user.type(screen.getByLabelText("Email address"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "correct horse{Enter}");
 
-    // The question comes before Ember opens, still at setup's address.
-    expect(await huddlesQuestion()).toHaveFocus();
+    // The question comes before Ember opens, still at setup's address. Its title takes focus in an effect, just after it shows.
+    const question = await huddlesQuestion();
+    await waitFor(() => expect(question).toHaveFocus());
     expect(location.pathname).toBe("/first_run");
     await user.click(screen.getByRole("button", { name: "Not now" }));
 
@@ -301,7 +302,8 @@ describe("Set up the workspace", () => {
     await user.type(screen.getByRole("textbox", { name: "App Secret" }), app.appSecret);
     await user.click(screen.getByRole("button", { name: "Save and continue" }));
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Huddles are on" })).toHaveFocus();
+    const on = await screen.findByRole("heading", { level: 1, name: "Huddles are on" });
+    await waitFor(() => expect(on).toHaveFocus());
     const [, saved] = fetch.mock.calls.find(([path]) => path === "/api/account/huddles")!;
     expect([saved!.method, JSON.parse(String(saved!.body))]).toEqual(["PUT", app]);
     // Nothing has opened Ember yet.

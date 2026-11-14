@@ -145,6 +145,22 @@ describe("Add and edit a bot", () => {
   });
 });
 
+describe("Connect an app and a connected app's page", () => {
+  it("shows Connect an app at `/account/apps/new`, and a connected app's page at `/account/apps/<id>/edit`", () => {
+    expect(workspacePageOf("/account/apps/new")).toEqual({ page: "new-app" });
+    expect(workspacePageOf("/account/apps/0mgk3x2a9b4c5e/edit")).toEqual({ page: "app-settings", appId: "0mgk3x2a9b4c5e" });
+    for (const path of ["/account/apps", "/account/apps/new/", "/account/apps/%FF/edit", "/account/apps/0mgk3x2a9b4c5e", "/account/apps/0mgk3x2a9b4c5e/edit/extra"]) {
+      expect(workspacePageOf(path)).toBeNull();
+    }
+  });
+
+  it("shows where an app's sign-in comes back to at `/account/apps/signed-in`", () => {
+    expect(workspacePageOf("/account/apps/signed-in")).toEqual({ page: "app-signed-in" });
+    expect(workspacePageOf("/account/apps/signed-in/")).toBeNull();
+    expect(workspacePageOf("/account/apps/signed-in/edit")).toEqual({ page: "app-settings", appId: "signed-in" });
+  });
+});
+
 describe("New agent and an agent's settings", () => {
   it("shows New agent at `/account/agents/new`, and an agent's settings, or @ember's, at `/account/agents/<id>/edit`", () => {
     expect(workspacePageOf("/account/agents/new")).toEqual({ page: "new-agent" });

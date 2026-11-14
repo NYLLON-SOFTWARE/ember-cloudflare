@@ -3,8 +3,9 @@
 // worker and the web app both import it directly as TypeScript.
 
 import type { AgentProfile } from "./agents.ts";
+import type { YourApp } from "./apps.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
-import type { Card } from "./cards.ts";
+import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -27,12 +28,17 @@ export {
   MAX_LOGO_SIZE,
 } from "./avatars.ts";
 export {
+  isActionId,
+  isActionValue,
+  MAX_ACTION_ID_LENGTH,
+  MAX_ACTION_VALUE_LENGTH,
   MAX_CARDS,
   parseCards,
   parseParts,
   showsAnything,
   type AddressUse,
   type Card,
+  type CardAction,
   type CardAddress,
   type CardButton,
   type CardColumn,
@@ -51,7 +57,6 @@ export type {
   AnswerLength,
   AnswerLevelChanges,
   AnswerLevels,
-  AssistantCatalog,
   AssistantChanged,
   AssistantChanges,
   AssistantForgotten,
@@ -63,6 +68,8 @@ export type {
   ModelFormat,
   ModelPrice,
   NewAssistantModel,
+  OfferedModel,
+  OfferedModels,
   ThinkingLevel,
   WebSearchChange,
   WebSearchChanged,
@@ -97,6 +104,7 @@ export {
   type Upload,
 } from "./files.ts";
 export {
+  APP_SIGNED_IN_PATH,
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
   EMAIL_SIGN_UP_PATH,
@@ -108,6 +116,7 @@ export {
   KIND_SEGMENTS,
   MAX_ID_LENGTH,
   NEW_AGENT_PATH,
+  NEW_APP_PATH,
   NEW_BOT_PATH,
   NEW_DIRECT_PATH,
   PASSWORD_RESET_PATH,
@@ -936,6 +945,8 @@ export interface Profile {
   memberful: MemberfulStatus | null;
   /** How much @ember thinks and how long it answers you, and the most each may be, and the model you picked, if you did, and the ones you can pick, or null while Ember AI is off. */
   assistant: YourAssistant | null;
+  /** The connected apps you can sign in to yourself, by name, each with your sign-in to it, if you've made one: none while Ember AI is off, or for a guest. */
+  apps: YourApp[];
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -1380,8 +1391,8 @@ export const MEMBERFUL_PASSWORD_NEEDED = "Enter your password to connect Memberf
 
 /** Why disconnecting it is refused without your password. */
 export const MEMBERFUL_DISCONNECT_PASSWORD_NEEDED = "Enter your password to disconnect Memberful.";
-/** Why it's refused while you have no password, which you'd have nothing to sign in with without. */
-export const MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD = "Set a password first, so that you can still sign in once Memberful is disconnected.";
+/** Why it's refused while you have no password, which you'd have nothing to sign in with without, and which Memberful signing you in gives you none of. */
+export const MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD = "You sign in with Memberful alone, so it can't be disconnected.";
 /** Why it's refused while you have no email address, which signing in with your password takes. */
 export const MEMBERFUL_DISCONNECT_WITHOUT_EMAIL = "Add your email address first, so that you can still sign in once Memberful is disconnected.";
 /** Why it's refused while you haven't connected a Memberful account. */
@@ -1466,6 +1477,11 @@ export const PASSWORD_TOO_LONG = "Password must be at most 72 characters.";
 export const CURRENT_PASSWORD_NEEDED = "Enter your current password to change your email address or password.";
 /** Why it's refused with a current password that isn't yours. */
 export const CURRENT_PASSWORD_WRONG = "That isn't your current password.";
+/**
+ * Why a first password is refused to someone Memberful signs in, while it does: it's their way in, and
+ * a password that whoever holds their session could set would be another.
+ */
+export const PASSWORD_WITH_MEMBERFUL = "You sign in with Memberful, so there's no password to set.";
 
 export interface Boost {
   id: string;
@@ -1585,6 +1601,13 @@ export type ClientFrame =
   | { type: "thread.before"; parentId: string; before: string; limit?: number }
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
+  /**
+   * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
+   * block `blockId` names when it has one, with the `value` it has, which tells apart two that share a name.
+   * The room reports it to the bot, and answers `card.clicked`, or an `error`, with `clickId`, which the tab
+   * makes up.
+   */
+  | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
   | { type: "ping" };
 
 /**
@@ -1649,11 +1672,13 @@ export type ServerFrame =
   | { type: "thread.opened"; parentId: string; parent: Message | null; messages: Message[]; hasMore: boolean }
   /** Answers thread.before: the replies before `before`, oldest first, and whether there are older ones still. */
   | { type: "thread.history"; parentId: string; before: string; messages: Message[]; hasMore: boolean }
+  /** Answers card.click once the bot has answered the click: what it does to the room, if anything, comes as any change does. */
+  | { type: "card.clicked"; clickId: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about.
+   * `clientMessageIds` the messages it was about, or `clickId` the click.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; failed?: ClientFrame["type"] }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
 /**
@@ -1933,6 +1958,13 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       return id(f.parentId) && id(f.before) ? { type: f.type, parentId: f.parentId, before: f.before, limit: pageLimit(f.limit) } : null;
     case "presence.visible":
       return typeof f.visible === "boolean" ? { type: f.type, visible: f.visible } : null;
+    case "card.click": {
+      if (!id(f.clickId) || !id(f.messageId) || !isActionId(f.actionId)) return null;
+      if (f.blockId !== undefined && !isActionId(f.blockId)) return null;
+      if (f.value !== undefined && !isActionValue(f.value)) return null;
+      const { blockId, value } = f;
+      return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
+    }
     case "typing.start":
     case "typing.stop":
     case "ping":
