@@ -156,8 +156,8 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Light and dark** | ✅ | ✅ |
 | **Incoming webhooks** | ✅ Slack-compatible, with attachments and Block Kit | ✅ |
 | **Bots that answer** | ✅ through a webhook per bot | ✅ through Slack apps |
-| **Ways to join** |
-| **Guests** | ✅ a guest for one room, whose stay ends when you choose | ✅ guest accounts (paid plans) | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
+| **Ways to join** | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
+| **Guests** | ✅ a guest for one room, whose stay ends when you choose | ✅ guest accounts (paid plans) |
 | **Single sign-on** | Memberful, for membership communities | Google on every plan, and SAML SSO with SCIM on Business+ |
 
 ### Where Slack does more
