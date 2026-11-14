@@ -563,5 +563,5 @@ async function peopleJson(env: Env, origin: string, ids: UserId[]) {
 }
 
 /** A message's address on `origin`: its permalink, which opens its room at it, or a reply's thread at it. */
-const permalink = (origin: string, { roomId, id, parentId }: Pick<Message, "roomId" | "id" | "parentId">) =>
+export const permalink = (origin: string, { roomId, id, parentId }: Pick<Message, "roomId" | "id" | "parentId">) =>
   origin + (parentId === undefined ? `/rooms/${roomId}/@${id}` : threadPath(roomId, parentId, id));
