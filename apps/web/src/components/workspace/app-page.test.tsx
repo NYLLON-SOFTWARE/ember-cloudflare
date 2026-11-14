@@ -13,14 +13,19 @@ import {
   ADDRESS_KEPT,
   AppSettingsPage,
   changesOf,
+  CLIENT_ID_EXPLAINED,
+  CLIENT_SECRET_EXPLAINED,
+  CLIENT_SECRET_KEPT,
   CONFIRM_REMOVE_APP,
   FINDING_SIGN_IN,
   NewAppPage,
   NO_TOOLS,
   READING_TOOLS,
+  REDIRECT_EXPLAINED,
   SET_ASIDE_EXPLAINED,
   SIGN_IN_EXPLAINED,
   SIGN_IN_HAS_ENDED,
+  SIGN_IN_STAYS,
   signedInBy,
   TOKEN_EXPLAINED,
   TOKEN_KEPT,
@@ -53,15 +58,22 @@ const LINEAR: App = {
 };
 
 /** The app as it is once an administrator signed in to its server, in place of a token. */
-const SIGNED_IN: App = { ...LINEAR, hasToken: false, signIn: { by: { id: ada.id, name: ada.name }, at: "2026-11-14T08:00:00.000Z", ended: false } };
+const SIGNED_IN: App = { ...LINEAR, hasToken: false, signIn: { by: { id: ada.id, name: ada.name }, at: "2026-11-14T08:00:00.000Z", ended: false, clientId: null } };
+
+/** The app as it is once an administrator signed in to its server as a client they registered there. */
+const SIGNED_IN_AS_CLIENT: App = { ...SIGNED_IN, signIn: { ...SIGNED_IN.signIn!, clientId: "ember-at-linear" } };
 
 /** Where the app's authorization server signs people in, as Ember answers once it has found it. */
 const AUTHORIZE = "https://auth.linear.example/authorize?client_id=ember&state=5f2c";
 const begun = () => Response.json({ authorizationUrl: AUTHORIZE } satisfies AppSignInBegun);
 const ASKS_FOR_SIGN_IN = "mcp.linear.example asks for a sign-in. Sign in to it, or give a token for it, if it has one.";
+const ASKS_FOR_CLIENT = "mcp.linear.example has a sign-in, but doesn't let Ember register itself for it. Register Ember there yourself and give its client ID, or give a token, if it has one.";
+const SIGN_IN = `POST /api/account/apps/${LINEAR.id}/sign-in`;
 
 const answer = (app: App, status = 200) => Response.json({ app } satisfies AppAnswer, { status });
 const refused = (status: number, error: string, field?: string, signIn?: true) => Response.json({ error, ...(field && { field }), ...(signIn && { signIn }) }, { status });
+/** The answer to beginning a sign-in at a service that doesn't come to know Ember by itself. */
+const asksForClient = () => Response.json({ error: ASKS_FOR_CLIENT, field: "token", client: true }, { status: 422 });
 
 interface Answers {
   /** What listing the apps answers, rather than none. */
@@ -116,6 +128,8 @@ const showSettings = (me = ada) =>
 const nameField = () => screen.findByRole("textbox", { name: "Name" });
 const urlField = () => screen.getByRole("textbox", { name: "Server address" });
 const tokenField = () => screen.getByLabelText("Token");
+const clientIdField = () => screen.getByRole("textbox", { name: "Client ID" });
+const clientSecretField = () => screen.getByLabelText("Client secret");
 const tools = () => screen.getByRole("region", { name: /^Tools/ });
 const flashed = () => screen.findByRole("alert");
 
@@ -218,7 +232,7 @@ describe("Connect an app", () => {
   });
 
   it("says why a sign-in couldn't begin, on the field it's about, and no longer offers one", async () => {
-    const why = "mcp.linear.example has a sign-in, but doesn't let Ember register itself for it. Give a token for it, if it has one.";
+    const why = "mcp.linear.example doesn't say how to sign in to it. Give a token for it, if it has one.";
     serve({ sent: (request) => (request === "POST /api/account/apps" ? refused(422, ASKS_FOR_SIGN_IN, "token", true) : refused(422, why, "token")) });
     const { user } = showNew();
     await user.type(await nameField(), "Linear");
@@ -229,6 +243,55 @@ describe("Connect an app", () => {
     await waitFor(() => expect(tokenField()).toHaveAccessibleDescription(why));
     expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
     expect(openPage).not.toHaveBeenCalled();
+  });
+
+  it("asks who Ember is to a service that doesn't let Ember register itself, and signs in as the client that's typed", async () => {
+    const answers = [() => refused(422, ASKS_FOR_SIGN_IN, "token", true), asksForClient, () => refused(422, "Client ID can't be longer than 512 characters", "clientId"), begun];
+    const requests = serve({ sent: () => answers.shift()!() });
+    const { user } = showNew();
+    await user.type(await nameField(), "Linear");
+    await user.type(urlField(), LINEAR.url);
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    expect(screen.queryByLabelText("Client ID")).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "Sign in to mcp.linear.example" }));
+
+    // The form says why, and asks for what registering Ember there gives, with the address to register it with.
+    await waitFor(() => expect(tokenField()).toHaveAccessibleDescription(ASKS_FOR_CLIENT));
+    expect(screen.getByRole("textbox", { name: "Redirect address" })).toHaveValue(`${location.origin}/account/apps/signed-in`);
+    expect(screen.getByRole("textbox", { name: "Redirect address" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("textbox", { name: "Redirect address" })).toHaveAccessibleDescription(REDIRECT_EXPLAINED);
+    expect(clientIdField()).toHaveAccessibleDescription(CLIENT_ID_EXPLAINED);
+    expect(clientSecretField()).toHaveAccessibleDescription(CLIENT_SECRET_EXPLAINED);
+    expect(clientSecretField()).toHaveAttribute("type", "password");
+
+    // What's typed there stays to be typed on, and a refusal is said on its field.
+    await user.type(clientIdField(), " ember-at-linear ");
+    await user.type(clientSecretField(), "s3cret");
+    expect(screen.getAllByRole("button", { name: "Sign in to mcp.linear.example" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Sign in to mcp.linear.example" }));
+    expect(requests.at(-1)).toEqual({ request: "POST /api/account/app-sign-ins", body: { name: "Linear", url: LINEAR.url, clientId: "ember-at-linear", clientSecret: "s3cret" } });
+    await waitFor(() => expect(clientIdField()).toHaveAccessibleDescription("Client ID can't be longer than 512 characters"));
+    expect(clientIdField()).toBeInvalid();
+
+    // Enter in either field signs in, rather than connecting the app without one.
+    await user.type(clientSecretField(), "{Enter}");
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests.map(({ request }) => request)).toEqual(["POST /api/account/apps", "POST /api/account/app-sign-ins", "POST /api/account/app-sign-ins", "POST /api/account/app-sign-ins"]);
+
+    // Another address is another service, which may come to know Ember by itself.
+    await user.type(urlField(), "/v2");
+    expect(screen.queryByLabelText("Client ID")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+
+    // What was typed for the last one doesn't follow the form there, should that service ask who Ember is too.
+    answers.push(() => refused(422, ASKS_FOR_SIGN_IN, "token", true), asksForClient, begun);
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    await user.click(await screen.findByRole("button", { name: "Sign in to mcp.linear.example" }));
+    await waitFor(() => expect(clientIdField()).toHaveValue(""));
+    expect(clientSecretField()).toHaveValue("");
+    await user.type(clientIdField(), "ember-two");
+    await user.click(screen.getByRole("button", { name: "Sign in to mcp.linear.example" }));
+    await waitFor(() => expect(requests.at(-1)).toEqual({ request: "POST /api/account/app-sign-ins", body: { name: "Linear", url: `${LINEAR.url}/v2`, clientId: "ember-two" } }));
   });
 
   it("says so, as the workspace's alerts do, when as many apps are connected as can be", async () => {
@@ -308,7 +371,113 @@ describe("A connected app's page", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign in again" }));
     await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
-    expect(requests).toEqual([{ request: `POST /api/account/apps/${LINEAR.id}/sign-in`, body: undefined }]);
+    expect(requests).toEqual([{ request: SIGN_IN, body: undefined }]);
+  });
+
+  it("shows the client ID an app signed in with, never its secret, and signs in again as that client, or as another that's typed", async () => {
+    const requests = serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: begun });
+    const { user } = showSettings();
+    await nameField();
+    const signIn = within(screen.getByRole("group", { name: "Sign-in" }));
+    expect(signIn.getByRole("textbox", { name: "Redirect address" })).toHaveValue(`${location.origin}/account/apps/signed-in`);
+    expect(clientIdField()).toHaveValue("ember-at-linear");
+    expect(clientSecretField()).toHaveValue("");
+    expect(clientSecretField()).toHaveAttribute("placeholder", "Unchanged");
+    expect(clientSecretField()).toHaveAccessibleDescription(CLIENT_SECRET_KEPT);
+    // Typing there is nothing for Save changes to send.
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+
+    // Untouched, the ID goes without a secret, which keeps the one Ember has.
+    await user.click(signIn.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledTimes(1));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "ember-at-linear" } });
+
+    // Another ID's secret is its own, and no ID has the service come to know Ember by itself.
+    await user.clear(clientIdField());
+    await user.type(clientIdField(), "ember-two");
+    expect(clientSecretField()).toHaveAttribute("placeholder", "None");
+    expect(clientSecretField()).toHaveAccessibleDescription(CLIENT_SECRET_EXPLAINED);
+    await user.type(clientSecretField(), "another-s3cret");
+    await user.click(signIn.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledTimes(2));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "ember-two", clientSecret: "another-s3cret" } });
+    await user.clear(clientIdField());
+    await user.clear(clientSecretField());
+    await user.click(signIn.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledTimes(3));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "" } });
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  });
+
+  it("asks who Ember is once signing in again finds a service that doesn't let Ember register itself any more", async () => {
+    const answers = [asksForClient, begun];
+    const requests = serve({ loaded: () => answer(SIGNED_IN), sent: () => answers.shift()!() });
+    const { user } = showSettings();
+    await nameField();
+    expect(screen.queryByLabelText("Client ID")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+
+    const signIn = within(screen.getByRole("group", { name: "Sign-in" }));
+    expect(await signIn.findByRole("alert")).toHaveTextContent(ASKS_FOR_CLIENT);
+    await user.type(signIn.getByRole("textbox", { name: "Client ID" }), "ember-at-linear");
+    await user.click(signIn.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests).toEqual([
+      { request: SIGN_IN, body: undefined },
+      { request: SIGN_IN, body: { clientId: "ember-at-linear" } },
+    ]);
+  });
+
+  it("signs in again as the client another administrator signed in as since, once its tools are read again, rather than as none", async () => {
+    const answers = [() => answer(SIGNED_IN_AS_CLIENT), begun];
+    const requests = serve({ loaded: () => answer(SIGNED_IN), sent: () => answers.shift()!() });
+    const { user } = showSettings();
+    await nameField();
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(clientIdField()).toHaveValue("ember-at-linear"));
+    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "ember-at-linear" } });
+  });
+
+  it("doesn't send a secret typed for the client an app had with the one another administrator signed in as since, once its tools are read again", async () => {
+    const answers = [() => answer({ ...SIGNED_IN_AS_CLIENT, signIn: { ...SIGNED_IN.signIn!, clientId: "ember-three" } }), begun];
+    const requests = serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: () => answers.shift()!() });
+    const { user } = showSettings();
+    await nameField();
+    await user.type(clientSecretField(), "a-secret-for-the-last-client");
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(clientIdField()).toHaveValue("ember-three"));
+    expect(clientSecretField()).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "ember-three" } });
+  });
+
+  it("keeps a secret typed for the client an app still has, once its tools are read again", async () => {
+    serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: () => answer(SIGNED_IN_AS_CLIENT) });
+    const { user } = showSettings();
+    await nameField();
+    await user.type(clientSecretField(), "another-s3cret");
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(within(tools()).getByRole("button", { name: "Read its tools again" })).toBeEnabled());
+    expect(clientIdField()).toHaveValue("ember-at-linear");
+    expect(clientSecretField()).toHaveValue("another-s3cret");
+  });
+
+  it("keeps the client ID that's typed once its tools are read again, whatever another administrator signed in as since", async () => {
+    serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: () => answer({ ...SIGNED_IN_AS_CLIENT, signIn: { ...SIGNED_IN.signIn!, clientId: "ember-three" } }) });
+    const { user } = showSettings();
+    await nameField();
+    await user.clear(clientIdField());
+    await user.type(clientIdField(), "ember-two");
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(clientSecretField()).toHaveAttribute("placeholder", "None"));
+    expect(clientIdField()).toHaveValue("ember-two");
   });
 
   it("says why signing in again couldn't begin, under Sign in again", async () => {
@@ -459,6 +628,37 @@ describe("A connected app's page", () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
+  it("offers no sign-in while the form has another address than the app's, which is where Ember would sign in, and says so", async () => {
+    const elsewhere = "https://mcp.eu.linear.example/mcp";
+    serve({ sent: () => refused(422, "mcp.eu.linear.example didn't take that token.", "token", true) });
+    const { user } = showSettings();
+    await nameField();
+    await user.clear(urlField());
+    await user.type(urlField(), elsewhere);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(tokenField()).toHaveAccessibleDescription("mcp.eu.linear.example didn't take that token."));
+    expect(screen.getByText(SIGN_IN_STAYS)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+  });
+
+  it("offers to sign in to an app whose server takes its token no longer, once its tools couldn't be read again for that", async () => {
+    const why = "mcp.linear.example didn't take that token.";
+    const answers = [() => refused(422, why, undefined, true), begun];
+    const requests = serve({ sent: () => answers.shift()!() });
+    const { user } = showSettings();
+    await nameField();
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(within(tools()).getByRole("status")).toHaveTextContent(why));
+    await user.click(screen.getByRole("button", { name: "Sign in to mcp.linear.example" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: undefined });
+    // What was offered was for the read that failed: the next thing asked starts over.
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+  });
+
   it("removes the app once the administrator is sure, and goes back to the AI assistant tab", async () => {
     const requests = serve();
     const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
@@ -490,7 +690,7 @@ describe("A connected app's page", () => {
 });
 
 describe("What Save changes sends", () => {
-  const typed = { name: LINEAR.name, url: LINEAR.url, token: "", noToken: false };
+  const typed = { name: LINEAR.name, url: LINEAR.url, token: "", noToken: false, clientId: "", clientSecret: "" };
 
   it("is only what's typed differently from the app as it loaded", () => {
     expect(changesOf(LINEAR, typed)).toEqual({});

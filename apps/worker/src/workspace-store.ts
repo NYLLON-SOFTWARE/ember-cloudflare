@@ -2402,7 +2402,8 @@ export interface StoredAppRead {
 /**
  * A connected app as the apps table keeps it: its token sealed, or null without one, what was read
  * from its server, who connected it, if they're still known, and, for one an administrator signed in
- * to, who and when, with the sign-in sealed, or null once it has ended.
+ * to, who and when, with the sign-in sealed, or null once it has ended, and the client Ember signed
+ * in as, when an administrator gave one: its ID, and what the service knows it by, sealed.
  */
 export interface StoredApp extends StoredAppRead {
   id: AppId;
@@ -2413,12 +2414,20 @@ export interface StoredApp extends StoredAppRead {
   connectedBy: { id: UserId; name: string } | null;
   sealedSignIn: string | null;
   signedIn: { by: { id: UserId; name: string } | null; at: string } | null;
+  signInClient: SignInClient | null;
 }
 
-/** A sign-in to keep for an app: sealed for it, and who signed in. */
+/** The client an administrator gave for Ember to sign in to an app as: its ID, and what the service knows it by, sealed for the app. */
+export interface SignInClient {
+  id: string;
+  sealed: string;
+}
+
+/** A sign-in to keep for an app: sealed for it, who signed in, and the client an administrator gave for it, if they gave one. */
 export interface NewAppSignIn {
   sealed: string;
   by: UserId;
+  client: SignInClient | null;
 }
 
 /**
@@ -2441,8 +2450,8 @@ export interface NewStoredApp extends StoredAppRead {
   name: string;
   url: string;
   sealedToken: string | null;
-  /** The sign-in it's connected with, sealed, if it's connected by one. */
-  sealedSignIn?: string;
+  /** The sign-in it's connected with, if it's connected by one: sealed, with the client an administrator gave for it, if they gave one. */
+  signIn?: Omit<NewAppSignIn, "by">;
   connectedBy: UserId;
   now: string;
 }
@@ -2502,11 +2511,13 @@ interface AppRow {
   signed_in_at: string | null;
   signed_in_by_id: UserId | null;
   signed_in_by_name: string | null;
+  sign_in_client_id: string | null;
+  sign_in_client: string | null;
 }
 
 const APPS = `SELECT apps.id, apps.name, apps.url, apps.token, apps.server_name, apps.tools, apps.tools_left_out, apps.tools_read_at,
   users.id AS connected_by_id, users.name AS connected_by_name,
-  apps.sign_in, apps.signed_in_at, signers.id AS signed_in_by_id, signers.name AS signed_in_by_name
+  apps.sign_in, apps.signed_in_at, signers.id AS signed_in_by_id, signers.name AS signed_in_by_name, apps.sign_in_client_id, apps.sign_in_client
   FROM apps LEFT JOIN users ON users.id = apps.created_by LEFT JOIN users AS signers ON signers.id = apps.signed_in_by`;
 
 const APP = `${APPS} WHERE apps.id = ?`;
@@ -2525,6 +2536,7 @@ const storedApp = (row: AppRow): StoredApp => ({
   sealedSignIn: row.sign_in,
   signedIn:
     row.signed_in_at === null ? null : { by: row.signed_in_by_id !== null && row.signed_in_by_name !== null ? { id: row.signed_in_by_id, name: row.signed_in_by_name } : null, at: row.signed_in_at },
+  signInClient: row.sign_in_client_id !== null && row.sign_in_client !== null ? { id: row.sign_in_client_id, sealed: row.sign_in_client } : null,
 });
 
 /** How many sign-ins to apps can be under way at once: beginning another forgets the one begun longest ago. */
@@ -3925,12 +3937,12 @@ export class WorkspaceStore {
 
   /** Connects `app`, unless as many apps as there can be, `most`, are connected already, answering whether it did. */
   async connectApp(app: NewStoredApp, most: number): Promise<boolean> {
-    const { id, name, url, sealedToken, sealedSignIn = null, serverName, tools, toolsLeftOut, connectedBy, now } = app;
-    const signedIn = sealedSignIn === null ? [null, null, null] : [sealedSignIn, connectedBy, now];
+    const { id, name, url, sealedToken, signIn, serverName, tools, toolsLeftOut, connectedBy, now } = app;
+    const signedIn = signIn ? [signIn.sealed, connectedBy, now, signIn.client?.id ?? null, signIn.client?.sealed ?? null] : [null, null, null, null, null];
     const [connected] = (await this.db.batch([
       statement(
-        `INSERT INTO apps (id, name, url, token, server_name, tools, tools_left_out, tools_read_at, created_by, updated_by, created_at, updated_at, sign_in, signed_in_by, signed_in_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM apps) < ? RETURNING id`,
+        `INSERT INTO apps (id, name, url, token, server_name, tools, tools_left_out, tools_read_at, created_by, updated_by, created_at, updated_at, sign_in, signed_in_by, signed_in_at, sign_in_client_id, sign_in_client)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM apps) < ? RETURNING id`,
         ...[id, name, url, sealedToken, serverName, JSON.stringify(tools), toolsLeftOut, now, connectedBy, connectedBy, now, now, ...signedIn, most],
       ),
     ])) as [unknown[]];
@@ -3939,15 +3951,17 @@ export class WorkspaceStore {
 
   /**
    * Keeps a sign-in to the connected app `appId`, made by `signIn.by`, in place of any it had, and of its
-   * token, with what was `read` from its server with it and the agents' `picks` that changes, in one
-   * batch, while the app is still asked at `url`: answers whether it was.
+   * token, with the client it was made as, if an administrator gave one, what was `read` from its server
+   * with it and the agents' `picks` that changes, in one batch, while the app is still asked at `url`:
+   * answers whether it was.
    */
   async signInToApp(appId: AppId, signIn: NewAppSignIn, { serverName, tools, toolsLeftOut }: StoredAppRead, picks: ChangedPicks[], url: string, now: string): Promise<boolean> {
     const [signedIn] = (await this.db.batch([
       statement(
-        `UPDATE apps SET token = NULL, sign_in = ?, signed_in_by = ?, signed_in_at = ?, server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ?, updated_by = ?, updated_at = ?
+        `UPDATE apps SET token = NULL, sign_in = ?, signed_in_by = ?, signed_in_at = ?, sign_in_client_id = ?, sign_in_client = ?,
+           server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ?, updated_by = ?, updated_at = ?
          WHERE id = ? AND url = ? RETURNING id`,
-        ...[signIn.sealed, signIn.by, now, serverName, JSON.stringify(tools), toolsLeftOut, now, signIn.by, now, appId, url],
+        ...[signIn.sealed, signIn.by, now, signIn.client?.id ?? null, signIn.client?.sealed ?? null, serverName, JSON.stringify(tools), toolsLeftOut, now, signIn.by, now, appId, url],
       ),
       ...picks.map(({ agentId, stored, picks: changed }) =>
         statement(

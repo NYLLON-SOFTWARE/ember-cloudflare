@@ -1,5 +1,17 @@
 import { ASSISTANT_ID, type Me, type NewWorkspace } from "@ember/protocol";
-import { APP_CHANGED, APP_SIGN_IN_ENDED, APP_SIGNED_IN, APPS_FORBIDDEN, type AgentTools, type App, type AppAnswer, type Apps, type AppSignedIn, type AppSignInBegun } from "@ember/protocol/apps";
+import {
+  APP_CHANGED,
+  APP_SIGN_IN_ENDED,
+  APP_SIGNED_IN,
+  APPS_FORBIDDEN,
+  type AgentTools,
+  type App,
+  type AppAnswer,
+  type AppClient,
+  type Apps,
+  type AppSignedIn,
+  type AppSignInBegun,
+} from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { signInEnded } from "../src/apps/tools";
@@ -44,7 +56,8 @@ let addresses: Record<string, string[]>;
 
 /**
  * What the fake authorization server is: whether it reads a client from a document, registers one that
- * asks, and says who it is when it sends a browser back, how long its access tokens last, whether it
+ * asks, or gives tokens only to `client`, one an administrator registered there, which proves itself
+ * with its secret, and says who it is when it sends a browser back, how long its access tokens last, whether it
  * gives a token to get another with, and what it answers in place of all that, if anything, once
  * whatever that does meanwhile is done. `codes` are the ones it has sent a browser back with, each
  * with what the browser was sent to it with, and `access` and `refresh` the tokens it gave last, the
@@ -54,6 +67,7 @@ let addresses: Record<string, string[]>;
 interface AuthorizationServer {
   readsDocuments: boolean;
   registers: boolean;
+  client: { id: string; secret: string } | null;
   saysIssuer: boolean;
   expiresIn: number | undefined;
   refreshes: boolean;
@@ -88,17 +102,31 @@ function nextTokens(scope: string | undefined): Response {
   });
 }
 
-/** What the fake authorization server answers at its token endpoint: tokens for a code it sent a browser back with, proven with its verifier, or for the token it gave last to get another with. */
-async function tokensFor(form: Record<string, string>): Promise<Response> {
+/** Who a request to the token endpoint says it's from: the client ID and secret of its Basic authorization, or else of its form. */
+function clientOf({ form = {}, authorization }: Asked): { id: string | undefined; secret: string | undefined } {
+  if (!authorization?.startsWith("Basic ")) return { id: form.client_id, secret: form.client_secret };
+  const [id, secret] = atob(authorization.slice("Basic ".length)).split(":").map(decodeURIComponent);
+  return { id, secret };
+}
+
+/**
+ * What the fake authorization server answers at its token endpoint: tokens for a code it sent a browser
+ * back with, proven with its verifier, or for the token it gave last to get another with, to the client
+ * an administrator registered there alone, if one did.
+ */
+async function tokensFor(sent: Asked): Promise<Response> {
+  const form = sent.form ?? {};
   const instead = await auth.token(form);
   if (instead) return instead;
+  const client = clientOf(sent);
+  if (auth.client && (client.id !== auth.client.id || client.secret !== auth.client.secret)) return oauthError("invalid_client", 401);
   if (form.grant_type === "refresh_token") return form.refresh_token === auth.refresh && auth.refresh !== null ? nextTokens(undefined) : oauthError("invalid_grant");
-  const sent = auth.codes.get(form.code ?? "");
+  const began = auth.codes.get(form.code ?? "");
   auth.codes.delete(form.code ?? "");
-  if (!sent || form.grant_type !== "authorization_code") return oauthError("invalid_grant");
-  const proven = sent.get("code_challenge") === (await challengeOf(form.code_verifier ?? ""));
-  const same = form.redirect_uri === sent.get("redirect_uri") && form.client_id === sent.get("client_id") && form.resource === sent.get("resource");
-  return proven && same ? nextTokens(sent.get("scope") ?? undefined) : oauthError("invalid_grant");
+  if (!began || form.grant_type !== "authorization_code") return oauthError("invalid_grant");
+  const proven = began.get("code_challenge") === (await challengeOf(form.code_verifier ?? ""));
+  const same = form.redirect_uri === began.get("redirect_uri") && client.id === began.get("client_id") && form.resource === began.get("resource");
+  return proven && same ? nextTokens(began.get("scope") ?? undefined) : oauthError("invalid_grant");
 }
 
 /** What the fake authorization server, or the fake server's own description of its sign-in, answers a request at `url`. */
@@ -117,14 +145,14 @@ async function signInAnswer(url: URL, request: Request, sent: Asked): Promise<Re
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none"],
+      token_endpoint_auth_methods_supported: auth.client ? ["client_secret_basic", "none"] : ["none"],
       ...(auth.readsDocuments && { client_id_metadata_document_supported: true }),
       ...(auth.saysIssuer && { authorization_response_iss_parameter_supported: true }),
     });
     return metadata ? Response.json(metadata) : new Response(null, { status: 404 });
   }
   if (url.pathname === "/register" && request.method === "POST" && auth.registers) return Response.json({ ...sent.json, client_id: "ember-at-tracker" }, { status: 201 });
-  if (url.pathname === "/token" && request.method === "POST") return tokensFor(sent.form ?? {});
+  if (url.pathname === "/token" && request.method === "POST") return tokensFor(sent);
   return new Response(null, { status: 404 });
 }
 
@@ -146,6 +174,7 @@ beforeEach(async () => {
   auth = {
     readsDocuments: false,
     registers: true,
+    client: null,
     saysIssuer: false,
     expiresIn: 3600,
     refreshes: true,
@@ -218,7 +247,8 @@ const TRACKER_APP = { name: "Tracker", url: TRACKER };
 
 const connect = (session: Session | null, body: unknown) => api("/api/account/apps", { method: "POST", headers: as(session), body: JSON.stringify(body) });
 const begin = (session: Session | null, body: unknown = TRACKER_APP) => api("/api/account/app-sign-ins", { method: "POST", headers: as(session), body: JSON.stringify(body) });
-const beginAgain = (session: Session | null, id: string) => api(`/api/account/apps/${id}/sign-in`, { method: "POST", headers: as(session) });
+const beginAgain = (session: Session | null, id: string, client?: AppClient) =>
+  api(`/api/account/apps/${id}/sign-in`, { method: "POST", headers: as(session), ...(client && { body: JSON.stringify(client) }) });
 const finish = (session: Session | null, body: unknown) => api("/api/account/app-sign-ins/finish", { method: "POST", headers: as(session), body: JSON.stringify(body) });
 const show = (session: Session | null, id: string) => api(`/api/account/apps/${id}`, { headers: as(session) });
 const change = (session: Session | null, id: string, body: unknown) => api(`/api/account/apps/${id}`, { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
@@ -226,7 +256,7 @@ const readAgain = (session: Session | null, id: string) => api(`/api/account/app
 const disconnect = (session: Session | null, id: string) => api(`/api/account/apps/${id}`, { method: "DELETE", headers: as(session) });
 
 /** What `response` refuses with, which it answers with `status`. */
-async function refusalOf(response: Response, status = 422): Promise<{ error: string; field?: string; signIn?: boolean }> {
+async function refusalOf(response: Response, status = 422): Promise<{ error: string; field?: string; signIn?: boolean; client?: boolean }> {
   expect(response.status, await response.clone().text()).toBe(status);
   return response.json();
 }
@@ -272,6 +302,13 @@ const signIn = async (administrator: Session) => signedInBy(await finish(adminis
 const appOf = async (response: Response) => {
   expect(response.status, await response.clone().text()).toBe(200);
   return ((await response.json()) as AppAnswer).app;
+};
+
+/** What a service that doesn't come to know Ember by itself is refused with, which has the form ask for a client ID. */
+const UNREGISTERED = {
+  error: "mcp.tracker.example has a sign-in, but doesn't let Ember register itself for it. Register Ember there yourself and give its client ID, or give a token, if it has one.",
+  field: "token",
+  client: true,
 };
 
 /** The requests Ember sent the fake authorization server's token endpoint. */
@@ -329,7 +366,7 @@ describe("Signing in to an app", () => {
     const app = await signedInBy(await finish(administrator, back));
 
     expect(app).toMatchObject({ name: "Tracker", url: TRACKER, hasToken: false, tools: [{ name: "search_issues" }], connectedBy: administrator.user });
-    expect(app.signIn).toEqual({ by: administrator.user, at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as string, ended: false });
+    expect(app.signIn).toEqual({ by: administrator.user, at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as string, ended: false, clientId: null });
     expect(await appOf(await show(administrator, app.id))).toEqual(app);
     expect(tokenRequests()).toEqual([
       { grant_type: "authorization_code", code: back.code, code_verifier: expect.stringMatching(/^[\w.~-]{43,128}$/) as string, redirect_uri: BACK, client_id: "ember-at-tracker", resource: TRACKER },
@@ -591,6 +628,25 @@ describe("Signing in to an app", () => {
     expect(await appOf(await change(administrator, app.id, { name: "Issues", url: TRACKER }))).toMatchObject({ name: "Issues", url: TRACKER, signIn: { ended: false } });
   });
 
+  it("offers a sign-in for an app whose server takes its token no longer, which signing in then takes the place of", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.access = "a-token-the-server-takes";
+    const connected = await connect(administrator, { ...TRACKER_APP, token: "a-token-the-server-takes" });
+    expect(connected.status, await connected.clone().text()).toBe(201);
+    const { app } = (await connected.json()) as AppAnswer;
+    expect(app).toMatchObject({ hasToken: true, signIn: null });
+
+    auth.access = null;
+    expect(await refusalOf(await readAgain(administrator, app.id))).toEqual({ error: "mcp.tracker.example didn't take that token.", signIn: true });
+    expect(await refusalOf(await change(administrator, app.id, { token: "another-token" }))).toEqual({ error: "mcp.tracker.example didn't take that token.", field: "token", signIn: true });
+
+    const signedIn = await signInAgain(administrator, app.id);
+    expect(signedIn).toMatchObject({ id: app.id, hasToken: false, signIn: { by: administrator.user, ended: false, clientId: null } });
+    expect(await workspaceSql("SELECT token FROM apps")).toEqual([{ token: null }]);
+    expect((await readAgain(administrator, app.id)).status).toBe(200);
+  });
+
   it("forgets a sign-in under way to an app that's removed", async () => {
     const administrator = await setUp();
     const app = await signIn(administrator);
@@ -599,6 +655,72 @@ describe("Signing in to an app", () => {
     expect((await disconnect(administrator, app.id)).status).toBe(204);
     expect(await workspaceSql("SELECT count(*) AS n FROM app_sign_ins")).toEqual([{ n: 0 }]);
     expect(await refusalOf(await finish(administrator, back))).toEqual({ error: APP_SIGN_IN_ENDED });
+  });
+
+  it("signs in as the client an administrator gives, where the service doesn't let Ember register itself, and keeps it for signing in again", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.registers = false;
+    auth.client = { id: "ember-oauth-app", secret: "s3cret-of-the-client" };
+    auth.expiresIn = 30;
+    const proven = `Basic ${btoa("ember-oauth-app:s3cret-of-the-client")}`;
+    const provenAt = () => asked.filter(({ url }) => url === `${AUTH}/token`).map(({ authorization, form }) => [form!.grant_type, authorization]);
+
+    expect(await refusalOf(await begin(administrator))).toEqual(UNREGISTERED);
+    expect(await refusalOf(await begin(administrator, { ...TRACKER_APP, clientSecret: "s3cret-of-the-client" }))).toEqual({ error: "A client secret goes with a client ID", field: "clientId" });
+    expect(await refusalOf(await begin(administrator, { ...TRACKER_APP, clientId: "ember\noauth" }))).toMatchObject({ field: "clientId" });
+
+    // The browser goes there as that client, which nothing is asked to register, and the code it comes back with is exchanged with the secret.
+    asked = [];
+    const authorizationUrl = await sentTo(await begin(administrator, { ...TRACKER_APP, clientId: " ember-oauth-app ", clientSecret: "s3cret-of-the-client" }));
+    expect(authorizationUrl.searchParams.get("client_id")).toBe("ember-oauth-app");
+    expect(asked.some(({ url }) => url === `${AUTH}/register`)).toBe(false);
+    const app = await signedInBy(await finish(administrator, comeBack(authorizationUrl)));
+    expect(app.signIn).toMatchObject({ ended: false, clientId: "ember-oauth-app" });
+    expect(provenAt()).toEqual([["authorization_code", proven]]);
+    // The client's ID is kept to show, and its secret sealed, beside the sign-in.
+    const [kept] = (await workspaceSql("SELECT sign_in, sign_in_client_id, sign_in_client FROM apps")) as [{ sign_in: string; sign_in_client_id: string; sign_in_client: string }];
+    expect(kept.sign_in_client_id).toBe("ember-oauth-app");
+    expect(JSON.stringify(kept)).not.toContain("s3cret");
+
+    // Another token is asked for as that client too.
+    asked = [];
+    expect((await readAgain(administrator, app.id)).status).toBe(200);
+    expect(provenAt()).toEqual([["refresh_token", proven]]);
+
+    // Once the sign-in has ended, signing in again asks for neither again.
+    auth.token = ({ grant_type: grant }) => (grant === "refresh_token" ? oauthError("invalid_grant") : null);
+    expect(await refusalOf(await readAgain(administrator, app.id))).toEqual({ error: signInEnded("Tracker") });
+    expect((await appOf(await show(administrator, app.id))).signIn).toMatchObject({ ended: true, clientId: "ember-oauth-app" });
+    asked = [];
+    const again = await sentTo(await beginAgain(administrator, app.id));
+    expect(again.searchParams.get("client_id")).toBe("ember-oauth-app");
+    expect((await signedInBy(await finish(administrator, comeBack(again)), 200)).signIn).toMatchObject({ ended: false, clientId: "ember-oauth-app" });
+    expect(provenAt()).toEqual([["authorization_code", proven]]);
+    // Nor does the app's page, which sends the client ID as it shows it, with no secret.
+    asked = [];
+    const untouched = await sentTo(await beginAgain(administrator, app.id, { clientId: "ember-oauth-app" }));
+    await signedInBy(await finish(administrator, comeBack(untouched)), 200);
+    expect(provenAt()).toEqual([["authorization_code", proven]]);
+
+    // Another client ID goes without the last one's secret, which the service refuses here, leaving the app signed in as it was.
+    asked = [];
+    const other = await sentTo(await beginAgain(administrator, app.id, { clientId: "another-app" }));
+    expect(other.searchParams.get("client_id")).toBe("another-app");
+    expect(await refusalOf(await finish(administrator, comeBack(other)))).toEqual({
+      error: "mcp.tracker.example didn't take the client ID or secret Ember signed in with. Check both, and start the sign-in again.",
+    });
+    expect(JSON.stringify(asked)).not.toContain("s3cret");
+    expect((await appOf(await show(administrator, app.id))).signIn).toMatchObject({ ended: false, clientId: "ember-oauth-app" });
+
+    // With none, Ember has the service come to know it by itself, where it can, and keeps no client.
+    expect(await refusalOf(await beginAgain(administrator, app.id, { clientId: "" }))).toEqual(UNREGISTERED);
+    auth.registers = true;
+    auth.client = null;
+    const itself = await sentTo(await beginAgain(administrator, app.id, { clientId: "" }));
+    expect(itself.searchParams.get("client_id")).toBe("ember-at-tracker");
+    expect((await signedInBy(await finish(administrator, comeBack(itself)), 200)).signIn).toMatchObject({ clientId: null });
+    expect(await workspaceSql("SELECT sign_in_client_id, sign_in_client FROM apps")).toEqual([{ sign_in_client_id: null, sign_in_client: null }]);
   });
 
   it("says why when a server's sign-in is one Ember can't use, and keeps nothing", async () => {
@@ -628,10 +750,7 @@ describe("Signing in to an app", () => {
 
     // One that neither reads Ember's document nor registers it, and a server that describes none.
     auth.registers = false;
-    expect(await refusalOf(await begin(administrator))).toEqual({
-      error: "mcp.tracker.example has a sign-in, but doesn't let Ember register itself for it. Give a token for it, if it has one.",
-      field: "token",
-    });
+    expect(await refusalOf(await begin(administrator))).toEqual(UNREGISTERED);
     auth.resource = () => null;
     auth.metadata = () => null;
     expect(await refusalOf(await begin(administrator))).toEqual({ error: "mcp.tracker.example doesn't say how to sign in to it. Give a token for it, if it has one.", field: "token" });

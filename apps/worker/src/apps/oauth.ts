@@ -28,6 +28,8 @@ import { heldTo, READ_DEADLINE_MS, MAX_READ_BYTES, saidTooMuch, tookTooLong, typ
 // which Ember exchanges for the token it then sends the server, and one to get another with when that
 // ends. Ember is a public client that proves each exchange with PKCE: the authorization server reads
 // who Ember is from the document Ember serves, where it reads one, or else Ember registers itself.
+// Where it does neither, an administrator registers Ember there themselves, and gives Ember the client
+// ID they got, with its secret, if it has one, which Ember then proves itself with as well.
 // Everything asked about a sign-in is asked the way an app's server is: over https, of names that
 // resolve only to public addresses, without following a redirect to another host, within one deadline.
 
@@ -44,14 +46,16 @@ const MAX_SIGN_IN_LENGTH = 40_000;
 /**
  * A sign-in to an app, as Ember keeps it, sealed: where its authorization server sends the browser
  * back, where Ember's client document is, if it serves one there, what was found of the authorization
- * server, who Ember is to it, the resource the tokens are for, the PKCE verifier of a sign-in that's
- * under way, and, once it's done, the tokens, with when the access token ends, if it does.
+ * server, who Ember is to it, and whether that's a client an administrator gave, `ownClient`, the
+ * resource the tokens are for, the PKCE verifier of a sign-in that's under way, and, once it's done,
+ * the tokens, with when the access token ends, if it does.
  */
 export interface SignIn {
   redirectUrl: string;
   clientUrl: string | null;
   discovery?: OAuthDiscoveryState;
   client?: StoredOAuthClientInformation;
+  ownClient?: true;
   resource?: string;
   codeVerifier?: string;
   tokens?: { access: string; refresh: string | null; scope: string | null };
@@ -85,14 +89,15 @@ export const isDue = ({ expiresAt }: SignIn, now: number) => expiresAt != null &
 
 /**
  * Begins a sign-in to the app at `url`, for an administrator whose browser comes back to `redirectUrl`:
- * finds the server's authorization server, has it know Ember, by Ember's client document at `clientUrl`
- * where it reads one, and answers where to send the browser, or why Ember can't sign in there.
+ * finds the server's authorization server, has it know Ember, as `client` when an administrator gave
+ * one, and otherwise by Ember's client document at `clientUrl` where it reads one, or by registering,
+ * and answers where to send the browser, or why Ember can't sign in there.
  */
-export async function startSignIn(url: string, redirectUrl: string, clientUrl: string | null, send: Send = fetch): Promise<StartedSignIn | AppRefused> {
+export async function startSignIn(url: string, redirectUrl: string, clientUrl: string | null, client: StoredOAuthClientInformation | null = null, send: Send = fetch): Promise<StartedSignIn | AppRefused> {
   const address = new URL(url);
   const held: Held = { deadline: AbortSignal.timeout(READ_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
   const guard = guarded(address, held, send);
-  const session = new Session({ redirectUrl, clientUrl }, toHex(crypto.getRandomValues(new Uint8Array(32))));
+  const session = new Session({ redirectUrl, clientUrl, ...(client && { client, ownClient: true as const }) }, toHex(crypto.getRandomValues(new Uint8Array(32))));
   try {
     const { resourceMetadataUrl, scope } = await challengeOf(address, guard.send, held);
     await auth(session, { serverUrl: address, resourceMetadataUrl, scope, fetchFn: guard.send });
@@ -131,7 +136,7 @@ export async function finishSignIn(url: string, signIn: SignIn, code: string, is
     const { codeVerifier: _, ...kept } = signIn;
     return signedIn(kept, tokens, address);
   } catch (error) {
-    return whyNotFinished(address, error, held);
+    return whyNotFinished(address, error, held, signIn.ownClient === true);
   }
 }
 
@@ -199,8 +204,18 @@ class Session implements OAuthClientProvider {
     return clientMetadataOf(this.signIn.redirectUrl);
   }
   state = () => this.stateId;
-  clientInformation = () => this.signIn.client;
-  saveClientInformation = (client: StoredOAuthClientInformation) => void (this.signIn.client = client);
+  // A client an administrator just gave is taken to be the authorization server's that was found for it, which the protocol's client then holds it to.
+  clientInformation = () => {
+    const { client, ownClient, discovery } = this.signIn;
+    const issuer = discovery?.authorizationServerMetadata?.issuer ?? discovery?.authorizationServerUrl;
+    if (client && ownClient && client.issuer === undefined && issuer !== undefined) this.signIn.client = { ...client, issuer: String(issuer) };
+    return this.signIn.client;
+  };
+  // The client an administrator gave comes back as it is, marked with who it's known to. Any other is one Ember got itself, as it does once the one given turns out to be another service's.
+  saveClientInformation = (client: StoredOAuthClientInformation) => {
+    if (client.client_id !== this.signIn.client?.client_id) delete this.signIn.ownClient;
+    this.signIn.client = client;
+  };
   tokens = () => undefined;
   saveTokens = () => {};
   redirectToAuthorization = (authorizationUrl: URL) => void (this.authorizationUrl = authorizationUrl);
@@ -297,13 +312,18 @@ function whyNotStarted(address: URL, error: unknown, held: Held, found: OAuthDis
   const said = error instanceof Error ? error.message : "";
   if (said.includes("does not match expected")) return { error: `The sign-in ${host} describes is for another address than its own, so Ember won't use it.`, field: "url" };
   if (error instanceof RegistrationRejectedError || said.includes("dynamic client registration")) {
-    return { error: `${host} has a sign-in, but doesn't let Ember register itself for it. Give a token for it, if it has one.`, field: "token" };
+    return { error: `${host} has a sign-in, but doesn't let Ember register itself for it. Register Ember there yourself and give its client ID, or give a token, if it has one.`, field: "token", client: true };
   }
   return { error: `Ember couldn't start a sign-in at ${host}. Give a token for it, if it has one.`, field: "token" };
 }
 
-/** Why Ember couldn't finish a sign-in to the app at `address`, from what went wrong. */
-function whyNotFinished(address: URL, error: unknown, held: Held): AppRefused {
+/** Why Ember couldn't finish a sign-in to the app at `address`, from what went wrong, which is the client it signed in as when an administrator gave it, `ownClient`, and the service won't have it. */
+function whyNotFinished(address: URL, error: unknown, held: Held, ownClient: boolean): AppRefused {
   logged("Finishing a sign-in to", address, error);
-  return heldUp(address, error, held) ?? { error: `${address.host} didn't finish the sign-in. Start it again.` };
+  const stopped = heldUp(address, error, held);
+  if (stopped) return stopped;
+  if (ownClient && error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) {
+    return { error: `${address.host} didn't take the client ID or secret Ember signed in with. Check both, and start the sign-in again.` };
+  }
+  return { error: `${address.host} didn't finish the sign-in. Start it again.` };
 }
