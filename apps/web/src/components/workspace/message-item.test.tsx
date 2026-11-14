@@ -1001,6 +1001,7 @@ describe("Save a message for later", () => {
     const shown = message();
     const saver: Saver = {
       saves: [],
+      load: vi.fn(),
       save: vi.fn(async () => {}),
       forget: vi.fn(async () => {}),
       saveOf: (messageId) => (saved && messageId === shown.id ? { id: "saved-1", roomId: shown.roomId, messageId: shown.id, createdAt: 0, message: shown } : null),

@@ -619,14 +619,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     },
   };
   // The rail's Saved control, by Activity's conventions: it opens the pane beside the room shown, or
-  // goes home to the last room visited for it from a page of community settings. Opening it never asks
-  // a room for anything, so it marks nothing read.
+  // goes home to the last room visited for it from a page of community settings. Opening it asks for
+  // the list again, which a failed ask never brought, but never asks a room for anything, so it marks
+  // nothing read.
   const saved = {
     on: savedOpen,
     count: saver.saves?.length ?? 0,
     onToggle: () => {
       setDrawerOpen(false);
-      if (!settings && route.page === "room") return setSavedOpen((on) => !on);
+      if (savedOpen) return setSavedOpen(false);
+      saver.load();
+      if (!settings && route.page === "room") return setSavedOpen(true);
       navigate("/");
       afterNavigating(() => setSavedOpen(true));
     },
