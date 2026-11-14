@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DirectoryUser, UserId, UserGroup } from "@ember/protocol";
-import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
+import { DirectoryLoaded, DirectoryReloading, PeopleContext, type People } from "@/hooks/use-directory";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_DELETE, GROUPS_EXPLAINED, UserGroups } from "./user-groups-settings";
 
@@ -20,17 +20,24 @@ function serve(route: (method: string, path: string, body: unknown) => Response 
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => route(init?.method ?? "GET", String(input), init?.body ? JSON.parse(String(init.body)) : undefined));
 }
 
-/** The card, with `directory` in the people directory, which has loaded when `loaded`, and `groups` as the server lists them. */
-function showCard({ directory = people, loaded = false }: { directory?: People; loaded?: boolean } = {}) {
+/**
+ * The card, with `directory` in the people directory, which has loaded when `loaded` and is loading
+ * again when `reloading`, and `groups` as the server lists them. `rerender` shows the card with
+ * another directory, loaded or loading as then said.
+ */
+function showCard({ directory = people, loaded = false, reloading = false }: { directory?: People; loaded?: boolean; reloading?: boolean } = {}) {
   const callbacks = { onSaved: vi.fn(), reloadDirectory: vi.fn(), onFailed: vi.fn() };
-  render(
+  const cardWith = (directory: People, loaded: boolean, reloading: boolean) => (
     <PeopleContext value={directory}>
-      <DirectoryLoaded value={loaded}>
-        <UserGroups {...callbacks} />
-      </DirectoryLoaded>
-    </PeopleContext>,
+      <DirectoryReloading value={reloading}>
+        <DirectoryLoaded value={loaded}>
+          <UserGroups {...callbacks} />
+        </DirectoryLoaded>
+      </DirectoryReloading>
+    </PeopleContext>
   );
-  return { ...callbacks, user: userEvent.setup() };
+  const { rerender } = render(cardWith(directory, loaded, reloading));
+  return { ...callbacks, user: userEvent.setup(), rerender: (directory: People, loaded: boolean, reloading: boolean) => rerender(cardWith(directory, loaded, reloading)) };
 }
 
 const card = () => screen.getByRole("region", { name: "User groups" });
@@ -155,6 +162,32 @@ describe("User groups", () => {
     await user.click(within(card()).getByRole("button", { name: "Save changes" }));
     expect(sent).toEqual({ name: "launch", memberIds: [grace.id] });
     expect(within(card()).getByRole("list")).toHaveTextContent("1 member");
+  });
+
+  it("waits for the directory's load under way to let a member go, which keeps the one it has since listed", async () => {
+    const newcomer: DirectoryUser = { id: "u5", name: "New Hand", bio: null, role: "member", status: "active", avatarUrl: "" };
+    const fresh: UserGroup = { id: "g4", name: "launch", memberIds: [ada.id, newcomer.id] };
+    let sent: unknown;
+    serve((method, _path, body) => {
+      if (method === "PATCH") {
+        sent = body;
+        return Response.json({ group: fresh });
+      }
+      return Response.json({ groups: [fresh] });
+    });
+    // The directory has loaded, but is loading again: its answer may name a member this listing
+    // doesn't, as one just added is, whom letting go would drop from the group.
+    const { user, rerender } = showCard({
+      directory: new Map<UserId, DirectoryUser>([...people, [newcomer.id, { ...newcomer, status: "deactivated" }]]),
+      loaded: true,
+      reloading: true,
+    });
+    await user.click(await within(card()).findByRole("button", { name: "Edit launch" }));
+    // The load has settled, listing the newcomer active now, whom the form has kept and offers checked.
+    rerender(new Map<UserId, DirectoryUser>([...people, [newcomer.id, newcomer]]), true, false);
+    expect(await within(card()).findByRole("checkbox", { name: "New Hand" })).toBeChecked();
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    expect(sent).toEqual({ name: "launch", memberIds: [ada.id, newcomer.id] });
   });
 
   it("says why a delete couldn't be sent, keeping the group to be tried again", async () => {

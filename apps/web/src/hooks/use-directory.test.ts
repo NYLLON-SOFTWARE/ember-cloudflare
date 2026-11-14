@@ -75,6 +75,34 @@ describe("Initials avatars", () => {
     await expect(reload(result)).rejects.toThrow("Failed to fetch");
     expect(result.current.people).toBe(people);
   });
+
+  it("says while a load it has asked for is still to settle, and once it has, come or fail", async () => {
+    const { result } = renderHook(() => useDirectory());
+    expect(result.current.reloading).toBe(false);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    vi.mocked(fetch).mockImplementationOnce(async (input, init) => {
+      await held;
+      return answer(input, init);
+    });
+    let loaded!: Promise<void>;
+    act(() => void (loaded = result.current.reload()));
+    expect(result.current.reloading).toBe(true);
+    await act(async () => {
+      release();
+      await loaded;
+    });
+    expect(result.current.reloading).toBe(false);
+
+    server.down = true;
+    let failed!: Promise<void>;
+    act(() => void (failed = result.current.reload()));
+    expect(result.current.reloading).toBe(true);
+    await act(async () => {
+      await expect(failed).rejects.toThrow("Failed to fetch");
+    });
+    expect(result.current.reloading).toBe(false);
+  });
 });
 
 describe("Make or revoke administrators", () => {

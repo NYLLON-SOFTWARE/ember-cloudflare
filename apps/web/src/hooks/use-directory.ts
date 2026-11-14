@@ -21,6 +21,12 @@ export const GroupsContext = createContext<Groups>(new Map());
  */
 export const DirectoryLoaded = createContext(false);
 
+/** Whether the people directory is loading again, which a load it has asked for and not yet settled has it do. */
+export const DirectoryReloading = createContext(false);
+
+/** Loads the people directory again, for a message's editor that found it doesn't know a group the message names. A no-op until the workspace has it. */
+export const ReloadDirectory = createContext<() => Promise<void>>(() => Promise.resolve());
+
 /**
  * Someone's name as the people directory lists them now, which follows a rename since their name was
  * copied into a message, a boost or a room's frame, or the copy's until the directory lists them.
@@ -59,18 +65,28 @@ function withChanges(people: People, changed: DirectoryUser[]): People {
  * The people directory, which `reload` loads again, one load at a time, settling once a load asked for
  * since has come or failed, and `update` changes someone in, as the workspace socket or a change made
  * here says they are now. The people stay as they were when a load fails or the server says they
- * haven't changed. It has `loaded` once a load has come.
+ * haven't changed. It has `loaded` once a load has come, and `reloading` while one it has asked for is
+ * still to settle.
  */
-export function useDirectory(): { people: People; groups: Groups; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void } {
+export function useDirectory(): {
+  people: People;
+  groups: Groups;
+  loaded: boolean;
+  reloading: boolean;
+  reload: () => Promise<void>;
+  update: (user: DirectoryUser) => void;
+} {
   const [people, setPeople] = useState<People>(() => new Map());
   const [groups, setGroups] = useState<Groups>(() => new Map());
   const [loaded, setLoaded] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [directory] = useState(() => {
     // The last directory the server sent, which it says is still current rather than send again.
     let copy: DirectoryCopy | null = null;
     // Who changed while a load was on its way, which may have read them before they did.
     let changedSince: DirectoryUser[] | null = null;
     const load = oneAtATime(async () => {
+      setReloading(true);
       const changed: DirectoryUser[] = (changedSince = []);
       try {
         const loaded = await fetchDirectory(copy);
@@ -81,6 +97,7 @@ export function useDirectory(): { people: People; groups: Groups; loaded: boolea
         setLoaded(true);
       } finally {
         changedSince = null;
+        setReloading(false);
       }
     });
     const update = (user: DirectoryUser) => {
@@ -89,5 +106,5 @@ export function useDirectory(): { people: People; groups: Groups; loaded: boolea
     };
     return { reload: load, update };
   });
-  return { people, groups, loaded, ...directory };
+  return { people, groups, loaded, reloading, ...directory };
 }
