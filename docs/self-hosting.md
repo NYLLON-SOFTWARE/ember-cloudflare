@@ -833,8 +833,9 @@ one, of the speaker; without a microphone you join to listen. While you're in a 
 the window's base follows you from page to page, with the microphone's switch and Leave. A sound
 plays as someone joins the huddle, yourself included, and another as someone leaves it. While you're
 the only one in it, quiet music plays on a loop, as Slack's does, from five seconds after you find
-yourself alone until someone joins you. The sounds were written for Ember, so nothing is owed for
-playing them, and `apps/web/src/lib/huddle-sounds/` says how to change them.
+yourself alone until someone joins you. The two sounds were written for Ember and the music was
+generated for it by Google's AI, so nothing is owed for playing them, and
+`apps/web/src/lib/huddle-sounds/` says where each came from and how to change them.
 Ctrl+Alt+Shift+H (⌘⌥⇧H on a Mac) leaves the huddle you're in, or opens the preview for the room
 you're looking at, and Ctrl+Shift+Space (⌘⇧Space) mutes and unmutes. The arrow beside the headphones
 copies the huddle's link, which opens the room at the preview. A huddle takes up to 50 people and
