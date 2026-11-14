@@ -272,10 +272,32 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  // When your push notifications are hushed until, which the workspace socket's welcome brings and
-  // Do not disturb on your profile saves, and the rail shows by the crescent on your avatar.
+  // When your push notifications are hushed until, which the workspace socket's welcome brings, Do not
+  // disturb on your profile saves, and the socket tells your other tabs of, and the rail shows by the
+  // crescent on your avatar. How many hushes have been heard counts as each change is applied, so a
+  // page's answer about them shows only if none has been heard since it was asked for, as about the
+  // account. A welcome speaks of what the hush was as the socket let it in, so it stands down to
+  // whatever was heard since the last one, and the next is trusted again.
   const [dndUntil, setDndUntil] = useState<string | null>(null);
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, setDndUntil);
+  const dndsHeard = useRef(0);
+  const heardAtWelcome = useRef(0);
+  const hearDnd = useCallback((until: string | null, read?: boolean) => {
+    if (read) {
+      const stale = heardAtWelcome.current !== dndsHeard.current;
+      heardAtWelcome.current = dndsHeard.current;
+      if (stale) return;
+    } else {
+      dndsHeard.current++;
+    }
+    setDndUntil(until);
+  }, []);
+  const askForDnd = useCallback(() => {
+    const heard = dndsHeard.current;
+    return (until: string | null) => {
+      if (dndsHeard.current === heard) hearDnd(until);
+    };
+  }, [hearDnd]);
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, hearDnd);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -718,7 +740,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       case "app-settings":
         return rarePage(({ AppSettingsPage }) => <AppSettingsPage key={route.appId} appId={route.appId} me={me} onMissing={showNotFound} onFailed={failed} />);
       case "profile":
-        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} dndUntil={dndUntil} onDndChanged={setDndUntil} onSignOut={onSignOut} onFailed={failed} />);
+        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} dndUntil={dndUntil} askForDnd={askForDnd} onDndChanged={hearDnd} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":

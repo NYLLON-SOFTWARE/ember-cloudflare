@@ -961,6 +961,53 @@ describe("Do not disturb", () => {
       vi.useRealTimers();
     }
   });
+
+  it("lays the crescent on and takes it off as the socket says a tab of yours hushed and unhushed", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps a hush saved here when a welcome brings what it read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => Response.json({ dndUntil: HUSHED }),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // A welcome that read before the save, arriving after its answer, doesn't undo it.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: null }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The next welcome, which read after it, is heard again.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: HUSHED }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("keeps a hush heard while the profile was loading over what the page's answer read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({ "GET /api/users/me/profile": () => new Promise((resolve) => (answer = resolve)) });
+    showWorkspace("/users/me/profile");
+    // Another tab hushes while the page's profile is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The page's answer read before that, and doesn't take the hush back off.
+    await act(async () => answer(Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: null } })));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
 });
 
 describe("New releases", () => {

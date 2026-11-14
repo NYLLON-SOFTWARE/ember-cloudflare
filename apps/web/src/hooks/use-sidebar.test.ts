@@ -47,10 +47,11 @@ class FakeSocket {
     });
   }
 
-  /** Opens, and lets the socket in with a welcome for `you`, with the workspace as `account`. */
-  connect(you = ada, account = ember) {
+  /** Opens, and lets the socket in with a welcome for `you`, with the workspace as `account`, and the
+   *  hush of push notifications (Do not disturb) until `dndUntil`, as the welcome brings it. */
+  connect(you = ada, account = ember, dndUntil?: string | null) {
     this.open();
-    this.receive({ type: "welcome", you, account });
+    this.receive({ type: "welcome", you, account, dndUntil });
   }
 
   receive(frame: WorkspaceServerFrame) {
@@ -805,5 +806,31 @@ describe("Custom CSS", () => {
     await settle();
     socket().connect(grace);
     expect(onAccountChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("Do not disturb", () => {
+  const HUSHED = "2026-11-14T09:00:00.000Z";
+
+  it("says when your push notifications are hushed until, as the welcome read them", async () => {
+    const onDndChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged));
+    await settle();
+    socket().connect(ada, ember, HUSHED);
+    expect(onDndChanged).toHaveBeenLastCalledWith(HUSHED, true);
+    // A welcome without one says they aren't hushed, as a read all the same.
+    socket().connect(ada, ember, null);
+    expect(onDndChanged).toHaveBeenLastCalledWith(null, true);
+  });
+
+  it("says when the socket brings what a tab of yours did to them", async () => {
+    const onDndChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged));
+    await settle();
+    socket().connect();
+    socket().receive({ type: "dnd.changed", dndUntil: HUSHED });
+    expect(onDndChanged).toHaveBeenLastCalledWith(HUSHED);
+    socket().receive({ type: "dnd.changed", dndUntil: null });
+    expect(onDndChanged).toHaveBeenLastCalledWith(null);
   });
 });

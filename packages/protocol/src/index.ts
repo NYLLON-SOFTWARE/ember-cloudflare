@@ -1732,6 +1732,12 @@ export type WorkspaceServerFrame =
   | { type: "room.huddle"; roomId: RoomId; huddle: LiveHuddle | null }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /**
+   * Their hush of push notifications (Do not disturb) is now until `dndUntil`, or no more: they set it
+   * or lifted it, in this tab or another. Sent to their own workspace sockets alone, so their other
+   * tabs lay the crescent on their avatar or take it away as it goes.
+   */
+  | { type: "dnd.changed"; dndUntil: string | null }
   /** They've given a room of theirs another notification level, in this tab or another. */
   | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */

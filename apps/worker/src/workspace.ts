@@ -3452,25 +3452,31 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Hushes the push notifications of the person `credentials` signs in until `until`, an ISO time,
-   * answering when they're heard again, as the server keeps it, overwriting any hush they had. It
-   * hushes push notifications alone: their involvement in rooms, unread marks, the app's badge and
-   * banners in the app carry on. "passed" for a time that isn't ahead of now, by this clock, and null
-   * without a valid session.
+   * answering when they're heard again, as the server keeps it, overwriting any hush they had, and
+   * telling their other tabs, which lay the crescent on their avatar. It hushes push notifications
+   * alone: their involvement in rooms, unread marks, the app's badge and banners in the app carry on.
+   * "passed" for a time that isn't ahead of now, by this clock, and null without a valid session.
    */
   async setDnd(credentials: Credentials, until: string): Promise<string | "passed" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
     const untilAt = Date.parse(until);
     if (!(untilAt > Date.now())) return "passed";
+    const hushedUntil = new Date(untilAt).toISOString();
     await this.store.setDnd(session.user.id, untilAt);
-    return new Date(untilAt).toISOString();
+    this.tell([session.user.id], { type: "dnd.changed", dndUntil: hushedUntil });
+    return hushedUntil;
   }
 
-  /** Lifts the hush on the push notifications of the person `credentials` signs in, answering whether it did: false without a valid session. */
+  /**
+   * Lifts the hush on the push notifications of the person `credentials` signs in, answering whether
+   * it did: false without a valid session. Their other tabs hear of it, and take the crescent away.
+   */
   async clearDnd(credentials: Credentials): Promise<boolean> {
     const session = await this.session(credentials);
     if (!session) return false;
     await this.store.clearDnd(session.user.id);
+    this.tell([session.user.id], { type: "dnd.changed", dndUntil: null });
     return true;
   }
 

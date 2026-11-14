@@ -81,8 +81,10 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
  * it connects and whenever an administrator changes it. `onDndChanged` hears when your push
- * notifications are hushed until (Do not disturb), as the welcome says they were when it let the socket
- * in. `onGone` hears of each room the socket says is gone as it leaves the list.
+ * notifications are hushed until (Do not disturb), as the welcome says they were when it let the
+ * socket in, with `read`, and as the socket says a tab of yours has changed them, without it, since
+ * the welcome may have read before a change the page made meanwhile. `onGone` hears of each room the
+ * socket says is gone as it leaves the list.
  */
 export function useSidebar(
   me: Me,
@@ -90,7 +92,7 @@ export function useSidebar(
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
-  onDndChanged: (dndUntil: string | null) => void = () => {},
+  onDndChanged: (dndUntil: string | null, read?: boolean) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -178,7 +180,9 @@ export function useSidebar(
           workspace.connected();
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
-          dndChanged(frame.dndUntil ?? null);
+          // The welcome speaks of what the hush was as the socket let it in, which may have read before
+          // a change the page made or heard since.
+          dndChanged(frame.dndUntil ?? null, true);
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
@@ -210,6 +214,8 @@ export function useSidebar(
           return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
+        case "dnd.changed":
+          return dndChanged(frame.dndUntil);
         case "invitation.dismissed":
           return change({ type: "invitation dismissed" });
         case "rooms.reordered":

@@ -113,7 +113,7 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
         <PushContext value={{ ...PUSH_ON, platform }}>
           <FlashProvider workspace>
             <Sheet>
-              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} dndUntil={hushed} onDndChanged={onDndChanged} onSignOut={onSignOut} onFailed={onFailed} />
+              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} dndUntil={hushed} askForDnd={() => (hushedUntil: string | null) => onDndChanged(hushedUntil)} onDndChanged={onDndChanged} onSignOut={onSignOut} onFailed={onFailed} />
             </Sheet>
           </FlashProvider>
         </PushContext>
