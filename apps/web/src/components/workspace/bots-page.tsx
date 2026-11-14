@@ -54,6 +54,9 @@ export function useAdministratorsOnly(onFailed: (error: unknown) => void) {
 export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
   const [bots, setBots] = useState<Bot[] | null>(null);
   const [commands, setCommands] = useState<Commands | null>(null);
+  // Why the commands couldn't be had, which keeps the bots, their addresses and their settings links
+  // from hiding behind them, said under the list until another ask for the commands answers.
+  const [commandsError, setCommandsError] = useState<unknown>(null);
   const people = useContext(PeopleContext);
   const { failed } = useAdministratorsOnly(onFailed);
   useTitle("Chat bots");
@@ -70,8 +73,9 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
     fetchCommands().then(
       (loaded) => !stopped && setCommands(loaded),
       (error: unknown) => {
-        // The addresses below work without them, but why they didn't come is said all the same.
-        if (!stopped || isSignedOut(error)) failed(error);
+        // The addresses below work without them, so why they didn't come is said under the list, as a
+        // session that's ended goes to sign in.
+        if (!stopped) isSignedOut(error) ? failed(error) : setCommandsError(error);
       },
     );
     return () => void (stopped = true);
@@ -80,10 +84,13 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
   // Reads the commands again, as saving one, taking one away or ticking a room changes them.
   const commandsChanged = useCallback(() => {
     fetchCommands().then(
-      (loaded) => setCommands(loaded),
-      (error: unknown) => !isSignedOut(error) && failed(error),
+      (loaded) => {
+        setCommands(loaded);
+        setCommandsError(null);
+      },
+      (error: unknown) => !isSignedOut(error) && setCommandsError(error),
     );
-  }, [failed]);
+  }, []);
 
   return (
     <SettingsPage back={WORKSPACE_SETTINGS_PATH}>
@@ -116,14 +123,22 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
             <span>Add a chat bot</span>
           </PageLink>
         </header>
-        {/* As wide as the heading, as the cards in workspace settings are. */}
+        {/* The bots are listed once they've loaded, whether the commands did or not, which each card
+            takes as they come, and why they couldn't be had is said under the list. */}
         <menu className="flex flex-col gap-4">
           {bots &&
-            commands &&
             listedNow(bots, people).map((bot) => (
               <BotItem key={bot.id} bot={bot} commands={commands} onChanged={commandsChanged} />
             ))}
         </menu>
+        {commandsError !== null && (
+          <p role="alert" className="flex flex-wrap items-center gap-x-3 px-1 text-[13px] leading-normal text-negative">
+            The workspace's commands couldn't be loaded.
+            <button type="button" onClick={commandsChanged} className="cursor-pointer font-semibold underline">
+              Try again
+            </button>
+          </p>
+        )}
       </Panel>
     </SettingsPage>
   );
@@ -133,8 +148,8 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
 const listedNow = (bots: Bot[], people: People) =>
   byName(bots.filter(({ id }) => people.get(id)?.status !== "deactivated").map((bot) => ({ ...bot, name: people.get(bot.id)?.name ?? bot.name })));
 
-/** The bot, with its avatar, name and edit link, then its rooms' commands, and the commands it answers. */
-function BotItem({ bot, commands, onChanged }: { bot: Bot; commands: Commands; onChanged: () => void }) {
+/** The bot, with its avatar, name and edit link, then its rooms' commands, and the commands it answers. The commands are null until they've loaded, or once they couldn't be, which shows neither tick nor command. */
+function BotItem({ bot, commands, onChanged }: { bot: Bot; commands: Commands | null; onChanged: () => void }) {
   const flash = useFlash();
   // A tick that couldn't be saved is unticked again by the reading that answers, so why it didn't is said.
   const ticked = async (roomId: RoomId, subscribed: boolean) => {
@@ -146,7 +161,7 @@ function BotItem({ bot, commands, onChanged }: { bot: Bot; commands: Commands; o
       flash("alert", error instanceof ApiError ? error.message : "That couldn't be saved");
     }
   };
-  const itsRooms = new Set(commands.subscriptions.filter(({ botId }) => botId === bot.id).map(({ roomId }) => roomId));
+  const itsRooms = new Set((commands?.subscriptions ?? []).filter(({ botId }) => botId === bot.id).map(({ roomId }) => roomId));
   return (
     <li className="flex flex-col gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[2ch] py-4">
       <div className="flex items-center gap-x-[1ch]">
@@ -164,7 +179,7 @@ function BotItem({ bot, commands, onChanged }: { bot: Bot; commands: Commands; o
       {bot.rooms.map((room) => (
         <RoomCommands key={room.id} room={room} botKey={bot.key} listening={itsRooms.has(room.id)} onTick={ticked} />
       ))}
-      <BotCommands bot={bot} commands={commands.commands.filter(({ bot: { id } }) => id === bot.id)} onChanged={onChanged} />
+      <BotCommands bot={bot} commands={(commands?.commands ?? []).filter(({ bot: { id } }) => id === bot.id)} onChanged={onChanged} />
     </li>
   );
 }

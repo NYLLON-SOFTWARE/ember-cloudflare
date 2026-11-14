@@ -185,6 +185,30 @@ describe("Chat bots page", () => {
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 500 })));
     expect(location.pathname).toBe("/account/bots");
   });
+
+  it("keeps the bots listed when the commands couldn't be loaded, saying why, and asks for them again", async () => {
+    const command = { id: "cmd1", name: "deploy", description: "Ship the build", bot: { id: BUILD_BOT.id, name: "Build Bot" } };
+    const mock = serve(undefined, () => Response.json({ error: "Something went wrong" }, { status: 500 }));
+    showPage();
+    const [build] = await listed(2);
+    // The bot and its rooms' addresses are there all the same.
+    expect(within(build!).getByRole("link", { name: "Edit Build Bot" })).toBeInTheDocument();
+    expect(within(within(build!).getAllByRole("group")[0]!).getByRole("textbox", { name: "curl command for posting messages" })).toBeInTheDocument();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The workspace's commands couldn't be loaded");
+
+    // Asking again has them, which takes the reason away and the commands with it.
+    mock.mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/account/bots") return Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots);
+      if (request === "GET /api/account/commands") return Response.json({ commands: [command], subscriptions: [] } satisfies Commands);
+      throw new Error(`Unexpected request for ${request}`);
+    });
+    await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    const section = within(build!).getByRole("region", { name: "Commands" });
+    expect(within(section).getByText("/deploy")).toBeInTheDocument();
+  });
 });
 
 describe("Slack-compatible webhooks", () => {
