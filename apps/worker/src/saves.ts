@@ -4,11 +4,13 @@ import { credentialsOf } from "./auth";
 import { jsonBodyOf } from "./bodies";
 import { sharedDb } from "./db";
 import type { Env } from "./env";
-import { messagesAnywhereWithIds } from "./store";
+import { messagesInRoomWithIds } from "./store";
 import { workspace, type Searcher } from "./workspace";
 
 // Saving messages for later: a person's own list, in whatever rooms the messages live in. The rows keep
-// only the ids, so the Saved pane asks each room for its messages as it shows them, as search results do.
+// only the ids, so the Saved pane asks each room for its messages as it shows them, as search results
+// do, and each room answers only what it keeps, so a save naming another room's message reads nothing
+// of it.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -66,14 +68,16 @@ async function answer(env: Env, rows: SavedMessage[], { rooms }: Searcher): Prom
   return items;
 }
 
-/** The messages `saves` name that are still there, from D1 at once where every room keeps them, or else from each room once. */
+/** The messages `saves` name that are still there, each from the room its save says it lives in, a room's worth at once. */
 async function readNow(env: Env, saves: SavedMessage[]): Promise<Message[]> {
   if (saves.length === 0) return [];
   const db = sharedDb(env);
-  if (db) return messagesAnywhereWithIds(db, saves.map(({ messageId }) => messageId), env.SESSION_SECRET);
   const messages: Message[] = [];
   await eachAtMost([...Map.groupBy(saves, ({ roomId }) => roomId)], ROOMS_AT_ONCE, async ([roomId, inRoom]) => {
-    messages.push(...(await env.CHAT_ROOM.getByName(roomId).messagesWithIds(roomId, inRoom.map(({ messageId }) => messageId))));
+    // The room and the ids ask together, on D1 as in each room, so a save can't read a message its room
+    // doesn't keep, as one naming another room's message would.
+    const ids = inRoom.map(({ messageId }) => messageId);
+    messages.push(...(db ? await messagesInRoomWithIds(db, roomId, ids, env.SESSION_SECRET) : await env.CHAT_ROOM.getByName(roomId).messagesWithIds(roomId, ids)));
   });
   return messages;
 }

@@ -809,6 +809,15 @@ export async function messagesAnywhereWithIds(db: Db, ids: string[], secret: str
   return toMessages(await db.all<MessageRow>(MESSAGES_ANYWHERE_WITH_IDS, JSON.stringify(ids)), () => fileSigner(secret));
 }
 
+/**
+ * The messages `ids` name that the room `roomId` keeps, in no particular order, for saves: a save names
+ * the room its message lives in, so the room and the id ask together, and a save naming another room's
+ * message reads nothing of it. Their files' addresses are signed under `secret`.
+ */
+export async function messagesInRoomWithIds(db: Db, roomId: RoomId, ids: string[], secret: string): Promise<Message[]> {
+  return toMessages(await db.all<MessageRow>(MESSAGES_WITH_IDS, roomId, JSON.stringify(ids)), () => fileSigner(secret));
+}
+
 /** The messages whose rows the search index keeps (`indexable`), their files' addresses signed under `secret`. */
 export function indexedMessages(rows: string[], secret: string): Promise<Message[]> {
   return toMessages(rows.map((row) => JSON.parse(row) as MessageRow), () => fileSigner(secret));
