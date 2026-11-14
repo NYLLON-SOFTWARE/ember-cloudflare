@@ -1,10 +1,11 @@
-import type { Boost, Card, DirectoryUser, Message, SkinTone, StoredFile, User } from "@ember/protocol";
+import type { Boost, Card, CustomEmoji, DirectoryUser, Message, SkinTone, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
+import { CustomEmojiContext, type CustomEmojiByName } from "@/hooks/use-custom-emoji";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { SkinToneContext } from "@/hooks/use-skin-tone";
@@ -71,6 +72,7 @@ function show(
     thread = undefined as ThreadPlace | undefined,
     open = false,
     skinTone = 0 as SkinTone,
+    customEmoji = new Map() as CustomEmojiByName,
   } = {},
 ) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
@@ -93,7 +95,9 @@ function show(
         <SkinToneContext value={skinTone}>
           <RoomConnection value={connections}>
             <RefusedUnboosts value={refusals}>
-              <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+              <CustomEmojiContext value={customEmoji}>
+                <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+              </CustomEmojiContext>
             </RefusedUnboosts>
           </RoomConnection>
         </SkinToneContext>
@@ -1391,6 +1395,72 @@ describe("Custom reactions", () => {
     await newBoost(user);
     expect(customField()).toHaveValue("Wow");
     expect(customField()).toHaveFocus();
+  });
+});
+
+describe("Custom emoji", () => {
+  const shipit: CustomEmoji = { name: "shipit", key: "k1", creatorId: "u2", createdAt: "2026-11-14T12:00:00.000Z" };
+  const parrot: CustomEmoji = { name: "extremely_fast_party_parrot", key: "k2", creatorId: "u2", createdAt: "2026-11-14T12:00:00.000Z" };
+  const customEmoji: CustomEmojiByName = new Map([shipit, parrot].map((emoji) => [emoji.name, emoji]));
+  const pictures = (within: HTMLElement) => [...within.querySelectorAll<HTMLImageElement>("img[alt^=':']")].map((img) => [img.alt, img.getAttribute("src")]);
+
+  it("draws an emoji's picture in place of its code in a message, named by the code", () => {
+    const { article } = show(message({ body: "<p>Ready to :shipit: today</p>", plainText: "Ready to :shipit: today" }), { customEmoji });
+    const body = article.querySelector<HTMLElement>(".message-content")!;
+    expect(pictures(body)).toEqual([[":shipit:", "/emoji/k1"]]);
+    expect(body).toHaveTextContent("Ready to today");
+    expect(within(body).getByRole("img", { name: ":shipit:" })).toHaveAttribute("title", ":shipit:");
+  });
+
+  it("leaves a code as it's written in code, and where the workspace has no emoji of that name", () => {
+    const body = "<p>Run <code>:shipit:</code> or :nothing:</p><pre>:shipit:</pre>";
+    const { article } = show(message({ body, plainText: "Run :shipit: or :nothing:\n:shipit:" }), { customEmoji });
+    const content = article.querySelector<HTMLElement>(".message-content")!;
+    expect(pictures(content)).toEqual([]);
+    expect(content).toHaveTextContent("Run :shipit: or :nothing:");
+
+    // As everywhere before the emoji load, and once one is removed.
+    const plain = show(message({ body: "<p>:shipit:</p>", plainText: ":shipit:" }));
+    expect(plain.article.querySelector(".message-content")).toHaveTextContent(":shipit:");
+  });
+
+  it("shows a message of nothing but emoji large, custom ones among them", () => {
+    const large = (plainText: string) =>
+      show(message({ body: `<p>${plainText}</p>`, plainText }), { customEmoji }).article.querySelector(".message-content")!.classList.contains("text-[2.4em]");
+    expect(large(":shipit:")).toBe(true);
+    expect(large(":shipit:🎉:extremely_fast_party_parrot:")).toBe(true);
+    expect(large("Go :shipit:")).toBe(false);
+    expect(large(":nothing:")).toBe(false);
+  });
+
+  it("shows a reaction of an emoji's code as its picture, and as the code without the emoji", () => {
+    const boosted = message({ boosts: [boost("b1", grace, ":shipit:"), boost("b2", grace, ":nothing:")] });
+    show(boosted, { customEmoji });
+    const [first, second] = reactions().getAllByRole("listitem");
+    expect(pictures(first!)).toEqual([[":shipit:", "/emoji/k1"]]);
+    expect(pictures(second!)).toEqual([]);
+    expect(second).toHaveTextContent(":nothing:");
+    expect(within(first!).getByRole("link", { name: "Grace boosted :shipit:" })).toBeInTheDocument();
+  });
+
+  it("lists the emoji a :code finds by name, with its picture, and reacts with its code, however long", async () => {
+    const { actions, user } = show(message(), { customEmoji });
+    await pressAction(user, "More reactions");
+    await user.click(screen.getByRole("button", { name: "New boost" }));
+    await user.type(customField(), ":parr");
+    const list = await screen.findByRole("listbox", { name: "Emoji matching :parr" });
+    // Unicode's parrot starts with what's typed, so it comes first, then the workspace's own.
+    const [parrotOption, custom] = within(list).getAllByRole("option");
+    expect(parrotOption).toHaveAccessibleName("🦜 :parrot:");
+    expect(custom).toHaveAccessibleName(":extremely_fast_party_parrot:");
+    expect(pictures(custom!)).toEqual([[":extremely_fast_party_parrot:", "/emoji/k2"]]);
+    expect(custom).toHaveTextContent(":extremely_fast_party_parrot:");
+
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Enter}");
+    expect(customField()).toHaveValue(":extremely_fast_party_parrot:");
+    await user.keyboard("{Enter}");
+    expect(actions.boost).toHaveBeenCalledWith("m1", ":extremely_fast_party_parrot:");
   });
 });
 

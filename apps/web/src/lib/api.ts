@@ -1,5 +1,7 @@
 import {
   AVATAR_PATH,
+  CUSTOM_EMOJI_API_PATH,
+  customEmojiApiPath,
   LOGO_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
   roomSocketQuery,
@@ -23,6 +25,8 @@ import {
   type CustomDomainCheck,
   type CustomDomainLookup,
   type CustomDomainReach,
+  type CustomEmoji,
+  type CustomEmojiList,
   type CustomStyles,
   type DirectRoom,
   type Directory,
@@ -741,6 +745,28 @@ export async function tryAgent(trial: AgentTrial, agentId: UserId | null): Promi
  */
 export async function changeYourAssistant(changes: YourAssistantChanges): Promise<YourAssistantChanged["assistant"]> {
   return (await request<YourAssistantChanged>("/api/users/me/assistant", { method: "PATCH", body: JSON.stringify(changes) })).assistant;
+}
+
+/** Every custom emoji in the workspace, by name. */
+export async function fetchCustomEmoji(): Promise<CustomEmoji[]> {
+  return (await request<CustomEmojiList>(CUSTOM_EMOJI_API_PATH)).emoji;
+}
+
+/**
+ * Adds the custom emoji `name` with the picture `image`, answering it. Fails with a 409 ApiError for a
+ * name another has, a 422 for a name no emoji can have, a 413 for a picture over 256 KB, a 415 for one
+ * that isn't a PNG, JPEG, GIF or WebP, and a 503 where Ember isn't set up to store files.
+ */
+export async function addCustomEmoji(name: string, image: Blob): Promise<CustomEmoji> {
+  const form = new FormData();
+  form.set("name", name);
+  form.set("image", image, "image");
+  return request<CustomEmoji>(CUSTOM_EMOJI_API_PATH, { method: "POST", body: form });
+}
+
+/** Removes the custom emoji `name`. Fails with a 403 ApiError unless you added it or are an administrator, and a 404 if it's gone already. */
+export async function removeCustomEmoji(name: string): Promise<void> {
+  await request(customEmojiApiPath(name), { method: "DELETE" });
 }
 
 /** Gives you the skin tone `skinTone` for the emoji of people and hands, answering it as saved. */

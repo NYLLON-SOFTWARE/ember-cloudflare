@@ -1,20 +1,22 @@
 import { createContext, useLayoutEffect, useRef, type ComponentType } from "react";
-import { BrainElectricity, Group, Hashtag, Headset, Internet, Palette, Settings, Sparks } from "@/components/icons/iconoir";
+import { BrainElectricity, Emoji, Group, Hashtag, Headset, Internet, Palette, Settings, Sparks } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
-import { BOTS_PATH, CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH, type Route } from "@/hooks/use-route";
+import { BOTS_PATH, CUSTOM_EMOJI_PATH, CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH, type Route } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 
 // Community settings: the pages that set the workspace up share a layout whose column of links to them
 // takes the conversations' place, and workspace settings show one of their sections at a time, the one
 // the address's fragment names: General, Rooms and permissions, Membership, and Domain settings, where
 // administrators give Ember a custom domain, AI assistant, where they set up Ember AI and its agents,
-// whose pages are part of it, and Huddles, where they turn huddles on.
+// whose pages are part of it, and Huddles, where they turn huddles on. Custom emoji, where anyone adds
+// emoji of their own, is a page of its own among them.
 
 /** The sections of community settings, by their ids. */
 export type SettingsSection =
   | "community-settings"
   | "channel-settings"
   | "membership-settings"
+  | "custom-emoji"
   | "domain-settings"
   | "chat-bots"
   | "assistant-settings"
@@ -51,6 +53,8 @@ export function settingsSectionOf(route: Route, hash: string): SettingsSection |
     case "new-app":
     case "app-settings":
       return "assistant-settings";
+    case "custom-emoji":
+      return "custom-emoji";
     case "custom-styles":
       return "custom-styles";
     default:
@@ -78,6 +82,7 @@ const LINKS: SectionLink[] = [
   { section: "community-settings", href: workspaceSectionPath("community-settings"), icon: Settings, label: "General" },
   { section: "channel-settings", href: workspaceSectionPath("channel-settings"), icon: Hashtag, label: "Rooms and permissions" },
   { section: "membership-settings", href: workspaceSectionPath("membership-settings"), icon: Group, label: "Membership" },
+  { section: "custom-emoji", href: CUSTOM_EMOJI_PATH, icon: Emoji, label: "Custom emoji" },
 ];
 
 /** And the sections only administrators use. */

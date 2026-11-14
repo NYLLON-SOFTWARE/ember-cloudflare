@@ -1,7 +1,7 @@
 import { REACTIONS } from "@ember/protocol";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import rows from "./emoji-data.json";
-import { closedCode, FAVORED, indexOf, loadEmoji, MAX_MATCHES, recentEmoji, rememberEmoji, searchEmoji, typedCode } from "./emoji";
+import { closedCode, FAVORED, indexOf, loadEmoji, MAX_MATCHES, recentEmoji, rememberEmoji, searchEmoji, typedCode, withCustomEmoji } from "./emoji";
 
 const index = indexOf(rows as Parameters<typeof indexOf>[0]);
 const found = (query: string, recent?: string[]) => searchEmoji(index, query, recent).map(({ emoji, code }) => `${emoji}${code}`);
@@ -147,5 +147,39 @@ describe("Emoji used lately", () => {
     });
     rememberEmoji("🎉");
     expect(recentEmoji()).toEqual([]);
+  });
+});
+
+describe("The workspace's custom emoji", () => {
+  const custom = withCustomEmoji(index, ["shipit", "party_parrot", "thumbs_up_cat"]);
+  const foundIn = (query: string, recent?: string[]) => searchEmoji(custom, query, recent).map(({ emoji, code }) => `${emoji} ${code}`);
+
+  it("are found by their names, each as its code, before Unicode's that match as well", () => {
+    expect(foundIn("shipi")).toEqual([":shipit: shipit"]);
+    expect(foundIn("party_p")[0]).toBe(":party_parrot: party_parrot");
+    // Both start with what's typed, and the workspace's own comes first.
+    expect(foundIn("shi").slice(0, 1)).toEqual([":shipit: shipit"]);
+    expect(foundIn("shi")).toContain("🚢 ship");
+    // But for Ember's quick reactions, which any search lists sooner.
+    expect(foundIn("thumbs").slice(0, 2)).toEqual(["👍 thumbsup", ":thumbs_up_cat: thumbs_up_cat"]);
+  });
+
+  it("are ranked as the rest are: a code that is what's typed first, then codes that start with it, then words of codes", () => {
+    expect(foundIn("ship").slice(0, 2)).toEqual(["🚢 ship", ":shipit: shipit"]);
+    expect(foundIn("parrot").slice(0, 2)).toEqual(["🦜 parrot", ":party_parrot: party_parrot"]);
+    expect(foundIn("cat")).toContain(":thumbs_up_cat: thumbs_up_cat");
+  });
+
+  it("come sooner once they've been used lately, as any emoji does", () => {
+    expect(foundIn("par", [":party_parrot:"])[0]).toBe(":party_parrot: party_parrot");
+  });
+
+  it("keep their codes as they're typed when a colon closes them, since the code is the emoji", () => {
+    expect(closedCode(custom, "Go :shipit:")).toBeNull();
+    expect(closedCode(custom, "Go :tada:")).toEqual({ typed: ":tada:", emoji: "🎉", base: "🎉" });
+  });
+
+  it("leave the emoji as they were when there are none", () => {
+    expect(withCustomEmoji(index, [])).toBe(index);
   });
 });

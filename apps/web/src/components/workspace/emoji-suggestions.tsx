@@ -1,9 +1,11 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SkinTone } from "@ember/protocol";
+import { useCustomEmoji } from "@/hooks/use-custom-emoji";
 import { useSkinTone } from "@/hooks/use-skin-tone";
-import { loadEmoji, loadedEmoji, recentEmoji, rememberEmoji, searchEmoji, type EmojiIndex, type EmojiMatch } from "@/lib/emoji";
+import { loadEmoji, loadedEmoji, recentEmoji, rememberEmoji, searchEmoji, withCustomEmoji, type EmojiIndex, type EmojiMatch } from "@/lib/emoji";
 import { cn } from "@/lib/utils";
+import { EmojiGlyph } from "./custom-emoji";
 
 /** How far the list keeps from what it's for, and from the window's edges. */
 const GAP = 6;
@@ -58,7 +60,10 @@ export function useEmojiSuggestions(typed: string | null, onPick: (match: EmojiM
   const [dismissed, setDismissed] = useState(false);
   const [recent, setRecent] = useState(recentEmoji);
   const skinTone = useSkinTone();
-  const matches = index && typed !== null ? searchEmoji(index, typed, recent, skinTone) : [];
+  // The workspace's custom emoji are found with Unicode's, by their names.
+  const customEmoji = useCustomEmoji();
+  const searched = useMemo(() => index && withCustomEmoji(index, customEmoji.keys()), [index, customEmoji]);
+  const matches = searched && typed !== null ? searchEmoji(searched, typed, recent, skinTone) : [];
   const open = !dismissed && matches.length > 0;
 
   // The best match is picked first, each time what's typed changes, and leaving a code ends its Escape.
@@ -102,6 +107,9 @@ export function useEmojiSuggestions(typed: string | null, onPick: (match: EmojiM
   return { open, matches, active: Math.min(active, matches.length - 1), setActive, pick, keyDown, index, skinTone };
 }
 
+/** What an option is called: the emoji and its code, or just the code of a custom emoji, which is its emoji. */
+const optionLabel = ({ emoji, code }: EmojiMatch) => (emoji === `:${code}:` ? emoji : `${emoji} :${code}:`);
+
 interface Props {
   id: string;
   state: EmojiSuggestionsState;
@@ -115,8 +123,8 @@ interface Props {
 
 /**
  * The emoji a code being typed finds, as Slack lists them: a heading, "Emoji matching :ta", then each
- * emoji with its code, the one Enter would pick highlighted. Pressing on one picks it without taking
- * focus from the text.
+ * emoji, a custom one as its picture, with its code, the one Enter would pick highlighted. Pressing on
+ * one picks it without taking focus from the text.
  */
 export function EmojiSuggestions({ id, state, typed, anchor, within }: Props) {
   const list = useRef<HTMLDivElement>(null);
@@ -184,13 +192,13 @@ export function EmojiSuggestions({ id, state, typed, anchor, within }: Props) {
             id={`${id}-${position}`}
             role="option"
             aria-selected={position === state.active}
-            aria-label={`${match.emoji} :${match.code}:`}
+            aria-label={optionLabel(match)}
             className="flex h-8 cursor-pointer items-center gap-2.5 rounded-[6px] px-2 text-sm aria-selected:bg-hover touch:h-11"
             onPointerMove={() => state.setActive(position)}
             onClick={() => state.pick(match)}
           >
             <span aria-hidden className="w-6 shrink-0 text-center text-[1.25rem] leading-none">
-              {match.emoji}
+              <EmojiGlyph emoji={match.emoji} />
             </span>
             <span className="min-w-0 truncate">:{match.code}:</span>
           </li>

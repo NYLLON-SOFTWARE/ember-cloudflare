@@ -148,6 +148,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Threads** | ✅ with Also send to the room | ✅ with Also send to the channel |
 | **Mentions, quotes, reactions and edits** | ✅ react with any emoji or a few words | ✅ plus custom emoji |
 | **Emoji by `:code:`** | ✅ Slack's codes, in messages and reactions | ✅ |
+| **Custom emoji** | ✅ anyone adds a picture and a name, typed by its `:name:` in messages and reactions | ✅ |
 | **Rich text, code blocks and link previews** | ✅ | ✅ |
 | **Files** | ✅ up to 250 MB each | ✅ up to 1 GB each |
 | **Search** | ✅ every message in your rooms and DMs, with Slack's filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |

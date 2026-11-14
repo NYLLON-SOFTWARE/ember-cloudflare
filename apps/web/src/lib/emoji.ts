@@ -1,4 +1,5 @@
 import type { SkinTone } from "@ember/protocol";
+import { emojiCode } from "@ember/protocol/custom-emoji";
 import { withSkinTone } from "./skin-tone";
 
 // Emoji by their :codes, as Slack writes them: typing a colon and two or more letters lists the emoji
@@ -89,6 +90,18 @@ export function indexOf(rows: Row[]): EmojiIndex {
     if (takesTone) toned.set(bare(emoji), emoji);
   }
   return { rows, byCode, toned };
+}
+
+/**
+ * `index` with the workspace's custom emoji, named `names`, listed before Unicode's, so a search finds
+ * them by their names as it finds the rest by their codes. Each one's emoji is its code, :name:, which
+ * is what a message or reaction keeps of it, and what `recentEmoji` remembers. They're left out of
+ * `byCode`: a custom emoji's code is already what's typed, so its closing colon has nothing to put in
+ * its place.
+ */
+export function withCustomEmoji(index: EmojiIndex, names: Iterable<string>): EmojiIndex {
+  const custom = [...names].map((name): Row => [emojiCode(name), name, [name], []]);
+  return custom.length === 0 ? index : { ...index, rows: [...custom, ...index.rows] };
 }
 
 /** What's typed after the colon of a code that ends at the cursor, given the text before it, or null. */

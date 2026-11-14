@@ -854,3 +854,32 @@ describe("Custom CSS", () => {
     expect(onAccountChanged).not.toHaveBeenCalled();
   });
 });
+
+describe("Custom emoji", () => {
+  const shipit = { name: "shipit", key: "k1", creatorId: "u2", createdAt: NOON };
+  const people = { people: new Map(), reload: async () => {}, update: () => {} };
+
+  it("loads the workspace's emoji as the sidebar loads, each time the socket connects, and hears each one added and removed", async () => {
+    const emoji = { reload: vi.fn(async () => {}), add: vi.fn(), remove: vi.fn() };
+    renderHook(() => useSidebar(ada, vi.fn(), people, undefined, undefined, emoji));
+    await settle();
+    const loads = emoji.reload.mock.calls.length;
+    socket().connect();
+    await settle();
+    expect(emoji.reload).toHaveBeenCalledTimes(loads + 1);
+
+    socket().receive({ type: "emoji.added", emoji: shipit });
+    expect(emoji.add).toHaveBeenCalledWith(shipit);
+    socket().receive({ type: "emoji.removed", name: "shipit" });
+    expect(emoji.remove).toHaveBeenCalledWith("shipit");
+  });
+
+  it("leaves the sidebar loaded when the emoji don't load", async () => {
+    const emoji = { reload: vi.fn(async () => Promise.reject(new Error("offline"))), add: vi.fn(), remove: vi.fn() };
+    const { result } = renderHook(() => useSidebar(ada, vi.fn(), people, undefined, undefined, emoji));
+    await settle();
+    socket().connect();
+    await settle();
+    expect(result.current.answered).toBe(true);
+  });
+});

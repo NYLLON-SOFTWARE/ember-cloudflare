@@ -1,4 +1,4 @@
-import { AVATAR_BOX, isPreviewableSize, isPreviewed, isVariable, LOGO_BOXES, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH } from "@ember/protocol";
+import { AVATAR_BOX, CUSTOM_EMOJI_BOX, isPreviewableSize, isPreviewed, isVariable, LOGO_BOXES, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH } from "@ember/protocol";
 
 // Previews of files, which the uploader's browser makes and the app sends before a file's last part, where
 // Campfire makes them on the server: a picture's thumbnail, as its `:thumb` variant resizes it to fit
@@ -78,6 +78,21 @@ export async function logoVariantsOf(file: File): Promise<LogoVariants | null> {
     const [large, small] = await Promise.all([pngWithin(LOGO_BOXES.large), pngWithin(LOGO_BOXES.small)]);
     return large && small && { large, small };
   });
+}
+
+/**
+ * The picture the app sends as a custom emoji for `file`: a PNG of it within Slack's 128×128, or `file`
+ * itself for a GIF, which may be animated, and where this browser can't scale it, as a picture small
+ * enough is kept as it came.
+ */
+export async function customEmojiPictureOf(file: File): Promise<Blob> {
+  if (file.type === "image/gif" || !isVariable(file.type)) return file;
+  const box = { width: CUSTOM_EMOJI_BOX, height: CUSTOM_EMOJI_BOX };
+  const scaled = await madeOf(file, async (url, signal) => {
+    const picture = await pictureAt(url, signal);
+    return pngOf(picture, fitted(sizeOf(picture), box));
+  });
+  return scaled ?? file;
 }
 
 /**

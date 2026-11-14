@@ -5,6 +5,7 @@ export { AgentSettingsPage, NewAgentPage } from "./agent-page";
 export { AppSettingsPage, NewAppPage } from "./app-page";
 export { BotSettingsPage, NewBotPage } from "./bot-settings-page";
 export { BotsPage } from "./bots-page";
+export { CustomEmojiPage } from "./custom-emoji-page";
 export { CustomStylesPage } from "./custom-styles-page";
 export { DirectSettingsPage } from "./direct-settings-page";
 export { EmberPage } from "./ember-settings";

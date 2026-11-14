@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
+import type { CustomEmojiList } from "@/hooks/use-custom-emoji-list";
 import { withSkinToneOf } from "@/hooks/use-skin-tone";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
@@ -60,6 +61,11 @@ interface Directory {
 
 const NO_DIRECTORY: Directory = { people: new Map(), reload: async () => {}, update: () => {} };
 
+/** The workspace's custom emoji, as far as the workspace socket keeps them current (`useCustomEmojiList`). */
+type Emoji = Pick<CustomEmojiList, "reload" | "add" | "remove">;
+
+const NO_EMOJI: Emoji = { reload: async () => {}, add: () => {}, remove: () => {} };
+
 /** Whether `you` and `me` are the same person, as they are now. */
 const isSame = (you: Me, me: Me) =>
   you.id === me.id && you.name === me.name && you.administrator === me.administrator && (you.skinTone ?? 0) === (me.skinTone ?? 0);
@@ -83,7 +89,8 @@ const isSame = (you: Me, me: Me) =>
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
  * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
- * gone as it leaves the list.
+ * gone as it leaves the list. The workspace's custom `emoji` load again each time the sidebar does by
+ * itself too, and hear each one the socket says was added or removed.
  */
 export function useSidebar(
   me: Me,
@@ -91,6 +98,7 @@ export function useSidebar(
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
+  emoji: Emoji = NO_EMOJI,
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -117,6 +125,10 @@ export function useSidebar(
   const accountChanged = useEffectEvent(onAccountChanged);
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
+  // And a failed load leaves the emoji as they are.
+  const reloadEmoji = useEffectEvent(() => void emoji.reload().catch(() => {}));
+  const emojiAdded = useEffectEvent(emoji.add);
+  const emojiRemoved = useEffectEvent(emoji.remove);
   const gone = useEffectEvent(onGone);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Whether `user`, active now, is someone the directory lists as removed, banned or suspended, rather
@@ -150,6 +162,7 @@ export function useSidebar(
       clearTimeout(waiting);
       waiting = undefined;
       reloadPeople();
+      reloadEmoji();
       reloadRooms();
     };
     const reloadRoomsSoon = () => {
@@ -213,6 +226,10 @@ export function useSidebar(
           return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
+        case "emoji.added":
+          return emojiAdded(frame.emoji);
+        case "emoji.removed":
+          return emojiRemoved(frame.name);
         case "skin_tone.changed":
           toldOf.tone = true;
           return signsIn(withSkinToneOf(heard.current, frame.skinTone));

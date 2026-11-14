@@ -1,13 +1,15 @@
 import { useContext, useId, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
+import { isBoostLength, MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { ArrowUp, Emoji, Minus, Xmark } from "@/components/icons/iconoir";
+import { useCustomEmoji } from "@/hooks/use-custom-emoji";
 import { useNameOf } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { closedCode, loadedEmoji, loadEmoji, rememberEmoji, typedCode } from "@/lib/emoji";
 import { pressedAlone } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
+import { CustomEmojiImage, onlyCustomEmoji } from "./custom-emoji";
 import { EmojiSuggestions, useEmojiSuggestions } from "./emoji-suggestions";
 import type { MessageActions } from "./message-item";
 import { AvatarLink, UserAvatar } from "./user-avatar";
@@ -118,7 +120,10 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
   const [deletedAt, setDeletedAt] = useState<{ connection: number; refusals: number } | null>(null);
   const deleting = deletedAt?.connection === connection && deletedAt.refusals === refusals;
   const remove = useRef<HTMLButtonElement>(null);
-  const content = cn("min-w-0 leading-normal", isAllEmoji(boost.content) ? "text-base" : "text-[0.8rem]");
+  // A custom emoji's code, and nothing else, shows as its picture, while the workspace has it.
+  const custom = onlyCustomEmoji(boost.content, useCustomEmoji());
+  const content = cn("min-w-0 leading-normal", custom || isAllEmoji(boost.content) ? "text-base" : "text-[0.8rem]");
+  const shown = custom ? <CustomEmojiImage emoji={custom} /> : boost.content;
 
   useLayoutEffect(() => {
     if (expanded) remove.current?.focus();
@@ -155,10 +160,10 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
           className={cn(content, "cursor-pointer after:absolute after:-inset-px after:rounded-[4rem]")}
           onClick={() => setExpanded((shown) => !shown)}
         >
-          {boost.content}
+          {shown}
         </button>
       ) : (
-        <span className={content}>{boost.content}</span>
+        <span className={content}>{shown}</span>
       )}
       {reveal && (
         <button
@@ -193,7 +198,8 @@ function CustomReaction({ me, fieldRef, onAdd, onCancel }: { me: Me; fieldRef?: 
   // where to put it once an emoji's put in a code's place, as it shows, before the next key's typed.
   const [cursor, setCursor] = useState<number | null>(null);
   const [placedCursor, setPlacedCursor] = useState<number | null>(null);
-  const left = MAX_BOOST_LENGTH - content.length;
+  // A custom emoji's code can be longer than the field takes typed, and nothing more fits after it.
+  const left = Math.max(0, MAX_BOOST_LENGTH - content.length);
   const typed = cursor === null ? null : typedCode(content.slice(0, cursor));
 
   // Writes `text` in place of the `length` characters before the cursor, if what's written then fits.
@@ -203,7 +209,7 @@ function CustomReaction({ me, fieldRef, onAdd, onCancel }: { me: Me; fieldRef?: 
     const at = field.selectionStart ?? field.value.length;
     const replaced = field.value.slice(0, at - length) + text;
     const written = replaced + field.value.slice(at);
-    if (written.length > MAX_BOOST_LENGTH) return;
+    if (!isBoostLength(written)) return;
     setContent(written);
     setCursor(replaced.length);
     setPlacedCursor(replaced.length);
