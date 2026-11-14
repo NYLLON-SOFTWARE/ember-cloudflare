@@ -236,8 +236,11 @@ export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & 
     send(
       "reading",
       () => readAppTools(appId),
-      // What's typed stays as it is: only the tools are new.
-      (read) => setApp(read),
+      // What's typed stays as it is, and a field left as the app had it follows what another administrator has saved since, so that the next save doesn't put the old back.
+      (read) => {
+        if (app) setFields((typed) => ({ ...typed, ...(typed.name.trim() === app.name && { name: read.name }), ...(typed.url.trim() === app.url && { url: read.url }) }));
+        setApp(read);
+      },
       ({ error }) => setUnread(error),
     );
   const remove = () => {
@@ -280,7 +283,7 @@ interface FormProps {
   fields: Fields;
   onChange: (fields: Fields) => void;
   refusal: Refusal | null;
-  /** Whether the form or one of the page's buttons is on its way to the server, which the form's button waits for. */
+  /** Whether the form or one of the page's buttons is on its way to the server, which the form's button waits for, its fields kept as they were sent: what it answers would replace anything typed since. */
   busy: boolean;
   /** Whether Ember is asking the app's server for its tools as the form is sent. */
   reading: boolean;
@@ -311,6 +314,7 @@ function AppForm({ saved, fields, onChange, refusal, busy, reading, canSave, onS
       <Field id="app_name" label="Name">
         <Input
           id="app_name"
+          readOnly={busy}
           placeholder="Name the app"
           maxLength={MAX_APP_NAME_LENGTH}
           autoComplete="off"
@@ -328,6 +332,7 @@ function AppForm({ saved, fields, onChange, refusal, busy, reading, canSave, onS
       <Field id="app_url" label="Server address">
         <Input
           id="app_url"
+          readOnly={busy}
           type="url"
           inputMode="url"
           placeholder="https://example.com/mcp"
@@ -347,6 +352,7 @@ function AppForm({ saved, fields, onChange, refusal, busy, reading, canSave, onS
       <Field id="app_token" label="Token">
         <Input
           id="app_token"
+          readOnly={busy}
           type="password"
           placeholder={keepsToken ? "Unchanged" : "None"}
           maxLength={MAX_APP_TOKEN_LENGTH}
@@ -367,6 +373,7 @@ function AppForm({ saved, fields, onChange, refusal, busy, reading, canSave, onS
             <input
               type="checkbox"
               checked={fields.noToken}
+              disabled={busy}
               onChange={(event) => onChange({ ...fields, token: "", noToken: event.target.checked })}
               className="size-4 flex-none accent-foreground"
             />

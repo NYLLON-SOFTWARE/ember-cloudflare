@@ -243,6 +243,12 @@ describe("A connected app's page", () => {
     expect(screen.getAllByRole("status")[0]).toHaveTextContent(READING_TOOLS);
     expect(within(tools()).getByRole("status")).toHaveTextContent("");
     expect(requests[0]!.body).toEqual({ token: "lin_api_456" });
+    // Nothing can be typed until the server answers, as its answer would replace it.
+    await user.type(await nameField(), "!");
+    await user.type(tokenField(), "7");
+    expect(await nameField()).toHaveValue("Linear");
+    expect(tokenField()).toHaveValue("lin_api_456");
+    expect(screen.getByRole("checkbox", { name: "Send no token" })).toBeDisabled();
     saved(answer({ ...LINEAR, tools: [LINEAR.tools[0]!] }));
     expect(await flashed()).toHaveTextContent("Changes saved. Ember read 1 tool from Linear.");
     expect(within(tools()).getByRole("heading", { name: "Tools (1)" })).toBeVisible();
@@ -271,6 +277,20 @@ describe("A connected app's page", () => {
     expect(await within(tools()).findByRole("heading", { name: "Tools (3)" })).toBeVisible();
     expect(requests).toEqual([{ request: `POST /api/account/apps/${LINEAR.id}/tools`, body: undefined }]);
     expect(await nameField()).toHaveValue("Linear!");
+  });
+
+  it("follows what another administrator saved, in the fields left as they were, once its tools are read again, so that the next save doesn't put the old back", async () => {
+    const elsewhere = { ...LINEAR, name: "Linear (EU)", url: "https://mcp.eu.linear.example/mcp" };
+    const requests = serve({ sent: (request) => answer(request.startsWith("POST") ? elsewhere : { ...elsewhere, name: "Linear!" }) });
+    const { user } = showSettings();
+    await user.type(await nameField(), "!");
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    // The address wasn't touched, so it's the one saved since; the name was, so it stays as typed.
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Server address" })).toHaveValue(elsewhere.url));
+    expect(await nameField()).toHaveValue("Linear!");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(requests.at(-1)).toEqual({ request: `PATCH /api/account/apps/${LINEAR.id}`, body: { name: "Linear!" } }));
   });
 
   it("says why its tools couldn't be read again, in the Tools card, leaving those it has", async () => {

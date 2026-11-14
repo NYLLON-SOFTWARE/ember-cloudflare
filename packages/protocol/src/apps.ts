@@ -23,6 +23,7 @@ export const MAX_TOOL_DESCRIPTION_LENGTH = 1500;
 
 export const APPS_FORBIDDEN = "Only administrators can connect apps";
 export const APPS_FULL = `Ember connects at most ${MAX_APPS} apps. Remove one first.`;
+export const APP_CHANGED = "Someone else changed this app while Ember read its tools. Load the page again.";
 export const APP_URL_REFUSED = "The address must be an https URL, or an http one on localhost";
 
 /** A tool of an app's, as its server describes it: its name there, what it's called, if that's something else, and what it does. */

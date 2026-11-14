@@ -1,4 +1,4 @@
-import { APPS_FORBIDDEN, APPS_FULL, parseAppChanges, parseNewApp, type App, type AppAnswer, type AppId, type Apps } from "@ember/protocol/apps";
+import { APP_CHANGED, APPS_FORBIDDEN, APPS_FULL, parseAppChanges, parseNewApp, type App, type AppAnswer, type AppId, type Apps } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { administratorOf } from "../assistant/settings";
 import { credentialsOf } from "../auth";
@@ -84,7 +84,7 @@ export async function changeApp(request: Request, env: Env, appId: AppId): Promi
   if (url === access.url && token === access.token) return appAnswer(await ember.changeApp(credentials, appId, changes, null));
   const read = await appConnector(env).read(url, token);
   if ("error" in read) return formAnswer(read, 422);
-  return appAnswer(await ember.changeApp(credentials, appId, changes, read));
+  return appAnswer(await ember.changeApp(credentials, appId, changes, { read, askedAt: access }));
 }
 
 /**
@@ -99,7 +99,7 @@ export async function readAppTools(request: Request, env: Env, appId: AppId): Pr
   if (typeof access === "string") return refused(access);
   const read = await appConnector(env).read(access.url, access.token);
   if ("error" in read) return problem(422, read.error);
-  return appAnswer(await ember.changeApp(credentials, appId, {}, read));
+  return appAnswer(await ember.changeApp(credentials, appId, {}, { read, askedAt: access }));
 }
 
 /** `DELETE /api/account/apps/:id`: disconnects the app `id`, answering 204. */
@@ -111,7 +111,7 @@ export async function disconnectApp(request: Request, env: Env, appId: AppId): P
 }
 
 /** Why a request about apps isn't done: there's no such app, or the person asking can't, or not now. */
-type Refusal = "off" | "full" | "not found" | "forbidden" | null;
+type Refusal = "off" | "full" | "changed" | "not found" | "forbidden" | null;
 
 /** What a request about an app answers: the app as its page then shows it, with `status`, or why it was refused. */
 function appAnswer(app: App | Refusal, status = 200): Response {
@@ -122,5 +122,5 @@ function refused(why: Refusal): Response {
   if (why === null) return problem(401, NOT_SIGNED_IN);
   if (why === "forbidden") return problem(403, APPS_FORBIDDEN);
   if (why === "not found") return problem(404, "Not found");
-  return problem(409, why === "off" ? ASSISTANT_OFF : APPS_FULL);
+  return problem(409, why === "off" ? ASSISTANT_OFF : why === "changed" ? APP_CHANGED : APPS_FULL);
 }

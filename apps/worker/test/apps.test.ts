@@ -1,5 +1,5 @@
 import type { Me, NewWorkspace } from "@ember/protocol";
-import { APP_URL_REFUSED, APPS_FORBIDDEN, APPS_FULL, MAX_APP_TOOLS, MAX_APPS, MAX_TOOL_DESCRIPTION_LENGTH, type App, type AppAnswer, type Apps } from "@ember/protocol/apps";
+import { APP_CHANGED, APP_URL_REFUSED, APPS_FORBIDDEN, APPS_FULL, MAX_APP_TOOLS, MAX_APPS, MAX_TOOL_DESCRIPTION_LENGTH, type App, type AppAnswer, type Apps } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fingerprintOf, MAX_TOOL_SCHEMA_LENGTH } from "../src/apps/mcp";
@@ -45,8 +45,10 @@ interface Asked {
 }
 
 let asked: Asked[];
+/** Whether each request Ember sent while reading an app, a lookup of its name or one to the fake server, could be stopped at a deadline. */
+let timed: boolean[];
 /** What the fake server is: the pages of tools it lists, the token it takes, if it takes one, and what it answers in place of all that, if anything. */
-let server: { pages: ListedTool[][]; token?: string; instead?: (asked: Asked) => Response | Promise<Response> | null };
+let server: { pages: ListedTool[][]; token?: string; instead?: (asked: Asked) => Response | null | Promise<Response | null> };
 /** The addresses each name resolves to, for names on the Internet. */
 let addresses: Record<string, string[]>;
 
@@ -67,11 +69,13 @@ function answerTo(message: { id?: number; method: string; params?: { protocolVer
 beforeEach(async () => {
   await freshDeploy();
   asked = [];
+  timed = [];
   server = { pages: [[SEARCH_ISSUES, CREATE_ISSUE]] };
   addresses = { "mcp.tracker.example": ["93.184.216.34"] };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+    if (url.hostname === "cloudflare-dns.com" || url.hostname === "localhost" || url.hostname === "mcp.tracker.example") timed.push(init?.signal instanceof AbortSignal);
     if (url.hostname === "cloudflare-dns.com") {
       const found = url.searchParams.get("type") === "A" ? (addresses[url.searchParams.get("name")!] ?? []) : [];
       return Response.json({ Status: 0, Answer: found.map((data) => ({ type: 1, data })) });
@@ -83,7 +87,7 @@ beforeEach(async () => {
     const message = request.method === "POST" ? ((await request.json()) as Parameters<typeof answerTo>[0]) : undefined;
     const sent: Asked = { url: request.url, method: request.method, authorization: request.headers.get("Authorization"), redirect: init?.redirect ?? "follow", ...(message && { rpc: message.method }) };
     asked.push(sent);
-    const instead = server.instead?.(sent);
+    const instead = await server.instead?.(sent);
     if (instead) return instead;
     if (server.token !== undefined && sent.authorization !== `Bearer ${server.token}`) return new Response("Unauthorized", { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
     return message ? answerTo(message) : new Response(null, { status: 405 });
@@ -211,6 +215,9 @@ describe("Connecting an app", () => {
   it("asks a server on the Internet only at a name that resolves to public addresses", async () => {
     const administrator = await setUp();
     expect((await appOf(await connect(administrator, { name: "Tracker", url: TRACKER }), 201)).url).toBe(TRACKER);
+    // The lookups of its name, the handshake and the tools all end at the read's one deadline.
+    expect(timed.length).toBeGreaterThan(asked.length);
+    expect(timed.every(Boolean)).toBe(true);
 
     asked.length = 0;
     addresses["mcp.tracker.example"] = ["10.0.0.7"];
@@ -262,10 +269,14 @@ describe("Connecting an app", () => {
     expect((await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 422)).error).toBe("Ember couldn't reach localhost:3845. Check the address.");
     server = { pages: [[]] };
     expect((await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 422)).error).toBe("localhost:3845 answered, but it has no tools Ember can use.");
+    // A server may write what it was sent in its answer, which the log doesn't quote.
+    server = { pages: [], instead: ({ authorization }) => new Response(`No: you sent ${authorization}`, { status: 500 }) };
+    expect((await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "echoed-token-5678" }), 422)).error).toBe("localhost:3845 answered 500. Try again in a moment.");
     expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([]);
     // The token is never logged.
     expect(logged.mock.calls.length).toBeGreaterThan(0);
     expect(JSON.stringify(logged.mock.calls)).not.toContain("not-the-token-1234");
+    expect(JSON.stringify(logged.mock.calls)).not.toContain("echoed-token-5678");
   });
 
   it("reads every page of a server's tools up to as many as it keeps, cuts a long description, and leaves out a tool it can't use", async () => {
@@ -285,6 +296,16 @@ describe("Connecting an app", () => {
     // "has spaces" and "huge" can't be used, and seven more are past what Ember keeps.
     expect(app.toolsLeftOut).toBe(9);
     expect(asked.filter(({ rpc }) => rpc === "tools/list")).toHaveLength(2);
+  });
+
+  it("asks for ten pages of a server's tools at most, each by itself, and counts a server with more as having one more", async () => {
+    const administrator = await setUp();
+    server.pages = Array.from({ length: 12 }, (_, index): ListedTool[] => [{ name: `tool_${index}` }]);
+    const app = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+
+    expect(app.tools.map(({ name }) => name)).toEqual(Array.from({ length: 10 }, (_, index) => `tool_${index}`));
+    expect(app.toolsLeftOut).toBe(1);
+    expect(asked.filter(({ rpc }) => rpc === "tools/list")).toHaveLength(10);
   });
 
   it("is for administrators, while Ember AI is on, and for at most as many apps as Ember connects", async () => {
@@ -360,6 +381,28 @@ describe("A connected app", () => {
     server.instead = () => new Response("Bad gateway", { status: 502 });
     expect(await refusalOf(await readAgain(administrator, app.id), 422)).toEqual({ error: "localhost:3845 answered 502. Try again in a moment." });
     expect(await appOf(await show(administrator, app.id))).toEqual(read);
+  });
+
+  it("keeps nothing a server answered once someone has changed where the app is asked meanwhile", async () => {
+    const administrator = await setUp();
+    const app = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    // The server holds its answer to the first request for its tools until it's let go.
+    let held = false;
+    let letGo = () => {};
+    const waiting = new Promise<null>((resolve) => (letGo = () => resolve(null)));
+    server.instead = ({ rpc }) => (rpc === "tools/list" && !held ? ((held = true), waiting) : null);
+    const slow = readAgain(administrator, app.id);
+    await vi.waitFor(() => expect(held).toBe(true));
+
+    // Meanwhile the app moves to another address, whose tools are others.
+    server.pages = [[CREATE_ISSUE]];
+    const moved = await appOf(await change(administrator, app.id, { url: "http://localhost:3845/v2/mcp" }));
+    expect(moved.tools.map(({ name }) => name)).toEqual(["create_issue"]);
+
+    server.pages = [[SEARCH_ISSUES]];
+    letGo();
+    expect(await refusalOf(await slow, 409)).toEqual({ error: APP_CHANGED });
+    expect(await appOf(await show(administrator, app.id))).toEqual(moved);
   });
 
   it("is disconnected, which forgets its token and its tools", async () => {

@@ -10,6 +10,8 @@ import { VERSION } from "../version";
 // Ember gives it the way out: every request goes to the address the administrator gave, a name that
 // resolves only to public addresses, or this machine's, and a redirect isn't followed, so a server can't
 // send Ember, or the token, anywhere else. Only JSON comes back, and none of a server's code runs here.
+// Every request, the lookups of the name among them, ends at one deadline, as the client doesn't pass
+// its own to all of them.
 
 /** How long reading an app's tools may take, from connecting to the last page of them. */
 export const READ_DEADLINE_MS = 20_000;
@@ -47,48 +49,77 @@ export type Send = (input: RequestInfo | URL, init?: RequestInit) => Promise<Res
  */
 export async function readApp(url: string, token: string | null, send: Send = fetch): Promise<ReadApp | AppRefused> {
   const address = new URL(url);
-  const guarded = await guardedHost(address, send);
+  const deadline = AbortSignal.timeout(READ_DEADLINE_MS);
+  const within: Send = (input, init) => send(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline });
+  const guarded = await guardedHost(address, within, deadline);
   if (guarded) return guarded;
   const transport = new StreamableHTTPClientTransport(address, {
-    fetch: send,
+    fetch: within,
     // Workers' fetch has no "error": a redirect comes back as it is, which is no answer.
     requestInit: { redirect: "manual" },
     ...(token !== null && { authProvider: { token: async () => token } }),
   });
   const client = new Client({ name: "Ember", version: VERSION });
-  const deadline = AbortSignal.timeout(READ_DEADLINE_MS);
   try {
     await client.connect(transport, { signal: deadline });
-    const listed: unknown[] = [];
-    let cursor: string | undefined;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const { tools, nextCursor } = await client.listTools(cursor === undefined ? undefined : { cursor }, { signal: deadline });
-      listed.push(...tools);
-      cursor = nextCursor;
-      if (cursor === undefined) break;
-    }
-    const kept = (await Promise.all(listed.map(readTool))).filter((tool) => tool !== null);
-    if (kept.length === 0) return { error: `${address.host} answered, but it has no tools Ember can use.`, field: "url" };
-    const tools = kept.slice(0, MAX_APP_TOOLS);
-    return { serverName: client.getServerVersion()?.name?.slice(0, 100) ?? null, tools, toolsLeftOut: listed.length - tools.length + (cursor === undefined ? 0 : 1) };
+    const { listed, more } = await listedTools(client, deadline);
+    const tools = await keptTools(listed);
+    if (tools.length === 0) return { error: `${address.host} answered, but it has no tools Ember can use.`, field: "url" };
+    return { serverName: client.getServerVersion()?.name?.slice(0, 100) ?? null, tools, toolsLeftOut: listed.length - tools.length + (more ? 1 : 0) };
   } catch (error) {
-    return whyUnread(address, token, error);
+    return whyUnread(address, token, error, deadline);
   } finally {
     await client.close().catch(() => {});
   }
 }
 
-/** Why Ember won't ask the host of `address`, if it won't: its name has to resolve, and only to public addresses, unless it's this machine. */
-async function guardedHost(address: URL, send: Send): Promise<AppRefused | null> {
+/**
+ * The tools `client`'s server lists, a page at a time, each asked for by itself, as the client's own walk
+ * through them all would read every page a server has: up to as many pages as Ember asks for, and whether
+ * the server has more.
+ */
+async function listedTools(client: Client, signal: AbortSignal): Promise<{ listed: unknown[]; more: boolean }> {
+  const listed: unknown[] = [];
+  if (!client.getServerCapabilities()?.tools) return { listed, more: false };
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    // The client reads every page when it's asked for the first, so that one is asked for as any request is.
+    const { tools, nextCursor } = cursor === undefined ? await client.request({ method: "tools/list" }, { signal }) : await client.listTools({ cursor }, { signal });
+    listed.push(...tools);
+    cursor = nextCursor;
+    if (cursor === undefined) break;
+  }
+  return { listed, more: cursor !== undefined };
+}
+
+/** The first of `listed` Ember can use, as it keeps them, up to as many as it keeps of an app: the rest aren't read. */
+async function keptTools(listed: readonly unknown[]): Promise<ReadTool[]> {
+  const kept: ReadTool[] = [];
+  for (const tool of listed) {
+    if (kept.length === MAX_APP_TOOLS) break;
+    const read = await readTool(tool);
+    if (read) kept.push(read);
+  }
+  return kept;
+}
+
+/**
+ * Why Ember won't ask the host of `address`, if it won't: its name has to resolve, and only to public
+ * addresses, unless it's this machine, before `deadline`.
+ */
+async function guardedHost(address: URL, send: Send, deadline: AbortSignal): Promise<AppRefused | null> {
   if (isLoopback(address)) return null;
   try {
     await checkHost(address.hostname, (host) => resolveOverHttps(host, (request) => send(request)));
     return null;
   } catch (error) {
+    if (deadline.aborted) return { error: tookTooLong(address.host), field: "url" };
     if (!(error instanceof GuardError)) throw error;
     return { error: `Ember couldn't find ${address.host} on the Internet. Check the address.`, field: "url" };
   }
 }
+
+const tookTooLong = (host: string) => `${host} took too long to answer.`;
 
 /**
  * A tool as an app lists it, `listed`, as Ember keeps it, or null for one it can't use: without a name
@@ -126,11 +157,17 @@ function inOrder(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([key, inside]) => [key, inOrder(inside)]));
 }
 
-/** Why Ember couldn't read the tools of the app at `address`, asked with `token`, from what went wrong, which is logged without the token. */
-function whyUnread(address: URL, token: string | null, error: unknown): AppRefused {
+/**
+ * Why Ember couldn't read the tools of the app at `address`, asked with `token`, from what went wrong,
+ * before `deadline` or at it. Only the kind of failure is logged: a server writes what its answers say,
+ * which the client quotes in its errors, and could write the token there.
+ */
+function whyUnread(address: URL, token: string | null, error: unknown, deadline: AbortSignal): AppRefused {
   const { host } = address;
   const status = error instanceof SdkHttpError ? error.status : null;
-  console.error(`Reading the tools of the app at ${host} failed${status === null ? "" : ` with ${status}`}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+  const kind = error instanceof SdkError ? `${error.name} ${error.code}` : error instanceof Error ? error.name : typeof error;
+  console.error(`Reading the tools of the app at ${host} failed${status === null ? "" : ` with ${status}`}: ${kind}`);
+  if (deadline.aborted) return { error: tookTooLong(host), field: "url" };
   if (error instanceof UnauthorizedError || status === 401 || status === 403) {
     return token === null
       ? { error: `${host} asks for a sign-in. Give a token for it, if it has one: Ember can't sign in to an app any other way yet.`, field: "token" }
@@ -139,8 +176,8 @@ function whyUnread(address: URL, token: string | null, error: unknown): AppRefus
   if (status !== null && status >= 300 && status < 400) return { error: `${host} sends that address on to another, which Ember doesn't follow. Give the address it ends at.`, field: "url" };
   if (status === 404 || status === 405) return { error: `${host} has no MCP server at that address. Check the address, which often ends in /mcp.`, field: "url" };
   if (status !== null) return { error: `${host} answered ${status}. Try again in a moment.`, field: "url" };
-  if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) return { error: `${host} took too long to answer.`, field: "url" };
-  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return { error: `${host} took too long to answer.`, field: "url" };
+  if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) return { error: tookTooLong(host), field: "url" };
+  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return { error: tookTooLong(host), field: "url" };
   if (error instanceof TypeError) return { error: `Ember couldn't reach ${host}. Check the address.`, field: "url" };
   return { error: `${host} didn't answer as an MCP server does. Check the address, which often ends in /mcp.`, field: "url" };
 }
