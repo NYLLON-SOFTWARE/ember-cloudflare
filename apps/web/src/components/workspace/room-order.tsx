@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode, type RefObject } from "react";
 import type { Me, RoomId, SharedRoom } from "@ember/protocol";
 import { DotsGrid3x3, NavArrowRight, Plus } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
@@ -79,7 +79,7 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
             moving={branch.room.id === moving}
             expanded={expanded.has(branch.room.id)}
             onToggle={() => toggle(branch.room.id)}
-            drag={subRoomDrag(branch.room.id)}
+            drag={{ ...subRoomDrag(branch.room.id), scroller: listRef }}
           />
         ))}
       </div>
@@ -164,7 +164,7 @@ function OrderRow({ room, helpId, sub = false, children }: { room: SharedRoom; h
 }
 
 /** What `useRoomDrag` takes for a parent's list of sub-rooms (`useSharedOrder`'s `subRoomDrag`). */
-type SubRoomDrag = ReturnType<ReturnType<typeof useSharedOrder>["subRoomDrag"]>;
+type SubRoomDrag = ReturnType<ReturnType<typeof useSharedOrder>["subRoomDrag"]> & { scroller: RefObject<HTMLElement | null> };
 
 interface ParentRowProps {
   branch: RoomBranch<SharedRoom>;

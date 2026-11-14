@@ -70,4 +70,15 @@ describe("Sub-rooms in the room order", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save order" }));
     expect(saved).toHaveBeenCalledWith(["general", "strata", "sales", "inventory", "titling"]);
   });
+
+  it("scrolls the room order as a sub-room is dragged near its edge, not the sub-rooms' own list", async () => {
+    renderOrder();
+    await userEvent.click(screen.getByRole("button", { name: /^Show Strata/ }));
+    vi.spyOn(list(), "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 0, y: 0, width: 400, height: 360 }));
+    const sales = within(subList()).getByRole("button", { name: "Move Sales" });
+    fireEvent.pointerDown(sales, { pointerType: "mouse", button: 0, clientX: 20, clientY: 350 });
+    expect(list().scrollTop).toBeGreaterThan(0);
+    expect(subList().scrollTop).toBe(0);
+    fireEvent.pointerUp(window);
+  });
 });
