@@ -25,11 +25,23 @@ const waiting = (body: string, minute: number, overrides: Partial<PendingMessage
 
 const bodies = (messages: PendingMessage[]) => messages.map((m) => m.body);
 
-/** What another tab's write to `key` tells this one, as the browser tells every tab but the one writing. */
-function writtenElsewhere(key: string, write: () => void) {
-  const oldValue = localStorage.getItem(key);
+/** What another tab's writes tell this one, as the browser tells every tab but the one writing, a key at a time. */
+function writtenElsewhere(write: () => void) {
+  const before: Record<string, string> = { ...localStorage };
   write();
-  window.dispatchEvent(new StorageEvent("storage", { key, oldValue, newValue: localStorage.getItem(key) }));
+  const after: Record<string, string> = { ...localStorage };
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const oldValue = before[key] ?? null;
+    const newValue = after[key] ?? null;
+    if (oldValue !== newValue) window.dispatchEvent(new StorageEvent("storage", { key, oldValue, newValue }));
+  }
+}
+
+/** Runs `write` as another tab whose copy of this browser's storage is still `stale`, as one in another process can be. */
+function readingFrom(stale: Record<string, string>, write: () => void) {
+  const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation((key) => stale[key] ?? null);
+  write();
+  getItem.mockRestore();
 }
 
 beforeEach(() => localStorage.clear());
@@ -58,20 +70,57 @@ describe("Two tabs of the same room", () => {
   it("hear what the other takes out, and nothing it adds", () => {
     const taken = vi.fn();
     const stop = onTakenElsewhere("general", ada.id, undefined, taken);
-    writtenElsewhere("unsent-u1-general", () => keepUnsent("general", ada.id, undefined, [waiting("G1", 1), waiting("G2", 2)]));
+    writtenElsewhere(() => keepUnsent("general", ada.id, undefined, [waiting("G1", 1), waiting("G2", 2)]));
     expect(taken).not.toHaveBeenCalled();
-    writtenElsewhere("unsent-u1-general", () => keepUnsent("general", ada.id, undefined, [], ["G1", "G2"]));
-    expect(taken).toHaveBeenCalledExactlyOnceWith(["G1", "G2"]);
+    writtenElsewhere(() => keepUnsent("general", ada.id, undefined, [], ["G1", "G2"]));
+    expect(taken.mock.calls.flat(2)).toEqual(["G1", "G2"]);
 
     // A thread's are its own.
-    writtenElsewhere("unsent-u1-general-m1", () => keepUnsent("general", ada.id, "m1", [waiting("R1", 1, { parentId: "m1" })]));
-    writtenElsewhere("unsent-u1-general-m1", () => keepUnsent("general", ada.id, "m1", [], ["R1"]));
-    expect(taken).toHaveBeenCalledOnce();
+    taken.mockClear();
+    writtenElsewhere(() => keepUnsent("general", ada.id, "m1", [waiting("R1", 1, { parentId: "m1" })]));
+    writtenElsewhere(() => keepUnsent("general", ada.id, "m1", [], ["R1"]));
+    expect(taken).not.toHaveBeenCalled();
 
     stop();
-    writtenElsewhere("unsent-u1-general", () => keepUnsent("general", ada.id, undefined, [waiting("G3", 3)]));
-    writtenElsewhere("unsent-u1-general", () => keepUnsent("general", ada.id, undefined, [], ["G3"]));
-    expect(taken).toHaveBeenCalledOnce();
+    writtenElsewhere(() => keepUnsent("general", ada.id, undefined, [waiting("G3", 3)]));
+    writtenElsewhere(() => keepUnsent("general", ada.id, undefined, [], ["G3"]));
+    expect(taken).not.toHaveBeenCalled();
+  });
+
+  it("never write over what the other keeps, though what one has read of it is from before the other wrote", () => {
+    const stale: Record<string, string> = { ...localStorage };
+    const tab1 = keepUnsent("general", ada.id, undefined, [waiting("G1", 1)]);
+    const taken = vi.fn();
+    const stop = onTakenElsewhere("general", ada.id, undefined, taken);
+    writtenElsewhere(() => readingFrom(stale, () => keepUnsent("general", ada.id, undefined, [waiting("E2", 2)])));
+    stop();
+    expect(taken).not.toHaveBeenCalled();
+    expect(bodies(keptUnsent("general", ada.id))).toEqual(["G1", "E2"]);
+    keepUnsent("general", ada.id, undefined, [], tab1);
+    expect(bodies(keptUnsent("general", ada.id))).toEqual(["E2"]);
+  });
+});
+
+describe("What an earlier release kept, a list under a key for each view", () => {
+  beforeEach(() => {
+    localStorage.setItem("unsent-u1-general", JSON.stringify([waiting("G1", 1), waiting("G2", 2, { queued: undefined, failed: true })]));
+    localStorage.setItem("unsent-u1-general-m1", JSON.stringify([waiting("R1", 0, { parentId: "m1" })]));
+  });
+
+  it("is taken back, and kept from then on a message to a key", () => {
+    expect(keptUnsent("general", ada.id)).toEqual([waiting("G1", 1), waiting("G2", 2, { queued: undefined, failed: true })]);
+    expect(bodies(keptUnsent("general", ada.id, "m1"))).toEqual(["R1"]);
+    expect(Object.keys(localStorage).sort()).toEqual(["unsent-u1-general-m1:R1", "unsent-u1-general:G1", "unsent-u1-general:G2"]);
+    forgetInRoom("general", ada.id, ["G2"]);
+    expect(bodies(keptInRoom("general", ada.id))).toEqual(["R1", "G1"]);
+  });
+
+  it("isn't taken from the other tabs as one tab moves it", () => {
+    const taken = vi.fn();
+    const stop = onTakenElsewhere("general", ada.id, undefined, taken);
+    writtenElsewhere(() => keptInRoom("general", ada.id));
+    stop();
+    expect(taken).not.toHaveBeenCalled();
   });
 });
 
@@ -81,7 +130,7 @@ describe("What the room has", () => {
     keepUnsent("general", ada.id, "m1", [waiting("R1", 1, { parentId: "m1" })]);
     forgetUnsent("general", [waiting("G1", 1), waiting("R1", 1, { parentId: "m1" })]);
     expect(bodies(keptUnsent("general", ada.id))).toEqual(["G2"]);
-    expect(localStorage.getItem("unsent-u1-general-m1")).toBeNull();
+    expect(keptUnsent("general", ada.id, "m1")).toEqual([]);
   });
 });
 
@@ -100,6 +149,6 @@ describe("A room that's gone", () => {
     forgetInRoom("general", ada.id, ["R1"]);
     expect(bodies(keptInRoom("general", ada.id))).toEqual(["G1"]);
     forgetInRoom("general", ada.id, ["G1"]);
-    expect(Object.keys(localStorage)).toEqual(["unsent-u1-general-2"]);
+    expect(Object.keys(localStorage)).toEqual(["unsent-u1-general-2:Elsewhere"]);
   });
 });

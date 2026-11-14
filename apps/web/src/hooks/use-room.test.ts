@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { takeBack } from "@/lib/outbox";
 import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending, UNSENT_KEPT_MS } from "@/lib/room-state";
-import { keepUnsent } from "@/lib/unsent-store";
+import { keepUnsent, keptUnsent } from "@/lib/unsent-store";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
 import { openRoomSocketAhead, pendingMessage, useRoom } from "./use-room";
@@ -270,7 +270,7 @@ describe("Catch up after a reconnect", () => {
     // The room had it already, from before the reload, and says so rather than posting it again.
     socket().receive({ type: "message.checked", stored: [waiting!.clientMessageId], missing: [] });
     expect(result.current.state.messages).toEqual([]);
-    expect(localStorage.getItem("unsent-u1-general")).toBeNull();
+    expect(keptUnsent("general", ada.id)).toEqual([]);
   });
 
   it(`shows what's waited ${UNSENT_KEPT_MS / 60_000} minutes without the room as not sent, which Retry sends`, () => {
@@ -1428,7 +1428,7 @@ describe("Several tabs of the same room", () => {
     act(() => void keepUnsent("general", ada.id, undefined, [message]));
   };
   const bodies = (messages: Array<{ body: string }>) => messages.map((m) => m.body);
-  const kept = () => bodies(JSON.parse(localStorage.getItem("unsent-u1-general") ?? "[]") as Array<{ body: string }>);
+  const kept = () => bodies(keptUnsent("general", ada.id));
 
   it("keeps another tab's waiting messages beside its own, through a reload", () => {
     const first = joinGeneral();
@@ -1461,7 +1461,7 @@ describe("Several tabs of the same room", () => {
 
     // The room has both, and neither goes again as it lets the page in again.
     socket().receive({ type: "message.checked", stored: result.current.state.messages.map((m) => m.clientMessageId), missing: [] });
-    expect(localStorage.getItem("unsent-u1-general")).toBeNull();
+    expect(keptUnsent("general", ada.id)).toEqual([]);
     socket().drop();
     wait(500);
     socket().open();
@@ -1476,9 +1476,10 @@ describe("Several tabs of the same room", () => {
     expect(bodies(result.current.state.messages)).toEqual(["X", "Y"]);
 
     // The other tab, which took them back too, sends X, or deletes it, and keeps Y.
-    const oldValue = localStorage.getItem("unsent-u1-general");
+    const key = "unsent-u1-general:X";
+    const oldValue = localStorage.getItem(key);
     keepUnsent("general", ada.id, undefined, result.current.state.messages.filter(isPending).slice(1), ["X", "Y"]);
-    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "unsent-u1-general", oldValue, newValue: localStorage.getItem("unsent-u1-general") })));
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key, oldValue, newValue: localStorage.getItem(key) })));
     expect(bodies(result.current.state.messages)).toEqual(["Y"]);
 
     socket().open();
@@ -1504,7 +1505,7 @@ describe("A room gone with something unsent", () => {
     expect(gone.result.current.messages).toMatchObject([{ body: "still here?", failed: true }]);
     act(() => gone.result.current.forget(gone.result.current.messages[0]!.clientMessageId));
     expect(gone.result.current.messages).toEqual([]);
-    expect(localStorage.getItem("unsent-u1-general")).toBeNull();
+    expect(keptUnsent("general", ada.id)).toEqual([]);
   });
 
   it("takes what the outbox was sending, as when the room is found gone after it's left", () => {

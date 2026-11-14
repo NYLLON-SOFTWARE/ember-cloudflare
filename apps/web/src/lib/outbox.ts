@@ -2,7 +2,7 @@ import { CloseCode, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, ty
 import { roomSocketUrl } from "./api";
 import { reconnectingSocket, type ReconnectingSocket } from "./reconnecting-socket";
 import { dequeued, isPending, isQueued, notSent, unconfirmed, type PendingMessage, type RoomState } from "./room-state";
-import { forgetUnsent } from "./unsent-store";
+import { forgetUnsent, keepNotSent, onTakenFromRoomElsewhere } from "./unsent-store";
 
 /**
  * A room's messages, and replies in its threads, that this page left unsent as their views went, as when
@@ -14,6 +14,8 @@ interface Outbox {
   /** In the order they were written: waiting to be sent, sent without the room saying it has them, or not sent. */
   messages: PendingMessage[];
   socket: ReconnectingSocket | null;
+  /** Stops hearing what other tabs send or delete of what this browser keeps for the room. */
+  stopHearing: () => void;
 }
 
 /** By room. */
@@ -38,13 +40,23 @@ export function leftUnsent({ messages, status, connections }: RoomState): Pendin
  */
 export function handOver(roomId: string, messages: PendingMessage[]): void {
   if (messages.length === 0) return;
-  const outbox = outboxes.get(roomId) ?? { messages: [], socket: null };
+  const outbox = outboxes.get(roomId) ?? opened(roomId);
   outboxes.set(roomId, outbox);
   outbox.messages = [...outbox.messages, ...messages].sort(byWritten);
   queueMicrotask(() => (outbox.socket ? deliver(outbox) : connect(roomId, outbox)));
 }
 
 const byWritten = (a: PendingMessage, b: PendingMessage) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
+
+/** A room's outbox, which drops what another tab sends or deletes of what it keeps, rather than sending it too. */
+function opened(roomId: string): Outbox {
+  const outbox: Outbox = { messages: [], socket: null, stopHearing: () => {} };
+  outbox.stopHearing = onTakenFromRoomElsewhere(roomId, (clientMessageIds) => {
+    outbox.messages = outbox.messages.filter((m) => !clientMessageIds.includes(m.clientMessageId));
+    settle(roomId, outbox);
+  });
+  return outbox;
+}
 
 /**
  * Takes back what `me` left unsent in room `roomId`'s timeline, or in the thread of its message
@@ -94,7 +106,7 @@ function connect(roomId: string, outbox: Outbox): void {
 
 /**
  * What the room says, as it bears on the messages the outbox keeps: as it does on a view's. Those it says
- * it has, this browser stops keeping too.
+ * it has, this browser stops keeping too, and those it refused, or never had, it keeps as not sent.
  */
 function hear(roomId: string, outbox: Outbox, frame: ServerFrame): void {
   const before = outbox.messages;
@@ -123,8 +135,15 @@ function hear(roomId: string, outbox: Outbox, frame: ServerFrame): void {
     default:
       return;
   }
-  forgetUnsent(roomId, before.filter((m) => !outbox.messages.some((kept) => kept.clientMessageId === m.clientMessageId)));
+  keepSince(roomId, before, outbox.messages);
   settle(roomId, outbox);
+}
+
+/** Keeps in this browser what became of the outbox's messages, `before`, as they are `now`: what the room has goes, and what's not sent stays so. */
+function keepSince(roomId: string, before: readonly PendingMessage[], now: readonly PendingMessage[]): void {
+  const failedBefore = new Set(before.filter((m) => m.failed).map((m) => m.clientMessageId));
+  forgetUnsent(roomId, before.filter((m) => !now.some((kept) => kept.clientMessageId === m.clientMessageId)));
+  keepNotSent(roomId, now.filter((m) => m.failed && !failedBefore.has(m.clientMessageId)));
 }
 
 /**
@@ -151,7 +170,9 @@ export function createFrame({ clientMessageId, body, parentId, alsoSent }: Pendi
  * does, kept in this browser too (unsent-store.ts).
  */
 function giveUp(roomId: string, outbox: Outbox): void {
+  const before = outbox.messages;
   outbox.messages = notSent(outbox.messages);
+  keepSince(roomId, before, outbox.messages);
   outbox.socket?.close();
   outbox.socket = null;
   settle(roomId, outbox);
@@ -163,5 +184,7 @@ function settle(roomId: string, outbox: Outbox): void {
     outbox.socket?.close();
     outbox.socket = null;
   }
-  if (outbox.messages.length === 0 && outboxes.get(roomId) === outbox) outboxes.delete(roomId);
+  if (outbox.messages.length > 0 || outboxes.get(roomId) !== outbox) return;
+  outboxes.delete(roomId);
+  outbox.stopHearing();
 }

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handOver, leftUnsent, takeBack, takeBackAll } from "./outbox";
 import { OFFLINE_AFTER_MS } from "./reconnecting-socket";
 import { initialRoomState, type PendingMessage } from "./room-state";
-import { keepUnsent, keptUnsent } from "./unsent-store";
+import { forgetInRoom, keepUnsent, keptUnsent } from "./unsent-store";
 
 /** Stands in for the browser's WebSocket; tests play the server and the network. */
 class FakeSocket {
@@ -80,6 +80,17 @@ const sent = (body: string, overrides: Partial<PendingMessage> = {}): PendingMes
 });
 /** One Ada wrote while the room was away. */
 const waiting = (body: string, overrides: Partial<PendingMessage> = {}) => sent(body, { queued: true, ...overrides });
+/** What another tab's writes tell this one, as the browser tells every tab but the one writing, a key at a time. */
+function writtenElsewhere(write: () => void) {
+  const before: Record<string, string> = { ...localStorage };
+  write();
+  const after: Record<string, string> = { ...localStorage };
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const oldValue = before[key] ?? null;
+    const newValue = after[key] ?? null;
+    if (oldValue !== newValue) window.dispatchEvent(new StorageEvent("storage", { key, oldValue, newValue }));
+  }
+}
 /** The room's copy of `m`. */
 const stored = ({ pending: _, queued: __, ...m }: PendingMessage): Message => ({ ...m, id: `stored-${m.clientMessageId}` });
 
@@ -314,6 +325,43 @@ describe("What this browser keeps", () => {
     socket().receive({ type: "error", message: "Something went wrong", clientMessageId: "Refused", failed: "message.create" });
     expect(keptUnsent("general", ada.id).map((m) => m.body)).toEqual(["Refused"]);
     expect(keptUnsent("general", ada.id, "m1")).toEqual([]);
+  });
+
+  it("keeps what the room refuses, or never had, as not sent, so that a reload doesn't send it again", async () => {
+    const messages = [waiting("Refused"), sent("Lost")];
+    keepUnsent("general", ada.id, undefined, messages);
+    handOver("general", messages);
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    socket().receive({ type: "error", message: "Something went wrong", clientMessageId: "Refused", failed: "message.create" });
+    socket().receive({ type: "message.checked", stored: [], missing: ["Lost"] });
+    expect(keptUnsent("general", ada.id)).toEqual([sent("Refused", { failed: true }), sent("Lost", { failed: true })]);
+  });
+
+  it("keeps what was waiting as not sent once the room is gone", async () => {
+    const reply = waiting("In the cupboard", { parentId: "m1" });
+    keepUnsent("general", ada.id, "m1", [reply]);
+    handOver("general", [reply]);
+    await effectsRun();
+    socket().drop(CloseCode.NotFound);
+    expect(keptUnsent("general", ada.id, "m1")).toEqual([sent("In the cupboard", { parentId: "m1", failed: true })]);
+  });
+
+  it("keeps nothing more of what another tab has deleted, which the outbox doesn't send", async () => {
+    const messages = [waiting("Deleted"), waiting("Kept")];
+    keepUnsent("general", ada.id, undefined, messages);
+    handOver("general", messages);
+    await effectsRun();
+    writtenElsewhere(() => forgetInRoom("general", ada.id, ["Deleted"]));
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["Kept"]);
+
+    // And lets the socket go once another tab has sent the rest.
+    writtenElsewhere(() => forgetInRoom("general", ada.id, ["Kept"]));
+    expect(socket().closedWith).toBe(1000);
+    expect(takeBack("general", ada)).toEqual([]);
   });
 
   it("is what's left of a room that's gone: everything the person left in its timeline and its threads", async () => {
