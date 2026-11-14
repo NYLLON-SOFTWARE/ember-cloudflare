@@ -424,7 +424,6 @@ export class SearchIndex extends DurableObject<Env> {
     const threads = this.sql.exec<ThreadMarks>(THREAD_MARKS, threadIds, userId).toArray();
     return { rows, threads, next: found.length > limit ? page.at(-1)!.latest : null };
   }
-
   /** The newest `limit` messages with files, or with links, in `roomIds`, each with its row as its room keeps it. */
   shelved(roomIds: RoomId[], links: boolean, limit: number): ShelvedMessage[] {
     const { sql, values } = shelvedStatement(roomIds, links, limit);
