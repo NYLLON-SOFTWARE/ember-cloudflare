@@ -1,8 +1,9 @@
 import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handOver, leftUnsent, takeBack } from "./outbox";
+import { handOver, leftUnsent, takeBack, takeBackAll } from "./outbox";
 import { OFFLINE_AFTER_MS } from "./reconnecting-socket";
 import { initialRoomState, type PendingMessage } from "./room-state";
+import { keepUnsent, keptUnsent } from "./unsent-store";
 
 /** Stands in for the browser's WebSocket; tests play the server and the network. */
 class FakeSocket {
@@ -228,16 +229,14 @@ describe("Send what was left unsent", () => {
 });
 
 describe("Stop sending what was left unsent", () => {
-  it(`shows what's waiting as not sent once it's been without the room ${OFFLINE_AFTER_MS / 1000} seconds, as a view does, and tries no more`, async () => {
-    handOver("general", [waiting("Written while away"), sent("in doubt")]);
+  it(`keeps trying to send what's waiting once it's been without the room ${OFFLINE_AFTER_MS / 1000} seconds, as a view does`, async () => {
+    handOver("general", [waiting("Written while away")]);
     await effectsRun();
     socket().drop();
-    wait(OFFLINE_AFTER_MS);
-    const sockets = FakeSocket.all.length;
-    wait(60_000);
-    expect(FakeSocket.all).toHaveLength(sockets);
-    // What went, the view that takes it back asks about.
-    expect(takeBack("general", ada)).toEqual([{ ...sent("Written while away"), failed: true }, sent("in doubt")]);
+    wait(OFFLINE_AFTER_MS + 60_000);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toMatchObject([{ body: "Written while away" }]);
   });
 
   it("sends nothing as someone else, whom another tab has signed this browser in as", async () => {
@@ -296,5 +295,35 @@ describe("Take back what was left unsent", () => {
     expect(takeBack("random", ada)).toHaveLength(1);
     await effectsRun();
     expect(FakeSocket.all).toHaveLength(1);
+  });
+});
+
+describe("What this browser keeps", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("forgets what the room says it has, as the outbox sends it, keeping the rest", async () => {
+    const messages = [waiting("Posted"), sent("Checked"), waiting("Refused"), waiting("In the cupboard", { parentId: "m1" })];
+    keepUnsent("general", ada.id, undefined, messages.slice(0, 3));
+    keepUnsent("general", ada.id, "m1", messages.slice(3));
+    handOver("general", messages);
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome(ada, [stored(messages[3]!)]));
+    socket().receive({ type: "message.created", message: stored(messages[0]!), seq: 1 });
+    socket().receive({ type: "message.checked", stored: ["Checked"], missing: [] });
+    socket().receive({ type: "error", message: "Something went wrong", clientMessageId: "Refused", failed: "message.create" });
+    expect(keptUnsent("general", ada.id).map((m) => m.body)).toEqual(["Refused"]);
+    expect(keptUnsent("general", ada.id, "m1")).toEqual([]);
+  });
+
+  it("is what's left of a room that's gone: everything the person left in its timeline and its threads", async () => {
+    const message = waiting("In the room");
+    const reply = waiting("In the thread", { parentId: "m1" });
+    handOver("general", [message, reply, waiting("Grace's", { creator: grace })]);
+    await effectsRun();
+    expect(takeBackAll("general", ada.id)).toEqual([message, reply]);
+    expect(socket().closedWith).toBeUndefined();
+    expect(takeBackAll("general", grace.id)).toHaveLength(1);
+    expect(socket().closedWith).toBe(1000);
   });
 });

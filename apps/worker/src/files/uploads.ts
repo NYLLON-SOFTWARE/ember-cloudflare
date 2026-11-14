@@ -1,7 +1,9 @@
 import {
   FILE_TOO_LARGE,
   MAX_PREVIEW_SIZE,
+  isRoomId,
   parseNewUpload,
+  parseSharedFile,
   PREVIEW_MAX_HEIGHT,
   PREVIEW_MAX_WIDTH,
   type Message,
@@ -59,6 +61,7 @@ const NOT_SIGNED_IN = "Not signed in";
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
 const UPLOAD_NOT_FOUND = "Upload not found";
 const ALREADY_POSTED = "The file is posted already";
+const FILE_NOT_FOUND = "File not found or inaccessible";
 /** What a request that would store a file answers without an R2 bucket bound as FILES. */
 export const NO_STORAGE = "Ember isn't set up to store files";
 
@@ -82,7 +85,7 @@ export interface Uploader {
  * without a session, 404 when they aren't in the room, and 429 when a ban blocks their IP address.
  * The room tags them as it tags their sockets, so it turns them away as it would turn those away.
  */
-async function uploaderIn(env: Env, credentials: Credentials, roomId: RoomId): Promise<Uploader | Response> {
+export async function uploaderIn(env: Env, credentials: Credentials, roomId: RoomId): Promise<Uploader | Response> {
   const access = await workspace(env).roomAccess(credentials, roomId);
   if (!access) return problem(401, NOT_SIGNED_IN);
   if (!access.member) return problem(404, ROOM_NOT_FOUND);
@@ -247,6 +250,52 @@ export async function uploadPreview(request: Request, env: Env, roomId: RoomId, 
     return problem(404, UPLOAD_NOT_FOUND);
   }
   return recorded.completedAt ? problem(409, ALREADY_POSTED) : new Response(null, { status: 204 });
+}
+
+/**
+ * `POST /api/rooms/<room>/uploads/shared`, a `SharedFile`: shares a file posted in another room, as Files
+ * in Ember picks one, as the sharer's message here, answering 201 with it as the part that finishes an
+ * upload does. Each room deletes its files with their messages, so R2 copies the file, and its preview,
+ * for this room to keep, rather than this message showing the other room's. Only someone in the room it
+ * was posted in may share it, as only they can see it there; anyone else is answered 404, as for a file
+ * that isn't there.
+ */
+export async function shareFile(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, NOT_SIGNED_IN);
+  const files = env.FILES;
+  if (!files) return problem(503, NO_STORAGE);
+  const uploader = await uploaderIn(env, credentials, roomId);
+  if (uploader instanceof Response) return uploader;
+  const shared = parseSharedFile(await jsonBodyOf(request));
+  if (typeof shared === "string") return problem(422, shared);
+  if (!isRoomId(shared.roomId)) return problem(404, FILE_NOT_FOUND);
+  const sharer = await uploaderIn(env, credentials, shared.roomId);
+  if (sharer instanceof Response) return problem(404, FILE_NOT_FOUND);
+  const source = await env.CHAT_ROOM.getByName(shared.roomId).sharedFile(shared.roomId, sharer, shared.fileId);
+  if (!source) return problem(404, FILE_NOT_FOUND);
+
+  const room = env.CHAT_ROOM.getByName(roomId);
+  const { clientMessageId, parentId, alsoSend } = shared;
+  const started = await room.startUpload(roomId, uploader, { name: source.filename, type: source.contentType, size: source.byteSize, clientMessageId, parentId, alsoSend });
+  if (!started) return problem(404, ROOM_NOT_FOUND);
+  if (typeof started === "string") return problem(422, started);
+  // An upload that doesn't finish, as when the other room deleted the file meanwhile, is deleted a day on.
+  if (!(await copied(files, objectKey(source.id), objectKey(started.key)))) return problem(404, FILE_NOT_FOUND);
+  let upload = await room.uploadOf(roomId, uploader.user.id, started.key);
+  if (upload && source.preview && (await copied(files, previewKey(source.id), previewKey(started.key)))) {
+    upload = await room.recordUploadPreview(roomId, uploader, started.key, source.preview);
+  }
+  if (!upload) return problem(404, UPLOAD_NOT_FOUND);
+  return finish(env, files, roomId, uploader, upload, { contentType: source.contentType, metadata: source.metadata! });
+}
+
+/** Has R2 copy what it keeps at `from` to `to`, with its type and name, answering whether it had it. */
+async function copied(files: R2Bucket, from: string, to: string): Promise<boolean> {
+  const object = await files.get(from);
+  if (!object) return false;
+  await files.put(to, object.body, { httpMetadata: object.httpMetadata, customMetadata: object.customMetadata });
+  return true;
 }
 
 /** Whether R2 has all of `upload`'s file, as once its parts are put together. */

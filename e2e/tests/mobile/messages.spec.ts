@@ -86,8 +86,9 @@ test("tapping Message options again closes the actions", async ({ page, room, pa
 
 test("tapping anywhere else closes the actions, so only one message has them open", async ({ page, room, participant }) => {
   const ada = await participant("Ada");
-  // The first message's actions open over the next two, so the last one's button is clear of them.
-  for (const text of ["The first message", "The second", "The third", "The last message"]) await ada.say(text);
+  // The first message's actions open over the next few, three rows of them on the narrowest phone, so the
+  // last one's button is clear of them.
+  for (const text of ["The first message", "The second", "The third", "The fourth", "The fifth", "The last message"]) await ada.say(text);
   await openRoom(page, room);
   // In landscape the first message's button is under the header, so tapping it scrolls the timeline
   // up, and the composer's editor mounting then would resize the timeline, which keeps to its end
@@ -118,24 +119,24 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
 
   const message = page.getByRole("article").filter({ hasText: "A message to edit" });
   await expect(message).not.toHaveAttribute("aria-busy");
-  const edit = page.getByRole("group", { name: "Message actions" }).getByRole("button", { name: "Edit" });
+  // Without a mouse, Edit is on the bar that Message options opens.
   await message.getByRole("button", { name: "Message options" }).tap();
-  await edit.tap();
+  await message.getByRole("button", { name: "Edit", exact: true }).tap();
   const field = editorField(message, "Edit message");
   await expect(field).toBeFocused();
   await screenIsFine();
 
-  // Enter starts a new line here too, so saving and cancelling need buttons.
+  // On a phone, Enter starts a new line, as it does in the composer, so Save and Cancel are buttons under the editor.
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await page.keyboard.type("with a second line");
-  await message.getByRole("button", { name: "Save changes" }).tap();
+  await message.getByRole("button", { name: "Save", exact: true }).tap();
   await expect(message.getByText("(edited)")).toBeVisible();
   await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
 
   await message.getByRole("button", { name: "Message options" }).tap();
-  await edit.tap();
-  await message.getByRole("button", { name: "Close editor and discard changes" }).tap();
+  await message.getByRole("button", { name: "Edit", exact: true }).tap();
+  await message.getByRole("button", { name: "Cancel", exact: true }).tap();
   await expect(field).toBeHidden();
 });
 

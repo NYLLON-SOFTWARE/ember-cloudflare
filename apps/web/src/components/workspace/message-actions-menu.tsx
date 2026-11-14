@@ -13,9 +13,26 @@ import {
   type Ref,
   type RefObject,
 } from "react";
-import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
+import { QUICK_REACTION_COUNT, REACTIONS, type Message, type SavedList, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
+import { useOptionalFlash } from "@/components/flash";
+import {
+  ArrowRight,
+  Bookmark,
+  BookmarkSolid,
+  ChatPlusIn,
+  CheckCircle,
+  CheckCircleSolid,
+  Copy,
+  Download,
+  Edit,
+  Emoji,
+  MessageText,
+  MoreHoriz,
+  QuoteMessage,
+  ShareAndroid,
+  Trash,
+} from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -24,9 +41,11 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { permalinkOf } from "@/hooks/use-route";
 import { copyWithSuccess } from "@/lib/clipboard";
 import { replyQuote } from "@/lib/messages";
+import { toggleKept, useSavedMark } from "@/lib/saved";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
+import { DeleteMessageDialog } from "./confirm-dialog";
 import { UNKNOWN_PERSON } from "./message-body";
 
 /** With a mouse, the bar overlaps its message. */
@@ -74,6 +93,8 @@ interface Props {
   onDelete: () => boolean;
   /** Opens the message's Custom reaction form, from New boost. */
   onNewBoost: () => void;
+  /** Opens Forward message for the message, given what opened it, or left out where it can't be forwarded. */
+  onForward?: (opener: HTMLElement) => void;
   ref?: Ref<MessageActionsHandle>;
 }
 
@@ -89,7 +110,7 @@ export interface MessageActionsHandle {
 
 /**
  * The message actions: Message options, which opens a bar of three quick reactions, More reactions, whose
- * tray holds the other reactions and New boost, Reply in thread, a file message's Download, and Edit, in the
+ * tray holds the other reactions and New boost, Reply in thread, Forward message, a file message's Download, and Edit, in the
  * order Slack's bar has them. With a mouse, hovering the message opens the bar too, laid over the message's
  * top edge at the timeline's right, with Message options pinned as its last button, and each button names
  * itself in a tooltip as the pointer reaches it. On touch screens it opens beside Message options, with
@@ -99,7 +120,7 @@ export interface MessageActionsHandle {
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Quote, Copy text,
  * Copy link, and on messages you can change, Edit message and Delete message.
  */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, onForward, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -126,6 +147,9 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // What Copy text copies: the message's plain text, which holds a bot's cards' too. A file message has none
   // but its file's name.
   const text = message.attachment ? null : message.plainText;
+  // Where you keep the message, if you do, which Add to to-dos and Save say.
+  const kept = useSavedMark(message.id)?.list;
+  const flash = useOptionalFlash();
 
   const show = (byHovering: boolean) => {
     hoverOpened.current = byHovering;
@@ -165,18 +189,37 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     onEdit();
   };
 
+  // Forward message closes the bar too, and the dialog it opens takes focus, handing it back to Message
+  // options as it closes.
+  const forward = () => {
+    close();
+    onForward?.(trigger.current!);
+  };
+
+  // Add to to-dos and Save keep the message, or take it out of the list it's in, leaving the bar open.
+  const keep = (list: SavedList) => {
+    toggleKept(list, message.roomId, message.id).catch((error: unknown) => flash?.("alert", error instanceof Error ? error.message : String(error)));
+  };
+
   // New boost closes the bar too, and the form it opens takes focus.
   const newBoost = () => {
     close();
     onNewBoost();
   };
 
-  // Delete message asks first, as the editor's does. The composer takes focus as the message goes, or Message
-  // options does where the deletion can't be sent.
+  // Delete message asks first, in the app's own dialog. The composer takes focus as the message goes, or
+  // Message options does where the deletion can't be sent, or the dialog's cancelled.
+  const [deleting, setDeleting] = useState(false);
+  const confirmed = useRef(false);
   const deleteMessage = () => {
-    if (!confirm("Are you sure you want to delete this message?")) return;
     close();
-    if (!onDelete()) trigger.current?.focus({ preventScroll: true });
+    setDeleting(true);
+  };
+  // Once the dialog has closed, as focus can't leave it while it's open.
+  const closedDialog = () => {
+    const sent = confirmed.current && onDelete();
+    confirmed.current = false;
+    if (!sent) trigger.current?.focus({ preventScroll: true });
   };
 
   const focusFirstReaction = () => {
@@ -392,6 +435,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
           hidden={!open}
           onPointerEnter={() => clearTimeout(leaveTimer.current)}
           onPointerLeave={() => left()}
+          // A mouse's press on a button or link keeps focus where it is. Safari focuses no button it clicks,
+          // but the timeline around it, so focus leaving the bar would shut it before the click lands.
+          onMouseDown={(event) => {
+            if ((event.target as Element).closest("button, a")) event.preventDefault();
+          }}
           className="group/menu fixed z-30 grid w-max min-w-0 gap-[7px]"
         >
           <div
@@ -427,6 +475,17 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </PageLink>
               </ActionTooltip>
             )}
+            {/* Slack's order after the reactions: Forward message, then Add to to-dos. */}
+            {onForward && (
+              <ActionTooltip label="Forward message…">
+                <button type="button" aria-label="Forward message…" className={ACTION} onClick={forward}>
+                  <ArrowRight />
+                </button>
+              </ActionTooltip>
+            )}
+            {/* After Forward message, as Slack's bar has it, and a file's Save, as a file's own save is in Slack. */}
+            <KeepButton list="todo" kept={kept} onKeep={keep} />
+            {message.attachment && <KeepButton list="saved" kept={kept} onKeep={keep} />}
             {/* More actions holds Quote and Copy link with a mouse. */}
             {message.attachment ? (
               <FileActions file={message.attachment} />
@@ -446,11 +505,18 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </ActionTooltip>
             )}
-            {/* As Campfire's `.message__edit-btn` shows (messages.css). */}
-            {editable && (
+            {/* Without a mouse, which More actions opens for, Edit and Delete message are the bar's. */}
+            {!overlapping && editable && !message.attachment && !message.cards && (
               <ActionTooltip label="Edit">
                 <button type="button" aria-label="Edit" className={ACTION} onClick={edit}>
                   <Edit />
+                </button>
+              </ActionTooltip>
+            )}
+            {!overlapping && editable && (
+              <ActionTooltip label="Delete message">
+                <button type="button" aria-label="Delete message" className={cn(ACTION, "text-negative")} onClick={deleteMessage}>
+                  <Trash />
                 </button>
               </ActionTooltip>
             )}
@@ -500,10 +566,17 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               <Copy />
               Copy link
             </button>
+            {/* The bar has Add to to-dos, and a file's Save. */}
+            {!message.attachment && (
+              <button type="button" className={ITEM} onClick={() => keep("saved")}>
+                {kept === "saved" ? <BookmarkSolid /> : <Bookmark />}
+                {kept === "saved" ? "Remove from saved" : "Save"}
+              </button>
+            )}
             {editable && (
               <>
                 <hr className="my-1 border-message-border" />
-                {/* The text of a file message, or of a bot's cards, can't be changed, so only the bar's Edit opens their editor. */}
+                {/* The text of a file message, or of a bot's cards, can't be changed. */}
                 {!message.attachment && !message.cards && (
                   <button type="button" className={ITEM} onClick={edit}>
                     <Edit />
@@ -518,6 +591,17 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             )}
           </div>
         </div>
+      )}
+      {deleting && (
+        <DeleteMessageDialog
+          message={message}
+          onDelete={() => {
+            confirmed.current = true;
+            setDeleting(false);
+          }}
+          onCancel={() => setDeleting(false)}
+          onClosed={closedDialog}
+        />
       )}
     </div>
   );
@@ -537,6 +621,26 @@ function ActionTooltip({ label, children }: { label: string; children: ReactElem
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** The words for keeping a message in `list`, or taking it out, by whether it's kept there now. */
+const KEEP_LABELS = {
+  todo: { add: "Add to to-dos", remove: "Remove from to-dos" },
+  saved: { add: "Save", remove: "Remove from saved" },
+} as const satisfies Record<SavedList, { add: string; remove: string }>;
+
+/** The bar's Add to to-dos, or Save, which is pressed while the message is kept in its list. */
+function KeepButton({ list, kept, onKeep }: { list: SavedList; kept: SavedList | undefined; onKeep: (list: SavedList) => void }) {
+  const pressed = kept === list;
+  const label = KEEP_LABELS[list][pressed ? "remove" : "add"];
+  const Icon = list === "todo" ? (pressed ? CheckCircleSolid : CheckCircle) : pressed ? BookmarkSolid : Bookmark;
+  return (
+    <ActionTooltip label={label}>
+      <button type="button" aria-label={label} className={ACTION} onClick={() => onKeep(list)}>
+        <Icon />
+      </button>
+    </ActionTooltip>
   );
 }
 
@@ -596,7 +700,7 @@ function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButton
     onClick?.(event);
     const link = new URL(permalinkOf(message), document.baseURI).href;
     const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
-    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned));
+    onQuote(replyQuote(nodes, { author: nameOf(message.creator), createdAt: message.createdAt, link }, mentioned));
   };
   return <button type="button" onClick={quote} {...props} />;
 }

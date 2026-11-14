@@ -59,14 +59,14 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
     <span className="relative shrink-0">
       <button
         type="button"
-        aria-label="Favorite room"
+        aria-label="Star room"
         aria-pressed={favorite}
         aria-disabled={saving || undefined}
-        title={favorite ? "Remove from favorites" : "Add to favorites"}
+        title={favorite ? "Unstar room" : "Star room"}
         onClick={save}
         className={cn(
-          // 32px wide and 36px tall, and 44px for fingers. Muted at 65%.
-          "flex min-h-9 w-8 items-center justify-center rounded-lg p-1.5 text-muted-foreground/65 hover:bg-hover touch:size-11",
+          // 32px wide and 36px tall, and 44px for fingers. Muted, and in ink once the room's starred.
+          "flex min-h-9 w-8 items-center justify-center rounded-lg p-1.5 text-muted-foreground hover:bg-hover aria-pressed:text-foreground touch:size-11",
           "aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50",
         )}
       >
@@ -74,7 +74,7 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
       </button>
       {failed && (
         <span ref={note} role="status" className="absolute top-full left-0 z-30 w-[200px] rounded-[8px] border bg-background p-2.5 text-[13px] shadow-[0_4px_12px_var(--color-dialog-shadow-faint)]">
-          Couldn’t save your favorite. Please try again.
+          Couldn’t save your star. Please try again.
         </span>
       )}
     </span>

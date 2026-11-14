@@ -1,15 +1,24 @@
-import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { MAX_FILE_SIZE, type User } from "@ember/protocol";
-import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { ArrowUp, Attachment, Page, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
+import { isWebImage, MAX_FILE_SIZE, type User } from "@ember/protocol";
+import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
+import { Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
+import type { RoomFrames } from "@/hooks/use-room";
+import { useScheduled } from "@/hooks/use-scheduled";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
-import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
-import { tooLargeToAttach } from "@/lib/uploads";
+import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
+import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
+import { tellDraftsChanged } from "@/lib/draft-keys";
 import { cn } from "@/lib/utils";
+import { COMPOSER_CARD } from "./composer-buttons";
+import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";
+import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
+import { FilesPicker } from "./files-picker";
+import { ScheduledNotice } from "./schedule-send";
+import { fileSize } from "./upload-card";
 
 /**
  * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
@@ -38,11 +47,6 @@ function TypingIndicator({ typists }: { typists: User[] }) {
 /** The composer's place below the messages, which keeps clear of a phone's home bar. */
 const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))] narrow:px-4 max-md:px-2.5 max-md:pt-2 max-md:pb-[max(10px,env(safe-area-inset-bottom))]";
 
-/**
- * The buttons under the text, which darken on hover as Campfire's do (composer.css, buttons.css). A
- * disconnected room disables them, though only Send looks it.
- */
-const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center touch:size-11";
 
 /**
  * Where what someone has written in a room, or in one of its threads, and not yet sent is kept in this
@@ -63,6 +67,8 @@ function keepDraft(key: string, body: string | null) {
   try {
     if (body === null) localStorage.removeItem(key);
     else localStorage.setItem(key, body);
+    // For Drafts & sent's count, which storage tells only other tabs of.
+    tellDraftsChanged();
   } catch {
     // Not kept, then.
   }
@@ -75,7 +81,7 @@ function keepDraft(key: string, body: string | null) {
  */
 function LoadingEditor({ placeholder }: { placeholder: string }) {
   return (
-    <p aria-hidden="true" className="min-h-11 text-[14px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
+    <p aria-hidden="true" className="min-h-11 text-[15px] leading-[22px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
       {placeholder}
     </p>
   );
@@ -118,10 +124,10 @@ function useLinkPreviews(): (link: PastedLink) => Promise<void> {
   };
 }
 
-/** A file picked to send, keyed, since two can share a name. */
+/** A file picked to send, from the computer or from Files in Ember, keyed, since two can share a name. */
 interface PickedFile {
   key: number;
-  file: File;
+  file: Sendable;
 }
 
 /**
@@ -133,35 +139,33 @@ function usePickedFiles() {
   const [errors, setErrors] = useState<string[]>([]);
   const lastKey = useRef(0);
   // Reads the files as they're given: a field's, a paste's or a drop's are gone once its event is over.
-  const add = (picked: Iterable<File>) => {
+  const add = (picked: Iterable<Sendable>) => {
     const fitting: PickedFile[] = [];
     const refused: string[] = [];
     for (const file of picked) {
-      if (file.size > MAX_FILE_SIZE) refused.push(tooLargeToAttach(file.name));
+      const { name, size } = sendableFacts(file);
+      if (size > MAX_FILE_SIZE) refused.push(tooLargeToAttach(name));
       else fitting.push({ key: ++lastKey.current, file });
     }
     setErrors(refused);
-    if (fitting.length > 0) setFiles((files) => [...files, ...fitting].sort((a, b) => a.file.name.localeCompare(b.file.name)));
+    if (fitting.length > 0) setFiles((files) => [...files, ...fitting].sort((a, b) => sendableFacts(a.file).name.localeCompare(sendableFacts(b.file).name)));
   };
+  /** Picks a file already in Ember, which the room copies rather than this sending it again. */
+  const share = (shared: EmberFile) => add([shared]);
   const remove = (key: number) => setFiles((files) => files.filter((picked) => picked.key !== key));
-  return { files, errors, add, remove, clear: () => setFiles([]) };
+  return { files, errors, add, share, remove, clear: () => setFiles([]) };
 }
 
 /**
- * A file's name as its chip shows it: what runs to an ellipsis, up to its last dot, and its extension,
- * which doesn't. A name with no dot shows whole.
+ * The address of a picture's thumbnail, which is let go once its chip goes, or for a file in Ember, the
+ * preview or picture its message shows.
  */
-function splitName(name: string): [string, string] {
-  const dot = name.lastIndexOf(".");
-  return dot < 0 ? [name, ""] : [name.slice(0, dot + 1), name.slice(dot + 1)];
-}
-
-/**
- * The address of a picture's thumbnail, which is let go once its chip goes.
- */
-function useThumbnail(file: File): string | undefined {
+function useThumbnail(file: Sendable): string | undefined {
   const [thumbnail, setThumbnail] = useState<string>();
   useLayoutEffect(() => {
+    // A picture in Ember shows by its preview, or itself if every browser shows it: an SVG, say, is served
+    // as a download, which no image shows.
+    if (isEmberFile(file)) return setThumbnail(file.file.previewUrl ?? (isWebImage(file.file.contentType) ? file.file.url : undefined));
     if (!isImage(file)) return;
     const url = URL.createObjectURL(file);
     setThumbnail(url);
@@ -170,31 +174,50 @@ function useThumbnail(file: File): string | undefined {
   return thumbnail;
 }
 
-const isImage = (file: File) => file.type.startsWith("image/");
+const isImage = (file: Sendable) => (isEmberFile(file) ? file.file.contentType : file.type).startsWith("image/");
+
+/** A file's type as its chip says it: its extension, as Slack's do, or File for a name without one. */
+export const fileType = (name: string) => {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : "File";
+};
+
+/** The × on a chip, a fingertip's 44px on touch screens, which shows as the pointer or focus reaches the chip. */
+const REMOVE =
+  "absolute -end-2 -top-2 grid size-6 cursor-pointer place-items-center rounded-full bg-foreground text-background opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 touch:size-11 touch:-end-3 touch:-top-3 touch:bg-transparent touch:opacity-100 touch:[&>svg]:size-6 touch:[&>svg]:rounded-full touch:[&>svg]:bg-foreground";
 
 /**
- * A file picked to send, styled by Campfire's composer.css: a picture's thumbnail, or a file icon, over
- * its name and a circled ×. Pressing it takes the file back out, which it says to screen readers too.
+ * A file picked to send, as Slack's composer shows one inside its card: a picture as a 64px thumbnail, and
+ * anything else as a 220×56 chip with its icon, its name, cut short at its end, and its type and size. Its
+ * ×, which takes the file back out, shows as the pointer or focus reaches it, and always on touch screens.
  */
-function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
+function FileChip({ file, onRemove }: { file: Sendable; onRemove: () => void }) {
   const thumbnail = useThumbnail(file);
-  const [name, extension] = splitName(file.name);
-  const tile = "aspect-[5/4] w-full shrink-0 rounded-[1em] border border-muted-foreground";
-  return (
-    <button type="button" aria-label={`Remove ${file.name}`} onClick={onRemove} className="flex w-[100px] cursor-pointer flex-col items-center rounded-[1em]">
-      {isImage(file) ? (
-        <img src={thumbnail} alt="" className={cn(tile, "object-cover")} />
-      ) : (
-        <span className={cn(tile, "flex items-center justify-center")}>
-          <Page className="h-auto w-[55%]" />
-        </span>
-      )}
-      <span className="flex max-w-full items-center px-[1ch] text-[0.8rem]">
-        <span className="truncate">{name}</span>
-        <span className="shrink-0">{extension}</span>
-        <XmarkCircle className="ms-[0.5em] -me-[0.5em] size-[1.3em] shrink-0" />
-      </span>
+  const { name, size } = sendableFacts(file);
+  const remove = (
+    <button type="button" aria-label={`Remove ${name}`} title="Remove" onClick={onRemove} className={REMOVE}>
+      <Xmark className="size-3.5" />
     </button>
+  );
+  if (thumbnail !== undefined || (!isEmberFile(file) && isImage(file))) {
+    return (
+      <li className="group relative size-16 shrink-0">
+        <img src={thumbnail} alt={name} className="size-16 rounded-[8px] border object-cover" />
+        {remove}
+      </li>
+    );
+  }
+  return (
+    <li className="group relative flex h-14 w-[220px] max-w-full shrink-0 items-center gap-2.5 rounded-[8px] border bg-background px-2.5">
+      <Page className="size-9 shrink-0 rounded-[7px] bg-surface p-[7px]" />
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] font-semibold">{name}</span>
+        <span className="block truncate text-[12px] text-muted-foreground">
+          {fileType(name)} · {fileSize(size)}
+        </span>
+      </span>
+      {remove}
+    </li>
   );
 }
 
@@ -215,9 +238,15 @@ interface Props {
   roomName: string;
   /** Whether the room is a DM, whose name goes without a `#`. */
   direct?: boolean;
+  /** Whether the room is private, whose name goes without a `#` too, as its lock in the header says. */
+  closed?: boolean;
   /** Who's writing, whose drafts are their own. */
   userId: string;
   typing: User[];
+  /**
+   * While the room's been away a while: what's written still goes, waiting for the room, as Slack's does,
+   * but files, which upload once it's there, and scheduling wait for it.
+   */
   disabled: boolean;
   /**
    * Holds back the editor's code while the room's first messages are on their way, and until they're
@@ -230,13 +259,22 @@ interface Props {
    * to the room is ticked for that, until they've gone.
    */
   threadId?: string;
+  /** The room's socket, which messages scheduled for later go over. Without it, nothing can be scheduled. */
+  frames?: RoomFrames;
   /** Sends a message, its body markup, answering whether it went: one that didn't stays to be changed. */
   onSend: (body: string, alsoSend: boolean) => boolean;
   /** Sends files, each as a message of its own, before the message written with them. */
-  onSendFiles: (files: File[], alsoSend: boolean) => void;
+  onSendFiles: (files: Sendable[], alsoSend: boolean) => void;
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
+  /**
+   * Whether the formatting toolbar shows until Aa says otherwise in this browser: by default on screens with
+   * a mouse and not on touch screens. A phone's layout can hide it, leaving Aa to show it on demand.
+   */
+  toolbarByDefault?: boolean;
+  /** Buttons after @ in the bottom row, before Send, such as a phone layout's own. */
+  extraButtons?: ReactNode;
   /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
   autoFocus?: boolean;
   ref?: Ref<ComposerHandle>;
@@ -251,39 +289,74 @@ export interface ComposerHandle {
 }
 
 /**
- * The composer: a card with the editor on top, and below it Attach files, Formatting options, which
- * shows Lexxy's toolbar under the text, and a round Send button. @ offers the room's people to mention.
- * Files picked, pasted or dropped wait above the card to go with the next message. What's written is
- * kept as a draft until it's sent. A thread's has Also send to the room before Send.
+ * The composer, as Slack's: a card with the formatting toolbar on top, which Aa shows and hides, then the
+ * text, then + (Upload from your computer, Files in Ember), Aa, Emoji and @, and Send, whose chevron
+ * schedules what's written for later. Files picked, pasted or dropped wait above the card to go with the
+ * next message, under a notice of the messages you've scheduled here. What's written is kept as a draft
+ * until it's sent. A thread's has Also send to the room before Send.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, ref }: Props) {
+export function Composer({
+  roomId,
+  roomName,
+  direct = false,
+  closed = false,
+  userId,
+  typing,
+  disabled,
+  deferEditor = false,
+  threadId,
+  frames,
+  toolbarByDefault = !hasTouchKeyboard(),
+  extraButtons,
+  onSend,
+  onSendFiles,
+  onTyping,
+  onEditLastMessage,
+  autoFocus = true,
+  ref,
+}: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
-  const [toolbarOpen, setToolbarOpen] = useState(false);
-  // Whether the toolbar shows only for its Link field, which Ctrl or Cmd+K opened while it was shut.
-  const [toolbarForLink, setToolbarForLink] = useState(false);
+  const fileField = useRef<HTMLInputElement>(null);
+  const [toolbarShown, setToolbarShown] = useToolbarShown(toolbarByDefault);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [alsoSend, setAlsoSend] = useState(false);
   const key = draftKey(userId, roomId, threadId);
   const [draft, setDraft] = useState(() => readDraft(key));
+  const [blank, setBlank] = useState(() => !draft);
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
   const [focusOnOpen] = useState(() => !hasTouchKeyboard());
   // Where focus was as the room opened. The editor can be ready a moment later, by when you may have put
   // focus elsewhere, where it's left.
   const [focusAtOpen] = useState(() => document.activeElement);
   const editorShown = useEditorShown(deferEditor);
+  const [editorReady, setEditorReady] = useState(false);
   const previewLink = useLinkPreviews();
   const picked = usePickedFiles();
+  // What's scheduled and waiting for the room to take it, by the id it went with, so a refusal can put it back.
+  const scheduling = useRef(new Map<string, string>());
+  const [scheduleRefusal, setScheduleRefusal] = useState<string | null>(null);
+  const scheduled = useScheduled(roomId, frames, (clientMessageId, why) => {
+    const body = scheduling.current.get(clientMessageId);
+    if (body === undefined) return;
+    scheduling.current.delete(clientMessageId);
+    setScheduleRefusal(why);
+    // What was scheduled comes back to be changed, unless something else has been written since.
+    if (editor.current?.isBlank()) editor.current.replace(body);
+  });
+  const scheduledHere = scheduled.messages.filter((message) => message.parentId === threadId).map((message) => ({ ...message, text: writtenBody(message.body).plainText }));
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
   // Whether Quote wrote what the editor opens with, before it showed, so it takes focus as Quote has it do.
   const replied = useRef(false);
-  const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct ? "" : "#"}${roomName}`;
+  const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct || closed ? "" : "#"}${roomName}`;
 
   // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
   const wrote = (body: string | null) => {
     if (body !== null) onTyping(true);
     else if (!wasBlank.current) onTyping(false);
     wasBlank.current = body === null;
+    setBlank(body === null);
     keepDraft(key, body);
   };
 
@@ -316,78 +389,79 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     return () => document.removeEventListener("keydown", keyDown);
   }, []);
 
-  const changed = () => wrote(editor.current!.isBlank() ? null : editor.current!.value());
+  const changed = () => {
+    setEditorReady(true);
+    wrote(editor.current!.isBlank() ? null : editor.current!.value());
+  };
 
-  // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
-  // written unless it's blank, closes the toolbar and focuses the editor, on touch screens too. Before
-  // the editor shows, as its code loads, only the files go. Also send to the room is unticked once
-  // anything's gone, as Slack unticks it.
+  // What's written is gone, sent or scheduled: the room hears you've stopped typing as the message
+  // arrives, and the draft goes, with Also send to the room, as Slack unticks it.
+  const written = () => {
+    wasBlank.current = true;
+    setBlank(true);
+    editor.current?.clear();
+    keepDraft(key, null);
+    setAlsoSend(false);
+  };
+
+  // This sends the files picked, then what's written unless it's blank, and focuses the editor, on touch
+  // screens too. While the room is away what's written goes, to wait for it, and the files stay. Before the
+  // editor shows, as its code loads, only the files go.
   const submit = () => {
-    if (disabled) return;
-    if (picked.files.length > 0) {
-      onSendFiles(picked.files.map(({ file }) => file), alsoSend);
+    setScheduleRefusal(null);
+    // Files picked wait for the room, which they upload to.
+    if (picked.files.length > 0 && !disabled) {
+      onSendFiles(
+        picked.files.map(({ file }) => file),
+        alsoSend,
+      );
       picked.clear();
       setAlsoSend(false);
     }
-    const written = editor.current;
-    if (!written) return;
-    if (!written.isBlank()) {
+    const text = editor.current;
+    if (!text) return;
+    if (!text.isBlank()) {
       // One the room won't take, as when it's too long, stays to be cut down.
-      if (!onSend(written.value(), alsoSend)) return;
-      // Everyone else stops showing you as typing when your message arrives.
-      wasBlank.current = true;
-      written.clear();
-      keepDraft(key, null);
-      setAlsoSend(false);
+      if (!onSend(text.value(), alsoSend)) return;
+      written();
     }
-    setToolbarOpen(false);
-    setToolbarForLink(false);
-    written.focus();
+    text.focus();
   };
 
-  const keyDown = (event: KeyboardEvent) => {
-    if (opensLink(event) && !toolbarOpen) {
-      // Lexxy opens its Link field on this even while its toolbar is hidden, so nothing would seem to
-      // happen, and the address you typed next would replace what you'd selected. Here the toolbar shows
-      // first, so the field can take focus, and shuts again when the field closes.
-      flushSync(() => {
-        setToolbarOpen(true);
-        setToolbarForLink(true);
-      });
-      return;
-    }
-    // Enter picks from an open list, such as the people to mention.
-    if (editor.current?.hasOpenPrompt() || !sendsMessage(event, { toolbarOpen })) return;
-    event.preventDefault();
-    event.stopPropagation();
-    submit();
+  // Schedules what's written for `at`, taking it out of the box as Send would.
+  const schedule = (at: Date) => {
+    const text = editor.current;
+    if (disabled || !text || text.isBlank()) return;
+    setScheduleRefusal(null);
+    const body = text.value();
+    const clientMessageId = scheduled.schedule({ body, sendAt: at.getTime(), parentId: threadId, alsoSend });
+    if (clientMessageId === null) return;
+    scheduling.current.set(clientMessageId, body);
+    written();
+    text.focus();
   };
 
-  // Shuts the toolbar Ctrl or Cmd+K showed once its Link field closes, returning focus to the text if it
-  // was in the toolbar.
-  useEffect(() => {
-    const link = form.current?.querySelector("lexxy-link-dropdown [data-dropdown-trigger]");
-    if (!toolbarForLink || !link) return;
-    const observer = new MutationObserver(() => {
-      if (link.getAttribute("aria-expanded") === "true") return;
-      if (link.closest("lexxy-toolbar")?.contains(document.activeElement)) editor.current?.focus();
-      setToolbarForLink(false);
-      setToolbarOpen(false);
-    });
-    observer.observe(link, { attributeFilter: ["aria-expanded"] });
-    return () => observer.disconnect();
-  }, [toolbarForLink]);
+  // Focus goes to the × of the file that takes the removed one's place, or the one before it, or the text.
+  const removePicked = (key: number, index: number) => {
+    flushSync(() => picked.remove(key));
+    const removes = form.current?.querySelectorAll<HTMLElement>('[aria-label="Files to send"] button') ?? [];
+    (removes[Math.min(index, removes.length - 1)] ?? editor.current)?.focus();
+  };
+
+  // The toolbar shows for the Link field, though Aa had hidden it.
+  const { onFormats, keyDown: formattingKeyDown, toolbar } = useFormatting(editor, { onShowToolbar: () => flushSync(() => setToolbarShown(true, false)) });
+  const keyDown = (event: KeyboardEvent) => formattingKeyDown(event, submit);
+
+  const placeholderToolbar = toolbarShown && !(editorShown && editorReady);
 
   return (
     // A thread's panel is narrower than its room, and its composer keeps closer to its sides.
     <footer className={cn(FOOTER, threadId !== undefined && "px-4")}>
-      {/* Not validated, since Lexxy checks its Link field itself. An address left unfinished there, or the field
-          left open and empty, would otherwise stop Send without a word. */}
       <form
         ref={form}
         noValidate
         className="composer relative min-w-0 [contain:inline-size]"
-        data-toolbar={toolbarOpen || undefined}
+        data-toolbar={toolbarShown || undefined}
         onSubmit={(event) => {
           event.preventDefault();
           submit();
@@ -401,18 +475,20 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
         {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
-        {/* The files picked, and those too large to send. */}
-        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0) && "pb-2")}>
-          {picked.files.map(({ key, file }) => (
-            <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
-          ))}
-          {picked.errors.length > 0 && (
-            <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
-              {picked.errors.join(" ")}
-            </p>
-          )}
-        </div>
-        <div className="flex min-h-[108px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 max-md:min-h-[100px] max-md:p-2.5">
+        <ScheduledNotice messages={scheduledHere} scheduled={scheduled} disabled={disabled} onReturnFocus={() => editor.current?.focus()} onEdit={(body) => editor.current?.replace(body)} />
+        {scheduleRefusal && (
+          <p role="alert" className="mb-1.5 text-[13px] text-negative">
+            {scheduleRefusal}
+          </p>
+        )}
+        <div className={cn(COMPOSER_CARD, "min-h-[108px] max-md:min-h-[100px]")}>
+          {toolbarShown &&
+            // Its place is kept while the editor loads, whose stylesheet paints its icons, so the text doesn't move down as it shows.
+            (placeholderToolbar ? (
+              <div aria-hidden="true" className="h-[34px] shrink-0 touch:h-[50px]" />
+            ) : (
+              toolbar
+            ))}
           {/* The editor takes the card's padding and fills this, all the card above the buttons (rich-text-editor.css). */}
           <div className="flex min-w-0 flex-1 flex-col">
             <Suspense fallback={<LoadingEditor placeholder={placeholder} />}>
@@ -426,7 +502,12 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                   mentionsFrom={mentionPromptSrc(roomId)}
                   // Under the text on touch screens are the keyboard and the home indicator.
                   mentionsAbove={hasTouchKeyboard()}
-                  autoFocus={() => replied.current || (autoFocus && focusOnOpen && focusStayedOn(focusAtOpen))}
+                  autoFocus={() => {
+                    setEditorReady(true);
+                    return replied.current || (autoFocus && focusOnOpen && focusStayedOn(focusAtOpen));
+                  }}
+                  toolbar={false}
+                  onFormats={onFormats}
                   onChange={changed}
                   onKeyDown={keyDown}
                   onLinkPasted={previewLink}
@@ -436,48 +517,46 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
               )}
             </Suspense>
           </div>
+          {/* The files picked, under the text, as Slack's composer has them, and those too large to send. */}
+          {picked.files.length > 0 && (
+            <ul aria-label="Files to send" className="flex flex-wrap items-end gap-2.5 pt-2 pb-2.5">
+              {picked.files.map(({ key, file }, index) => (
+                <FileChip key={key} file={file} onRemove={() => removePicked(key, index)} />
+              ))}
+            </ul>
+          )}
+          {picked.errors.length > 0 && (
+            <p role="alert" className="w-full pb-2 text-[13px] leading-normal text-negative wrap-anywhere">
+              {picked.errors.join(" ")}
+            </p>
+          )}
           <div className="flex flex-none items-center gap-0.5">
-            {/* Campfire's `.input--file` (inputs.css): the file field fills the button, unseen, so pressing it
-                anywhere opens the browser's file picker, and the button shows when the field has focus. */}
-            <label
-              title="Attach files"
-              className={cn(
-                BUTTON,
-                "relative rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover",
-                "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-3 has-[:focus-visible]:outline-foreground",
-              )}
-            >
-              <Attachment className="size-[18px] opacity-70" />
-              <input
-                type="file"
-                multiple
-                disabled={disabled}
-                onChange={(event) => {
-                  picked.add(event.target.files ?? []);
-                  // So picking the same file again is a change.
-                  event.target.value = "";
-                }}
-                className="absolute inset-0 cursor-pointer opacity-0"
-              />
-              <span className="sr-only">Attach a file</span>
-            </label>
-            <button
-              type="button"
+            {/* The browser's file picker, which Upload from your computer opens. */}
+            <input
+              ref={fileField}
+              type="file"
+              multiple
               disabled={disabled}
-              title="Formatting options"
-              aria-pressed={toolbarOpen}
-              // Keep focus in the editor, so a phone's keyboard stays up, as Send does.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                setToolbarOpen((open) => !open);
-                setToolbarForLink(false);
+              aria-label="Attach a file"
+              tabIndex={-1}
+              onChange={(event) => {
+                picked.add(event.target.files ?? []);
+                // So picking the same file again is a change.
+                event.target.value = "";
+              }}
+              className="sr-only"
+            />
+            <AttachMenu disabled={disabled} onUpload={() => fileField.current?.click()} onFilesInEmber={() => setFilesOpen(true)} onReturnFocus={() => editor.current?.focus()} />
+            <FormattingToggle
+              shown={toolbarShown}
+              onToggle={() => {
+                setToolbarShown(!toolbarShown);
                 editor.current?.focus();
               }}
-              className={cn(BUTTON, "rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover")}
-            >
-              <TextSquare className="size-[18px] opacity-70" />
-              <span className="sr-only">Rich text</span>
-            </button>
+            />
+            <EmojiButton onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
+            <MentionButton onMention={() => editor.current?.startMention()} />
+            {extraButtons}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. */}
             {threadId !== undefined && (
               <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm">
@@ -499,37 +578,71 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                 </span>
               </label>
             )}
-            <button
-              type="submit"
-              disabled={disabled}
-              title="Send message"
-              // Keep focus in the editor, so a phone's keyboard stays up between messages.
-              onMouseDown={(event) => event.preventDefault()}
-              className={cn(
-                BUTTON,
-                "ml-auto rounded-full bg-foreground text-background hover:not-active:brightness-70",
-                "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
-              )}
-            >
-              <ArrowUp className="size-[18px]" />
-              <span className="sr-only">Send Message</span>
-            </button>
+            {/* Files picked go at once, so they can't be scheduled. */}
+            <SendButton disabled={false} empty={blank && picked.files.length === 0} cannotSchedule={disabled || !frames || blank || picked.files.length > 0} onSchedule={schedule} />
           </div>
         </div>
       </form>
+      {filesOpen && (
+        <FilesPicker
+          meId={userId}
+          roomId={roomId}
+          room={{ label: direct ? roomName : `#${roomName}`, direct }}
+          onClose={() => setFilesOpen(false)}
+          onPick={(shared) => {
+            setFilesOpen(false);
+            picked.share(shared);
+          }}
+          onReturnFocus={() => editor.current?.focus()}
+        />
+      )}
     </footer>
   );
 }
 
+/** Where whether the toolbar shows is kept in this browser, which Aa changes. */
+const TOOLBAR_KEY = "composer-toolbar";
+
 /**
- * What stands in the composer's place in a room that's gone: deleted, or no longer this person's. Its
- * span is inline, so its width, centering and shake don't take; this has them, as its classes mean.
+ * Whether the formatting toolbar shows: as Aa last left it in this browser, or else `byDefault`. Showing
+ * it for the Link field doesn't change what's kept.
  */
-export function RoomDeleted() {
+function useToolbarShown(byDefault: boolean): [boolean, (shown: boolean, keep?: boolean) => void] {
+  const [shown, setShown] = useState(() => {
+    try {
+      const kept = localStorage.getItem(TOOLBAR_KEY);
+      if (kept !== null) return kept === "shown";
+    } catch {
+      // Storage can be unavailable, as in some private windows.
+    }
+    return byDefault;
+  });
+  const change = (next: boolean, keep = true) => {
+    setShown(next);
+    if (!keep) return;
+    try {
+      localStorage.setItem(TOOLBAR_KEY, next ? "shown" : "hidden");
+    } catch {
+      // Not kept, then.
+    }
+  };
+  return [shown, change];
+}
+
+/** Cmd+Shift+X, or Ctrl+Shift+X, which strikes through, as Slack's does. */
+
+/** Why a room's gone for this person: deleted, or still there with them no longer in it or its parent. */
+export type RoomGone = "deleted" | "lost access";
+
+/**
+ * What stands in the composer's place in a room that's gone, saying why. Its span is inline, so its
+ * width, centering and shake don't take; this has them, as its classes mean.
+ */
+export function RoomGoneNotice({ gone }: { gone: RoomGone }) {
   return (
     <footer className={FOOTER}>
       <p role="alert" className="rounded-lg border border-negative px-[0.8em] py-[0.5em] text-center text-base text-negative motion-safe:animate-shake">
-        This room was deleted.
+        {gone === "lost access" ? "You no longer have access to this room." : "This room was deleted."}
       </p>
     </footer>
   );

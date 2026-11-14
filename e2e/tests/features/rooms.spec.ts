@@ -1,6 +1,6 @@
 import type { Sidebar, WorkspaceServerFrame } from "@ember/protocol";
 import type { APIRequestContext, Page, WebSocketRoute } from "@playwright/test";
-import { administratorSession, connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, makeAdministrator, rowsWithStars, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
+import { administratorSession, connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, makeAdministrator, rowsWithStars, sidebarRoomRows, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 
 test.describe("Conversations sidebar", () => {
@@ -99,7 +99,7 @@ test.describe("Unread rooms", () => {
 
     await ada.send("Lunch?");
     await expect(general(grace.page)).toHaveAccessibleDescription(/^Unread/);
-    await expect(general(grace.page)).toHaveCSS("font-weight", "650");
+    await expect(general(grace.page)).toHaveCSS("font-weight", "700");
     await expect(general(grace.page).locator("span").last()).toHaveCSS("width", "7px");
 
     // The server keeps the mark.
@@ -113,35 +113,38 @@ test.describe("Unread rooms", () => {
   });
 });
 
-test.describe("Activity filter", () => {
-  test("counts the rooms marked unread, shows only them while it's on, and a room's link turns it off", async ({ members, rooms }) => {
+test.describe("Activity", () => {
+  test("counts what's happened to you on the rail, lists it on its own page, and opens it beside the feed", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
-    const activity = grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Activity" });
-    const rows = grace.page.getByRole("region", { name: "Rooms" }).getByRole("link");
-    const caughtUp = grace.page.getByText("You’re all caught up. No unread conversations.");
-    await expect(activity).toHaveAttribute("title", "Show unread conversations");
+    const activity = grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Activity" });
 
-    await activity.click();
-    await expect(activity).toHaveAttribute("aria-pressed", "true");
-    await expect(rows).toHaveCount(0);
-    await expect(caughtUp).toBeVisible();
-    // The rail marks no page while it's on.
-    await expect(grace.page.getByRole("navigation", { name: "Workspace" }).locator("[aria-current]")).toHaveCount(0);
-
-    await ada.send("Lunch?");
+    await ada.send("@channel Lunch?");
     await expect(activity).toHaveAccessibleDescription("1 unread");
     await expect(activity.getByText("1", { exact: true })).toHaveCSS("height", "17px");
-    await expect(rows).toHaveText(["#general"]);
-    await expect(caughtUp).toBeHidden();
 
-    await rows.first().click();
-    await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
-    await expect(activity).toHaveAttribute("aria-pressed", "false");
-    // The room shown counts as read, so the pill goes.
+    await activity.click();
+    await expect(grace.page).toHaveURL(/\/activity$/);
+    await expect(activity).toHaveAttribute("aria-current", "page");
+    const feed = grace.page.getByRole("list", { name: "Activity items" });
+    await expect(feed.getByRole("button", { name: /Mention in #general/ })).toBeVisible();
+
+    await feed.getByRole("button", { name: /@channel Lunch\?/ }).click();
+    const general = grace.page.getByRole("heading", { level: 1, name: "general" });
+    await expect(general).toBeVisible();
+    // The address says what's open beside the feed, so a reload keeps it, and Back closes it.
+    await expect(grace.page).toHaveURL(new RegExp(`/activity/rooms/${rooms.general.id}/@[^/]+$`));
+    await expect(activity).toHaveAttribute("aria-current", "page");
+    // Opening it reads it, which leaves it in the feed.
     await expect(activity).not.toHaveAttribute("aria-description");
-    await expect(activity.getByText("1", { exact: true })).toBeHidden();
-    await expect(rows).toHaveText(["#general", "#random"]);
+    await expect(feed.getByRole("button", { name: /Mention in #general/ })).toBeVisible();
+    await expect(grace.page.getByRole("separator", { name: "Resize activity" })).toBeVisible();
+    await grace.page.reload();
+    await expect(general).toBeVisible();
+    await grace.page.goBack();
+    await expect(grace.page).toHaveURL(/\/activity$/);
+    await expect(general).toBeHidden();
+    await expect(feed.getByRole("button", { name: /Mention in #general/ })).toBeVisible();
   });
 });
 
@@ -150,26 +153,27 @@ test.describe("Star rooms", () => {
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
     const secondTab = await grace.page.context().newPage();
     await secondTab.goto(`/rooms/${rooms.general.id}`);
-    const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
-    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+    const rows = sidebarRoomRows;
+    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
     await expect.poll(() => rowsWithStars(rows(secondTab))).toEqual(["#general", "#random"]);
-    await expect(star).toHaveAttribute("title", "Add to favorites");
+    await expect(star).toHaveAttribute("title", "Star room");
     await expect(star.locator("svg path")).toHaveCSS("fill", "none");
 
     await star.click();
     await expect(star).toHaveAttribute("aria-pressed", "true");
-    await expect(star).toHaveAttribute("title", "Remove from favorites");
+    await expect(star).toHaveAttribute("title", "Unstar room");
     await expect(star.locator("svg path")).not.toHaveCSS("fill", "none");
     await expect(star).toBeFocused();
     for (const page of [grace.page, secondTab]) {
       await expect.poll(() => rowsWithStars(rows(page))).toEqual(["#random★", "#general"]);
-      await expect(rows(page).first()).toHaveAccessibleName("random Favorite");
+      // Under Starred, which says it's starred, with no star of its own.
+      await expect(rows(page).first()).toHaveAccessibleName("random");
     }
 
     // The server keeps it.
     await secondTab.reload();
     await expect.poll(() => rowsWithStars(rows(secondTab))).toEqual(["#random★", "#general"]);
-    await expect(secondTab.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "false");
+    await expect(secondTab.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "false");
 
     await star.click();
     await expect(star).toHaveAttribute("aria-pressed", "false");
@@ -179,21 +183,21 @@ test.describe("Star rooms", () => {
   test("says when a star can't be saved, under the star, and changes nothing", async ({ members, rooms }) => {
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
     await grace.page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
-    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
 
     await star.click();
-    const note = grace.page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." });
+    const note = grace.page.getByRole("status").filter({ hasText: "Couldn’t save your star. Please try again." });
     await expect(note).toBeVisible();
     await expect(note).toHaveCSS("width", "200px");
     // From the star's left edge, where there's room for it.
     expect((await note.boundingBox())!.x).toBeCloseTo((await star.boundingBox())!.x, 0);
     await expect(star).toHaveAttribute("aria-pressed", "false");
-    await expect.poll(() => rowsWithStars(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link"))).toEqual(["#general", "#random"]);
+    await expect.poll(() => rowsWithStars(sidebarRoomRows(grace.page))).toEqual(["#general", "#random"]);
   });
 });
 
 test.describe("Reorder starred rooms", () => {
-  const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
+  const rows = sidebarRoomRows;
   const status = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
 
   /** Stars `roomIds` in turn, as the header's star does. */

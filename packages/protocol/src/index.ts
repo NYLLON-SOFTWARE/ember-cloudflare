@@ -2,14 +2,18 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import type { ActivityItem } from "./activity.ts";
 import type { AgentProfile } from "./agents.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
+import type { SavedMarks } from "./saved.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
+import type { Canvas } from "./library.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 import { MAX_PUSH_ENDPOINT_LENGTH } from "./push.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
+import { parentIdOf, type ParentChoice, type RoomParent } from "./sub-rooms.ts";
 
 export { ROOM_ICON_NAMES };
 export {
@@ -51,6 +55,7 @@ export {
 // and the web app's main chunk, which imports this, would otherwise cost the app one more script to load
 // (`oneAppScript` in apps/web/vite.config.ts says why).
 export type { Bot, BotAnswer, BotChanges, BotRoom, Bots, BotSettings, NewBot } from "./bots.ts";
+export { notInParent, SUB_ROOM_REFUSED, SUB_ROOM_SEPARATOR, subRoomName, type ParentChoice, type RoomParent } from "./sub-rooms.ts";
 // So is the rest of assistant.ts, from "@ember/protocol/assistant", which only Ember AI's settings, its dials and the Worker's assistant use.
 export type {
   AnswerLength,
@@ -93,15 +98,19 @@ export {
   MAX_PREVIEW_PIXELS,
   MAX_PREVIEW_SIZE,
   parseNewUpload,
+  parseSharedFile,
   PREVIEW_MAX_HEIGHT,
   PREVIEW_MAX_WIDTH,
+  sharedFilesPath,
   uploadPartPath,
   uploadPreviewPath,
   uploadsPath,
   type NewUpload,
+  type SharedFile,
   type StoredFile,
   type Upload,
 } from "./files.ts";
+export { NAMED_NEW_VIEWERS, parseShareCheck, SHARE_CHECK_PATH, type ShareCheck, type ShareWidening } from "./sharing.ts";
 export {
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
@@ -120,7 +129,9 @@ export {
   PASSWORD_RESET_PATH,
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
+  SAVED_PATH,
   SEARCHES_PATH,
+  TODOS_PATH,
   SIGN_UP_PATH,
   threadPath,
   TRANSFER_PATH,
@@ -133,6 +144,7 @@ export {
   type RoomAccess,
   type WorkspacePage,
 } from "./pages.ts";
+export { FILES_PATH, filesPath, type FilesPlace } from "./pages.ts";
 export {
   MAX_PUSH_ENDPOINT_LENGTH,
   MAX_PUSH_KEY_LENGTH,
@@ -146,6 +158,23 @@ export {
   type SignOut,
 } from "./push.ts";
 export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
+export { dmPath, DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "./pages.ts";
+export { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreview, type DirectPreviews, type ListedThread, type ListedThreads } from "./conversations.ts";
+export {
+  ACTIVITY_KINDS,
+  ACTIVITY_PAGE_SIZE,
+  ACTIVITY_PATH,
+  ACTIVITY_PREVIEW_LENGTH,
+  MAX_ACTIVITY_MARKS,
+  mentionsEveryone,
+  parseActivityCursor,
+  parseActivityMarks,
+  previewOf,
+  type ActivityItem,
+  type ActivityKind,
+  type ActivityMarks,
+  type ActivityPage,
+} from "./activity.ts";
 export {
   hasFilters,
   hasWords,
@@ -171,6 +200,30 @@ export {
   type SearchResults,
   type SearchSort,
 } from "./search.ts";
+export {
+  isRemindableAt,
+  MAX_NOTE_FILE_SIZE,
+  MAX_NOTE_FILES,
+  MAX_REMIND_AHEAD_MS,
+  MAX_SAVED_ITEMS,
+  NOTE_FILE_TOO_LARGE,
+  NOTE_FILES_PATH,
+  parseNewSavedItem,
+  parseSavedChange,
+  REMINDER_NOT_AHEAD,
+  SAVED_LIST_FULL,
+  SAVED_LISTS,
+  savedPath,
+  type NewSavedItem,
+  type NoteFile,
+  type SavedChange,
+  type SavedItem,
+  type SavedItems,
+  type SavedKind,
+  type SavedList,
+  type SavedMark,
+  type SavedMarks,
+} from "./saved.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -232,6 +285,8 @@ export interface SharedRoom {
   name: string;
   /** Null for the default `#`. */
   icon: RoomIconName | null;
+  /** The room it's under, for a sub-room (`sub-rooms.ts`). */
+  parent?: RoomParent;
 }
 
 /**
@@ -274,9 +329,14 @@ export const startingInvolvement = (room: Room): Involvement => (room.kind === "
  * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
  * tab, which marks it unread for them until they do again, when the first of those messages came, while
  * it's marked, and their level in it. A room they've hidden is listed too, since they can still open it,
- * but their sidebar leaves it out.
+ * but their sidebar leaves it out. `unreadCount` is how many messages have come since it was marked
+ * unread, up to `UNREAD_COUNT_CAP`, counting only those that mention them where they follow the room at
+ * @mentions or not at all; it's left out at none. `unreadMentioned` says one of them mentions them.
  */
-export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; involvement: Involvement };
+export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; unreadMentioned?: boolean; involvement: Involvement };
+
+/** The most unread messages a sidebar room's count goes to, after which it says "9+", so nothing has to count them all. */
+export const UNREAD_COUNT_CAP = 10;
 
 /**
  * The rooms someone has starred, which their sidebar lists first, in the order they starred them.
@@ -327,7 +387,7 @@ export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
  * Without an icon, it has the default `#`.
  */
-export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type NewRoom = { name: string; icon?: RoomIconChoice; parentId?: RoomId } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
@@ -337,6 +397,8 @@ export interface RoomPerson extends User {
 /** What `GET /api/rooms/new` answers for the New room forms: everyone active, by name. */
 export interface NewRoomForm {
   people: User[];
+  /** The rooms a new room could go under. */
+  parents: ParentChoice[];
 }
 
 /**
@@ -345,6 +407,19 @@ export interface NewRoomForm {
  */
 export interface NewDirect {
   userIds: UserId[];
+}
+
+/**
+ * A message to forward, `POST /api/rooms/<room>/messages/<message>/forwards`: into the conversation `to`, in
+ * the thread of its message `parentId` if that's given, after `note`, the forwarder's own words, if any. The
+ * room posts it as the forwarder's message quoting the one forwarded, as Quote quotes one, and answers it.
+ */
+export interface NewForward {
+  to: RoomId;
+  parentId?: string;
+  /** Plain text, its lines kept. */
+  note?: string;
+  clientMessageId: string;
 }
 
 /** What `POST /api/directs` answers: the DM, 201 Created when it's new and 200 OK when the group had one. */
@@ -359,19 +434,23 @@ export interface RoomSettings {
   canAdminister: boolean;
   /** Everyone active, by name. */
   people: RoomPerson[];
+  /** The rooms it could go under, none while it has sub-rooms of its own. */
+  parents: ParentChoice[];
+  /** How many sub-rooms it has, whoever can see them. */
+  subRooms: number;
 }
 
 /**
  * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, and who
  * it's for, everyone or just the people `memberIds` names, which takes anyone else out of it.
  */
-export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type RoomChanges = { name?: string; icon?: RoomIconChoice; parentId?: RoomId | null } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
  * settings.
  */
-export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "light", "dark", "system"] as const;
+export const NAVIGATION_SLOTS = ["home", "dms", "activity", "todos", "search", "admin", "light", "dark", "system"] as const;
 export type NavigationSlot = (typeof NAVIGATION_SLOTS)[number];
 
 /**
@@ -382,6 +461,7 @@ export const DEFAULT_NAVIGATION_ICONS = {
   home: "iconoir:regular:home",
   dms: "iconoir:regular:multi-bubble",
   activity: "iconoir:regular:bell",
+  todos: "iconoir:regular:check-circle",
   search: "iconoir:regular:search",
   admin: "iconoir:regular:box",
   light: "iconoir:regular:sun-light",
@@ -882,6 +962,8 @@ export interface ChangedPerson {
 export interface Person extends DirectoryUser {
   /** Their email address, or null when they have none, which only administrators are told. */
   emailAddress?: string | null;
+  /** The IANA time zone their browser last said it's in, for their local time, or null before it has. */
+  timeZone?: string | null;
 }
 
 /** What `GET /api/users/<id>` answers: anyone, whatever their status. */
@@ -1442,6 +1524,13 @@ export const CloseCode = {
 export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
 /**
+ * The reason a `NotFound` close gives when the room is still there but this person isn't in it, taken out
+ * of it or of its parent, rather than its having been deleted, which a `NotFound` close with any other
+ * reason says, as one from before this did.
+ */
+export const LOST_ACCESS = "LostAccess";
+
+/**
  * The shortest new password Ember takes, in characters rather than bytes.
  */
 export const MIN_PASSWORD_LENGTH = 8;
@@ -1578,6 +1667,32 @@ export type ClientFrame =
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
   /**
+   * A message to send later, at `sendAt` (milliseconds since the epoch), as `message.create` would send it
+   * then: the room keeps it, and its alarm posts it as its author at that time, if they're still in the
+   * room. Its author's sockets hear of it with `scheduled`.
+   */
+  | { type: "scheduled.create"; clientMessageId: string; body: string; sendAt: number; parentId?: string; alsoSend?: boolean }
+  /** Moves one of your scheduled messages to another time. */
+  | { type: "scheduled.update"; id: string; sendAt: number }
+  /** Sends one of your scheduled messages now. */
+  | { type: "scheduled.send"; id: string }
+  /** Deletes one of your scheduled messages, unsent. */
+  | { type: "scheduled.delete"; id: string }
+  /**
+   * Starts writing a canvas tab of the room's together with whoever else is, in place of any canvas the
+   * socket wrote before: from `version`, where the tab's editor has one, which the room answers with the
+   * steps since, if it has them, or else the canvas as it is now (`canvas.state`).
+   */
+  | { type: "canvas.join"; tabId: string; version?: number }
+  /**
+   * ProseMirror steps, as JSON, that the editor `clientId` made over the canvas at `version`, up to
+   * `MAX_CANVAS_STEPS`. The room applies them, and sends them to everyone writing the canvas, the sender
+   * too, or, over an older version, sends the sender the steps it missed, for its editor to rebase its own over.
+   */
+  | { type: "canvas.steps"; tabId: string; version: number; clientId: string; steps: unknown[] }
+  /** Stops writing the canvas, as its tab closes. */
+  | { type: "canvas.leave"; tabId: string }
+  /**
    * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
    * block `blockId` names when it has one, with the `value` it has, which tells apart two that share a name.
    * The room reports it to the bot, and answers `card.clicked`, or an `error`, with `clickId`, which the tab
@@ -1585,6 +1700,54 @@ export type ClientFrame =
    */
   | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
   | { type: "ping" };
+
+/**
+ * A message waiting to be sent at `sendAt`, as its author's tabs list it: only they hear of it, until it's
+ * posted, when it becomes a message like any other.
+ */
+export interface ScheduledMessage {
+  id: string;
+  /** Its body markup, as the composer wrote it. */
+  body: string;
+  /** When the room is to post it, in milliseconds since the epoch. */
+  sendAt: number;
+  /** The message whose thread it's a reply in, which `alsoSend` sends to the room too. */
+  parentId?: string;
+  alsoSend?: boolean;
+  /**
+   * Why the room couldn't post it when it was due, as when its author had left the room or its thread's
+   * message was deleted: it waits, unsent, for its author to send it again, edit or delete it.
+   */
+  failed?: string;
+}
+
+/** How far ahead a message can be scheduled, as Slack allows: 120 days. */
+export const MAX_SCHEDULE_AHEAD_MS = 120 * 24 * 60 * 60 * 1000;
+
+/** How many messages one person can have waiting in a room. */
+export const MAX_SCHEDULED_MESSAGES = 50;
+
+/** Where the app asks for every message you have waiting, in every room you're still in (`ScheduledList`). */
+export const SCHEDULED_API_PATH = "/api/scheduled";
+
+/** One of your scheduled messages as `SCHEDULED_API_PATH` lists it beside those of your other rooms. */
+export interface ListedScheduledMessage {
+  id: string;
+  roomId: RoomId;
+  /** When the room is to post it, in milliseconds since the epoch. */
+  sendAt: number;
+  /** The start of its plain text, as a reply shows its parent's (`parentTextOf`). */
+  preview: string;
+  /** The message whose thread it's a reply in. */
+  parentId?: string;
+  /** Why the room couldn't post it when it was due, as `ScheduledMessage` says. */
+  failed?: string;
+}
+
+/** `GET /api/scheduled`: your scheduled messages in the rooms you're still in, soonest first. */
+export interface ScheduledList {
+  messages: ListedScheduledMessage[];
+}
 
 /**
  * A page of a room's messages that takes the timeline's place: the newest, or the one around a message.
@@ -1655,6 +1818,21 @@ export type ServerFrame =
    * `clientMessageIds` the messages it was about, or `clickId` the click.
    */
   | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
+  /** A canvas as it is now, for a writer whose version the room has no steps after. */
+  | { type: "canvas.state"; tabId: string; canvas: Canvas }
+  /**
+   * Steps someone made to a canvas over `version`, each by the editor `clientIds` names at its index, in
+   * the order the room applied them: to everyone writing it, as they're made, and to a writer who's behind,
+   * the ones they missed.
+   */
+  | { type: "canvas.steps"; tabId: string; version: number; steps: unknown[]; clientIds: string[]; updatedBy: User; updatedAt: string }
+  /** Why the room took none of a writer's steps, or can't let them write the canvas, which may be gone. */
+  | { type: "canvas.refused"; tabId: string; message: string }
+  /**
+   * The messages you've scheduled in the room, soonest first: sent to each of your sockets as it opens and
+   * whenever the list changes, and only to yours.
+   */
+  | { type: "scheduled"; messages: ScheduledMessage[] }
   | { type: "pong" };
 
 /**
@@ -1669,9 +1847,11 @@ export type WorkspaceServerFrame =
   | { type: "welcome"; you: Me; account: Account }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when that message
-   * came. Sent only to the person marked, as their mark changes.
+   * came, with how many messages have come since, up to `UNREAD_COUNT_CAP` (`SidebarRoom.unreadCount`), and
+   * whether one of them mentions them (`SidebarRoom.unreadMentioned`).
+   * Sent only to the person marked, as their mark changes, and again as each message it counts comes.
    */
-  | { type: "room.unread"; roomId: RoomId; at: string }
+  | { type: "room.unread"; roomId: RoomId; at: string; count?: number; mentioned?: boolean }
   /** They've read a room marked unread, in this tab or another. */
   | { type: "room.read"; roomId: RoomId }
   /**
@@ -1685,8 +1865,11 @@ export type WorkspaceServerFrame =
    * when it's started. A room they have keeps its mark, and one new to them starts read.
    */
   | { type: "room.saved"; room: Room }
-  /** A room that's no longer theirs: deleted, or they've been taken out of it. Nobody else hears of it. */
-  | { type: "room.gone"; roomId: RoomId }
+  /**
+   * A room that's no longer theirs: deleted, or, with `lostAccess`, they've been taken out of it or of its
+   * parent, or left it. Nobody else hears of it.
+   */
+  | { type: "room.gone"; roomId: RoomId; lostAccess?: true }
   /**
    * A message came in a DM of theirs at `at`, which lists it first among their DMs, unless they've heard
    * of a later one. Sent to everyone in the DM, its author included, as the Workspace applies the message.
@@ -1711,8 +1894,25 @@ export type WorkspaceServerFrame =
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
   | { type: "account.updated"; account: Account }
+  /** New items in their Activity, oldest first. Sent only to the person whose they are. */
+  | { type: "activity.added"; items: ActivityItem[] }
+  /** Items of their Activity marked read or unread, in this tab or another, or with `ids` null, every item marked read. */
+  | { type: "activity.marked"; ids: number[] | null; read: boolean }
+  /** Items gone from their Activity, as a reaction taken back or a message deleted takes them. */
+  | { type: "activity.removed"; ids: number[] }
+  /** Items of their Activity that say what an edited message says now. */
+  | { type: "activity.updated"; items: ActivityItem[] }
+  /**
+   * They've changed their To-dos or Saved, in this tab or another, or a reminder of theirs has gone off:
+   * the messages kept in their lists now, so each message's actions say Add or Remove, and their lists'
+   * counts, and the lists' pages load again.
+   */
+  | ({ type: "saved.changed" } & SavedMarks)
   | { type: "error"; message: string }
   | { type: "pong" };
+
+/** What the workspace socket says of someone's Activity. */
+export type ActivityFrame = Extract<WorkspaceServerFrame, { type: "activity.added" | "activity.marked" | "activity.removed" | "activity.updated" }>;
 
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
@@ -1872,6 +2072,8 @@ const pageLimit = (v: unknown) => (typeof v === "number" ? Math.min(Math.max(1, 
 const userIds = (v: unknown): v is UserId[] => Array.isArray(v) && v.length <= MAX_LISTED_USERS && v.every(id);
 
 /** Markup no longer than `MAX_MESSAGE_HTML_LENGTH`, or null. Whether it holds a message is the room's to read. */
+/** A time to send a scheduled message at: a whole number of milliseconds since the epoch, which the room checks is ahead. */
+const sendTime = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 const markup = (v: unknown): string | null => (typeof v === "string" && v.length <= MAX_MESSAGE_HTML_LENGTH ? v : null);
 
 /** Trimmed, non-empty text no longer than `max`, or null. */
@@ -1882,6 +2084,17 @@ const text = (v: unknown, max: number): string | null => {
 };
 
 /** The JSON object `raw` holds, or null if it holds anything else. */
+/** The most steps one `canvas.steps` frame carries: an editor sends what it has every tenth of a second or so. */
+export const MAX_CANVAS_STEPS = 500;
+/** How long the id an editor names itself by on a canvas can be. */
+export const MAX_CANVAS_CLIENT_ID_LENGTH = 64;
+
+const canvasVersion = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+const canvasClientId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_CANVAS_CLIENT_ID_LENGTH;
+/** Whether `v` could be a frame's steps: objects, which the room parses as steps, at least one, up to `MAX_CANVAS_STEPS`. */
+const canvasSteps = (v: unknown): v is unknown[] =>
+  Array.isArray(v) && v.length > 0 && v.length <= MAX_CANVAS_STEPS && v.every((step) => typeof step === "object" && step !== null && !Array.isArray(step));
+
 function parseObject(raw: string): Record<string, unknown> | null {
   try {
     const data: unknown = JSON.parse(raw);
@@ -1934,6 +2147,26 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       return id(f.parentId) && id(f.before) ? { type: f.type, parentId: f.parentId, before: f.before, limit: pageLimit(f.limit) } : null;
     case "presence.visible":
       return typeof f.visible === "boolean" ? { type: f.type, visible: f.visible } : null;
+    case "scheduled.create": {
+      const body = markup(f.body);
+      if (!id(f.clientMessageId) || body === null || !sendTime(f.sendAt)) return null;
+      const scheduled = { type: f.type, clientMessageId: f.clientMessageId, body, sendAt: f.sendAt };
+      if (f.parentId === undefined) return scheduled;
+      return id(f.parentId) ? { ...scheduled, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
+    }
+    case "scheduled.update":
+      return id(f.id) && sendTime(f.sendAt) ? { type: f.type, id: f.id, sendAt: f.sendAt } : null;
+    case "scheduled.send":
+    case "scheduled.delete":
+      return id(f.id) ? { type: f.type, id: f.id } : null;
+    case "canvas.join":
+      return id(f.tabId) && (f.version === undefined || canvasVersion(f.version)) ? { type: f.type, tabId: f.tabId, ...(f.version !== undefined && { version: f.version }) } : null;
+    case "canvas.steps":
+      return id(f.tabId) && canvasVersion(f.version) && canvasClientId(f.clientId) && canvasSteps(f.steps)
+        ? { type: f.type, tabId: f.tabId, version: f.version, clientId: f.clientId, steps: f.steps }
+        : null;
+    case "canvas.leave":
+      return id(f.tabId) ? { type: f.type, tabId: f.tabId } : null;
     case "card.click": {
       if (!id(f.clickId) || !id(f.messageId) || !isActionId(f.actionId)) return null;
       if (f.blockId !== undefined && !isActionId(f.blockId)) return null;
@@ -1963,6 +2196,19 @@ export function isRoomId(value: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value);
 }
 
+/** Parses an untrusted `NewForward`, or answers why it's refused. */
+export function parseNewForward(data: unknown): NewForward | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const { to, parentId, note, clientMessageId } = data as Record<string, unknown>;
+  if (typeof to !== "string" || !isRoomId(to)) return "Pick a conversation to forward it to";
+  if (!id(clientMessageId)) return "A forward needs an id";
+  if (parentId !== undefined && !id(parentId)) return "That thread doesn't exist";
+  if (note !== undefined && typeof note !== "string") return "A note is text";
+  const written = note?.trim() ?? "";
+  if (isMessageTooLong(written)) return MESSAGE_TOO_LONG;
+  return { to, clientMessageId, ...(parentId === undefined ? {} : { parentId }), ...(written === "" ? {} : { note: written }) };
+}
+
 // Built on first use, so a bundle that never checks an icon leaves the names out.
 let roomIconNames: ReadonlySet<string> | undefined;
 
@@ -1976,6 +2222,8 @@ export function isRoomIcon(value: unknown): value is RoomIconName {
 }
 
 const ICON_REFUSED = 'Icon must be one of the room icons, or "" for the default';
+
+const PARENT_REFUSED = "Parent must be a room's id, or null for none";
 
 /**
  * A room's icon: undefined when it's left out, which keeps the icon, or null when it's neither "" nor
@@ -1995,9 +2243,12 @@ export function parseNewRoom(data: unknown): NewRoom | string {
   if (!name) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  if (r.kind === "open") return { kind: r.kind, name, icon };
+  const parentId = parentIdOf(r.parentId, isRoomId);
+  if (parentId === false) return PARENT_REFUSED;
+  const parent = parentId ? { parentId } : {};
+  if (r.kind === "open") return { kind: r.kind, name, icon, ...parent };
   const memberIds = r.memberIds ?? [];
-  return userIds(memberIds) ? { kind: r.kind, name, icon, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return userIds(memberIds) ? { kind: r.kind, name, icon, ...parent, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /**
@@ -2011,7 +2262,9 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (name === null) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  const changes = { name, icon };
+  const parentId = parentIdOf(r.parentId, isRoomId);
+  if (parentId === false) return PARENT_REFUSED;
+  const changes = { name, icon, ...(parentId !== undefined && { parentId }) };
   if (r.kind === undefined) return changes;
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';

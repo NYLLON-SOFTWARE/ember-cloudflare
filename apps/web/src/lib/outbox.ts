@@ -2,6 +2,7 @@ import { CloseCode, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, ty
 import { roomSocketUrl } from "./api";
 import { reconnectingSocket, type ReconnectingSocket } from "./reconnecting-socket";
 import { dequeued, isPending, isQueued, notSent, unconfirmed, type PendingMessage, type RoomState } from "./room-state";
+import { forgetUnsent } from "./unsent-store";
 
 /**
  * A room's messages, and replies in its threads, that this page left unsent as their views went, as when
@@ -50,9 +51,17 @@ const byWritten = (a: PendingMessage, b: PendingMessage) => (a.createdAt < b.cre
  * `parentId`, as the outbox has it now, for the view opening there to send, ask about, or show as not sent.
  */
 export function takeBack(roomId: string, me: User, parentId?: string): PendingMessage[] {
+  return takeBackWhere(roomId, (m) => m.creator.id === me.id && m.parentId === parentId);
+}
+
+/** Takes back everything user `userId` left unsent in room `roomId`, in its timeline and its threads, as for a room that's gone. */
+export function takeBackAll(roomId: string, userId: string): PendingMessage[] {
+  return takeBackWhere(roomId, (m) => m.creator.id === userId);
+}
+
+function takeBackWhere(roomId: string, isFor: (m: PendingMessage) => boolean): PendingMessage[] {
   const outbox = outboxes.get(roomId);
   if (!outbox) return [];
-  const isFor = (m: PendingMessage) => m.creator.id === me.id && m.parentId === parentId;
   const taken = outbox.messages.filter(isFor);
   outbox.messages = outbox.messages.filter((m) => !isFor(m));
   settle(roomId, outbox);
@@ -74,8 +83,6 @@ function connect(roomId: string, outbox: Outbox): void {
       const frame = parseServerFrame(data);
       if (frame) hear(roomId, outbox, frame);
     },
-    // As a view shows what was waiting as not sent once it's been without the room a while.
-    onOffline: (offline) => offline && giveUp(roomId, outbox),
     // A room that's gone for the person, or a person who has lost access, takes nothing more.
     onClose: (code) => {
       if (code !== CloseCode.Revoked && code !== CloseCode.NotFound) return true;
@@ -85,8 +92,12 @@ function connect(roomId: string, outbox: Outbox): void {
   });
 }
 
-/** What the room says, as it bears on the messages the outbox keeps: as it does on a view's. */
+/**
+ * What the room says, as it bears on the messages the outbox keeps: as it does on a view's. Those it says
+ * it has, this browser stops keeping too.
+ */
 function hear(roomId: string, outbox: Outbox, frame: ServerFrame): void {
+  const before = outbox.messages;
   switch (frame.type) {
     case "welcome":
     case "resumed":
@@ -112,6 +123,7 @@ function hear(roomId: string, outbox: Outbox, frame: ServerFrame): void {
     default:
       return;
   }
+  forgetUnsent(roomId, before.filter((m) => !outbox.messages.some((kept) => kept.clientMessageId === m.clientMessageId)));
   settle(roomId, outbox);
 }
 
@@ -128,14 +140,15 @@ function deliver(outbox: Outbox): void {
 }
 
 /** What sends `message` as its view would have: a reply to its thread, and to the room too if it was asked to go there. */
-function createFrame({ clientMessageId, body, parentId, alsoSent }: PendingMessage): ClientFrame {
+export function createFrame({ clientMessageId, body, parentId, alsoSent }: PendingMessage): ClientFrame {
   if (parentId === undefined) return { type: "message.create", clientMessageId, body };
   return { type: "message.create", clientMessageId, body, parentId, alsoSend: alsoSent === true };
 }
 
 /**
- * Stops sending, as a view does once it's been without the room a while: what's waiting shows as not
- * sent, and what went, the view that takes it back asks about.
+ * Stops sending, as for a room that's gone for the person: what's waiting shows as not sent, and what
+ * went, the view that takes it back asks about. Without a connection, what's waiting waits on, as a view's
+ * does, kept in this browser too (unsent-store.ts).
  */
 function giveUp(roomId: string, outbox: Outbox): void {
   outbox.messages = notSent(outbox.messages);

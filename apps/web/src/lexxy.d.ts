@@ -10,6 +10,7 @@ declare module "@37signals/lexxy" {
     getIndexWithinParent(): number;
     getNextSiblings(): LexicalNode[];
     getPreviousSibling(): LexicalNode | null;
+    getNextSibling(): LexicalNode | null;
     getTextContent(): string;
     insertAfter(node: LexicalNode): LexicalNode;
     remove(): void;
@@ -39,6 +40,8 @@ declare module "@37signals/lexxy" {
   /** A place in the editor: in a text node, at an offset, or in an element, before its child at an offset. */
   interface Point {
     type: "text" | "element";
+    /** The node's key. */
+    key: string;
     offset: number;
     getNode(): LexicalNode;
   }
@@ -47,8 +50,13 @@ declare module "@37signals/lexxy" {
   interface RangeSelection {
     anchor: Point;
     isCollapsed(): boolean;
+    getTextContent(): string;
+    hasFormat(format: string): boolean;
+    focus: Point;
     setFormat(format: number): void;
+    toggleFormat(format: string): void;
     setStyle(style: string): void;
+    insertText(text: string): void;
   }
 
   /** A command an editor carries out, as a key that it hears. */
@@ -68,6 +76,7 @@ declare module "@37signals/lexxy" {
   export const Lexical: {
     ElementNode: typeof ElementNode;
     $getSelection(): unknown;
+    $getRoot(): ElementNode;
     $isRangeSelection(selection: unknown): selection is RangeSelection;
     $copyNode<Node extends LexicalNode>(node: Node): Node;
     $createParagraphNode(): ParagraphNode;
@@ -75,8 +84,10 @@ declare module "@37signals/lexxy" {
     $isParagraphNode(node: LexicalNode | null | undefined): node is ParagraphNode;
     $isTextNode(node: LexicalNode | null | undefined): node is TextNode;
     COMMAND_PRIORITY_HIGH: number;
+    COMMAND_PRIORITY_CRITICAL: number;
     KEY_BACKSPACE_COMMAND: LexicalCommand<KeyboardEvent | null>;
     KEY_SPACE_COMMAND: LexicalCommand<KeyboardEvent>;
+    FORMAT_TEXT_COMMAND: LexicalCommand<string>;
   };
 
   /** What an editor allows and holds beyond Lexxy's own. */
