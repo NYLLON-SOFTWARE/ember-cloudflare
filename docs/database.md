@@ -5,10 +5,10 @@ How Ember stores its data, and how its schema compares with Campfire's.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `wrangler.jsonc` picks the backend. With `do-sqlite` (the default), each room's
-messages, boosts, recent revocations and deletions, its files' records, and the changes the
-Workspace and the search index have yet to hear of live in that room's Durable Object SQLite
-storage, and the account, people, their sessions and linked accounts elsewhere, browsers' push
-subscriptions, bots' webhooks, bans and recent searches, rooms, memberships and the outbox of
+messages, boosts, recent revocations and deletions, its files' records, the messages people have
+scheduled there, and the changes the Workspace and the search index have yet to hear of live in
+that room's Durable Object SQLite storage, and the account, people, their sessions and linked
+accounts elsewhere, browsers' push subscriptions, bots' webhooks, bans and recent searches, rooms, memberships and the outbox of
 revocations, purges and reindexes in the Workspace object's. With `d1`, all of them live in one D1
 database. Both backends use the schema in `apps/worker/migrations/` and the queries in
 `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`. The search index is
@@ -29,10 +29,10 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
+`message_deletions`, `blobs`, `waiting_calls`, `scheduled_messages`, `scheduled_changes` (the scheduled messages changed since the Workspace last heard) and `forwards` (each forward of their messages, which their deletion takes the quote out of), the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
-`memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes`,
+`memberships`, `favorites`, `activity`, `scheduled_listings` (a copy of everyone's scheduled messages across rooms, which the rooms send as they change, for Drafts & sent), `pending_revocations`, `pending_purges`, `pending_reindexes`,
 `deleted_rooms`, `apps` and `agent_tools`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms` and the
 FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
@@ -286,6 +286,18 @@ Objects, D1 or speed call for something else.
   decide who can see a room, so nothing comes between the read and the writes. A deleted room leaves
   the order with its row. Whether only administrators create rooms stays in the account's settings,
   as in Campfire, and the Workspace keeps it with the rest of the account it has read.
+- **A sub-room names its parent**, `rooms.parent_id` (workspace migration 0075), under an index that
+  finds a room's sub-rooms, so the sidebar's statement reads each room's parent, and the parent's
+  name, with the room. Campfire has no sub-rooms. They nest one level: a statement that moves a room
+  under another checks in its `WHERE` that neither the parent nor the room breaks that, so two moves
+  at once can't nest three deep. Access to a sub-room needs access to its parent, so a sub-room's
+  memberships stay among its parent's: each change to who's in a room ends, in the same batch, by
+  taking anyone not in a sub-room's parent out of it, queueing their sockets' closing as any removal
+  does, and by putting the parent's people in its sub-rooms open to "Everyone". The statements that
+  put someone in every open room take only rooms of the workspace's own and sub-rooms of open rooms.
+  Deleting a parent sets its sub-rooms' `parent_id` back to null, and makes one open to a private
+  parent's people private to them. The shared order ranks sub-rooms with the rest, each parent's
+  after it, and the sidebar lists them under their parent in that order.
 - **A room's huddle is columns of the room.** A huddle's sockets are its room's object's, which
   alone knows who's in it, and Campfire has nothing like one. For everyone in the room to see it, in
   the huddle or not, the Workspace keeps who's in it, a JSON list of their ids in the order they
@@ -559,6 +571,19 @@ Objects, D1 or speed call for something else.
   last reply goes too. `room_events.in_room` is 0 for a reply sent only to its thread, which marks
   the room unread for nobody and isn't its latest activity, and an upload's row in `blobs` keeps the
   thread it goes to in `parent_id`, and in `also_sent` whether it goes to the room too.
+- **Activity is a table of its own, kept once read.** Campfire has no Activity: its rail filters the
+  sidebar to unread rooms. Slack's lists what's happened to you, and so does Ember's, from `activity`
+  (workspace migration 0065, `apps/worker/src/activity.ts`): a row per person per thing, a mention of
+  them (or @channel, @here, @everyone), a message in a DM of theirs, a reply in a thread they follow,
+  a reaction to a message of theirs, or their being added to a private room, with `read_at` null while
+  it's unread. The Workspace writes message rows as it applies each room's events, one
+  `INSERT … SELECT … RETURNING` per new message over the room's memberships, behind the same
+  `applied_seq` check as unread marks, so an event applied twice writes nothing twice, and reads a
+  room's mentions and DMs as a read event clears its mark. Reactions and deletions reach it from the
+  room as they're saved. A page of someone's Activity reads `(user_id, id)` newest first, only for
+  rooms they're still in, and its unread count a partial index of the unread rows. A person's time
+  zone, for the local time their profile shows, is `users.time_zone` (workspace migration 0066), which
+  their tabs' workspace sockets name as they connect.
 - **@ember's levels and model are columns of the person, and the most of each level, and the models
   people can pick, are settings.** Campfire has no AI assistant. The levels someone picks of @ember's
   Thinking and Answer length are `users.assistant_thinking` and `users.assistant_answer_length`

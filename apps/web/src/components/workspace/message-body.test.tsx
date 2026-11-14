@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { marksFor } from "@/lib/search";
 import { MessageBody } from "./message-body";
+import { ConversationsContext } from "./quote-cite";
 import { SearchMarks } from "./search-marks";
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -337,5 +338,73 @@ describe("Search results mark what a search matched", () => {
     const content = showMarked("<p>Deploy <mark>soon</mark></p>", []);
     expect(content.querySelectorAll("mark")).toHaveLength(1);
     expect(content.querySelector("mark[data-search-match]")).toBeNull();
+  });
+});
+
+describe("Quotes' cites", () => {
+  const ada = { id: "ada", name: "Ada" };
+  const zan = { id: "zan", name: "Zan" };
+  const rooms = [
+    { id: "portside", kind: "open" as const, name: "Portside", icon: null },
+    { id: "dm1", kind: "direct" as const, members: [ada, zan], activeAt: "2026-11-11T00:00:00Z" },
+  ];
+  const cite = (link: string, at = "2026-11-11T19:30:00") =>
+    `<blockquote><p>Hi</p></blockquote><cite>Shayle · <time datetime="${at}">Nov 11, 2026, 7:30 PM UTC</time> <a href="${location.origin}${link}">#</a></cite>`;
+
+  function showIn(roomId: string, html: string) {
+    const { container } = render(
+      <ConversationsContext value={{ rooms, meId: ada.id }}>
+        <MessageBody nodes={shown(html)} mentions={[]} roomId={roomId} />
+      </ConversationsContext>,
+    );
+    return container.querySelector("cite")!;
+  }
+
+  it("shows when the quoted message was written in the reader's time zone, and links a quote from the same conversation by #", () => {
+    vi.useFakeTimers({ now: new Date("2026-11-12T10:00:00"), toFake: ["Date"] });
+    try {
+      const shownCite = showIn("portside", cite("/rooms/portside/@m1"));
+      expect(shownCite.textContent).toBe("Shayle · Nov 11, 7:30 PM #");
+      expect(within(shownCite).getByRole("link", { name: "#" })).toHaveAttribute("href", "/rooms/portside/@m1");
+      // Today's is just its time.
+      expect(showIn("portside", cite("/rooms/portside/@m1", "2026-11-12T08:05:00")).textContent).toBe("Shayle · 8:05 AM #");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names the conversation, and thread, a quote from elsewhere is from, linking to it", () => {
+    const fromRoom = showIn("dm1", cite("/rooms/portside/threads/p1/@m1"));
+    expect(within(fromRoom).getByRole("link", { name: "#Portside › thread" })).toHaveAttribute("href", "/rooms/portside/threads/p1/@m1");
+    const fromDirect = showIn("portside", cite("/rooms/dm1/@m1"));
+    expect(within(fromDirect).getByRole("link", { name: "DM with Zan" })).toBeInTheDocument();
+  });
+
+  it("marks a private room it's from with a lock, not a #", () => {
+    const qaLab = { id: "qa", kind: "closed" as const, name: "QA Lab", icon: null };
+    const { container } = render(
+      <ConversationsContext value={{ rooms: [...rooms, qaLab], meId: ada.id }}>
+        <MessageBody nodes={shown(cite("/rooms/qa/@m1"))} mentions={[]} roomId="portside" />
+      </ConversationsContext>,
+    );
+    const link = within(container.querySelector("cite")!).getByRole("link", { name: "Private QA Lab" });
+    expect(link.querySelector("svg")).toBeInTheDocument();
+    expect(link).not.toHaveTextContent("#");
+  });
+
+  it("names a sub-room after its parent", () => {
+    const backend = { id: "backend", kind: "open" as const, name: "Backend", icon: null, parent: { id: "portside", name: "Portside" } };
+    const { container } = render(
+      <ConversationsContext value={{ rooms: [...rooms, backend], meId: ada.id }}>
+        <MessageBody nodes={shown(cite("/rooms/backend/@m1"))} mentions={[]} roomId="dm1" />
+      </ConversationsContext>,
+    );
+    expect(within(container.querySelector("cite")!).getByRole("link", { name: "#Portside – Backend" })).toBeInTheDocument();
+  });
+
+  it("names no conversation the reader isn't in, nor links to it", () => {
+    const fromElsewhere = showIn("portside", cite("/rooms/secret/@m1"));
+    expect(fromElsewhere.textContent).toMatch(/· another conversation$/);
+    expect(within(fromElsewhere).queryByRole("link")).not.toBeInTheDocument();
   });
 });

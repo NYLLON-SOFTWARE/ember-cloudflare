@@ -18,6 +18,8 @@ const openSettings = (canAdminister = true): RoomSettings => ({
   room: design,
   canAdminister,
   people: [ada, grace, linus].map((person) => ({ ...person, member: true })),
+  parents: [],
+  subRooms: 0,
 });
 const closedSettings: RoomSettings = {
   room: leads,
@@ -27,6 +29,8 @@ const closedSettings: RoomSettings = {
     { ...grace, member: false },
     { ...linus, member: true },
   ],
+  parents: [],
+  subRooms: 0,
 };
 
 /** Answers `settings` for the page, then `saved` (or `refusal`) for a change. */
@@ -92,7 +96,7 @@ describe("Room settings page", () => {
     expect(await roomName()).toHaveValue("Design");
     expect(document.title).toBe("Edit settings for Design");
     expect(screen.getByRole("heading", { level: 1, name: "Room settings" })).toBeInTheDocument();
-    expect(screen.getByText("Manage the room name, access, and members.")).toBeInTheDocument();
+    expect(screen.queryByText("Manage the room name, access, and members.")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");
   });
 
@@ -645,5 +649,50 @@ describe("Unsaved changes guard", () => {
     await answer(new Response(null, { status: 204 }));
     expect(location.pathname).toBe("/");
     expect(asking()).not.toBeInTheDocument();
+  });
+});
+
+describe("Parent room", () => {
+  const strata = { id: "strata", name: "Strata", icon: null, everyone: false, memberIds: [ada.id] };
+  const parentPicker = () => screen.getByRole("button", { name: "Parent room" });
+  /** Picks `name` from the Parent room's menu. */
+  const pick = async (user: ReturnType<typeof showPage>["user"], name: string) => {
+    await user.click(parentPicker());
+    await user.click(await screen.findByRole("menuitemradio", { name }));
+  };
+
+  it("moves a room under a parent, offering only its people, once you confirm whom it takes out", async () => {
+    serve({ ...openSettings(), parents: [strata] }, { saved: { ...design, parent: { id: "strata", name: "Strata" } } });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage(design);
+    await roomName();
+    expect(parentPicker()).toHaveTextContent("None (a room of its own)");
+
+    await pick(user, "Strata");
+    expect(parentPicker()).toHaveTextContent("Strata");
+    const warning = "Moving this room under Strata removes Grace Hopper and Linus Torvalds, who aren’t in Strata.";
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(names()).toEqual(["Everyone in Strata", "Ada Lovelace"]);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(`${warning} Save anyway?`);
+    expect(sent()).toEqual({ name: "Design", icon: "", kind: "open", parentId: "strata" });
+  });
+
+  it("saves nothing unless you confirm", async () => {
+    serve({ ...openSettings(), parents: [strata] });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { user } = showPage(design);
+    await roomName();
+    await pick(user, "Strata");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  });
+
+  it("keeps a room with sub-rooms a room of its own", async () => {
+    serve({ ...openSettings(), subRooms: 2 });
+    showPage(design);
+    await roomName();
+    expect(parentPicker()).toBeDisabled();
+    expect(screen.getByText("A room with sub-rooms can’t go under another room.")).toBeInTheDocument();
   });
 });

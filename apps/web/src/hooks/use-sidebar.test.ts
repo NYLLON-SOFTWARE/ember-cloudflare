@@ -142,7 +142,7 @@ describe("Live sidebar updates", () => {
   it("loads, and loads again each time the workspace socket connects, the first time included", async () => {
     const { result } = await showSidebar();
     expect(result.current.list).toEqual(unstarred([design]));
-    expect(socket().url).toBe("ws://localhost:3000/api/socket");
+    expect(new URL(socket().url).pathname).toBe("/api/socket");
 
     server.change(unstarred([design, general]));
     socket().connect();
@@ -255,7 +255,9 @@ describe("Live sidebar updates", () => {
     await settle();
     socket().receive({ type: "room.gone", roomId: design.id });
     expect(result.current.list?.rooms).toEqual([general]);
-    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id);
+    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id, false);
+    socket().receive({ type: "room.gone", roomId: general.id, lostAccess: true });
+    expect(onGone).toHaveBeenLastCalledWith(general.id, true);
   });
 
   it("lists a room as the server answers a change to it, unless the workspace socket has said what became of it since", async () => {
@@ -805,5 +807,18 @@ describe("Custom CSS", () => {
     await settle();
     socket().connect(grace);
     expect(onAccountChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("Activity", () => {
+  it("passes on what the workspace socket says of Ada's Activity, and asks it to load again each time the socket connects", async () => {
+    const heard = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, heard));
+    await settle();
+    socket().connect();
+    expect(heard).toHaveBeenCalledWith(null);
+    const marked: WorkspaceServerFrame = { type: "activity.marked", ids: [1], read: true };
+    socket().receive(marked);
+    expect(heard).toHaveBeenLastCalledWith(marked);
   });
 });

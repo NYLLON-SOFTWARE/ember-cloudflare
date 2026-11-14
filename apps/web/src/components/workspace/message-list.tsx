@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { joinsWithLink, type Invitation, type Me } from "@ember/protocol";
-import { ArrowDown } from "@/components/icons/iconoir";
+import { ArrowDown, Lock } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { ScrollIntoViewContext } from "@/hooks/use-scroll-into-view";
@@ -74,14 +74,19 @@ function restore(scroller: HTMLElement, { row, offset }: Place) {
 }
 
 /**
- * The day separator: a heading over the first message of a day, with the day's date written out and, on
- * hover, the message's date and time.
+ * The day separator: a heading over the first message of a day, with the day's date written out in a
+ * pill on a rule, or on a phone at the rule's start, and, on hover, the message's date and time.
  */
 function DaySeparator({ at }: { at: string }) {
   const date = new Date(at);
   return (
-    <h2 className="mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
-      <time dateTime={at} title={dateTimeLabel(date)} className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">
+    <h2 className="mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2 max-md:pl-3 max-md:before:hidden">
+      {/* On a phone, a plain label at the start of the rule, as Slack's phone app has it, not a pill on it. */}
+      <time
+        dateTime={at}
+        title={dateTimeLabel(date)}
+        className="rounded-[14px] border border-message-border bg-background px-4 py-[3px] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0"
+      >
         {dateLabel(date)}
       </time>
     </h2>
@@ -90,14 +95,14 @@ function DaySeparator({ at }: { at: string }) {
 
 /**
  * The New line, over the first message that came while the room was marked unread: in the negative red,
- * with its word at the end.
+ * with its word at its start, clear of the message actions that open over the line's end.
  */
 function NewSeparator() {
   return (
     <div
       role="separator"
       aria-label="New messages"
-      className="mb-1.5 flex items-center gap-2 text-xs leading-4 font-bold text-negative before:flex-1 before:border-t before:border-negative"
+      className="mb-1.5 flex items-center gap-2 text-xs leading-4 font-bold text-negative after:flex-1 after:border-t after:border-negative"
     >
       <span aria-hidden="true">New</span>
     </div>
@@ -109,6 +114,10 @@ interface Props {
   roomName: string;
   /** Whether the room is a DM, which a timeline is "with" rather than "in". */
   direct?: boolean;
+  /** A sub-room's parent's name, which its welcome names. */
+  parentName?: string;
+  /** Whether the room is private, whose welcome names it after a lock rather than a `#`. */
+  closed?: boolean;
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
   /** Dismisses the welcome card for good, settling once it's gone, or failed to go. */
@@ -145,7 +154,7 @@ interface Props {
  * else, it keeps the reader's place, loads the pages before and after as they near either end, and
  * offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
+export function MessageList({ roomName, direct = false, closed = false, parentName, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -176,7 +185,9 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   // shows resizes while something's open in a message (`opened`). A short last page of later messages can leave them
   // at the end without scrolling them, so this asks again.
   const settle = useEffectEvent((contentResized = false) => {
-    const el = scroller.current!;
+    // A resize the browser saw as the timeline went, as when its room's deleted, can still be told after.
+    const el = scroller.current;
+    if (!el) return;
     const scroll = !contentResized || open.current === 0;
     if (scroll && atEnd.current) el.scrollTop = el.scrollHeight;
     else if (scroll && place.current) restore(el, place.current);
@@ -278,7 +289,8 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   }, [state.messages]);
 
   const onScroll = () => {
-    const el = scroller.current!;
+    const el = scroller.current;
+    if (!el) return;
     // A resize scrolls the timeline to keep its end in view for a reader at it, and that scroll can arrive once
     // the timeline has resized again, before the resize observer has caught up, leaving them at the end of the
     // view as it was. They didn't move, so they're still at the end. Any other scroll is the reader's, even one
@@ -326,8 +338,19 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
 
                 {!thread && state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
                   <div className="p-6 text-center text-muted-foreground">
-                    <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
-                    <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
+                    <h2 className="mb-1.5 text-xl text-foreground">
+                      {direct ? (
+                        roomName
+                      ) : closed ? (
+                        <>
+                          Welcome to <Lock aria-hidden="true" className="inline size-[1em] align-[-0.125em]" />
+                          {roomName}
+                        </>
+                      ) : (
+                        `Welcome to #${roomName}`
+                      )}
+                    </h2>
+                    {direct ? <p>This is the very beginning of your direct messages.</p> : parentName && <p>A sub-room of {parentName}</p>}
                   </div>
                 )}
 

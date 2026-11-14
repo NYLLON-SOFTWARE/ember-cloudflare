@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { NavigationSlot, RoomIconName } from "@ember/protocol";
-import { Bell, Box, Computer, HalfMoon, Home, MultiBubble, Search, SunLight } from "@/components/icons/iconoir";
+import { Bell, Box, CheckCircle, Computer, HalfMoon, Home, MultiBubble, Search, SunLight } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useAccount } from "@/hooks/use-account";
 
@@ -9,6 +9,7 @@ const OWN_ICONS: Record<NavigationSlot, ComponentType<{ className?: string }>> =
   home: Home,
   dms: MultiBubble,
   activity: Bell,
+  todos: CheckCircle,
   search: Search,
   admin: Box,
   light: SunLight,

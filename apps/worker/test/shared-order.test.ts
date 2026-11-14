@@ -149,6 +149,7 @@ describe("Shared room order", () => {
     expect((await change(plans.id, administrator, { kind: "closed", memberIds: [administrator.user.id, grace.user.id] })).status).toBe(200);
     expect(await gracesTab.next()).toEqual({ type: "room.saved", room: plans });
     expect(await gracesTab.next()).toEqual({ type: "rooms.reordered" } satisfies WorkspaceServerFrame);
+    expect(await gracesTab.next()).toMatchObject({ type: "activity.added", items: [{ kind: "invitation", roomId: plans.id }] });
     expect((await sidebarOf(grace)).sharedOrder).toEqual([plans.id]);
 
     // Opened to everyone, it's shown as it is now to the people already in it, who hear nothing more.

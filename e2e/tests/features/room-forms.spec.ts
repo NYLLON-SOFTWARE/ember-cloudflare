@@ -151,7 +151,7 @@ test.describe("Add and remove private room members", () => {
     await linus.page.getByRole("button", { name: "Save" }).click();
     await expect(linus.page).toHaveURL(new RegExp(`/rooms/${leads.id}$`));
 
-    await expect(ada.page.getByRole("alert")).toHaveText("This room was deleted.");
+    await expect(ada.page.getByRole("alert")).toHaveText(`You no longer have access to #${leads.name}`);
     await expect(ada.composer()).toHaveCount(0);
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
     expect(await canSee(request, ada.session, leads.id)).toBe(false);
@@ -242,7 +242,7 @@ test.describe("Delete a room", () => {
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name })).toHaveCount(0);
     await expect(ada.page.getByRole("alert")).toHaveCount(0);
 
-    await expect(grace.page.getByRole("alert")).toHaveText("This room was deleted.");
+    await expect(grace.page.getByRole("alert")).toHaveText(`#${design.name} was deleted`);
     await expect(grace.composer()).toHaveCount(0);
     await expect(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name })).toHaveCount(0);
     expect(await canSee(request, grace.session, design.id)).toBe(false);
