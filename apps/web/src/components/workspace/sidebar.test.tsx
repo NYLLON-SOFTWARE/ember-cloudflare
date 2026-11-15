@@ -152,6 +152,14 @@ describe("Unread rooms", () => {
     expect(general).toHaveAccessibleDescription(HELP);
     expect(general.querySelector(".rounded-full")).toBeNull();
   });
+
+  it("marks the room the Saved pane covers, which counts as read nowhere yet, and keeps it the page's room", () => {
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], currentRoomId: "general", readRoomId: null });
+    const general = screen.getByRole("link", { current: "page" });
+    expect(general).toHaveClass("font-[650]");
+    expect(general).toHaveAccessibleDescription(`Unread ${HELP}`);
+    expect(general.querySelector(".rounded-full")).not.toBeNull();
+  });
 });
 
 describe("Activity filter", () => {
