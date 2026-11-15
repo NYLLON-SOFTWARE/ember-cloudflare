@@ -274,8 +274,7 @@ test("your own messages can be edited in place on a wider touch screen", async (
   await expect(message.getByText("(edited)")).toBeVisible();
   await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
 
-  await message.getByRole("button", { name: "Message options" }).tap();
-  await message.getByRole("button", { name: "Edit", exact: true }).tap();
+  await edit();
   await message.getByRole("button", { name: "Cancel", exact: true }).tap();
   await expect(field).toBeHidden();
 });

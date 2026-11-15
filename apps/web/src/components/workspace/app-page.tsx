@@ -20,7 +20,7 @@ import {
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { RefreshDouble } from "@/components/icons/iconoir";
+import { RefreshDouble } from "@/components/icons/iconoir-more";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";

@@ -4,7 +4,7 @@ import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type Bot, type BotChanges, type
 import { AUTH_FORM } from "@/components/auth-page";
 import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Camera, RefreshDouble } from "@/components/icons/iconoir";
+import { Camera, RefreshDouble } from "@/components/icons/iconoir-more";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useMounted } from "@/hooks/use-mounted";

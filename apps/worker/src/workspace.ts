@@ -5397,6 +5397,18 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The author of a message scheduled in room `roomId`, as the room posts it, with when this checked:
+   * null once they're no longer active or in the room, so that removing, banning or taking someone out
+   * of a room stops what they scheduled there.
+   */
+  async scheduledAuthor(roomId: RoomId, userId: UserId): Promise<AuthorAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const user = await this.store.activeMember(roomId, userId);
+    return user && { user, authorizedAt };
+  }
+
+  /**
    * Has Ember AI, `assistant`, ask the models it asks through Cloudflare's REST API, the agents' too, that
    * their providers' own endpoints answer through `gateway`'s account and API token there from then on,
    * as it asks Claude and GPT there first now: once after each time it's set up, as the first
@@ -5435,18 +5447,6 @@ export class Workspace extends DurableObject<Env> {
       const assistant = { ...movedIn(changed.assistant, moves), providerEndpointsTriedAt: done ? triedAt : null };
       await this.storeAccount({ ...changed, assistant }, () => this.store.moveModels(assistant, moves));
     });
-  }
-
-  /**
-   * The author of a message scheduled in room `roomId`, as the room posts it, with when this checked:
-   * null once they're no longer active or in the room, so that removing, banning or taking someone out
-   * of a room stops what they scheduled there.
-   */
-  async scheduledAuthor(roomId: RoomId, userId: UserId): Promise<AuthorAccess | null> {
-    // Before anything is read, as `roomAccess` takes it.
-    const authorizedAt = Date.now();
-    const user = await this.store.activeMember(roomId, userId);
-    return user && { user, authorizedAt };
   }
 
   /**

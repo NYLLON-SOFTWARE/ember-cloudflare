@@ -38,12 +38,15 @@ import type { RoomGone } from "./composer";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { opensProfile, PROFILE_PARAM, ProfilePaneContext, type ProfilePane } from "./profile-pane";
+import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
+import { addressShowing } from "./room-tabs";
 import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, type SearchBoxOptions } from "./open-search";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar, type SidebarPage } from "./sidebar";
+import { UpdatedNotice } from "./updated-notice";
 import { WelcomePage } from "./welcome-page";
 import { ForwardContext, type Forwarding } from "./forward-context";
 import { ConversationsContext } from "./quote-cite";
@@ -61,6 +64,9 @@ const RARE_PAGES = new Set<Route["page"]>([
   "bot-settings",
   "new-agent",
   "agent-settings",
+  "new-app",
+  "app-settings",
+  "app-signed-in",
   "profile",
   "push-subscriptions",
   "person",
@@ -108,6 +114,9 @@ const RAIL_PAGES = {
   "bot-settings": "workspace",
   "new-agent": "workspace",
   "agent-settings": "workspace",
+  "new-app": "workspace",
+  "app-settings": "workspace",
+  "app-signed-in": "workspace",
   profile: "profile",
   "push-subscriptions": null,
   person: null,
@@ -222,9 +231,9 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 
 /**
  * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
- * home to the last room visited, but on a phone, where home is the Home tab's list, `/rooms` to the newest room, a room's address for its kind to the
- * room's own, and a DM's settings home, unless it's theirs. New direct message's goes home too, under
- * the dialog it opens, and a message's own address goes on to its permalink.
+ * home to the last room visited, but on a phone, where home is the Home tab's list, `/rooms` to the room they were
+ * put in latest, a room's address for its kind to the room's own, and a DM's settings home, unless it's theirs.
+ * New direct message's goes home too, under the dialog it opens, and a message's own address goes on to its permalink.
  */
 function redirectOf(route: Route, rooms: SidebarRoom[], phone: boolean): Redirect | null {
   switch (route.page) {
@@ -498,6 +507,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   };
   const goneHere = gone?.route === route ? gone : null;
   const goneRoom = goneHere?.room ?? null;
+  // A room that's gone has no tabs, so its address names none.
+  const tabAddressed = new URLSearchParams(useQuery()).has("tab");
+  useEffect(() => {
+    if (goneHere && tabAddressed) navigate(addressShowing("messages"), { replace: true });
+  }, [goneHere, tabAddressed]);
   // A room shown as gone that's listed again, as when someone is put back in it, shows as it is on a page
   // started afresh, since its own socket may have stopped. `returns` counts the rooms that came back so.
   const [returns, setReturns] = useState(0);
@@ -751,10 +765,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   ) : (
     <Sidebar
       workspaceName={workspaceName}
+      meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
       favorites={favorites}
       sharedOrder={sharedOrder}
+      huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
       currentPage={SIDEBAR_PAGES[route.page] ?? null}
       draftCount={draftCount}
@@ -857,6 +873,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ AgentSettingsPage }) => (
           <AgentSettingsPage key={route.agentId} agentId={route.agentId} me={me} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
+      case "new-app":
+        return rarePage(({ NewAppPage }) => <NewAppPage me={me} onFailed={failed} />);
+      case "app-settings":
+        return rarePage(({ AppSettingsPage }) => <AppSettingsPage key={route.appId} appId={route.appId} me={me} onMissing={showNotFound} onFailed={failed} />);
+      case "app-signed-in":
+        return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
@@ -1071,7 +1093,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onFailed={failed}
             />
           )}
-          <MovedNotice />
+          <Notices>
+            <MovedNotice />
+            <UpdatedNotice />
+          </Notices>
           {newDirect && (
             <RarePage
               show={({ NewDirectDialog }) => (

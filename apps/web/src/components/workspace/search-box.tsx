@@ -12,7 +12,8 @@ import {
   type User,
   type UserId,
 } from "@ember/protocol";
-import { AtSign, Attachment, ChatBubbleEmpty, Link, Lock, MessageText, User as UserIcon, Xmark } from "@/components/icons/iconoir";
+import { AtSign, Attachment, ChatBubbleEmpty, Hashtag, Link, Lock, MessageText, Plus, Search as SearchIcon, Trash, User as UserIcon, Xmark } from "@/components/icons/iconoir";
+import { ClockRotateRight, FilterList } from "@/components/icons/iconoir-more";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { roomName } from "@/lib/directs";

@@ -14,7 +14,8 @@ import {
   type User,
   type UserId,
 } from "@ember/protocol";
-import { Attachment, ClockRotateRight, FilterList, Hashtag, Plus, Search as SearchIcon, Trash, User as UserIcon } from "@/components/icons/iconoir";
+import { Attachment, Hashtag, Plus, Search as SearchIcon, Trash, User as UserIcon } from "@/components/icons/iconoir";
+import { ClockRotateRight, FilterList } from "@/components/icons/iconoir-more";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";

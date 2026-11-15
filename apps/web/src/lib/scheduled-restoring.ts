@@ -97,13 +97,10 @@ export function takeScheduling(userId: UserId, clientMessageId: string): Restori
   return taken;
 }
 
-/**
- * Forgets what's kept for room `roomId` that `scheduled`, what the room says you have scheduled there,
- * shows it has, and any `posted` says the room has posted since.
- */
-export function forgetScheduled(userId: UserId, roomId: RoomId, scheduled: ScheduledMessage[], posted: (restoring: Restoring) => boolean = () => false) {
+/** Forgets what's kept for room `roomId` that `scheduled`, what the room says you have scheduled there, shows it has. */
+export function forgetScheduled(userId: UserId, roomId: RoomId, scheduled: ScheduledMessage[]) {
   const kept = restoringOf(userId);
-  const left = kept.filter((restoring) => restoring.roomId !== roomId || !(isMade({ type: "restore", ...restoring }, scheduled) || posted(restoring)));
+  const left = kept.filter((restoring) => restoring.roomId !== roomId || !isMade({ type: "restore", ...restoring }, scheduled));
   if (left.length < kept.length) keepRestoring(userId, left);
 }
 

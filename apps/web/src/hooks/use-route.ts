@@ -158,9 +158,9 @@ let followUp: (() => void) | null = null;
 let returning = false;
 let proceeding = false;
 
-// The overlay open over the page, such as the image viewer on a phone, with the history entry it added,
-// which Back leaves, closing it, without going to another page.
-let overlay: { position: number; close: () => void } | null = null;
+// The overlays open over the page, such as the image viewer or a pane on a phone, innermost last, with
+// the history entries they added, which Back leaves, closing them, without going to another page.
+let overlays: Array<{ position: number; close: () => void }> = [];
 
 window.addEventListener("popstate", (event) => {
   if (returning) {
@@ -169,11 +169,10 @@ window.addEventListener("popstate", (event) => {
     return;
   }
   const next = positionOf(event.state);
-  if (overlay && (next === null || next < overlay.position)) {
-    const { close } = overlay;
-    overlay = null;
-    close();
-    // Back from the overlay to the page under it shows that page as it is.
+  const left = (overlay: { position: number }) => next === null || next < overlay.position;
+  if (overlays.length > 0 && left(overlays.at(-1)!)) {
+    while (overlays.length > 0 && left(overlays.at(-1)!)) overlays.pop()!.close();
+    // Back from an overlay to the page under it shows that page as it is.
     if (currentAddress() === shown) {
       if (next !== null) position = next;
       return;
@@ -205,7 +204,7 @@ window.addEventListener("popstate", (event) => {
 export function navigate(path: string, { replace = false } = {}): void {
   const navigation = ++asked;
   followUp = null;
-  overlay = null;
+  overlays = [];
   if (shownAddress() + location.hash === path) {
     gone = navigation;
     notify();
@@ -281,29 +280,21 @@ export function goBack(fallback: string): void {
 }
 
 /**
- * Returns to `path`, as a page's own Back does when the page sits under it: back through the history
- * when the entry before this one is `path`, so Back and Forward don't loop between the two, or else to
- * `path` in this entry's place.
- */
-export function returnTo(path: string): void {
-  if (openedFrom(history.state)?.split("#", 1)[0] === path) history.back();
-  else navigate(path, { replace: true });
-}
-
-/**
- * Adds an entry to the history for an overlay that covers the page, such as the image viewer on a phone,
- * so that Back closes it, calling `close`, rather than leaving the page. The function returned closes it
- * from the overlay itself, going back past its entry while that's the one shown.
+ * Adds an entry to the history for an overlay that covers the page, such as the image viewer or a pane
+ * on a phone, so that Back closes it, calling `close`, rather than leaving the page. Overlays open over
+ * one another close innermost first. The function returned closes it from the overlay itself, going back
+ * past its entry while that's the one shown.
  */
 export function openOverlay(close: () => void): () => void {
   history.pushState({ position: ++position, from: shownAddress() + location.hash, overlay: true }, "");
   const opened = { position, close };
-  overlay = opened;
+  overlays.push(opened);
   return () => {
-    if (overlay !== opened) return;
+    const index = overlays.indexOf(opened);
+    if (index === -1) return;
     if (positionOf(history.state) === opened.position) history.back();
     else {
-      overlay = null;
+      overlays.splice(index, 1);
       close();
     }
   };

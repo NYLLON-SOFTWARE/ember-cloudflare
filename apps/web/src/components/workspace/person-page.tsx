@@ -2,7 +2,8 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { DirectoryUser, Me, Person, PersonAnswer, User, UserId } from "@ember/protocol";
 import type { AgentProfile } from "@ember/protocol/agents";
 import { isWorkersAiModel } from "@ember/protocol/assistant";
-import { ChatLines, EditPencil, Prohibition } from "@/components/icons/iconoir";
+import { ChatLines, EditPencil } from "@/components/icons/iconoir";
+import { Prohibition } from "@/components/icons/iconoir-more";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";

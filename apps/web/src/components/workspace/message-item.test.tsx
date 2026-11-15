@@ -74,7 +74,7 @@ function show(
   m: Message | PendingMessage,
   { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false } = {},
 ) {
-  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), retry: vi.fn(), discard: vi.fn() };
+  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), retry: vi.fn(), discard: vi.fn(), click: vi.fn(() => Promise.resolve(sent)) };
   let setEditing: (editing: boolean) => void = () => {};
   let setMessage: (message: Message | PendingMessage) => void = () => {};
   let setConnections: (update: (connections: number) => number) => void = () => {};
@@ -306,6 +306,22 @@ describe("Edit a message", () => {
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     expect(within(article).getByRole("link", { name: "Download Q3 report.pdf" })).toBeInTheDocument();
   });
+
+  it("keeps a forward's quote and its cite under its note as that's edited, as the message shows them, to read but not edit", async () => {
+    const quote = `<blockquote><p>Lunch at noon?</p></blockquote><cite>Grace · ${QUOTED_TIME} <a href="${location.origin}/rooms/r2/@m0">#</a></cite>`;
+    const { actions, editors, user, article } = show(message({ body: `<p>See this</p>${quote}`, plainText: "See this\nLunch at noon?" }));
+    const shown = article.querySelector("blockquote")!.parentElement!.innerHTML;
+    act(() => editors.open("m1"));
+    const editor = await editBox();
+    expect(editor).toHaveValue("See this");
+    const kept = article.querySelector("blockquote")!;
+    expect(editor).not.toContainElement(kept);
+    expect(kept.parentElement!.innerHTML).toBe(shown.slice(shown.indexOf("<blockquote")));
+    expect(kept.nextElementSibling).toHaveTextContent(/^Grace · /);
+
+    await user.type(editor, " now{Enter}");
+    expect(actions.edit).toHaveBeenCalledWith("m1", `<p>See this now</p>${quote}`);
+  });
 });
 
 describe("Messages that can't be shown", () => {
@@ -400,7 +416,7 @@ describe("Message rows", () => {
   it("follows the name of every agent the people directory lists with the badge, deleted ones too, and no other bot's", () => {
     const bot = (id: string, name: string, changes: Partial<DirectoryUser> = {}): DirectoryUser => ({ id, name, bio: null, role: "bot", status: "active", avatarUrl: "", ...changes });
     const authors = [bot("u4", "Recap", { agent: true }), bot("u5", "Scout", { agent: true, status: "deactivated" }), bot("u6", "Build Bot")];
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(
       <PeopleContext value={new Map(authors.map((author) => [author.id, author]))}>
@@ -421,7 +437,7 @@ describe("Message rows", () => {
 
   it("titles the author with their bio as the people directory lists it, or with just their name", () => {
     const listed = (user: User, name: string, bio: string | null) => [user.id, { ...user, name, bio, role: "member", status: "active", avatarUrl: "" }] as const;
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     const by = (creator: User) => message({ id: creator.id, clientMessageId: creator.id, creator });
     render(
@@ -870,15 +886,14 @@ describe("More actions on a message", () => {
     const { actions, article, editors, user } = show(message({ creator: grace }), { administrator: true });
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Delete message?" });
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete message" });
     expect(dialog).toHaveTextContent("Grace");
     expect(dialog).toHaveTextContent("Hello");
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(actions.remove).not.toHaveBeenCalled();
-    // The message's row, rather than Message options, which shows only while the pointer's over the message.
-    expect(article).toHaveFocus();
+    expect(optionsOn("Hello")).toHaveFocus();
 
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
@@ -888,7 +903,7 @@ describe("More actions on a message", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it("hands focus to the message's row after Cancel, or when the deletion can't be sent, which a click then doesn't", async () => {
+  it("hands focus back to Message options after Cancel, or when the deletion can't be sent", async () => {
     withMouse();
     const { actions, article, editors, user } = show(message(), { sent: false });
     await openMoreActions(user, article);
@@ -896,15 +911,12 @@ describe("More actions on a message", () => {
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
     expect(editors.returnFocus).not.toHaveBeenCalled();
-    expect(article).toHaveFocus();
+    expect(optionsOn("Hello")).toHaveFocus();
 
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
-    expect(article).toHaveFocus();
-    // It takes focus only until it loses it.
-    act(() => optionsOn("Hello").focus());
-    expect(article).not.toHaveAttribute("tabindex");
+    expect(optionsOn("Hello")).toHaveFocus();
   });
 
   it("closes on Escape, handing focus to Message options, then the bar", async () => {
@@ -984,7 +996,7 @@ describe("Quote a message", () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: "" }] as const;
     const body = `<p>Thanks <action-text-attachment content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"></action-text-attachment>!</p>`;
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
     render(
       <PeopleContext value={new Map([listed(ada, "Ada King"), listed({ id: "0123456789abcdef", name: "Grace" }, "Grace Hopper")])}>
         <MessageItem message={message({ body, plainText: "Thanks @Grace!" })} me={{ ...grace, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />
@@ -1433,7 +1445,7 @@ describe("How mentions look", () => {
 
   /** A message open in its editor, seen by Ada with `people` in the people directory, which has `loaded`. */
   const editing = (m: Message, people: People, loaded = true) => {
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     return (
       <PeopleContext value={people}>
@@ -1469,7 +1481,7 @@ describe("Saving an edit", () => {
 
   /** `m` open in its editor, with `actions` and `editors` kept across renders. */
   function editingView() {
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => true), remove: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => true), remove: vi.fn(), click: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     const view = (m: Message) => (
       <PeopleContext value={new Map()}>
@@ -1553,7 +1565,7 @@ describe("Edit your profile", () => {
   it("names the author and whoever reacted as the people directory lists them now, so a rename shows on messages sent before it", () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
     const m = message({ boosts: [boost("b1", grace, "👍"), boost("b2", { id: "u3", name: "Linus" }, "👍")] });
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(
       <PeopleContext value={new Map([listed(ada, "Ada King"), listed(grace, "Grace Hopper")])}>
@@ -1698,17 +1710,18 @@ describe("Message actions on a phone", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("opens a sheet of reactions alone from Add reaction, the frequent first, then every one and New boost", async () => {
+  it("opens the emoji picker in a sheet from Add reaction, searching every emoji, then New boost", async () => {
     onPhone();
     const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
     await user.click(reactions().getByRole("button", { name: "Add reaction" }));
     const picker = screen.getByRole("dialog", { name: "Add reaction" });
     expect(screen.queryByRole("dialog", { name: "Message actions" })).not.toBeInTheDocument();
-    const named = (group: string) => within(within(picker).getByRole("group", { name: group })).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
-    expect(named("Frequently used")).toEqual(["Thumbs up", "Clapping", "Waving hand"]);
-    expect(named("All reactions")).toEqual([...REACTIONS.map(([, title]) => title), "New boost"]);
+    // A finger opened it, so the keyboard stays down until the search is tapped.
+    expect(within(picker).getByRole("searchbox", { name: "Search emoji" })).not.toHaveFocus();
+    expect(within(picker).getByRole("button", { name: "New boost" })).toBeInTheDocument();
 
-    await user.click(within(within(picker).getByRole("group", { name: "All reactions" })).getByRole("button", { name: "Fire" }));
+    await user.type(within(picker).getByRole("searchbox", { name: "Search emoji" }), "fire");
+    await user.click(within(picker).getAllByRole("button", { name: "🔥" })[0]!);
     expect(actions.boost).toHaveBeenCalledWith("m1", "🔥");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 

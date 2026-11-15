@@ -202,8 +202,9 @@ function settle(roomId: string, outbox: Outbox): void {
     outbox.socket?.close();
     outbox.socket = null;
   }
-  if (outbox.messages.length > 0 || outboxes.get(roomId) !== outbox) return;
-  outboxes.delete(roomId);
-  outbox.stopHearing();
+  if (outbox.messages.length === 0 && outboxes.get(roomId) === outbox) {
+    outboxes.delete(roomId);
+    outbox.stopHearing();
+  }
   changed();
 }

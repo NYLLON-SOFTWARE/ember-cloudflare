@@ -7,8 +7,8 @@ import { statement, type Db, type Statement } from "./db";
 // added to private rooms, which it records as they happen.
 
 /** Users' `status` for someone active, and `role` for a bot, as workspace-store.ts numbers them. */
-const ACTIVE = 0;
-const BOT = 2;
+export const ACTIVE = 0;
+export const BOT = 2;
 
 /** An item's columns, as `itemOf` reads them. */
 const COLUMNS = `id, kind, room_id, message_id, parent_id, actor_id, preview, content, created_at, read_at`;
@@ -154,7 +154,8 @@ const MARK_ALL = `UPDATE activity SET read_at = ?2 WHERE user_id = ?1 AND read_a
 /**
  * Records a reaction, ?5, by ?4 to message ?2 in room ?1, in the thread of ?8 if it's a reply, written by ?3, whose text starts ?6, for its
  * author, unless they reacted themselves, are a bot or aren't active, or aren't in the room any more, or
- * it's recorded already, as when the room tries again after an answer that was lost.
+ * it's recorded already, as when the room tries again after an answer that was lost, or the Activity
+ * backfill has just recorded it.
  */
 const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_id, parent_id, actor_id, preview, content, created_at)
   SELECT users.id, 'reaction', ?1, ?2, ?8, ?4, ?6, ?5, ?7 FROM users

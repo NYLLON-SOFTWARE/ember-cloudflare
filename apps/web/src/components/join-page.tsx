@@ -4,7 +4,7 @@ import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Camera } from "@/components/icons/iconoir";
+import { Camera } from "@/components/icons/iconoir-more";
 import { TurnstileCheck } from "@/components/turnstile-check";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";

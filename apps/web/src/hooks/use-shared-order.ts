@@ -41,8 +41,7 @@ function treeOf(rooms: SharedRoom[], order: RoomId[]): RoomBranch<SharedRoom>[] 
  * saved. The rooms the shared order doesn't rank come after the ones it does, in the order the
  * administrator was put in them, as they do in the sidebar. A room that comes or goes meanwhile joins or
  * leaves what's staged, at its end. Sub-rooms move with their parent, and among their parent's other
- * sub-rooms, each parent's in a list of its own (`subRoomDrag`), and the order saved lists each parent's
- * after it.
+ * sub-rooms, each parent's in a list of its own (`subRoomDrag`), and the order saved lists each parent's after it.
  */
 export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Options) {
   const [staged, setStaged] = useState<RoomId[] | null>(null);

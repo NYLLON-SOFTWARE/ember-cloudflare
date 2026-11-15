@@ -7,6 +7,7 @@ import { ApiError, isSignedOut } from "@/lib/api";
 import { addAssistantModel } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { Actions } from "./assistant-setup";
+import { ModelPicker, NOTE, type Refusal } from "./model-picker";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./dialog-styles";
 
 // Add a model, for administrators: a model people can pick for @ember to answer them with, of those Ember

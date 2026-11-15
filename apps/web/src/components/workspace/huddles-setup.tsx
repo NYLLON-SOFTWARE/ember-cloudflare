@@ -4,6 +4,7 @@ import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { Actions } from "./assistant-setup";
+import { dashboard } from "./model-picker";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./dialog-styles";
 import { HuddlesSteps, useHuddlesKeys } from "./huddles-steps";
 

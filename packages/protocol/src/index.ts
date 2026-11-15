@@ -1947,14 +1947,14 @@ export type WorkspaceServerFrame =
    * them, with those of them that were unread, loaded or not, for the unread count.
    */
   | { type: "activity.removed"; ids: number[]; unreadIds?: number[] }
-  /** Items of their Activity that say what an edited message says now. */
-  | { type: "activity.updated"; items: ActivityItem[] }
   /**
    * They've changed their To-dos or Saved, in this tab or another, or a reminder of theirs has gone off:
    * the messages kept in their lists now, so each message's actions say Add or Remove, and their lists'
    * counts, and the lists' pages load again.
    */
   | ({ type: "saved.changed" } & SavedMarks)
+  /** Items of their Activity that say what an edited message says now. */
+  | { type: "activity.updated"; items: ActivityItem[] }
   | { type: "error"; message: string }
   | { type: "pong" };
 

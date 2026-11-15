@@ -5,8 +5,7 @@ import { staysAtAnyAddress, thisPageAt } from "@/lib/custom-domain";
 import { RarePage } from "./rare-pages";
 
 // A tab left open at another address as Ember is given a custom domain, which a page opened afresh would
-// move to, says so, with a link to the page it shows there. It sits where the workspace's flashes do,
-// under them.
+// move to, says so, with a link to the page it shows there. It sits with the workspace's other notices.
 
 /** Says Ember has moved to its custom domain, until it's closed, on any page that would move there. */
 export function MovedNotice() {

@@ -79,7 +79,7 @@ function ActivityLink({ unread, current }: Activity & { current: boolean }) {
           aria-hidden="true"
           className={COUNT_BADGE}
         >
-          {unread > 99 ? "99+" : unread}
+          {unreadBadge(unread)}
         </span>
       )}
     </PageLink>
@@ -92,7 +92,7 @@ function ActivityLink({ unread, current }: Activity & { current: boolean }) {
  * settings, your avatar on your profile), Home on a room's page, DMs on the DMs page and a DM's, and
  * Files on the Files page.
  */
-export type RailPage = "home" | "room" | "dms" | "activity" | "search" | "todos" | "workspace" | "profile" | "files" | null;
+export type RailPage = "home" | "room" | "dms" | "activity" | "search" | "workspace" | "profile" | "files" | "todos" | null;
 
 interface Props {
   me: Me;

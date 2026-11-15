@@ -689,8 +689,6 @@ describe("Parent room", () => {
     expect(screen.getByText(warning)).toBeInTheDocument();
     expect(names()).toEqual(["Everyone in Strata", "Ada Lovelace"]);
     await user.click(screen.getByRole("button", { name: "Save" }));
-    // Saving takes them out, so its Save is the red one.
-    expect(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Save" })).toHaveClass("bg-negative-button");
     const asked = await screen.findByRole("alertdialog", { name: "Move #Design under Strata" });
     expect(asked).toHaveAccessibleDescription("This removes Grace Hopper and Linus Torvalds, who aren’t in Strata.");
     expect(within(asked).getByRole("button", { name: "Move" })).toHaveClass("bg-negative-button");
