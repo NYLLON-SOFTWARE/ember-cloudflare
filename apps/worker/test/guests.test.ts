@@ -1,4 +1,4 @@
-import { type Directory, type DirectoryUser, type Me, type RoomGuest, type RoomId, type RoomSettings, CloseCode } from "@ember/protocol";
+import { ASSISTANT_ID, type Directory, type DirectoryUser, type Me, type RoomGuest, type RoomId, type RoomSettings, CloseCode } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NewWorkspace } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
@@ -16,6 +16,7 @@ import {
   workspaceSql,
   workspaceStub,
   type Session,
+  type WorkspaceSocket,
 } from "./support";
 
 // Guests of one room: an administrator adds a guest to exactly one room, with a stay that ends, and the
@@ -297,7 +298,7 @@ describe("One room, and nothing else", () => {
     const openedQuiet = await api(`/api/rooms/${quiet.id}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "open" }) });
     expect(openedQuiet.status, await openedQuiet.clone().text()).toBe(200);
     // The frames went to the rooms' people, and a guest of one room is neither's: their tab hears nothing.
-    expect(await tab.quiet()).toBe(true);
+    expect(await tab.answers()).toBe(true);
 
     const memberships = (await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>;
     expect(memberships).toEqual([{ room_id: room }]);
@@ -508,7 +509,7 @@ describe("What a guest hears of people", () => {
     const niaSession = await guestSession("Nia");
     const renamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: niaSession.cookie }, body: JSON.stringify({ name: "Nia Doe" }) });
     expect(renamed.status, await renamed.clone().text()).toBe(200);
-    expect(await tab.quiet()).toBe(true);
+    expect(await tab.answers()).toBe(true);
     expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { id: nia.userId, name: "Nia Doe" } });
 
     // A member of no room of theirs is none of theirs to hear of either: what the host hears of Grace
@@ -517,7 +518,7 @@ describe("What a guest hears of people", () => {
     expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { name: "Grace" } });
     const graceRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: grace.cookie }, body: JSON.stringify({ name: "Grace Hopper" }) });
     expect(graceRenamed.status).toBe(200);
-    expect(await tab.quiet()).toBe(true);
+    expect(await tab.answers()).toBe(true);
     expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { name: "Grace Hopper" } });
 
     // Whoever their room holds, they hear of, as its settings list them.
@@ -542,14 +543,149 @@ describe("What a guest hears of people", () => {
     const renamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: niaSession.cookie }, body: JSON.stringify({ name: "Nia Doe" }) });
     expect(renamed.status, await renamed.clone().text()).toBe(200);
     expect(await membersTab.next()).toMatchObject({ type: "user.updated", user: { id: nia.userId, name: "Nia Doe" } });
-    expect(await patsTab.quiet()).toBe(true);
+    expect(await patsTab.answers()).toBe(true);
 
     // Her stay ending now reaches the member too, who would otherwise list her as active until a
     // reload, and Pat still hears nothing of her.
     const ended = await api(`/api/rooms/${elsewhere}/guests/${nia.userId}`, { method: "DELETE", headers: { Cookie: host.cookie } });
     expect(ended.status, await ended.clone().text()).toBe(204);
     expect(await membersTab.next()).toMatchObject({ type: "user.updated", user: { id: nia.userId, status: "deactivated" } });
-    expect(await patsTab.quiet()).toBe(true);
+    expect(await patsTab.answers()).toBe(true);
+  });
+});
+
+// The agents are in the rooms they're in, so a guest of one room hears of the agents of that room alone,
+// as their directory lists them, and of no agent of another room's, whichever way the agents' news goes.
+
+const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
+const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
+const SONNET = "anthropic/claude-sonnet-5.5";
+const HAIKU = "anthropic/claude-haiku-5.5";
+
+/** A model saying hello in Messages' format, which is how every model the fake AI Gateway stands for answers. */
+const HELLO = {
+  type: "message",
+  role: "assistant",
+  content: [{ type: "text", text: "Hello, team!" }],
+  stop_reason: "end_turn",
+  usage: { input_tokens: 100, output_tokens: 10 },
+};
+
+/** Has the fake AI Gateway answer every ask of a model with hello, until the test's mocks are restored. */
+const gatewaySaysHello = () => vi.spyOn(globalThis, "fetch").mockImplementation(() => Promise.resolve(Response.json(HELLO)));
+
+/** Turns Ember AI on as `administrator`, with Claude Sonnet answering everyone, as its card's switch does. */
+async function turnOnAssistant(administrator: Session): Promise<void> {
+  const response = await api("/api/account/assistant", {
+    method: "PUT",
+    headers: { Cookie: administrator.cookie },
+    body: JSON.stringify({ accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: SONNET }),
+  });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
+
+/** Turns Ember AI off as `administrator`, as its card's switch does. */
+async function turnOffAssistant(administrator: Session): Promise<void> {
+  expect((await api("/api/account/assistant", { method: "DELETE", headers: { Cookie: administrator.cookie } })).status).toBe(200);
+}
+
+/** Makes an agent named `name` as `administrator`, in every open room or the ones `rooms` pick, answering it. */
+async function makeAgent(administrator: Session, name: string, rooms: RoomId[] | null): Promise<{ id: string }> {
+  const agent = {
+    name,
+    description: "Sums up long threads",
+    instructions: "Sum up the thread you're asked in, in five bullets at most.",
+    model: HAIKU,
+    thinking: "off",
+    length: "short",
+    webSearch: false,
+    rooms,
+  };
+  const response = await api("/api/account/agents", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify(agent) });
+  expect(response.status, await response.clone().text()).toBe(201);
+  return ((await response.json()) as { agent: { id: string } }).agent;
+}
+
+/** Renames agent `id` to `name` as `administrator`, as its page saves it. */
+const renameAgent = (administrator: Session, id: string, name: string) =>
+  api(`/api/account/agents/${id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name }) });
+
+/** Sets Ember up with Ada as its administrator, Ember AI on with the gateway answering hello, signed in. */
+async function setUpWithAgents(): Promise<Session> {
+  gatewaySaysHello();
+  const host = await setUp();
+  await turnOnAssistant(host);
+  return host;
+}
+
+/** The next `count` people `tab` hears of, by ID, past what else it hears of, such as rooms. */
+async function heardIds(tab: WorkspaceSocket, count: number): Promise<string[]> {
+  const heard: string[] = [];
+  while (heard.length < count) {
+    const frame = await tab.next();
+    if (frame.type === "user.updated") heard.push(frame.user.id);
+  }
+  return heard;
+}
+
+describe("What a guest hears of agents", () => {
+  it("hears of an agent of their room's renamed, and of no agent of another room's, whose name their directory keeps out", async () => {
+    const host = await setUpWithAgents();
+    const mine = await createRoom("Designers", { as: host });
+    const other = await createRoom("Lounge", { as: host });
+    const everywhere = await makeAgent(host, "Everywhere", null);
+    const kept = await makeAgent(host, "Kept", [other.id]);
+    await addGuest(host, mine.id, "Pat");
+    const guest = await guestSession("Pat");
+    const tab = await openWorkspaceSocket(guest);
+    const hostsTab = await openWorkspaceSocket(host);
+
+    // Their directory lists the agents of their room, which its people are, and no agent of another room's.
+    const people = await directoryOf(guest);
+    expect(people.some(({ id }) => id === everywhere.id)).toBe(true);
+    expect(people.some(({ id }) => id === kept.id)).toBe(false);
+
+    // Renaming their room's agent reaches them, and the host with them.
+    const renamed = await renameAgent(host, everywhere.id, "Everywhere About");
+    expect(renamed.status, await renamed.clone().text()).toBe(200);
+    expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { id: everywhere.id, name: "Everywhere About" } });
+    expect(await tab.next()).toMatchObject({ type: "user.updated", user: { id: everywhere.id, name: "Everywhere About" } });
+
+    // One kept to another room's is renamed out of their hearing: the host hears of it, their tab hears nothing.
+    const keptRenamed = await renameAgent(host, kept.id, "Kept There");
+    expect(keptRenamed.status, await keptRenamed.clone().text()).toBe(200);
+    expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { id: kept.id, name: "Kept There" } });
+    expect(await tab.answers()).toBe(true);
+    expect((await directoryOf(guest)).some(({ id }) => id === kept.id)).toBe(false);
+  });
+
+  it("hears of their room's agents going with Ember AI and coming back, and of no agent of another room's", async () => {
+    const host = await setUpWithAgents();
+    const mine = await createRoom("Designers", { as: host });
+    const other = await createRoom("Lounge", { as: host });
+    const everywhere = await makeAgent(host, "Everywhere", null);
+    const kept = await makeAgent(host, "Kept", [other.id]);
+    await addGuest(host, mine.id, "Pat");
+    const guest = await guestSession("Pat");
+    const tab = await openWorkspaceSocket(guest);
+    const hostsTab = await openWorkspaceSocket(host);
+
+    // Turning Ember AI off takes @ember and the agents out of every room, so the host hears of each of
+    // them, and a guest of one room hears nothing of any of them: none is of their room any more.
+    await turnOffAssistant(host);
+    expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { id: ASSISTANT_ID, status: "deactivated" } });
+    expect((await heardIds(hostsTab, 2)).sort()).toEqual([everywhere.id, kept.id].sort());
+    expect(await tab.answers()).toBe(true);
+
+    // Turning it on puts them back, so their room's reach them again, and one kept to another room's
+    // doesn't, whose name their directory keeps out still.
+    await turnOnAssistant(host);
+    expect((await heardIds(tab, 2)).sort()).toEqual([ASSISTANT_ID, everywhere.id].sort());
+    expect(await tab.answers()).toBe(true);
+    expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { id: ASSISTANT_ID, status: "active" } });
+    expect((await heardIds(hostsTab, 2)).sort()).toEqual([everywhere.id, kept.id].sort());
+    expect((await directoryOf(guest)).some(({ id }) => id === everywhere.id)).toBe(true);
+    expect((await directoryOf(guest)).some(({ id }) => id === kept.id)).toBe(false);
   });
 });
 
@@ -571,15 +707,15 @@ describe("What a guest hears once their stay has passed", () => {
     // Grace's name is dropped on its way to their tab, whose stay has nothing left to see her by.
     const graceRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: grace.cookie }, body: JSON.stringify({ name: "Grace Hopper" }) });
     expect(graceRenamed.status, await graceRenamed.clone().text()).toBe(200);
-    expect(await patsTab.quiet()).toBe(true);
-    expect(await quinnsTab.quiet()).toBe(true);
+    expect(await patsTab.answers()).toBe(true);
+    expect(await quinnsTab.answers()).toBe(true);
 
     // Whose stay holds hears of their room's people still: the host is Pat's and Quinn's, so Quinn
     // takes the rename their stay lets them see, and Pat's lapsed one drops it.
     const hostRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ name: "Ada King" }) });
     expect(hostRenamed.status, await hostRenamed.clone().text()).toBe(200);
     expect(await quinnsTab.next()).toMatchObject({ type: "user.updated", user: { id: host.user.id, name: "Ada King" } });
-    expect(await patsTab.quiet()).toBe(true);
+    expect(await patsTab.answers()).toBe(true);
   });
 });
 

@@ -2852,12 +2852,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Tells the workspace sockets of everyone a person's listing may reach of `user.updated`, as the
-   * people directory lists them to everyone but the guests of one room it holds nothing for: asked
-   * as each announcing runs, a stay that has passed holds its guest from everyone, and a live one
-   * holds them to their room's people, since what happens outside their room is none of a guest's to
-   * hear, names of people included. One of the guests themselves is heard of the same way, their
-   * stay naming the room whose people they are.
+   * Tells the workspace sockets of everyone a listing may reach of `user.updated`, as the people
+   * directory lists them to everyone but the guests of one room it holds nothing for: asked as each
+   * announcing runs, a stay that has passed holds its guest from everyone, and a live one holds them
+   * to their room's people, since what happens outside their room is none of a guest's to hear, names
+   * of people included. One of the guests themselves is heard of the same way, their stay naming the
+   * room whose people they are.
    */
   private async announce(listed: DirectoryUser): Promise<void> {
     const frame: WorkspaceServerFrame = { type: "user.updated", user: listed };
@@ -2881,9 +2881,13 @@ export class Workspace extends DurableObject<Env> {
     if (person) await this.announce(await this.directoryUser(person));
   }
 
-  /** Tells everyone's workspace sockets of every agent, as the people directory lists it. */
+  /**
+   * Tells the workspace sockets of everyone an agent's listing may reach, asked of each agent as
+   * announcing one runs: an agent is in the rooms it's in, so a guest of one room hears of the agents
+   * of that room alone, as the people directory lists them to them, and of no agent of another room's.
+   */
   private async publishAgents(): Promise<void> {
-    for (const user of await directoryOf(await this.store.agentEntries(), this.env.SESSION_SECRET)) this.broadcast({ type: "user.updated", user });
+    for (const user of await directoryOf(await this.store.agentEntries(), this.env.SESSION_SECRET)) await this.announce(user);
   }
 
   /**

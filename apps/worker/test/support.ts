@@ -518,21 +518,25 @@ export async function openWorkspaceSocket(session: Session) {
     return frames.shift()!;
   }
 
-  /** Whether the Workspace still answers on it. A ping with more than its type reaches the Workspace itself. */
+  /**
+   * Whether the Workspace still answers on it, and nothing else has come: a ping with more than its type
+   * reaches the Workspace itself, whose pong comes after everything it sent before it, so a frame read on
+   * the way to the pong is one that was queued and has landed, and none is one that was never coming.
+   */
   async function answers(): Promise<boolean> {
+    const queued = frames.length;
+    frames.length = 0;
     ws.send(JSON.stringify({ type: "ping", nonce: crypto.randomUUID() }));
-    return (await next()).type === "pong";
-  }
-
-  /** Whether no frame has arrived in `ms`, leaving whatever came for the next `next()` to answer. */
-  async function quiet(ms = 300): Promise<boolean> {
-    const before = frames.length;
-    await new Promise((resolve) => setTimeout(resolve, ms));
-    return frames.length === before;
+    let heard = queued;
+    for (;;) {
+      const frame = await next();
+      if (frame.type === "pong") return heard === 0;
+      heard++;
+    }
   }
 
   const welcome = await next();
-  return { ws, welcome, next, quiet, answers, closed, send: (data: string) => ws.send(data) };
+  return { ws, welcome, next, answers, closed, send: (data: string) => ws.send(data) };
 }
 
 export type WorkspaceSocket = Awaited<ReturnType<typeof openWorkspaceSocket>>;
