@@ -257,6 +257,39 @@ describe("Star rooms", () => {
   });
 });
 
+describe("Starred sub-rooms", () => {
+  const strata = { id: "strata", name: "Strata", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const };
+  const sub = (id: string, name: string) => ({ ...strata, id, name, parent: { id: "strata", name: "Strata" } });
+  const team = [...rooms, strata, sub("sales", "Sales"), sub("inventory", "Inventory Ops")];
+  const section = (name: string) => within(screen.getByRole("region", { name })).queryAllByRole("link").map((link) => link.textContent);
+
+  beforeEach(() => localStorage.clear());
+
+  it("nests a starred parent's sub-rooms under it in Starred, folding with its arrow, and not in Rooms", async () => {
+    renderSidebar({ rooms: team, favorites: { rooms: ["strata"], version: 1 } });
+    expect(section("Starred")).toEqual(["#Strata", "#Inventory Ops", "#Sales"]);
+    expect(section("Rooms")).toEqual(["#general", "#random"]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide Strata’s sub-rooms" }));
+    expect(section("Starred")).toEqual(["#Strata"]);
+    expect(section("Rooms")).toEqual(["#general", "#random"]);
+  });
+
+  it("keeps a starred sub-room's own row in Starred, under its full name, beside its starred parent's", () => {
+    renderSidebar({ rooms: team, favorites: { rooms: ["strata", "inventory"], version: 2 } });
+    expect(section("Starred")).toEqual(["#Strata", "#Sales", "#Strata – Inventory Ops"]);
+    expect(section("Rooms")).toEqual(["#general", "#random"]);
+  });
+
+  it("moves a starred parent with its sub-rooms as Alt and an arrow move it", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ favorites: { rooms: ["general", "strata"], version: 3 } }));
+    renderSidebar({ rooms: team, favorites: { rooms: ["strata", "general"], version: 2 } });
+    expect(section("Starred")).toEqual(["#Strata", "#Inventory Ops", "#Sales", "#general"]);
+    fireEvent.keyDown(screen.getByRole("link", { name: /^#?Strata$/ }), { key: "ArrowDown", altKey: true });
+    expect(section("Starred")).toEqual(["#general", "#Strata", "#Inventory Ops", "#Sales"]);
+  });
+});
+
 describe("Selected room", () => {
   it("fills the room the tab shows, without making it bold, which only unread rows are", () => {
     renderSidebar({ currentRoomId: "general" });

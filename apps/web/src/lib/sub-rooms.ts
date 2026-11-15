@@ -21,11 +21,12 @@ export interface RoomBranch<T extends SharedRoom> {
 
 /**
  * `rooms`, in the order given, as a list one level deep: each sub-room under its parent, in the order
- * given, when the parent's listed too, and otherwise in its own place, as a room of its own would be.
+ * given, when the parent's listed too and `nests` lets it, and otherwise in its own place, as a room of
+ * its own would be.
  */
-export function roomTree<T extends SharedRoom>(rooms: readonly T[]): RoomBranch<T>[] {
+export function roomTree<T extends SharedRoom>(rooms: readonly T[], nests: (room: T) => boolean = () => true): RoomBranch<T>[] {
   const listed = new Set(rooms.map((room) => room.id));
-  const nested = (room: T) => room.parent !== undefined && listed.has(room.parent.id);
+  const nested = (room: T) => room.parent !== undefined && listed.has(room.parent.id) && nests(room);
   const children = new Map<RoomId, T[]>();
   for (const room of rooms.filter(nested)) children.set(room.parent!.id, [...(children.get(room.parent!.id) ?? []), room]);
   return rooms.filter((room) => !nested(room)).map((room) => ({ room, subRooms: children.get(room.id) ?? [] }));

@@ -94,10 +94,14 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
   // A folded section still shows the room the tab shows and the unread ones, as Slack's does.
   const shownIn = (section: SidebarSection, sectionRooms: SharedSidebarRoom[]) =>
     folded[section] ? sectionRooms.filter((room) => room.id === currentRoomId || markedUnread(room, currentRoomId)) : sectionRooms;
-  const starredRooms = shownIn("starred", listed.filter((room) => starred.has(room.id)));
-  const otherRooms = shownIn("rooms", listed.filter((room) => !starred.has(room.id)));
-  // Starred rooms keep their place among the stars; the rest nest their sub-rooms under their parents.
-  const tree = roomTree(otherRooms);
+  // A starred room takes its sub-rooms into Starred, under it, but for the ones starred themselves, which
+  // keep a row of their own there. The rest nest their sub-rooms under their parents in Rooms.
+  const underStar = (room: SharedSidebarRoom) => room.parent !== undefined && !starred.has(room.id) && starred.has(room.parent.id);
+  const starredTree = roomTree(
+    shownIn("starred", listed.filter((room) => starred.has(room.id) || underStar(room))),
+    (room) => !starred.has(room.id),
+  );
+  const tree = roomTree(shownIn("rooms", listed.filter((room) => !starred.has(room.id) && !underStar(room))));
   const { collapsed, toggle: toggleSubRooms } = useCollapsedRooms();
   const isUnread = (room: SharedSidebarRoom) => markedUnread(room, currentRoomId);
   const hasStarred = listed.some((room) => starred.has(room.id));
@@ -171,7 +175,18 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
       {hasStarred && (
         <Section title="Starred" folded={folded.starred} onToggle={() => toggle("starred")}>
           <div ref={listRef} {...listProps} className={cn("flex flex-col gap-[3px]", moving && "select-none")}>
-            {starredRooms.map((room) => row(room, { label: roomDisplayName(room, rooms), unread: isUnread(room) }))}
+            {starredTree.map((branch) => (
+              <RoomTreeRow
+                key={branch.room.id}
+                branch={branch}
+                label={roomDisplayName(branch.room, rooms)}
+                row={row}
+                isUnread={isUnread}
+                currentRoomId={currentRoomId}
+                collapsed={collapsed.has(branch.room.id)}
+                onToggle={toggleSubRooms}
+              />
+            ))}
           </div>
         </Section>
       )}
