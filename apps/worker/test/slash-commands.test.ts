@@ -4,7 +4,7 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, connect, cookieOf, createRoom, freshDeploy, framesOf, post, settle, shown, signIn, workspaceSql, forwardUpgrade, type Session, type Socket } from "./support";
 
-// Slash commands and bots' subscriptions to message events (migrations/0065_commands.sql): typing
+// Slash commands and bots' subscriptions to message events (migrations/0072_commands.sql): typing
 // /name text in a room the bot is in delivers what was typed to its webhook, as Slack tells a slash
 // command to a server, and what the bot answers is posted as the bot, as its answer to any delivery is.
 // A room the bot watches delivers every message written there by someone else, shaped the same way, its
@@ -399,7 +399,56 @@ describe("Message events", () => {
         cards: [{ source: "blocks", parts: [{ kind: "section", button: { text: "Roll it back", action: { id: "rollback" } } }] }],
       });
     });
+
     await settle(inRoom);
+  });
+
+  it("delivers one event to every bot watching the room, however many that is, counting it once among theirs", async () => {
+    const { ada, bot, general } = await withBot();
+    // Three more bots join, so one of Kai's messages goes to four watching bots at once, more than the
+    // three events of theirs the room holds waiting.
+    const watching = [bot];
+    for (const name of ["Aster Bot", "Birch Bot", "Cedar Bot"]) {
+      const added = await api("/api/account/bots", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name, webhookUrl: WEBHOOK }) });
+      expect(added.status, await added.clone().text()).toBe(201);
+      watching.push(((await added.json()) as BotAnswer).bot);
+    }
+    for (const { id } of watching) expect((await subscribe(ada, id, general)).status).toBe(204);
+    const kai = await connect(general, "Kai");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A webhook that answers once it's let holds each delivery to its turn.
+    const gate = Promise.withResolvers<void>();
+    const delivered = bots(async () => {
+      await gate.promise;
+      return new Response(null, { status: 200 });
+    });
+    const deliveredOf = (text: string) =>
+      delivered.filter(({ init }) => (JSON.parse(init.body as string) as { text: string }).text === text).length;
+
+    await post(kai, "First");
+    await vi.waitFor(() => expect(delivered.length).toBeGreaterThanOrEqual(2));
+    // All four of them are delivered: an event counts once among a person's waiting ones, whatever
+    // bots it goes to, so the later bots' subscriptions aren't starved on every message.
+    expect(errors).not.toHaveBeenCalledWith(expect.stringMatching(/dropped/));
+
+    // Three of Kai's events can wait, whatever deliveries each has out; a fourth drops till one's done.
+    await post(kai, "Second");
+    await post(kai, "Third");
+    await post(kai, "Fourth");
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(expect.stringMatching(/dropped: .*'s earlier events are still waiting$/)));
+
+    // Each event's share came back once its deliveries had had their turns, and came back once, so
+    // what Kai writes next is delivered again.
+    gate.resolve();
+    await vi.waitFor(() => expect(delivered).toHaveLength(12));
+    await post(kai, "Fifth");
+    await vi.waitFor(() => expect(delivered).toHaveLength(16));
+    expect(deliveredOf("First")).toBe(4);
+    expect(deliveredOf("Second")).toBe(4);
+    expect(deliveredOf("Third")).toBe(4);
+    expect(deliveredOf("Fourth")).toBe(0);
+    expect(deliveredOf("Fifth")).toBe(4);
+    await settle(kai);
   });
 
   it("waits while a person's earlier events are answered, and delivers no more of theirs than of their commands", async () => {
