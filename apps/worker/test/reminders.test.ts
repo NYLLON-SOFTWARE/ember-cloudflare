@@ -2,7 +2,7 @@ import type { Reminder, WorkspaceServerFrame } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REMINDER_PUSH_GRACE_MS, type Workspace } from "../src/workspace";
-import type { WorkspaceStore } from "../src/workspace-store";
+import { REMINDER_PUSH_RETRY_MS, type WorkspaceStore } from "../src/workspace-store";
 import {
   api,
   connect,
@@ -353,7 +353,7 @@ describe("Reminders", () => {
     expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 5 }]);
   });
 
-  it("tells the tabs once though its push failed, and tries the pushes again the run after", async () => {
+  it("tells the tabs once though its push failed, and tries the push again only once the wait has passed", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     let status = 503;
     const pushed = pushServices(() => status);
@@ -372,17 +372,31 @@ describe("Reminders", () => {
     expect(await heard(tab)).toEqual([
       { type: "reminder.due", reminder: expect.objectContaining({ excerpt: "Tell me though the push fails" }) },
     ]);
-    // The push didn't reach the browser, so the reminder waits to push again: told, not settled.
+    // The push didn't reach the browser, so the reminder waits to push again: told, not settled, and
+    // when the try was is kept.
     expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]);
     expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE push_tried_at IS NOT NULL")).toEqual([{ n: 1 }]);
 
-    // The runs after try the push again, and however often they do, they say nothing more to the
-    // tabs, which have heard it.
-    await vi.waitFor(() => expect(pushed.length).toBeGreaterThan(1), { timeout: 10_000 });
+    // A run that comes round before the wait has passed tries nothing: the push service isn't asked
+    // again run after run, and however often they come, they say nothing more to the tabs, which have
+    // heard it.
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(pushed).toHaveLength(1);
     expect(await heard(tab)).toEqual([]);
+
+    // Once the wait has passed the push is tried again, and failing once more, it waits again.
+    await workspaceSql("UPDATE reminders SET push_tried_at = ?", Date.now() - REMINDER_PUSH_RETRY_MS - 1_000);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(pushed).toHaveLength(2);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
+    expect(await heard(tab)).toEqual([]);
+
     // Once a push goes out the reminder is settled, and the tabs have still heard it once and only once.
     status = 201;
-    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]), { timeout: 10_000 });
+    await workspaceSql("UPDATE reminders SET push_tried_at = ?", Date.now() - REMINDER_PUSH_RETRY_MS - 1_000);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]);
     expect(await heard(tab)).toEqual([]);
   });
 
@@ -406,14 +420,49 @@ describe("Reminders", () => {
     ]);
     expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
 
-    // The day past its time is spent: the run that sees it gives the pushes up, the notice having
-    // reached the tabs all along.
+    // The day past its time is spent: the run that sees it, however soon it comes round, gives the
+    // pushes up, the notice having reached the tabs all along.
     await workspaceSql("UPDATE reminders SET remind_at = ?", Date.now() - REMINDER_PUSH_GRACE_MS - 1_000);
-    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]), { timeout: 10_000 });
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]);
     // Settled, nothing is set for the alarm to try again, and the tabs have heard the notice once.
-    await vi.waitFor(async () => expect(await runDurableObjectAlarm(workspaceStub())).toBe(false), { timeout: 10_000 });
-    expect(pushed.length).toBeGreaterThanOrEqual(1);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(false);
+    expect(pushed).toHaveLength(1);
     expect(await heard(tab)).toEqual([]);
+  });
+
+  it("sends a reminder its pushes tried again only to the browsers a try didn't reach", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const pushed = pushServices((endpoint) => (endpoint.endsWith("/grace-slow") ? 503 : 201));
+    const room = await freshRoom("partly");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    await subscribe(grace, "grace-fast");
+    await subscribe(grace, "grace-slow");
+    const message = await post(ada, "<p>Reach the browsers I can</p>");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    // The fast browser heard it, and the slow one's push failed: told, not settled, and what the try
+    // reached is kept.
+    expect(pushed.filter(({ endpoint }) => endpoint.endsWith("/grace-fast"))).toHaveLength(1);
+    expect(pushed.filter(({ endpoint }) => endpoint.endsWith("/grace-slow"))).toHaveLength(1);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
+    const [{ id }] = (await workspaceSql("SELECT id FROM push_subscriptions WHERE endpoint = ?", "https://fcm.googleapis.com/fcm/send/grace-fast")) as [{ id: number }];
+    const [{ delivered }] = (await workspaceSql("SELECT delivered FROM reminders")) as [{ delivered: string }];
+    expect(JSON.parse(delivered)).toEqual([id]);
+
+    // The wait past, the try again sends the slow browser alone: the fast one is sent no reminder twice.
+    await workspaceSql("UPDATE reminders SET push_tried_at = ?", Date.now() - REMINDER_PUSH_RETRY_MS - 1_000);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(pushed.filter(({ endpoint }) => endpoint.endsWith("/grace-fast"))).toHaveLength(1);
+    expect(pushed.filter(({ endpoint }) => endpoint.endsWith("/grace-slow"))).toHaveLength(2);
+    const [{ delivered: kept }] = (await workspaceSql("SELECT delivered FROM reminders")) as [{ delivered: string }];
+    expect(JSON.parse(kept)).toEqual([id]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
   });
 
   it("sets the alarm for what's due next even when a query fails", async () => {

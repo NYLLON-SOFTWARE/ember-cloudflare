@@ -229,7 +229,11 @@ Objects, D1 or speed call for something else.
   happens to the message or the room after, and the Workspace never has to call the room when it
   does. `reminded_at` says the alarm has told every tab, which it does once, so the notice never
   comes twice however often the pushes after it have to be tried; `pushed_at` says those pushes have
-  gone out, or been given up on a day past its time (workspace migration 0062); the row stays until
+  gone out, or been given up on a day past its time (workspace migration 0062); `push_tried_at` and
+  `delivered` (workspace migration 0073) say when its pushes were last tried without going out, and
+  which browsers they reached: a try that fails puts trying the rest off for five minutes
+  (`REMINDER_PUSH_RETRY_MS` in `apps/worker/src/workspace-store.ts`), and the tries after send only
+  the browsers no try has reached, so no browser is pushed the same reminder twice; the row stays until
   the person dismisses it, so a tab that opens later still finds it.
 - **Banned addresses are kept in memory.** Campfire reads `bans` for every request that would change
   something. Here the Worker asks the Workspace before each such request, and the Workspace answers

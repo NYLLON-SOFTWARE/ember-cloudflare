@@ -277,7 +277,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const directory = useDirectory();
   // Reminders of theirs, which the workspace socket tells this tab about as each one comes due or is
   // dismissed in another tab. Declared before the sidebar, whose socket hands it both.
-  const { reminders, cameDue, cameGone, reloadReminders, dismiss: dismissReminder } = useReminders();
+  const { reminders, cameDue, cameGone, dismiss: dismissReminder, load: reloadReminders } = useReminders();
   const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone, reloadReminders);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null

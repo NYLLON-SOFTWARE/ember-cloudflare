@@ -2641,6 +2641,12 @@ export interface StoredReminder extends StoredReminderRow {
   createdAt: number;
 }
 
+/** A reminder read for its delivery: its row, and what its pushes have reached so far. */
+export interface StoredReminderDelivery extends StoredReminderRow {
+  /** The subscriptions its pushes have reached, as the JSON list its row keeps, or null for none of them. */
+  delivered: string | null;
+}
+
 /** Asks a reminder of a message for someone, keeping the message as it reads then. */
 const QUEUE_REMINDER = `INSERT INTO reminders (id, user_id, room_id, message_id, parent_id, creator_id, creator_name, excerpt, remind_at, created_at)
   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`;
@@ -2651,12 +2657,21 @@ const REMINDERS_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE user_
 /** One of someone's reminders, theirs alone. */
 const REMINDER_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ? AND user_id = ?`;
 
-/** One reminder by its id, whoever asked for it, which a delivery reads again before it tells it. */
-const REMINDER_BY_ID = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ?`;
+/** One reminder by its id, whoever asked for it, with what its pushes have reached, which a delivery reads again before it tells it. */
+const REMINDER_BY_ID = `SELECT ${REMINDER_FIELDS}, delivered FROM reminders WHERE id = ?`;
 
-/** The reminders that have come due and still have a notice to say or pushes to try, the oldest due first. */
+/**
+ * How long a reminder's pushes wait to be tried again after a try has failed: five minutes, as long as
+ * the outbox ever puts a failed row off (`LONGEST_RETRY_MS`), so a push service that won't take them
+ * is asked no oftener than this whatever the runs come round. The tries keep the rhythm within the day
+ * past the reminder's time (`REMINDER_PUSH_GRACE_MS` in src/workspace.ts), which spends them.
+ */
+export const REMINDER_PUSH_RETRY_MS = 5 * 60 * 1000;
+
+/** The reminders that have come due and still have a notice to say or pushes to try, the oldest due first. A reminder whose pushes failed waits, since they did, for `REMINDER_PUSH_RETRY_MS`. */
 const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId, reminded_at IS NULL AS untold FROM reminders
-  WHERE remind_at <= ? AND (reminded_at IS NULL OR pushed_at IS NULL) ORDER BY remind_at, id LIMIT ?`;
+  WHERE remind_at <= ? AND (reminded_at IS NULL OR (pushed_at IS NULL AND COALESCE(push_tried_at, 0) <= ?))
+  ORDER BY remind_at, id LIMIT ?`;
 
 /** Whether someone is in a room, which a reminder of a message in it asks. */
 const IN_ROOM = `SELECT 1 FROM memberships WHERE user_id = ? AND room_id = ?`;
@@ -3525,14 +3540,17 @@ export class WorkspaceStore {
   /**
    * When the outbox's next revocation, purge, reindex, picture deletion, membership check or reminder is
    * due, if any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no
-   * sooner.
+   * sooner. A reminder whose pushes failed is due once the wait since they did has passed
+   * (`REMINDER_PUSH_RETRY_MS`); one never tried is due when its time is.
    */
   async nextDeliveryDue(): Promise<number | null> {
     const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
         (SELECT min(due_at) FROM membership_catch_ups) AS catchUp,
-        (SELECT min(remind_at) FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder`,
+        (SELECT min(CASE WHEN reminded_at IS NULL OR push_tried_at IS NULL THEN remind_at ELSE push_tried_at + ? END)
+          FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder`,
+      REMINDER_PUSH_RETRY_MS,
     );
     const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
@@ -4662,21 +4680,22 @@ export class WorkspaceStore {
   }
 
   /** One reminder by its id, whoever asked for it, or null for one that isn't there any more. */
-  async reminder(id: string): Promise<StoredReminderRow | null> {
-    const [row] = await this.db.all<StoredReminderRow>(REMINDER_BY_ID, id);
+  async reminder(id: string): Promise<StoredReminderDelivery | null> {
+    const [row] = await this.db.all<StoredReminderDelivery>(REMINDER_BY_ID, id);
     return row ?? null;
   }
 
   /**
    * The reminders that have come due and still have a notice to say or pushes to try, the oldest due
-   * first, with who asked for each and whether its tabs haven't heard it yet. The pushes whose day of
-   * tries is past (`pushesUntil`) are given up on first, in the same transaction, so the read asks
-   * after none of them.
+   * first, with who asked for each and whether its tabs haven't heard it yet. A reminder whose pushes
+   * failed waits, since they did, for `REMINDER_PUSH_RETRY_MS`, so a run that comes round sooner tries
+   * nothing of it. The pushes whose day of tries is past (`pushesUntil`) are given up on first, in the
+   * same transaction, so the read asks after none of them.
    */
   async dueReminders(now: number, pushesUntil: number, limit: number): Promise<DueReminder[]> {
     const results = await this.db.batch([
       statement(`UPDATE reminders SET pushed_at = ? WHERE pushed_at IS NULL AND reminded_at IS NOT NULL AND remind_at <= ?`, now, pushesUntil),
-      statement(DUE_REMINDERS, now, limit),
+      statement(DUE_REMINDERS, now, now - REMINDER_PUSH_RETRY_MS, limit),
     ]);
     return (results[1] as Array<StoredReminderRow & { userId: UserId; untold: number }>).map(({ untold, ...reminder }) => ({ ...reminder, untold: untold === 1 }));
   }
@@ -4686,9 +4705,14 @@ export class WorkspaceStore {
     return (await this.db.all(`UPDATE reminders SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL RETURNING id`, now, id)).length > 0;
   }
 
-  /** Says a reminder's pushes have gone out, or are given up on, answering whether this run settled them. */
-  async markReminderPushed(id: string, now: number): Promise<boolean> {
-    return (await this.db.all(`UPDATE reminders SET pushed_at = ? WHERE id = ? AND pushed_at IS NULL RETURNING id`, now, id)).length > 0;
+  /** Says a reminder's pushes have gone out, or are given up on, keeping which browsers they reached, and answers whether this run settled them. */
+  async markReminderPushed(id: string, now: number, reached: string): Promise<boolean> {
+    return (await this.db.all(`UPDATE reminders SET pushed_at = ?, delivered = ? WHERE id = ? AND pushed_at IS NULL RETURNING id`, now, reached, id)).length > 0;
+  }
+
+  /** Keeps when a reminder's pushes failed, and which browsers they reached, which puts trying the rest off for `REMINDER_PUSH_RETRY_MS`. */
+  async markReminderPushTried(id: string, now: number, reached: string): Promise<boolean> {
+    return (await this.db.all(`UPDATE reminders SET push_tried_at = ?, delivered = ? WHERE id = ? AND pushed_at IS NULL RETURNING id`, now, reached, id)).length > 0;
   }
 
   /** Takes one of someone's reminders away, answering whether there was one to take. */
