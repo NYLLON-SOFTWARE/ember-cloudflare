@@ -9,7 +9,7 @@ import type { RoomFrames } from "@/hooks/use-room";
 import { dateValue } from "@/lib/schedule-times";
 import type { Sendable } from "@/lib/uploads";
 import { createRef, useState } from "react";
-import { Composer, RoomGoneNotice, type ComposerEdit, type ComposerHandle } from "./composer";
+import { Composer, RoomGoneNotice, SCHEDULE_OFFLINE, SCHEDULE_TIME_PASSED, type ComposerEdit, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
 import { loadRarePages } from "./rare-pages";
 import { UNDO_MS } from "./schedule-send";
@@ -1332,6 +1332,70 @@ describe("Schedule for later", () => {
     reopened.hear({ type: "scheduled", messages: [{ id: "a", body: frame.body, sendAt: frame.sendAt }] });
     reopened.hear({ type: "welcome", you: { id: "u1", name: "Ada" }, present: [], seq: 0, messages: [], hasMore: false, hasNewer: false, around: null });
     expect(reopened.send).toHaveBeenCalledOnce();
+  });
+
+  it("asks the room about one whose time passed before the room had it, bringing it back if the room never posted it, beside another scheduled", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s13" });
+    const other = { id: "o", body: "<p>Other</p>", sendAt: inDays(3, 9).getTime() };
+    hear({ type: "scheduled", messages: [other] });
+    await user.type(input, "Later");
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    const frame = send.mock.calls[0]![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    expect(input).toHaveValue("");
+
+    // The socket dropped on the way, and stays down past the time it was for.
+    const now = vi.spyOn(Date, "now").mockReturnValue(frame.sendAt + 60_000);
+    try {
+      send.mockClear();
+      hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+      expect(send).toHaveBeenCalledExactlyOnceWith({ type: "message.check", clientMessageIds: [frame.clientMessageId] });
+      // What the room lists as the socket opens is the other one.
+      hear({ type: "scheduled", messages: [other] });
+      expect(input).toHaveValue("");
+      hear({ type: "message.checked", stored: [], missing: [frame.clientMessageId] });
+      expect(input).toHaveValue("Later");
+      expect(screen.getByRole("alert")).toHaveTextContent(SCHEDULE_TIME_PASSED);
+      // Once.
+      hear({ type: "message.checked", stored: [], missing: [frame.clientMessageId] });
+      expect(input).toHaveValue("Later");
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("forgets one whose time passed before the socket came back that the room had posted, bringing nothing back", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s14" });
+    await user.type(input, "Later");
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    const frame = send.mock.calls[0]![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    const now = vi.spyOn(Date, "now").mockReturnValue(frame.sendAt + 60_000);
+    try {
+      hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+      hear({ type: "message.checked", stored: [frame.clientMessageId], missing: [] });
+      send.mockClear();
+      hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+      expect(send).not.toHaveBeenCalled();
+      expect(input).toHaveValue("");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("says it couldn't schedule while the room is away, keeping what's written, and sends nothing later", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s15" });
+    await user.type(input, "Later");
+    send.mockReturnValue(false);
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    expect(input).toHaveValue("Later");
+    expect(screen.getByRole("alert")).toHaveTextContent(SCHEDULE_OFFLINE);
+
+    send.mockReset().mockReturnValue(true);
+    hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("puts what the room wouldn't schedule after what's been written since, once", async () => {

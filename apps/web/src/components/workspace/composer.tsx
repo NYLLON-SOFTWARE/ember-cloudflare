@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { isKeepableFileName, isWebImage, MAX_FILE_SIZE, reachesMore, type Message, type ServerFrame, type ShareWidening, type User } from "@ember/protocol";
+import { isKeepableFileName, isWebImage, MAX_CHECKED_MESSAGES, MAX_FILE_SIZE, reachesMore, type Message, type ScheduledMessage, type ServerFrame, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { useOptionalFlash } from "@/components/flash";
 import { ArrowUp, Lock, Page, Xmark } from "@/components/icons/iconoir";
@@ -258,28 +258,47 @@ function focusStayedOn(element: Element | null): boolean {
   return !focused || focused === element || focused === document.body;
 }
 
+/** What's said when scheduling can't reach the room, which keeps what's written to schedule again. */
+export const SCHEDULE_OFFLINE = "Couldn't schedule it while offline.";
+/** What's said of one kept to schedule whose time passed before the room had it, which comes back to be scheduled again. */
+export const SCHEDULE_TIME_PASSED = "Its time passed before it could be scheduled.";
+
 /**
  * What this composer schedules, kept in this browser until its room lists it (`keepScheduling`), so a socket
- * dropped on the way, or a reload, doesn't lose it: what's kept goes again as the composer opens and each
- * time the room lets the socket back in, and the room keeps each once by its id. One the room refuses comes
- * back, once, with why, to `onRefused`. Answers what schedules a message, which answers whether it went.
+ * dropped on the way, or a reload, doesn't lose it. What's kept goes again as the composer opens and each
+ * time the room lets the socket back in, and the room keeps each once by its id. One whose time passed
+ * meanwhile is asked about instead, as the room may have posted it by then: one it never had, or refuses,
+ * comes back, once, with why, to `onRefused`. `listed` is what the room last said is scheduled. Answers what
+ * schedules a message, which answers whether it went.
  */
-function useKeptSchedules(userId: string, roomId: string, threadId: string | undefined, frames: RoomFrames | undefined, onRefused: (body: string, why: string) => void) {
-  // Those sent again once their time had passed, which the room has posted, unless it refuses them.
-  const sentLate = useRef(new Set<string>());
+function useKeptSchedules(
+  userId: string,
+  roomId: string,
+  threadId: string | undefined,
+  frames: RoomFrames | undefined,
+  listed: () => ScheduledMessage[],
+  onRefused: (body: string, why: string) => void,
+) {
   const mine = (kept: Restoring) => kept.roomId === roomId && kept.message.parentId === threadId;
   const sendKept = useEffectEvent(() => {
-    for (const kept of restoringOf(userId).filter(mine)) {
-      if (frames?.send(scheduleFrameOf(kept)) && kept.message.sendAt <= Date.now()) sentLate.current.add(kept.clientMessageId);
-    }
+    const kept = restoringOf(userId).filter(mine);
+    const late = kept.filter((each) => each.message.sendAt <= Date.now());
+    for (const each of kept) if (!late.includes(each)) frames?.send(scheduleFrameOf(each));
+    if (late.length > 0) frames?.send({ type: "message.check", clientMessageIds: late.slice(0, MAX_CHECKED_MESSAGES).map(({ clientMessageId }) => clientMessageId) });
   });
   const hear = useEffectEvent((frame: ServerFrame) => {
     if (frame.type === "welcome" || frame.type === "resumed") sendKept();
-    else if (frame.type === "scheduled") forgetScheduled(userId, roomId, frame.messages, ({ clientMessageId }) => sentLate.current.has(clientMessageId));
-    else if (frame.type === "error" && frame.failed === "scheduled.create" && frame.clientMessageId !== undefined) refused(frame.clientMessageId, frame.message);
+    else if (frame.type === "scheduled") forgetScheduled(userId, roomId, frame.messages);
+    else if (frame.type === "message.checked") {
+      // Posted, or else, unless the room still has it to post, never had in time.
+      for (const clientMessageId of frame.stored) if (isKept(clientMessageId)) takeScheduling(userId, clientMessageId);
+      forgetScheduled(userId, roomId, listed());
+      for (const clientMessageId of frame.missing) refused(clientMessageId, SCHEDULE_TIME_PASSED);
+    } else if (frame.type === "error" && frame.failed === "scheduled.create" && frame.clientMessageId !== undefined) refused(frame.clientMessageId, frame.message);
   });
+  const isKept = (clientMessageId: string) => restoringOf(userId).some((kept) => kept.clientMessageId === clientMessageId && mine(kept));
   const refused = (clientMessageId: string, why: string) => {
-    if (!restoringOf(userId).some((kept) => kept.clientMessageId === clientMessageId && mine(kept))) return;
+    if (!isKept(clientMessageId)) return;
     const kept = takeScheduling(userId, clientMessageId);
     if (kept) onRefused(kept.message.body, why);
   };
@@ -288,7 +307,7 @@ function useKeptSchedules(userId: string, roomId: string, threadId: string | und
     return frames?.listen(hear);
   }, [frames, userId, roomId, threadId]);
 
-  // While the room is away, one that's to wait for it is kept to go once it's back, and any other is forgotten.
+  // While the room is away, one that's to wait for it is kept to go once it's back, and any other is left to schedule again.
   return (message: NewScheduled, { waitForRoom = false } = {}): boolean => {
     const clientMessageId = crypto.randomUUID();
     const kept = { roomId, message: { ...message, id: clientMessageId }, clientMessageId };
@@ -426,7 +445,7 @@ export function Composer({
   const [scheduleRefusal, setScheduleRefusal] = useState<string | null>(null);
   const scheduled = useScheduled(userId, roomId, frames);
   // What the room wouldn't schedule comes back to be changed, after anything written since, saying why.
-  const scheduleKept = useKeptSchedules(userId, roomId, threadId, frames, (body, why) => {
+  const scheduleKept = useKeptSchedules(userId, roomId, threadId, frames, () => scheduled.messages, (body, why) => {
     setScheduleRefusal(why);
     writeBack(body);
   });
@@ -612,7 +631,7 @@ export function Composer({
     const text = editor.current;
     if (disabled || !text || text.isBlank()) return;
     setScheduleRefusal(null);
-    if (!scheduleKept({ body: text.value(), sendAt: at.getTime(), parentId: threadId, alsoSend })) return;
+    if (!scheduleKept({ body: text.value(), sendAt: at.getTime(), parentId: threadId, alsoSend })) return setScheduleRefusal(SCHEDULE_OFFLINE);
     written();
     text.focus();
   };
