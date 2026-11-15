@@ -85,12 +85,12 @@ describe("Forward outside who can see the original", () => {
   afterEach(() => vi.mocked(forwardMessage).mockReset());
 
   it("asks first where the conversation picked has people who can't see the original, and forwards once you say so", async () => {
-    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 3 });
+    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 3, names: [] });
     const user = show("secret");
     await forwardTo(user, "general");
     const warning = await screen.findByRole("alertdialog", { name: /^Forward outside .*secret\?$/ });
     expect(checkShare).toHaveBeenCalledWith("secret", "general");
-    expect(warning).toHaveTextContent("3 people in #general can't see the original.");
+    expect(warning).toHaveTextContent(/3 people in #general aren['’]t in .*secret and will be able to see this message\./);
     expect(within(warning).getAllByRole("button").map((button) => button.textContent)).toEqual(["Cancel", "Forward"]);
     expect(forwardMessage).not.toHaveBeenCalled();
 
@@ -99,7 +99,7 @@ describe("Forward outside who can see the original", () => {
   });
 
   it("forwards nothing on Cancel, leaving Forward message open", async () => {
-    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1 });
+    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1, names: ["Ana"] });
     const user = show("dm1");
     await forwardTo(user, "general");
     const warning = await screen.findByRole("alertdialog", { name: "Forward outside your DM with Zan?" });
@@ -146,7 +146,7 @@ describe("Forward outside who can see the original", () => {
   });
 
   it("forwards without asking where everyone there can see the original", async () => {
-    vi.mocked(checkShare).mockResolvedValue({ widens: false, newViewers: 0 });
+    vi.mocked(checkShare).mockResolvedValue({ widens: false, newViewers: 0, names: [] });
     const user = show("secret");
     await forwardTo(user, "general");
     await waitFor(() => expect(forwardMessage).toHaveBeenCalled());

@@ -14,6 +14,7 @@ import { BotCards } from "./bot-card";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
+import { MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { ForwardDialog } from "./forward-dialog";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
