@@ -498,16 +498,19 @@ describe("Unread counts", () => {
     expect((await heard(tab, room)).some((frame) => "mentioned" in frame)).toBe(false);
     expect(await mentionedOf()).toBeUndefined();
     // Past the cap, a mention still says so, with the count as it is.
-    await post(ada, `<p>${mention(hopper)} over here</p>`);
-    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: expect.any(String), count: UNREAD_COUNT_CAP, mentioned: true }]);
+    const over = await post(ada, `<p>${mention(hopper)} over here</p>`);
+    // Each mention is in Hopper's Activity too.
+    const inActivity = (id: string) => ({ type: "activity.added", items: [expect.objectContaining({ kind: "mention", messageId: id })] });
+    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: expect.any(String), count: UNREAD_COUNT_CAP, mentioned: true }, inActivity(over.id)]);
     expect(await mentionedOf()).toBe(true);
     // Once a room mentions him, another mention says nothing more.
-    await post(ada, `<p>${mention(hopper)} again</p>`);
-    expect(await heard(tab, room)).toEqual([]);
+    const again = await post(ada, `<p>${mention(hopper)} again</p>`);
+    expect(await heard(tab, room)).toEqual([inActivity(again.id)]);
 
     const reading = await connect(room, hopper, { visible: true });
     await settle(reading);
-    expect(await heard(tab, room)).toEqual([read(room)]);
+    // Reading the room reads its mentions in Activity too.
+    expect(await heard(tab, room)).toEqual([read(room), { type: "activity.marked", ids: expect.any(Array), read: true }]);
     expect(await mentionedOf()).toBeUndefined();
   });
 
