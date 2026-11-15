@@ -1521,10 +1521,10 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Posts what a bot answers a command with: what it says back, text or a file, is its reply, as
    * `postReply` posts one to a delivery — in the thread `threadId` names, when it's one an event came
-   * by — and a payload of blocks is a new message of its with the cards the blocks make, as a click's
-   * payload takes the clicked card's place. A payload that shows nothing does nothing, as an answer
-   * without one does, and as blank text does, which is a webhook's bare 200. Answers why the room keeps
-   * nothing of it, if it doesn't.
+   * by — and a payload of blocks is a new message of its with the cards the blocks make, in that thread
+   * too, as a click's payload takes the clicked card's place. A payload that shows nothing does nothing,
+   * as an answer without one does, and as blank text does, which is a webhook's bare 200. Answers why
+   * the room keeps nothing of it, if it doesn't.
    */
   private async postCommandAnswer(roomId: RoomId, webhook: WebhookAccess, answer: ClickAnswer<KeptFile>, threadId?: string): Promise<string | null> {
     // Blank text is a webhook's bare 200, which says nothing, as an answer without a payload doesn't.
@@ -1542,10 +1542,15 @@ export class ChatRoom extends DurableObject<Env> {
     return this.serially(async () => {
       if (await this.isDeleted()) return "the room is gone";
       if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return WEBHOOK_CHANGED;
+      const store = this.storeFor(roomId);
+      // What there still is of the thread the event came by, that the cards are posted in it as the
+      // answer's text and files are: gone with the thread's message, as any reply to it would be.
+      const inThread = threadId === undefined ? undefined : await this.inThread(store, threadId, false);
+      if (inThread === null) return THREAD_GONE;
       const body = await this.prepareWithCards(posted.markup, posted.cards);
       if (typeof body === "string") return body;
       // A command's answer is the bot's own, as any reply is: no delivery is sent for it.
-      await this.create(this.storeFor(roomId), access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply" });
+      await this.create(store, access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply", inThread });
       return null;
     });
   }
