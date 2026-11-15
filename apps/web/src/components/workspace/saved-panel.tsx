@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { Me, Room, SavedItem } from "@ember/protocol";
 import { Bookmark, NavArrowRight, Trash, Xmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
@@ -17,6 +18,12 @@ import { RoomMark, useSearchNames } from "./search-box";
  */
 export function SavedPanel({ me, rooms, saves, onClose, onForget }: { me: Me; rooms: readonly Room[]; saves: SavedItem[] | null; onClose: () => void; onForget: (id: string) => void }) {
   const names = useSearchNames(me, rooms);
+  // Opening the pane takes focus, as one that covers the room must, to its Close, which the drawer's
+  // own closing leaves alone, since focus has gone somewhere by then.
+  const close = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    close.current?.focus();
+  }, []);
   return (
     <aside
       data-saved
@@ -30,6 +37,7 @@ export function SavedPanel({ me, rooms, saves, onClose, onForget }: { me: Me; ro
       <header className="flex min-h-header items-center gap-2.5 border-b py-2.5 pr-3.5 pl-5 max-md:min-h-[calc(56px+env(safe-area-inset-top))] max-md:gap-1.5 max-md:px-2 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0">
         <h2 className="shrink-0 text-[17px] leading-[1.4] font-[650] max-md:text-base max-md:leading-5">Saved</h2>
         <button
+          ref={close}
           type="button"
           aria-label="Close saved messages"
           onClick={onClose}

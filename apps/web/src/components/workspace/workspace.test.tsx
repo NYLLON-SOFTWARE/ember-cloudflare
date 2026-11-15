@@ -976,7 +976,6 @@ describe("Rail", () => {
   });
 });
 
-<<<<<<< HEAD
 describe("Do not disturb", () => {
   const HUSHED = new Date(Date.now() + 60 * 60_000).toISOString();
   const profileLink = () => screen.getByRole("link", { name: "Your profile" });
@@ -1098,11 +1097,40 @@ describe("Do not disturb", () => {
     await act(async () => answer(Response.json({ dndUntil: HUSHED })));
     expect(profileLink()).toHaveAttribute("title", "Ada");
     expect(hush).not.toBeDisabled();
-=======
+  });
+});
+
 describe("Saved pane", () => {
+  const grace = { id: "u2", name: "Grace" };
+  const said: Message = { id: "m1", clientMessageId: "m1", roomId: "general", creator: grace, body: "For later", plainText: "For later", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
+  /** A room's socket, which keeps what it's sent, and which the test lets in. */
+  class RoomSocket {
+    static readonly OPEN = 1;
+    static last: RoomSocket | null = null;
+    readyState = 0;
+    sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(readonly url: string) {
+      if (url.includes("/api/rooms/")) RoomSocket.last = this;
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {}
+    letIn(page: Partial<TimelinePage> = {}) {
+      act(() => {
+        this.readyState = RoomSocket.OPEN;
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, ...page }) });
+      });
+    }
+  }
+  /** Where the pane covers the room instead of sitting beside it. */
+  const coversRoom = () =>
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));
+
   it("opens beside the room, and closes when a Jump is followed, which covers the message below 1180px wide", async () => {
-    const grace = { id: "u2", name: "Grace" };
-    const said: Message = { id: "m1", clientMessageId: "m1", roomId: "general", creator: grace, body: "For later", plainText: "For later", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
     serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
@@ -1111,8 +1139,44 @@ describe("Saved pane", () => {
     await user.click(within(pane).getByRole("link", { name: "Jump" }));
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
     expect(location.pathname).toBe("/rooms/general/@m1");
->>>>>>> b1bbf5f9 (Close the Saved pane at the message Jump goes to)
   });
+
+  it("takes focus when it opens, and leaves nothing of the room to reach behind it where it covers it", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/rooms/general");
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).not.toHaveAttribute("inert");
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(within(pane).getByRole("button", { name: "Close saved messages" })).toHaveFocus();
+    const composer = screen.getByRole("textbox", { name: "Write a message" });
+    expect(composer.closest("[inert]")).not.toBeNull();
+    // Closing it gives the room back.
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
+    expect(composer.closest("[inert]")).toBeNull();
+  });
+
+  it("opens the room it goes on to without reading it while the pane covers it, and reads it once it closes", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/account/edit");
+    expect(await communitySettings()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(location.pathname).toBe("/rooms/general");
+    const room = RoomSocket.last!;
+    // The pane covers the room, which opens as a hidden tab's would: reading nothing, counting as away.
+    expect(room.url).toContain("visible=0");
+    room.letIn();
+    expect(room.sent).toEqual([]);
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "presence.visible", visible: true }));
+    expect(room.sent).not.toContainEqual({ type: "presence.visible", visible: false });
+  });
+
 });
 
 describe("New releases", () => {
