@@ -3808,7 +3808,6 @@ export class WorkspaceStore {
     await this.db.run(FORGET_SAVES, JSON.stringify(ids));
   }
 
->>>>>>> fd80d528 (Keep the messages you've saved for later)
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
     return (await this.db.all(MEMBERSHIP, roomId, userId)).length > 0;
   }

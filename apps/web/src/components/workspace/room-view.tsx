@@ -62,8 +62,6 @@ export interface RoomViewHandle {
 }
 
 export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, savedCovered = false, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
-  // Saved open where it covers the room keeps it from counting as seen, so what's said there goes
-  // unread until the pane closes, as much as it would in a hidden tab.
   const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId, !savedCovered);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
