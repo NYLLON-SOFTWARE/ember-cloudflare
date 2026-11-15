@@ -3167,12 +3167,13 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Tells every tab of theirs each reminder that has come due and hasn't been told, reading what the
-   * message kept when they asked, and pushes it to their browsers, saying each it tells has been, so the
-   * next run doesn't tell it again. Each is read again before it's told, since a push can wait long
-   * enough that the person dismisses the next reminder meanwhile, and a run sends no more pushes than
-   * what the rest of the run's deliveries have left of its budget (`pushes`), leaving those it doesn't
-   * tell for the next run. What a run that stops in between has said may be said again once, as a
-   * revocation's may. Answers how many it told.
+   * message kept when they asked, and pushes it to their browsers, marking it told only once its pushes
+   * have gone out: a run sends no more pushes than what the rest of the run's deliveries have left of
+   * its budget (`pushes`), leaving a reminder whose pushes don't fit for the next run to tell them all,
+   * and one a push failed for untold, so the next run tells it again whole. Each is read again before
+   * it's told, since a push can wait long enough that the person dismisses the next reminder meanwhile.
+   * What a run that stops in between has said may be said again once, as a revocation's may. Answers how
+   * many it told.
    */
   private async deliverReminders(limit: number, pushes: number): Promise<number> {
     const due = await this.store.dueReminders(Date.now(), limit);
@@ -3184,12 +3185,13 @@ export class Workspace extends DurableObject<Env> {
       const deliveries = await this.store.pushDeliveriesFor(userId, guestSignIn(this.env));
       if (sent + deliveries.length > pushes) break;
       this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
-      if (deliveries.length > 0) {
-        const gone = await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id));
-        if (gone.length > 0) await this.store.forgetPushSubscriptions(gone);
-      }
-      await this.store.markReminderTold(id, Date.now());
+      const { gone, failed } =
+        deliveries.length > 0 ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id)) : { gone: [], failed: 0 };
+      if (gone.length > 0) await this.store.forgetPushSubscriptions(gone);
       sent += deliveries.length;
+      // A push that failed otherwise may still reach its browser, so the reminder waits to be told whole again.
+      if (failed > 0) continue;
+      await this.store.markReminderTold(id, Date.now());
       told++;
     }
     return told;
@@ -5022,15 +5024,20 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` requests in all, revocations first,
    * then purges, then reindexes, then picture deletions, then the reminders due with what's left, then
-   * checks the memberships due, and sets the alarm for whatever is due next.
+   * checks the memberships due, and sets the alarm for whatever is due next, whether the deliveries
+   * before it went out or not: one that fails leaves what it owes due, for the next run.
    */
   override async alarm(): Promise<void> {
-    const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
-    const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
-    const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
-    const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
-    await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
-    await this.checkMemberships();
+    try {
+      const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
+      const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
+      const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
+      const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
+      await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
+      await this.checkMemberships();
+    } catch (error) {
+      console.error("Could not deliver everything due; trying again later", error);
+    }
     await this.scheduleDelivery();
   }
 

@@ -24,16 +24,18 @@ const encoder = new TextEncoder();
 
 /**
  * Sends `pushes`, as long as Web Push is on, and answers the subscriptions to forget: those whose push
- * service said they're gone (404 or 410), and those whose keys no push can be encrypted for. Any other
- * failure is logged. An endpoint that's no longer at a permitted push service is skipped, and so is a
- * subscription `pushable` says may no longer have pushes, or can't say about, asked just before each is
- * sent: a push can wait its turn while its person is banned. `send` stands in for `fetch` in tests.
+ * service said they're gone (404 or 410), and those whose keys no push can be encrypted for, and how
+ * many pushes failed otherwise, which it logs. An endpoint that's no longer at a permitted push service
+ * is skipped, and so is a subscription `pushable` says may no longer have pushes, or can't say about,
+ * asked just before each is sent: a push can wait its turn while its person is banned. `send` stands in
+ * for `fetch` in tests.
  */
-export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Pushable, send: typeof fetch = fetch): Promise<number[]> {
+export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Pushable, send: typeof fetch = fetch): Promise<{ gone: number[]; failed: number }> {
   const push = await webPush(env);
-  if (!push.on) return [];
+  if (!push.on) return { gone: [], failed: 0 };
   const deliveries = pushes.flatMap(({ payload, deliveries }) => deliveries.map((delivery) => ({ message: encodedPush(payload, delivery.badge), delivery })));
   const gone: number[] = [];
+  let failed = 0;
   await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery }) => {
     if (!(await mayPush(pushable, delivery.subscriptionId))) return;
     try {
@@ -41,10 +43,13 @@ export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Push
     } catch (error) {
       if (!(error instanceof PushFailure)) throw error;
       if (error.gone) gone.push(delivery.subscriptionId);
-      else console.error(`Error in WebPush::Pool.deliver: ${error.message}`);
+      else {
+        console.error(`Error in WebPush::Pool.deliver: ${error.message}`);
+        failed++;
+      }
     }
   });
-  return gone;
+  return { gone, failed };
 }
 
 /**

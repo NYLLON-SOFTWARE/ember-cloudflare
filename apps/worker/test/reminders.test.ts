@@ -39,12 +39,13 @@ async function subscribe(session: Session, label: string, browser?: PushBrowser)
   return endpoint;
 }
 
-/** Stands in for every push service, answering each push with 201, and keeps what was pushed where. */
-function pushServices() {
+/** Stands in for every push service, answering each push with `status`, and keeps what was pushed where. */
+function pushServices(status: (endpoint: string) => number = () => 201) {
   const pushed: Array<{ endpoint: string; body: Uint8Array }> = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    pushed.push({ endpoint: input instanceof Request ? input.url : String(input), body: init!.body as Uint8Array });
-    return new Response(null, { status: 201 });
+    const endpoint = input instanceof Request ? input.url : String(input);
+    pushed.push({ endpoint, body: init!.body as Uint8Array });
+    return new Response(null, { status: status(endpoint) });
   });
   return pushed;
 }
@@ -335,5 +336,64 @@ describe("Reminders", () => {
     go();
     await vi.waitFor(() => expect(pushed).toHaveLength(50));
     expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 0 }]);
+  });
+
+  it("leaves a reminder whose push failed untold, and tells it again the run after", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let status = 503;
+    const pushed = pushServices(() => status);
+    const room = await freshRoom("failing");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const message = await post(ada, "<p>Tell me though the push fails</p>");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(pushed).toHaveLength(1);
+    // The push didn't reach the browser, so the reminder isn't marked told: it stays due, and a later run tells it again.
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 0 }]);
+    status = 201;
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]));
+    expect(pushed.length).toBeGreaterThan(1);
+  });
+
+  it("sets the alarm for what's due next even when a delivery fails", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("scheduling");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const message = await post(ada, "<p>Wake for me whatever happens</p>");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    let restore!: () => void;
+    try {
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const telling = store.markReminderTold.bind(store);
+        restore = () => {
+          store.markReminderTold = telling;
+        };
+        store.markReminderTold = () => Promise.reject(new Error("The database's answer was lost"));
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // The delivery failed part way, and the alarm for the reminder it left was set all the same.
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+      expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 0 }]);
+    } finally {
+      restore?.();
+    }
+
+    // What the failed run left, a later run tells.
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]));
+    expect(pushed.length).toBeGreaterThan(0);
   });
 });
