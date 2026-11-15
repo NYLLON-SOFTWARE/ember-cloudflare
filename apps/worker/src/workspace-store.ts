@@ -2428,11 +2428,13 @@ const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'op
 
 /**
  * Puts the people a JSON list names in a room, whatever their status, and answers whom it put in — but
- * none whom the stay of a guest of one room holds, whose rooms it bounds, whoever picks them.
+ * none whom the stay of a guest of another room holds, whose rooms it bounds, whoever picks them. A
+ * guest of the room itself goes back in: their stay outlives their membership, which its settings
+ * taking them out and having them again turns on saving them as its people once more.
  */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?))
-    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
+  SELECT ?1, id, ?2, ?3 FROM users WHERE id IN (SELECT value FROM json_each(?4))
+    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.room_id <> ?1)
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /** Takes everyone but the people a JSON list names and anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
@@ -3167,25 +3169,21 @@ export class WorkspaceStore {
   }
 
   /**
-   * The guests of one room whose stay holds at `now`, whoever else is active, whose rooms `userId` isn't
-   * in, as announcing someone tells everyone but them: what happens outside their room is none of a
-   * guest's to hear, names of people included.
+   * The guests of one room a listing of `userId` may not reach, as announcing them holds it from them:
+   * whose stay has passed already, whose tab the outbox closes though they may be reading still, and
+   * whose live stay holds them to a room that doesn't have `userId` in it, since what happens outside
+   * a guest's room is none of theirs to hear, names of people included.
    */
   async stayGuestsBeyond(userId: UserId, now: number): Promise<UserId[]> {
     const rows = await this.db.all<{ user_id: UserId }>(
       `SELECT guest_stays.user_id FROM guest_stays JOIN users ON users.id = guest_stays.user_id
-       WHERE users.status = ${ACTIVE} AND guest_stays.until_at > ? AND guest_stays.user_id <> ?
-         AND NOT EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = guest_stays.room_id AND memberships.user_id = ?)`,
+       WHERE users.status = ${ACTIVE} AND guest_stays.user_id <> ?
+         AND (guest_stays.until_at <= ?
+           OR NOT EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = guest_stays.room_id AND memberships.user_id = ?))`,
+      userId,
       now,
       userId,
-      userId,
     );
-    return rows.map((row) => row.user_id);
-  }
-
-  /** The ids of everyone in room `roomId`, as telling a room's people of their own hears them. */
-  async roomMemberIds(roomId: RoomId): Promise<UserId[]> {
-    const rows = await this.db.all<{ user_id: UserId }>(ROOM_MEMBERS, roomId);
     return rows.map((row) => row.user_id);
   }
 
