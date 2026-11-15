@@ -653,7 +653,9 @@ export class ChatRoom extends DurableObject<Env> {
       const ids = await store.messageIdsBy(userId, limit + 1, liftedAt);
       const removed = ids.slice(0, limit);
       if (removed.length === 0) return false;
-      this.broadcastDeletion(await store.delete(removed));
+      const deletion = await store.delete(removed);
+      this.broadcastDeletion(deletion);
+      this.tellActivityOfDeletion(store, [...removed, ...deletion.deletedIds]);
       const couriers = this.couriersFor(roomId);
       couriers.index.deliver();
       couriers.files.deliver();
@@ -1624,13 +1626,20 @@ export class ChatRoom extends DurableObject<Env> {
     this.ctx.waitUntil(told());
   }
 
+  /**
+   * Takes what people's Activity says of the messages with `messageIds` out of it, those that keep their
+   * place for their threads' replies included.
+   */
+  private tellActivityOfDeletion(store: MessageStore, messageIds: string[]): void {
+    for (const messageId of new Set(messageIds)) {
+      this.tellActivity(`deletion of ${messageId}`, () => workspace(this.env).messageDeleted(store.roomId, messageId));
+    }
+  }
+
   private async deleteMessage(store: MessageStore, message: Message): Promise<void> {
     const deletion = await store.delete([message.id]);
     this.broadcastDeletion(deletion);
-    // What people's Activity says of it goes with it, even when it keeps its place for its thread.
-    for (const messageId of new Set([message.id, ...deletion.deletedIds])) {
-      this.tellActivity(`deletion of ${messageId}`, () => workspace(this.env).messageDeleted(store.roomId, messageId));
-    }
+    this.tellActivityOfDeletion(store, [message.id, ...deletion.deletedIds]);
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
     couriers.forwards.deliver();
