@@ -702,6 +702,14 @@ const TOUCH_API_TOKEN = `UPDATE api_tokens SET last_used_at = ?1 WHERE id = ?2 A
 /** Revokes one of someone's tokens, unless it's gone already, answering its id. */
 const REVOKE_API_TOKEN = `UPDATE api_tokens SET revoked_at = ?1 WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL RETURNING id`;
 
+/** Keeps one of someone's API tokens only while the session ?6 names is still one to sign in with, as SESSION reads it: it's theirs, its person is active, it's no guest's while ?8 says guests are away, and it isn't idle past ?7. One statement, so a password reset ending the session as the token is kept keeps no token. */
+const CREATE_API_TOKEN = `INSERT INTO api_tokens (id, user_id, name, token_digest, created_at)
+  SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (
+    SELECT 1 FROM sessions JOIN users ON users.id = sessions.user_id
+    WHERE sessions.token_digest = ?6 AND sessions.user_id = ?2 AND users.status = ${ACTIVE}
+      AND (users.guest = 0 OR ?8 = 1) AND sessions.last_active_at > ?7
+  ) RETURNING id`;
+
 /** What `email_links.kind` holds for an invitation, and for a link someone asked for with an address at the email domains. */
 const INVITATION = "'invitation'";
 const EMAIL_DOMAIN = "'email_domain'";
@@ -3194,9 +3202,16 @@ export class WorkspaceStore {
     return queued!.length > 0;
   }
 
-  /** Keeps one of someone's API tokens, whose digest nothing reads back. */
-  async createApiToken(userId: UserId, id: string, name: string, tokenDigest: string, now: number): Promise<void> {
-    await this.db.run(`INSERT INTO api_tokens (id, user_id, name, token_digest, created_at) VALUES (?, ?, ?, ?, ?)`, id, userId, name, tokenDigest, now);
+  /**
+   * Keeps one of someone's API tokens, whose digest nothing reads back, only while the session that
+   * asked, whose digest is `sessionDigest`, is still one to sign in with: theirs, its person active,
+   * no guest's while `guests` says guests are away, and last active after `staleBefore`, the oldest
+   * `last_active_at` sign-in would keep. One read of the session and the write together, so a password
+   * reset that ends the session as this runs keeps no token behind it. Answers whether it kept one.
+   */
+  async createApiToken(userId: UserId, id: string, name: string, tokenDigest: string, now: number, sessionDigest: string, guests: boolean, staleBefore: string): Promise<boolean> {
+    const rows = await this.db.all<{ id: string }>(CREATE_API_TOKEN, id, userId, name, tokenDigest, now, sessionDigest, staleBefore, guests ? 1 : 0);
+    return rows.length > 0;
   }
 
   /** Someone's API tokens, newest first. */

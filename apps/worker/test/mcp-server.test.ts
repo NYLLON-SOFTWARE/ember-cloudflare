@@ -149,13 +149,16 @@ describe("The MCP server", () => {
 
   it("refuses a request with no token, an unknown one, and a malformed body, and answers GET with 405 and a notification with nothing", async () => {
     await signIn("Ada");
-    expect((await mcp(null, { jsonrpc: "2.0", id: 1, method: "initialize" })).status).toBe(401);
+    // Without a token it isn't the tokens' server that answers: while AI apps may not connect, /mcp
+    // answers nothing, as the outside server's absence does.
+    expect((await mcp(null, { jsonrpc: "2.0", id: 1, method: "initialize" })).status).toBe(404);
+    expect((await mcpRaw(null, "not JSON")).status).toBe(404);
     expect((await mcp("pat_nobody", { jsonrpc: "2.0", id: 1, method: "initialize" })).status).toBe(401);
-    // Who's asking comes first, so a body nobody could read answers 401 without a token, and 400 with one.
-    expect((await mcpRaw(null, "not JSON")).status).toBe(401);
+    // Who's asking comes first, so a body nobody could read answers 401 with an unknown token, and 400 with one.
+    expect((await mcpRaw("pat_nobody", "not JSON")).status).toBe(401);
     const { token } = await tokenOf(await signIn("Grace"));
     expect((await mcpRaw(token, "not JSON")).status).toBe(400);
-    expect((await api("/mcp", { method: "GET" })).status).toBe(405);
+    expect((await api("/mcp", { method: "GET", headers: { Authorization: `Bearer ${token}` } })).status).toBe(405);
     const notification = await mcp(token, { jsonrpc: "2.0", method: "notifications/initialized" });
     expect(notification.status).toBe(202);
     expect(await notification.text()).toBe("");

@@ -143,6 +143,7 @@ import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROO
 import { guestSignIn, type Env } from "./env";
 import { failed, notFound } from "./error-pages";
 import { isMcpPath, MCP_PATH, mcpAction, mcpException } from "./mcp-server";
+import { bearerTokenOf } from "./secrets";
 import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
@@ -1331,6 +1332,12 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Nor is an app's authorization server, reading who Ember is.
   if (pathname === CLIENT_DOCUMENT_PATH && !write) return clientDocument(request);
   // Nor are a room's files, to whoever has the address, whatever their browser.
+  // /mcp speaks MCP twice over: while the workspace hasn't let AI apps connect, it's the personal
+  // access tokens' server (src/mcp-server.ts), which POST alone answers; while it has, it's theirs, as
+  // the apps speak it.
+  // A personal access token (pat_) speaks MCP as its person at /mcp; AI apps' own tokens answer there
+  // as the outside server says, which without one turned on answers nothing.
+  if (isMcpPath(pathname) && bearerTokenOf(request).startsWith("pat_")) return mcpAction(request, env);
   // Nor are the AI apps that connect to Ember, whose requests carry a token of their own, or nothing.
   const outside = outsideAction(request, env, pathname);
   if (outside) return write && isOutsideRegistration(pathname) && (await isFromBannedAddress(request, env)) ? tooManyRequests() : outside();
@@ -1345,7 +1352,6 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (isFromUnsupportedBrowser(request)) return unsupportedBrowserPage(request, env);
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
-  if (isMcpPath(pathname)) return mcpAction(request, env);
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
   if (pathname === MEMBERFUL_SIGN_IN_PATH) return startMemberfulSignIn(request, env);
   // Signing in, which a banned IP address can't do, though it's a GET.

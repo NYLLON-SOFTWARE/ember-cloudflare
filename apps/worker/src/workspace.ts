@@ -2858,15 +2858,25 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Makes one of the person `credentials` signs in's API tokens, whose secret is only ever given once,
-   * answering it as it's listed, or null without a valid session.
+   * answering it as it's listed, or null without a valid session, or once it ends while the token is
+   * being made, as a password reset ends it (store.createApiToken keeps the two together).
    */
   async createApiToken(credentials: Credentials, name: string, tokenDigest: string): Promise<StoredToken | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const now = Date.now();
     const token = { id: sortableId(), name, createdAt: now, lastUsedAt: null, revokedAt: null };
-    await this.store.createApiToken(user.id, token.id, name, tokenDigest, now);
-    return token;
+    const kept = await this.store.createApiToken(
+      user.id,
+      token.id,
+      name,
+      tokenDigest,
+      now,
+      credentials.tokenDigest,
+      credentials.guests,
+      new Date(now - SESSION_IDLE_MS).toISOString(),
+    );
+    return kept ? token : null;
   }
 
   /** The API tokens of the person `credentials` signs in, newest first, or null without a valid session. */

@@ -603,7 +603,6 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-<<<<<<< HEAD
    * Posts `markup` as a message from the person an AI app is connected as (`outside/tools`), whom the
    * Workspace found in the room: as their socket's message.create does, in the thread of the message
    * `threadId` names, only there, if it names one, but as a reply is posted, which goes to no bot. So
@@ -627,12 +626,12 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * A page of the room's messages for the bot API: the page `cursor` names, with how many messages the
    * room has, or null when the cursor isn't one of them.
-=======
+
+  /**
    * Posts `markup` as a message from the person whose API token the Workspace let in (`apiTokenRoomAccess`):
    * as their own message.create would store it, with a client message id of its own, and in the thread
    * `threadId` names, if it names one. Answers the message, why the room keeps nothing of it, or null
    * once the room has heard that they lost the room, or it was deleted, after the Workspace checked.
->>>>>>> ad0b719f (Answer MCP at /mcp, where one of those tokens acts as its person in their rooms)
    */
   async createUserMessage(roomId: RoomId, user: User, authorizedAt: number, markup: string, threadId?: string): Promise<Message | string | null> {
     return this.serially(async () => {
