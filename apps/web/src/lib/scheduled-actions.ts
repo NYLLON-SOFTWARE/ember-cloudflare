@@ -92,8 +92,8 @@ function isMade(change: ScheduledChange, scheduled: ScheduledMessage[]): boolean
 }
 
 /**
- * A deleted message Undo is scheduling again, kept in this browser until its room has it, so that Undo
- * isn't lost to a reload or a closed tab while the room is still being reached.
+ * A message being scheduled, from the composer or by Undo, kept in this browser until its room has it, so
+ * that it isn't lost to a dropped socket, a reload or a closed tab while the room is still being reached.
  */
 export interface Restoring {
   roomId: RoomId;
@@ -103,8 +103,13 @@ export interface Restoring {
 
 const restoringKey = (userId: UserId) => `ember:scheduled-restoring:${userId}`;
 
-/** What `userId`'s Undos are scheduling again, which storage that can't be read keeps none of. */
+// What's kept where storage can't be written, as in some private windows: for as long as this tab is open.
+const unstored = new Map<UserId, Restoring[]>();
+
+/** What `userId` is scheduling and its room doesn't have yet. */
 export function restoringOf(userId: UserId): Restoring[] {
+  const inTab = unstored.get(userId);
+  if (inTab) return inTab;
   try {
     const kept: unknown = JSON.parse(localStorage.getItem(restoringKey(userId)) ?? "[]");
     return Array.isArray(kept) ? (kept as Restoring[]) : [];
@@ -117,10 +122,41 @@ function keepRestoring(userId: UserId, restoring: Restoring[]) {
   try {
     if (restoring.length === 0) localStorage.removeItem(restoringKey(userId));
     else localStorage.setItem(restoringKey(userId), JSON.stringify(restoring));
+    unstored.delete(userId);
   } catch {
-    // Storage that can't be reached keeps nothing: the Undo waits only on the socket.
+    unstored.set(userId, restoring);
   }
 }
+
+/** Keeps `restoring` until its room has it or refuses it, in place of any kept with its id. */
+export function keepScheduling(userId: UserId, restoring: Restoring) {
+  keepRestoring(userId, [...restoringOf(userId).filter(({ clientMessageId }) => clientMessageId !== restoring.clientMessageId), restoring]);
+}
+
+/**
+ * Takes the one kept with `clientMessageId` out of what's kept, answering it, or undefined when it's gone
+ * already, as when another tab, or another answer to the same frame, took it first: so one the room refuses
+ * goes back to its draft once.
+ */
+export function takeScheduling(userId: UserId, clientMessageId: string): Restoring | undefined {
+  const kept = restoringOf(userId);
+  const taken = kept.find((restoring) => restoring.clientMessageId === clientMessageId);
+  if (taken) keepRestoring(userId, kept.filter((restoring) => restoring !== taken));
+  return taken;
+}
+
+/**
+ * Forgets what's kept for room `roomId` that `scheduled`, what the room says you have scheduled there,
+ * shows it has, and any `posted` says the room has posted since.
+ */
+export function forgetScheduled(userId: UserId, roomId: RoomId, scheduled: ScheduledMessage[], posted: (restoring: Restoring) => boolean = () => false) {
+  const kept = restoringOf(userId);
+  const left = kept.filter((restoring) => restoring.roomId !== roomId || !(isMade({ type: "restore", ...restoring }, scheduled) || posted(restoring)));
+  if (left.length < kept.length) keepRestoring(userId, left);
+}
+
+/** The frame that schedules `restoring`, with the id the room keeps it once by, however often it's sent. */
+export const scheduleFrameOf = ({ message, clientMessageId }: Restoring): ClientFrame => frameOf({ type: "restore", message, clientMessageId });
 
 /** Where it went, once it's done: scheduled again, or, refused, as when its time has passed, into its composer's draft. */
 export type Restored = "restored" | "drafted";
@@ -128,16 +164,16 @@ export type Restored = "restored" | "drafted";
 /**
  * Schedules `restoring` again for `userId`, as Undo does, keeping it in this browser until its room has it
  * or has refused it, so it can be sent again (`restoringOf`), as the room keeps it once by its id. One the
- * room refuses goes back to where it was written, as a draft, after any written there since. Answers where
- * it went, or null when the room couldn't be reached, and it's kept to send again.
+ * room refuses goes back to where it was written, as a draft, after any written there since, and only
+ * once, however many times it was sent. Answers where it went, or null when the room couldn't be reached,
+ * and it's kept to send again.
  */
 export async function restoreScheduled(userId: UserId, restoring: Restoring): Promise<Restored | null> {
-  const others = () => restoringOf(userId).filter(({ clientMessageId }) => clientMessageId !== restoring.clientMessageId);
-  keepRestoring(userId, [...others(), restoring]);
+  keepScheduling(userId, restoring);
   const answer = await changeScheduled(restoring.roomId, { type: "restore", message: restoring.message, clientMessageId: restoring.clientMessageId });
   if (answer === null) return null;
-  if (answer === REFUSED) draftAgain(userId, restoring);
-  keepRestoring(userId, others());
+  const taken = takeScheduling(userId, restoring.clientMessageId);
+  if (answer === REFUSED && taken) draftAgain(userId, taken);
   return answer === REFUSED ? "drafted" : "restored";
 }
 

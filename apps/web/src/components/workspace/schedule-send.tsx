@@ -3,7 +3,7 @@ import type { ScheduledMessage } from "@ember/protocol";
 import { Clock, NavArrowDown } from "@/components/icons/iconoir";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
-import type { Scheduled } from "@/hooks/use-scheduled";
+import type { NewScheduled, Scheduled } from "@/hooks/use-scheduled";
 import { schedulePresets, sendTimeInSentence, shortSendTime, tomorrowMorning } from "@/lib/schedule-times";
 import { SCHEDULE_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
@@ -129,6 +129,8 @@ interface NoticeProps {
   messages: ListedScheduled[];
   scheduled: Scheduled;
   disabled: boolean;
+  /** Schedules a deleted one again, for Undo, which the composer keeps until the room has it. */
+  onUndo: (message: NewScheduled) => void;
   /** Where focus goes once the list closes: the composer's text. */
   onReturnFocus?: () => void;
   /** Writes what one that couldn't be sent says in the composer, to change and send. */
@@ -164,7 +166,7 @@ function noticeLine(messages: ListedScheduled[], now: Date, phone: boolean) {
  * says why, to send again, write in the composer again or delete. On a phone, the list is a sheet, and
  * tapping a message offers what can be done with it.
  */
-export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, onEdit }: NoticeProps) {
+export function ScheduledNotice({ messages, scheduled, disabled, onUndo, onReturnFocus, onEdit }: NoticeProps) {
   const [open, setOpen] = useState(false);
   const [moving, setMoving] = useState<ScheduledMessage | null>(null);
   const [deleted, setDeleted] = useState<ListedScheduled | null>(null);
@@ -193,7 +195,7 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
   };
   const undo = (message: ListedScheduled) => {
     setDeleted(null);
-    scheduled.schedule({ body: message.body, sendAt: message.sendAt, parentId: message.parentId, alsoSend: message.alsoSend });
+    onUndo({ body: message.body, sendAt: message.sendAt, parentId: message.parentId, alsoSend: message.alsoSend });
   };
   const edit = (message: ListedScheduled) => {
     if (!scheduled.remove(message.id)) return;

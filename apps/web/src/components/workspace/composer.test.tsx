@@ -940,6 +940,31 @@ function filesInEmber(file: StoredFile, widening: ShareWidening | null, { roomId
   return fetch;
 }
 
+/**
+ * The Worker as Files in Ember asks it with a file shared in each of `shared`'s rooms: the share check
+ * answers `widening`, which the test can change.
+ */
+function filesInTwoRooms(shared: { roomId: string; name: string; file: StoredFile }[]) {
+  const answers = { widening: { widens: true, newViewers: 2, names: ["Grace", "Linus"] } as ShareWidening };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path === "/api/share-check") return Response.json(answers.widening);
+      return Response.json({
+        search: { q: "", hasFile: true },
+        matches: shared.map(({ roomId, file }, index) => ({
+          message: { id: `m${index}`, roomId, creator: { id: "u2", name: "Grace" }, attachment: file, createdAt: "2026-11-01T10:00:00Z" },
+          words: [],
+        })),
+        next: null,
+        rooms: shared.map(({ roomId, name }) => ({ id: roomId, kind: "closed", name, icon: null })),
+        recent: [],
+      });
+    }),
+  );
+  return answers;
+}
+
 /** A room's socket as the composer hears it: what it sends, and frames for it to hear. */
 function roomFrames() {
   const listeners = new Set<(frame: ServerFrame) => void>();
@@ -952,11 +977,11 @@ function roomFrames() {
 async function showScheduling({ roomId, threadId }: { roomId: string; threadId?: string }) {
   const { frames, send, hear } = roomFrames();
   const onSend = vi.fn(() => true);
-  render(
+  const { unmount } = render(
     <Composer roomId={roomId} roomName="general" userId="u1" typing={[]} disabled={false} threadId={threadId} frames={frames} onSend={onSend} onSendFiles={() => {}} onTyping={() => {}} />,
   );
   const input = await screen.findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { send, hear, onSend, input, user: userEvent.setup() };
+  return { send, hear, onSend, input, unmount, user: userEvent.setup() };
 }
 
 const scheduleMenu = () => screen.getByRole("button", { name: "Schedule for later" });
@@ -1097,6 +1122,68 @@ describe("Attach", () => {
     expect(onSendFiles).not.toHaveBeenCalled();
   });
 
+  it("asks of every file that would reach more people on Send, one warning after another", async () => {
+    const notes = { id: "f2", name: "notes.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f2/notes.pdf", downloadUrl: "/d" };
+    const plan = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+    const twoRooms = filesInTwoRooms([
+      { roomId: "r8", name: "ops", file: notes },
+      { roomId: "r9", name: "design", file: plan },
+    ]);
+    const { user, onSendFiles } = await showComposer();
+    for (const name of [/notes\.pdf/, /plan\.pdf/]) {
+      await user.click(screen.getByRole("button", { name: "Attach" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+      await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name }));
+      await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Attach" }));
+    }
+    expect(chips()).toEqual(["Remove notes.pdf", "Remove plan.pdf"]);
+
+    // Both rooms' files would now reach more people than when they were attached.
+    twoRooms.widening = { widens: true, newViewers: 5, names: ["Grace", "Linus", "Mary"] };
+    await user.click(sendButton());
+    await user.click(within(await screen.findByRole("alertdialog", { name: /ops$/ })).getByRole("button", { name: "Send" }));
+    expect(onSendFiles).not.toHaveBeenCalled();
+    await user.click(within(await screen.findByRole("alertdialog", { name: /design$/ })).getByRole("button", { name: "Send" }));
+    await vi.waitFor(() => expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ file: notes }), expect.objectContaining({ file: plan })], false));
+  });
+
+  it("sends the files once on a second Send while who'd see them is checked, and leaves files changed meanwhile to the next Send", async () => {
+    const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+    const fetch = filesInEmber(file, { widens: false, newViewers: 0, names: [] });
+    const { input, user, onSend, onSendFiles } = await showComposer();
+    const pickPlan = async () => {
+      await user.click(screen.getByRole("button", { name: "Attach" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+      await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
+      await screen.findByRole("button", { name: "Remove plan.pdf" });
+    };
+    // The check answers when the test says.
+    const answered = fetch.getMockImplementation()!;
+    const holdCheck = () => {
+      let answer!: () => void;
+      const held = new Promise<void>((resolve) => (answer = resolve));
+      fetch.mockImplementation(async (path, init) => (path === "/api/share-check" ? held.then(() => answered(path, init)) : answered(path, init)));
+      return () => act(async () => answer());
+    };
+
+    await pickPlan();
+    let answer = holdCheck();
+    await user.type(input, "The plan");
+    await user.click(sendButton());
+    await user.click(sendButton());
+    await answer();
+    await vi.waitFor(() => expect(onSendFiles).toHaveBeenCalledOnce());
+    expect(onSend).toHaveBeenCalledOnce();
+
+    fetch.mockImplementation(answered);
+    await pickPlan();
+    answer = holdCheck();
+    await user.click(sendButton());
+    await user.click(screen.getByRole("button", { name: "Remove plan.pdf" }));
+    await answer();
+    expect(onSendFiles).toHaveBeenCalledOnce();
+  });
+
   it("attaches a file from the room it's for without asking, and says so when it can't check who'd see one", async () => {
     const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
     const fetch = filesInEmber(file, null, { roomId: "r1" });
@@ -1226,6 +1313,43 @@ describe("Schedule for later", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Pick a time in the next 120 days.");
   });
 
+  it("keeps what's scheduled until the room lists it, sending it again as the room lets the socket back in, or the room opens again", async () => {
+    const { send, hear, input, unmount, user } = await showScheduling({ roomId: "s10" });
+    await user.type(input, "Later");
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    const frame = send.mock.calls[0]![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    expect(input).toHaveValue("");
+
+    // The socket dropped before the room had it: it goes again, with the same id, which the room keeps once.
+    hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+    expect(send.mock.calls).toEqual([[frame], [frame]]);
+    unmount();
+    const reopened = await showScheduling({ roomId: "s10" });
+    expect(reopened.send).toHaveBeenCalledExactlyOnceWith(frame);
+
+    // Once the room lists it, it's not sent again.
+    reopened.hear({ type: "scheduled", messages: [{ id: "a", body: frame.body, sendAt: frame.sendAt }] });
+    reopened.hear({ type: "welcome", you: { id: "u1", name: "Ada" }, present: [], seq: 0, messages: [], hasMore: false, hasNewer: false, around: null });
+    expect(reopened.send).toHaveBeenCalledOnce();
+  });
+
+  it("puts what the room wouldn't schedule after what's been written since, once", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s11" });
+    await user.type(input, "Later");
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    const frame = send.mock.calls[0]![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    await user.type(input, "Now");
+
+    const refusal = { type: "error", message: "Pick a time that's still ahead.", clientMessageId: frame.clientMessageId, failed: "scheduled.create" } as const;
+    hear(refusal);
+    // Sent twice, as across a reconnection, it's refused twice.
+    hear(refusal);
+    expect(input).toHaveValue("Now\n\nLater");
+    expect(screen.getByRole("alert")).toHaveTextContent("Pick a time that's still ahead.");
+  });
+
   it("says how many messages are scheduled here, listing them to send now, move or delete", async () => {
     const { send, hear, input } = await showScheduling({ roomId: "s3" });
     const user = userEvent.setup();
@@ -1309,6 +1433,31 @@ describe("Schedule for later", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps an Undo until the room has it, and puts one the room won't schedule again in the composer, once", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s12" });
+    const one = { id: "a", body: "<p>One</p>", sendAt: inDays(2, 9).getTime() };
+    hear({ type: "scheduled", messages: [one] });
+    await user.click(screen.getByRole("button", { name: "See all" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Scheduled messages" })).getByRole("button", { name: "Delete" }));
+    hear({ type: "scheduled", messages: [] });
+
+    // The room's away as Undo is pressed: it goes once the room's back.
+    send.mockReturnValueOnce(false);
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    const frame = send.mock.lastCall![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    expect(frame).toEqual({ type: "scheduled.create", clientMessageId: expect.any(String) as string, body: "<p>One</p>", sendAt: one.sendAt });
+    send.mockClear();
+    hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+    expect(send).toHaveBeenCalledExactlyOnceWith(frame);
+
+    // Its time passed meanwhile.
+    const refusal = { type: "error", message: "Pick a time that's still ahead.", clientMessageId: frame.clientMessageId, failed: "scheduled.create" } as const;
+    hear(refusal);
+    hear(refusal);
+    expect(input).toHaveValue("One");
+    expect(screen.getByRole("alert")).toHaveTextContent("Pick a time that's still ahead.");
   });
 
   it("says why one couldn't be sent when it was due, to send again, write in the composer again or delete", async () => {

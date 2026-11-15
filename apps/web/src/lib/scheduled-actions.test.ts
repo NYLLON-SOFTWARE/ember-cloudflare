@@ -135,4 +135,18 @@ describe("Changing a scheduled message from outside its room", () => {
     expect(localStorage.getItem("composer-draft-u1-random/threads/m7")).toBe("<p>also</p><p>on it</p>");
     expect(restoringOf("u1")).toEqual([]);
   });
+
+  it("writes a refused one back into its draft once, however many times it was sent", async () => {
+    const what = { roomId: "random", message: reply, clientMessageId: "c3" };
+    // As a page's effect that finishes an earlier visit's Undo runs twice.
+    const first = restoreScheduled("u1", what);
+    const second = restoreScheduled("u1", what);
+    for (const sent of FakeSocket.all) {
+      sent.letIn([]);
+      sent.receive({ type: "error", message: "Pick a time that's still ahead.", failed: "scheduled.create", clientMessageId: "c3" });
+    }
+    await expect(Promise.all([first, second])).resolves.toEqual(["drafted", "drafted"]);
+    expect(localStorage.getItem("composer-draft-u1-random/threads/m7")).toBe("<p>on it</p>");
+    expect(restoringOf("u1")).toEqual([]);
+  });
 });

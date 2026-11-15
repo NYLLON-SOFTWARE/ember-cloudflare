@@ -1,18 +1,19 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { isKeepableFileName, isWebImage, MAX_FILE_SIZE, reachesMore, type Message, type ShareWidening, type User } from "@ember/protocol";
+import { isKeepableFileName, isWebImage, MAX_FILE_SIZE, reachesMore, type Message, type ServerFrame, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { useOptionalFlash } from "@/components/flash";
 import { ArrowUp, Lock, Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import type { RoomFrames } from "@/hooks/use-room";
-import { useScheduled } from "@/hooks/use-scheduled";
+import { useScheduled, type NewScheduled } from "@/hooks/use-scheduled";
 import { dropTarget } from "@/lib/drop-target";
 import { checkShare, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
 import { isEmberFile, nameNotKept, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
+import { forgetScheduled, keepScheduling, restoringOf, scheduleFrameOf, takeScheduling, type Restoring } from "@/lib/scheduled-actions";
 import { cn } from "@/lib/utils";
 import { COMPOSER_CARD, ICON_BUTTON } from "./composer-buttons";
 import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";
@@ -151,6 +152,8 @@ function usePickedFiles() {
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const lastKey = useRef(0);
+  // How many times the files picked have changed, so what was worked out for them can tell it's out of date.
+  const changes = useRef(0);
   // Reads the files as they're given: a field's, a paste's or a drop's are gone once its event is over.
   const add = (picked: Iterable<Sendable>) => {
     const fitting: PickedFile[] = [];
@@ -162,12 +165,21 @@ function usePickedFiles() {
       else fitting.push({ key: ++lastKey.current, file });
     }
     setErrors(refused);
-    if (fitting.length > 0) setFiles((files) => [...files, ...fitting].sort((a, b) => sendableFacts(a.file).name.localeCompare(sendableFacts(b.file).name)));
+    if (fitting.length === 0) return;
+    changes.current++;
+    setFiles((files) => [...files, ...fitting].sort((a, b) => sendableFacts(a.file).name.localeCompare(sendableFacts(b.file).name)));
   };
   /** Picks a file already in Ember, which the room copies rather than this sending it again. */
   const share = (shared: EmberFile) => add([shared]);
-  const remove = (key: number) => setFiles((files) => files.filter((picked) => picked.key !== key));
-  return { files, errors, add, share, remove, clear: () => setFiles([]) };
+  const remove = (key: number) => {
+    changes.current++;
+    setFiles((files) => files.filter((picked) => picked.key !== key));
+  };
+  const clear = () => {
+    changes.current++;
+    setFiles([]);
+  };
+  return { files, errors, add, share, remove, clear, changes };
 }
 
 /**
@@ -244,6 +256,47 @@ function isPage(target: EventTarget | null): boolean {
 function focusStayedOn(element: Element | null): boolean {
   const focused = document.activeElement;
   return !focused || focused === element || focused === document.body;
+}
+
+/**
+ * What this composer schedules, kept in this browser until its room lists it (`keepScheduling`), so a socket
+ * dropped on the way, or a reload, doesn't lose it: what's kept goes again as the composer opens and each
+ * time the room lets the socket back in, and the room keeps each once by its id. One the room refuses comes
+ * back, once, with why, to `onRefused`. Answers what schedules a message, which answers whether it went.
+ */
+function useKeptSchedules(userId: string, roomId: string, threadId: string | undefined, frames: RoomFrames | undefined, onRefused: (body: string, why: string) => void) {
+  // Those sent again once their time had passed, which the room has posted, unless it refuses them.
+  const sentLate = useRef(new Set<string>());
+  const mine = (kept: Restoring) => kept.roomId === roomId && kept.message.parentId === threadId;
+  const sendKept = useEffectEvent(() => {
+    for (const kept of restoringOf(userId).filter(mine)) {
+      if (frames?.send(scheduleFrameOf(kept)) && kept.message.sendAt <= Date.now()) sentLate.current.add(kept.clientMessageId);
+    }
+  });
+  const hear = useEffectEvent((frame: ServerFrame) => {
+    if (frame.type === "welcome" || frame.type === "resumed") sendKept();
+    else if (frame.type === "scheduled") forgetScheduled(userId, roomId, frame.messages, ({ clientMessageId }) => sentLate.current.has(clientMessageId));
+    else if (frame.type === "error" && frame.failed === "scheduled.create" && frame.clientMessageId !== undefined) refused(frame.clientMessageId, frame.message);
+  });
+  const refused = (clientMessageId: string, why: string) => {
+    if (!restoringOf(userId).some((kept) => kept.clientMessageId === clientMessageId && mine(kept))) return;
+    const kept = takeScheduling(userId, clientMessageId);
+    if (kept) onRefused(kept.message.body, why);
+  };
+  useEffect(() => {
+    sendKept();
+    return frames?.listen(hear);
+  }, [frames, userId, roomId, threadId]);
+
+  // While the room is away, one that's to wait for it is kept to go once it's back, and any other is forgotten.
+  return (message: NewScheduled, { waitForRoom = false } = {}): boolean => {
+    const clientMessageId = crypto.randomUUID();
+    const kept = { roomId, message: { ...message, id: clientMessageId }, clientMessageId };
+    keepScheduling(userId, kept);
+    const sent = frames?.send(scheduleFrameOf(kept)) ?? false;
+    if (!sent && !waitForRoom) takeScheduling(userId, clientMessageId);
+    return sent;
+  };
 }
 
 interface Props {
@@ -370,16 +423,12 @@ export function Composer({
   const [editorReady, setEditorReady] = useState(false);
   const previewLink = useLinkPreviews();
   const picked = usePickedFiles();
-  // What's scheduled and waiting for the room to take it, by the id it went with, so a refusal can put it back.
-  const scheduling = useRef(new Map<string, string>());
   const [scheduleRefusal, setScheduleRefusal] = useState<string | null>(null);
-  const scheduled = useScheduled(roomId, frames, (clientMessageId, why) => {
-    const body = scheduling.current.get(clientMessageId);
-    if (body === undefined) return;
-    scheduling.current.delete(clientMessageId);
+  const scheduled = useScheduled(roomId, frames);
+  // What the room wouldn't schedule comes back to be changed, after anything written since, saying why.
+  const scheduleKept = useKeptSchedules(userId, roomId, threadId, frames, (body, why) => {
     setScheduleRefusal(why);
-    // What was scheduled comes back to be changed, unless something else has been written since.
-    if (editor.current?.isBlank()) editor.current.replace(body);
+    writeBack(body);
   });
   const scheduledHere = scheduled.messages.filter((message) => message.parentId === threadId).map((message) => ({ ...message, text: writtenBody(message.body).plainText }));
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
@@ -445,6 +494,18 @@ export function Composer({
 
   // While a message is edited here: what was written before, kept aside to come back, or null for nothing.
   const heldDraft = useRef<string | null | undefined>(undefined);
+  // Writes `body` after what's written, or after what's kept aside while a message is edited here.
+  const writeBack = (body: string) => {
+    const text = editor.current;
+    if (heldDraft.current !== undefined) heldDraft.current = (heldDraft.current ?? "") + body;
+    else if (text) text.replace(text.isBlank() ? body : text.value() + body);
+    else {
+      // Before the editor shows, what's written is the draft it opens with.
+      const next = (readDraft(key) ?? "") + body;
+      setDraft(next);
+      wrote(next);
+    }
+  };
   const flash = useOptionalFlash();
   const editable = useEditableBody(editing?.message ?? null);
   // What the edit opened with, against which Save tells what's changed, and who else changed it meanwhile.
@@ -491,15 +552,29 @@ export function Composer({
 
   // A file from Files in Ember that would now reach people it wasn't attached knowing about, as the room it
   // was in, or this one, changed since, while the warning asks again.
-  const [sendWarning, setSendWarning] = useState<{ shared: EmberFile; widening: ShareWidening } | null>(null);
+  const [sendWarning, setSendWarning] = useState<{ key: number; shared: EmberFile; widening: ShareWidening } | null>(null);
+  // The files whose warning has been confirmed, by their keys, until they're sent or a warning's cancelled.
+  const approved = useRef(new Set<number>());
+  // Whether the files are being checked, while Send waits.
+  const checking = useRef(false);
   // Asks again, as files from Files in Ember go, who'd see each anew, and warns again where that's anyone
-  // it wasn't attached knowing about. A check that can't be made doesn't hold them up, as the room checks access too.
-  const checkThenSubmit = async (shared: EmberFile[]) => {
-    for (const file of shared) {
+  // it wasn't attached knowing about. A check that can't be made doesn't hold them up, as the room checks
+  // access too. Files picked or taken out meanwhile leave it to the next Send.
+  const checkThenSubmit = async (shared: { key: number; file: EmberFile }[]) => {
+    checking.current = true;
+    const pickedBefore = picked.changes.current;
+    let warning: typeof sendWarning = null;
+    for (const { key, file } of shared) {
       const now = await checkShare(file.roomId, roomId).catch(() => null);
-      if (now && reachesMore(now, file.accepted)) return setSendWarning({ shared: file, widening: now });
+      if (now && reachesMore(now, file.accepted)) {
+        warning = { key, shared: file, widening: now };
+        break;
+      }
     }
-    submit(true);
+    checking.current = false;
+    if (picked.changes.current !== pickedBefore) return;
+    if (warning) setSendWarning(warning);
+    else submit(true);
   };
 
   // This sends the files picked, then what's written unless it's blank, and focuses the editor, on touch
@@ -508,7 +583,8 @@ export function Composer({
   const submit = (checked = false) => {
     if (!editing && performance.now() - editDone.current < EDIT_SETTLING_MS) return;
     if (editing) return saveEdit(editing);
-    const shared = picked.files.flatMap(({ file }) => (isEmberFile(file) && file.roomId !== roomId ? [file] : []));
+    if (checking.current) return;
+    const shared = picked.files.flatMap(({ key, file }) => (isEmberFile(file) && file.roomId !== roomId && !approved.current.has(key) ? [{ key, file }] : []));
     if (!checked && !disabled && shared.length > 0) return void checkThenSubmit(shared);
     setScheduleRefusal(null);
     // Files picked wait for the room, which they upload to.
@@ -518,6 +594,7 @@ export function Composer({
         alsoSend,
       );
       picked.clear();
+      approved.current.clear();
       setAlsoSend(false);
     }
     const text = editor.current;
@@ -535,10 +612,7 @@ export function Composer({
     const text = editor.current;
     if (disabled || !text || text.isBlank()) return;
     setScheduleRefusal(null);
-    const body = text.value();
-    const clientMessageId = scheduled.schedule({ body, sendAt: at.getTime(), parentId: threadId, alsoSend });
-    if (clientMessageId === null) return;
-    scheduling.current.set(clientMessageId, body);
+    if (!scheduleKept({ body: text.value(), sendAt: at.getTime(), parentId: threadId, alsoSend })) return;
     written();
     text.focus();
   };
@@ -590,7 +664,14 @@ export function Composer({
         {...(!compact && dropTarget(picked.add))}
       >
         <TypingIndicator typists={typing} />
-        <ScheduledNotice messages={scheduledHere} scheduled={scheduled} disabled={disabled} onReturnFocus={() => editor.current?.focus()} onEdit={(body) => editor.current?.replace(body)} />
+        <ScheduledNotice
+          messages={scheduledHere}
+          scheduled={scheduled}
+          disabled={disabled}
+          onUndo={(message) => scheduleKept(message, { waitForRoom: true })}
+          onReturnFocus={() => editor.current?.focus()}
+          onEdit={(body) => editor.current?.replace(body)}
+        />
         {scheduleRefusal && (
           <p role="alert" className="mb-1.5 text-[13px] text-negative">
             {scheduleRefusal}
@@ -769,11 +850,16 @@ export function Composer({
               target={{ label: direct ? roomName : `#${roomName}`, direct, closed }}
               widening={sendWarning.widening}
               confirm="Send"
+              // Confirming one asks of the rest, each of which may need its own.
               onShare={() => {
+                approved.current.add(sendWarning.key);
                 setSendWarning(null);
-                submit(true);
+                submit();
               }}
-              onCancel={() => setSendWarning(null)}
+              onCancel={() => {
+                approved.current.clear();
+                setSendWarning(null);
+              }}
               onReturnFocus={() => editor.current?.focus()}
             />
           )}
