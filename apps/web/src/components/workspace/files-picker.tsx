@@ -80,6 +80,8 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
   // A file that would reach people who can't see where it was shared, while the warning asks about it.
   const [warning, setWarning] = useState<{ shared: SharedFile; widening: ShareWidening } | null>(null);
   const picking = useRef<SharedFile | null>(null);
+  // The Attach whose check is on its way, which Cancel, or another Attach, leaves unanswered.
+  const attaching = useRef<object | null>(null);
   // The file's button, which focus goes back to when the warning shares nothing.
   const picked = useRef<HTMLElement | null>(null);
   const fieldId = useId();
@@ -89,7 +91,11 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
   // Asked again as Attach is pressed, as who's in the room may have changed while the warning was open: a new
   // count shows in the warning, to attach on, and none at all, or the same, attaches.
   const share = async ({ shared, widening }: { shared: SharedFile; widening: ShareWidening }) => {
+    const attach = {};
+    attaching.current = attach;
     const now = await shareWidening(shared.roomId, roomId).catch(() => undefined);
+    if (attaching.current !== attach) return;
+    attaching.current = null;
     if (now && reachesMore(now, widening)) return setWarning({ shared, widening: now });
     setWarning(null);
     send(shared, widening);
@@ -257,7 +263,10 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
             confirm="Attach"
             // Over the picker, whose own backdrop is there already, so the file picked stays readable.
             overlayClassName="bg-transparent"
-            onCancel={() => setWarning(null)}
+            onCancel={() => {
+              attaching.current = null;
+              setWarning(null);
+            }}
             onReturnFocus={() => picked.current?.focus()}
             onShare={() => void share(warning)}
           />

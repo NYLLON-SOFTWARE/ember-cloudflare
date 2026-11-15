@@ -1,5 +1,6 @@
-import type { StoredFile } from "@ember/protocol";
+import type { ShareWidening, StoredFile } from "@ember/protocol";
 import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FilesPicker } from "./files-picker";
 
@@ -70,5 +71,28 @@ describe("Files in Ember", () => {
     expect(new URL(fetch.mock.calls[1]![0], location.href).searchParams.get("cursor")).toBe("50");
     // The last page has no end to watch for.
     expect(observing()).toBe(0);
+  });
+
+  it("attaches nothing once the warning's Cancel is pressed, though Attach's check answers after it", async () => {
+    const widening: ShareWidening = { widens: true, newViewers: 2, names: ["Lin", "Sam"] };
+    let answerAttach: (response: Response) => void = () => {};
+    let checks = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => {
+        if (path === "/api/share-check") return ++checks === 1 ? Response.json(widening) : new Promise<Response>((resolve) => (answerAttach = resolve));
+        return Response.json({ search: { q: "", hasFile: true }, matches: [sharedAs("m1", "plan.txt")], next: null, rooms: [{ id: "r9", kind: "open", name: "design", icon: null }], recent: [] });
+      }),
+    );
+    const onPick = vi.fn();
+    const user = userEvent.setup();
+    render(<FilesPicker meId="u1" roomId="r1" room={{ label: "#general", direct: false }} onPick={onPick} onClose={() => {}} onReturnFocus={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: /plan\.txt/ }));
+    const warning = await screen.findByRole("alertdialog");
+    await user.click(within(warning).getByRole("button", { name: "Attach" }));
+    await user.click(within(warning).getByRole("button", { name: "Cancel" }));
+    await act(async () => answerAttach(Response.json(widening)));
+    expect(onPick).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 });
