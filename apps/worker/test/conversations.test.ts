@@ -13,10 +13,10 @@ async function caughtUp(room: RoomId): Promise<void> {
 /** A mention of `person`, as the composer writes one. */
 const mention = (person: Pick<User, "id">) => `<action-text-attachment sgid="${mentionSgid(person.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
 
-/** Posts a reply to `parent` in its thread as `client`. */
-async function reply(client: Socket, parent: Pick<Message, "id">, body: string): Promise<Message> {
+/** Posts a reply to `parent` in its thread as `client`, sent to the conversation too with `alsoSend`. */
+async function reply(client: Socket, parent: Pick<Message, "id">, body: string, alsoSend = false): Promise<Message> {
   const clientMessageId = crypto.randomUUID();
-  client.send({ type: "message.create", clientMessageId, body, parentId: parent.id, alsoSend: false });
+  client.send({ type: "message.create", clientMessageId, body, parentId: parent.id, alsoSend });
   for (;;) {
     const { message } = await client.next("message.created");
     if (message.clientMessageId === clientMessageId) return message;
@@ -57,6 +57,24 @@ describe("DM previews", () => {
     expect(byRoom.get(withLinus.id)).toEqual({ roomId: withLinus.id, latest: null, unread: 0 });
     // Grace's own messages are none she hasn't read.
     expect((await asked<DirectPreviews>(grace, "/api/directs")).previews).toEqual([expect.objectContaining({ roomId: withGrace.id, unread: 0 })]);
+  });
+
+  it("counts a reply also sent to the conversation as the DM's latest message, and unread, as it's in the DM's timeline", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const withGrace = await direct(ada, grace);
+    const graceInDm = await connect(withGrace.id, grace);
+    const first = await post(graceInDm, "<p>first</p>");
+    const alsoSent = await reply(graceInDm, first, "<p>also to the conversation</p>", true);
+    await caughtUp(withGrace.id);
+
+    let preview: DirectPreviews["previews"][number] | undefined;
+    for (let tries = 0; tries < 200; tries++) {
+      preview = (await asked<DirectPreviews>(ada, "/api/directs")).previews.find(({ roomId }) => roomId === withGrace.id);
+      if (preview?.unread === 2) break;
+      await sleep(10);
+    }
+    expect(preview?.latest?.id).toBe(alsoSent.id);
+    expect(preview?.unread).toBe(2);
   });
 
   it("is only for people signed in", async () => {

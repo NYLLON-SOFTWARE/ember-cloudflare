@@ -212,17 +212,23 @@ export type IndexedPreview = {
 export const MOST_UNREAD = 100;
 
 /**
- * For each DM the JSON array ?1 lists, as `DirectToPreview`s: its latest message, not counting replies
- * in threads, and how many messages someone other than ?2 wrote there from its `since` on, not counting
- * them either. A room's messages are found by `index_search_messages_on_room_id_and_id`.
+ * Whether an indexed message is in its room's timeline: not a reply in a thread, or one also sent to the
+ * conversation, which the room's row of it, kept as JSON, says (`in_room`, as `isInRoom` in @ember/protocol).
+ */
+const IN_TIMELINE = `(thread_id IS NULL OR thread_id = message_id OR json_extract(message, '$.in_room') = 1)`;
+
+/**
+ * For each DM the JSON array ?1 lists, as `DirectToPreview`s: its latest message in its timeline, and how
+ * many messages there someone other than ?2 wrote from its `since` on, as the Workspace counts them unread.
+ * A room's messages are found by `index_search_messages_on_room_id_and_id`.
  */
 const DIRECT_PREVIEWS = `SELECT json_extract(rooms.value, '$.id') AS roomId,
     (SELECT message FROM search_messages
-      WHERE room_id = json_extract(rooms.value, '$.id') AND (thread_id IS NULL OR thread_id = message_id)
+      WHERE room_id = json_extract(rooms.value, '$.id') AND ${IN_TIMELINE}
       ORDER BY id DESC LIMIT 1) AS message,
     (SELECT count(*) FROM (SELECT 1 FROM search_messages
       WHERE room_id = json_extract(rooms.value, '$.id') AND id >= json_extract(rooms.value, '$.since')
-        AND creator_id IS NOT ?2 AND (thread_id IS NULL OR thread_id = message_id)
+        AND creator_id IS NOT ?2 AND ${IN_TIMELINE}
       LIMIT ${MOST_UNREAD})) AS unread
   FROM json_each(?1) AS rooms`;
 
