@@ -656,8 +656,8 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
         type="button"
         onClick={toggle}
         title={markLabel}
-        // Which item, by who and when, without repeating the item's own name, which the row's button has.
-        aria-label={`${markLabel}: ${author}, ${when}`}
+        // Which item, by who, when and a little of what it says, since one person can say two things in a minute.
+        aria-label={`${markLabel}: ${author}, ${when}, “${snippetOf(preview(item))}”`}
         className="absolute top-2.5 right-3 z-[1] grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-background hover:text-foreground touch:hidden"
       >
         {item.read ? <EyeClosed className="size-4" /> : <CheckCircle className="size-4" />}
@@ -678,6 +678,13 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
       </DropdownMenu>
     </li>
   );
+}
+
+const SNIPPET_LENGTH = 40;
+
+/** The start of `text`, enough to tell two items apart. */
+function snippetOf(text: string): string {
+  return text.length <= SNIPPET_LENGTH ? text : `${text.slice(0, SNIPPET_LENGTH).trimEnd()}…`;
 }
 
 /** What an item's row says it is. */

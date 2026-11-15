@@ -109,6 +109,15 @@ describe("ActivityPage's rows", () => {
     expect(time).toHaveAttribute("title", `${dateLabel(date)}, ${timeLabel(date)}`);
   });
 
+  it("names each row's Mark button apart from another by the same person in the same minute, with a snippet of the item", () => {
+    history.replaceState(null, "", "/activity");
+    const other: ActivityItem = { ...reply, id: 2, messageId: "m3", preview: "Lunch is at noon in the big room, bring a fork and an appetite" };
+    onDesktop(null, [reply, other]);
+    const names = screen.getAllByRole("button", { name: /^Mark (read|unread):/ }).map((button) => button.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(2);
+    expect(names[1]).toMatch(/, “Lunch is at noon in the big room, bring…”$/);
+  });
+
   it("darkens the time and place where grey would fall under 4.5:1: on the unread tint, on hover and on the selected row", () => {
     history.replaceState(null, "", "/activity/rooms/random/threads/m1/@m2");
     const unread: ActivityItem = { ...reply, id: 2, messageId: "m3", parentId: "m4", preview: "news", read: false };

@@ -152,12 +152,12 @@ const MARK = `UPDATE activity SET read_at = ?3
 const MARK_ALL = `UPDATE activity SET read_at = ?2 WHERE user_id = ?1 AND read_at IS NULL`;
 
 /**
- * Records a reaction, ?5, by ?4 to message ?2 in room ?1, written by ?3, whose text starts ?6, for its
+ * Records a reaction, ?5, by ?4 to message ?2 in room ?1, in the thread of ?8 if it's a reply, written by ?3, whose text starts ?6, for its
  * author, unless they reacted themselves, are a bot or aren't active, or aren't in the room any more, or
  * it's recorded already, as when the room tries again after an answer that was lost.
  */
-const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_id, actor_id, preview, content, created_at)
-  SELECT users.id, 'reaction', ?1, ?2, ?4, ?6, ?5, ?7 FROM users
+const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_id, parent_id, actor_id, preview, content, created_at)
+  SELECT users.id, 'reaction', ?1, ?2, ?8, ?4, ?6, ?5, ?7 FROM users
   WHERE users.id = ?3 AND users.id <> ?4 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = ?3)
     AND NOT EXISTS (SELECT 1 FROM activity WHERE message_id = ?2 AND kind = 'reaction' AND actor_id = ?4 AND content = ?5 AND user_id = ?3)
@@ -250,8 +250,8 @@ export class ActivityStore {
     return rows.map((row) => row.id);
   }
 
-  async recordReaction(roomId: RoomId, messageId: string, authorId: UserId, reactorId: UserId, content: string, plainText: string, at: string): Promise<RecordedItems> {
-    return recordedItems(await this.db.all<RecordedRow>(RECORD_REACTION, roomId, messageId, authorId, reactorId, content, previewOf(plainText), at));
+  async recordReaction(roomId: RoomId, messageId: string, parentId: string | null, authorId: UserId, reactorId: UserId, content: string, plainText: string, at: string): Promise<RecordedItems> {
+    return recordedItems(await this.db.all<RecordedRow>(RECORD_REACTION, roomId, messageId, authorId, reactorId, content, previewOf(plainText), at, parentId));
   }
 
   async removeReaction(messageId: string, reactorId: UserId, content: string): Promise<RemovedItems> {

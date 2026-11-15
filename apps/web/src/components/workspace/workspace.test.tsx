@@ -1451,7 +1451,7 @@ describe("Activity", () => {
     serveActivity([item(2), item(1, { kind: "direct", roomId: withGrace.id, read: true })], { "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
     showWorkspace("/activity");
     expect(await screen.findByRole("heading", { level: 1, name: "Activity" })).toBeInTheDocument();
-    await waitFor(() => expect(within(feed()).getAllByRole("button", { name: /Look at this/ })).toHaveLength(2));
+    await waitFor(() => expect(within(feed()).getAllByRole("button", { name: /Look at this [0-9],/ })).toHaveLength(2));
     // Each says the conversation it's from, but a DM with its author alone, which needs no naming again.
     expect(within(feed()).getByRole("button", { name: /Look at this 2, Mention in #random$/ })).toHaveTextContent(/#random$/);
     expect(within(feed()).getByRole("button", { name: /Look at this 1, Direct message in Grace$/ })).toHaveTextContent(/^Look at this 1$/);
@@ -1502,11 +1502,11 @@ describe("Activity", () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(2), item(1, { read: true })]);
     const { user } = showWorkspace("/activity");
-    const row = async (preview: string) => (await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: new RegExp(preview) })).closest("li")!;
+    const row = async (preview: string) => (await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: new RegExp(`${preview},`) })).closest("li")!;
     const unread = await row("Look at this 2");
     expect(unread).toHaveClass("bg-activity-unread");
     expect(await row("Look at this 1")).not.toHaveClass("bg-activity-unread");
-    expect(within(unread).getByRole("button", { name: /Look at this 2/ })).toHaveAccessibleName(/^Grace, unread: /);
+    expect(within(unread).getByRole("button", { name: /Look at this 2,/ })).toHaveAccessibleName(/^Grace, unread: /);
     // The row's Mark read names the item by who and when, not by the row's own name, which only the item has.
     expect(within(feed()).getAllByRole("button", { name: /Mention in #random/ })).toHaveLength(2);
     expect(within(unread).getByRole("button", { name: /^Mark read: Grace, / })).toBeInTheDocument();
@@ -1514,7 +1514,7 @@ describe("Activity", () => {
     expect(within(feed()).queryByLabelText("Unread")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "All" })).toHaveTextContent(/^All$/);
 
-    within(unread).getByRole("button", { name: /Look at this 2/ }).focus();
+    within(unread).getByRole("button", { name: /Look at this 2,/ }).focus();
     await user.keyboard("u");
     expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [2], read: true }) }));
     expect(unread).not.toHaveClass("bg-activity-unread");
@@ -1533,7 +1533,7 @@ describe("Activity", () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(1, { read: true })]);
     const { user } = showWorkspace("/activity");
-    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1,/ });
     await user.click(screen.getByRole("button", { name: "Unreads" }));
     expect(within(feed()).getByRole("listitem")).toHaveTextContent(/^You’re all caught up\.$/);
     // On any tab.
@@ -1548,7 +1548,7 @@ describe("Activity", () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(1)]);
     const { user } = showWorkspace("/activity");
-    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ }));
+    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1,/ }));
     expect(await screen.findByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
     // The address says what's open, so a reload keeps it, and Back closes it.
     expect(location.pathname).toBe("/activity/rooms/random/@m1");
@@ -1564,7 +1564,7 @@ describe("Activity", () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(3, { kind: "thread", parentId: "m0", preview: "a reply" })]);
     const { user } = showWorkspace("/activity");
-    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /a reply/ }));
+    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /a reply,/ }));
     expect(location.pathname).toBe("/activity/rooms/random/threads/m0/@m3");
     await user.click(await screen.findByRole("button", { name: "Close thread" }));
     // Opened from the feed, the thread closes into the conversation in its place, which Back closes too.
@@ -1585,7 +1585,7 @@ describe("Activity", () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(1)], { "GET /api/users/u2": () => Response.json({ person: grace }) });
     const { user } = showWorkspace("/activity");
-    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1,/ });
     await user.click(within(feed()).getAllByRole("link", { name: "Grace" })[1]!);
     expect(await screen.findByRole("complementary", { name: "Profile" })).toBeInTheDocument();
     expect(screen.getAllByRole("separator", { name: /^Resize/ }).map((separator) => separator.getAttribute("aria-label"))).toEqual(["Resize profile"]);
@@ -1622,7 +1622,7 @@ describe("Activity", () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(1)], { "GET /api/users/u2": () => Response.json({ person: { ...grace, bio: "Wrote the first compiler" } }) });
     const { user } = showWorkspace("/activity");
-    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1,/ });
     const [avatar, name] = within(feed()).getAllByRole("link", { name: "Grace" });
     expect(avatar).toHaveAttribute("href", "/users/u2");
     await user.click(name!);

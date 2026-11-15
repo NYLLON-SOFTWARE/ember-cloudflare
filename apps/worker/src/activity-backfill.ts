@@ -35,6 +35,8 @@ export interface HistoryMessage {
 /** A reaction to a message in a room's history. */
 export interface HistoryReaction {
   messageId: string;
+  /** The thread the message is a reply in, if it is. */
+  parentId: string | null;
   /** Who wrote the message, whose item it would be. */
   authorId: UserId;
   reactorId: UserId;
@@ -64,7 +66,7 @@ const HISTORY_MESSAGES = `SELECT messages.id, messages.creator_id AS authorId, m
   ORDER BY messages.id DESC LIMIT ?3`;
 
 /** Room ?1's reactions since ?2 to messages not deleted, newest first, up to ?3. */
-const HISTORY_REACTIONS = `SELECT boosts.message_id AS messageId, messages.creator_id AS authorId, boosts.booster_id AS reactorId,
+const HISTORY_REACTIONS = `SELECT boosts.message_id AS messageId, messages.parent_id AS parentId, messages.creator_id AS authorId, boosts.booster_id AS reactorId,
     boosts.content, messages.plain_text AS plainText, boosts.created_at AS at
   FROM boosts JOIN messages ON messages.id = boosts.message_id AND messages.deleted = 0
   WHERE boosts.room_id = ?1 AND boosts.created_at >= ?2
@@ -144,7 +146,7 @@ export function itemsOf(roomId: RoomId, recipients: Recipient[], { messages, rea
   const members = new Set(recipients.map((recipient) => recipient.userId));
   for (const reaction of reactions) {
     if (reaction.authorId === reaction.reactorId || !members.has(reaction.authorId)) continue;
-    items.push({ userId: reaction.authorId, kind: "reaction", roomId, messageId: reaction.messageId, parentId: null, actorId: reaction.reactorId, preview: reaction.preview, content: reaction.content, at: reaction.at });
+    items.push({ userId: reaction.authorId, kind: "reaction", roomId, messageId: reaction.messageId, parentId: reaction.parentId, actorId: reaction.reactorId, preview: reaction.preview, content: reaction.content, at: reaction.at });
   }
   return items;
 }
@@ -212,4 +214,39 @@ export async function recordBackfill(db: Db, items: BackfillItem[], readAt: stri
     statements.push(statement(RECORD_BACKFILL, JSON.stringify(numbered.slice(start, start + ITEMS_AT_ONCE)), readAt));
   }
   return ((await db.batch(statements)) as unknown[][]).reduce((count, rows) => count + rows.length, 0);
+}
+
+// Reactions were recorded without the thread of the reply they were to, so the Workspace puts them in
+// theirs once, asking each room which of the messages they were to are replies.
+
+/** Room ?1's messages of the JSON list ?2 that are replies, with the thread each is in. */
+const THREADS_OF = `SELECT id, parent_id AS parentId FROM messages
+  WHERE room_id = ?1 AND parent_id IS NOT NULL AND id IN (SELECT value FROM json_each(?2))`;
+
+/** A reply and the thread it's in. */
+export interface ReplyThread {
+  id: string;
+  parentId: string;
+}
+
+/** Which of room `roomId`'s messages `messageIds` are replies, and in which thread, as the room answers the Workspace. */
+export const threadsOf = (db: Db, roomId: RoomId, messageIds: string[]) => db.all<ReplyThread>(THREADS_OF, roomId, JSON.stringify(messageIds));
+
+/** Each room with reaction items in no thread, and the messages they're about. */
+const UNTHREADED_REACTIONS = `SELECT room_id AS roomId, json_group_array(DISTINCT message_id) AS messageIds FROM activity
+  WHERE kind = 'reaction' AND parent_id IS NULL GROUP BY room_id`;
+
+export async function unthreadedReactions(db: Db): Promise<Array<{ roomId: RoomId; messageIds: string[] }>> {
+  const rows = await db.all<{ roomId: RoomId; messageIds: string }>(UNTHREADED_REACTIONS);
+  return rows.map(({ roomId, messageIds }) => ({ roomId, messageIds: JSON.parse(messageIds) as string[] }));
+}
+
+/** Puts the reaction items about each reply of the JSON list ?1 in the reply's thread. */
+const THREAD_REACTIONS = `UPDATE activity
+  SET parent_id = (SELECT ${field("parentId")} FROM json_each(?1) AS item WHERE ${field("id")} = activity.message_id)
+  WHERE kind = 'reaction' AND parent_id IS NULL AND message_id IN (SELECT ${field("id")} FROM json_each(?1) AS item)`;
+
+/** Puts the reaction items about `replies` in their threads. */
+export async function threadReactions(db: Db, replies: ReplyThread[]): Promise<void> {
+  for (let start = 0; start < replies.length; start += ITEMS_AT_ONCE) await db.run(THREAD_REACTIONS, JSON.stringify(replies.slice(start, start + ITEMS_AT_ONCE)));
 }

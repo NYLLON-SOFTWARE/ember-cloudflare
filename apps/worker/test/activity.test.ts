@@ -2,10 +2,11 @@ import type { ActivityItem, ActivityPage, Message, RoomId, User, WorkspaceServer
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { BACKFILL_PER_PERSON, BackfillItems, type BackfillItem, type RoomHistory } from "../src/activity-backfill";
 import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
-import { timeZoneOf } from "../src/workspace";
-import { api, connect, createRoom, direct, freshDeploy, freshRoom, openWorkspaceSocket, post, roomSql, roomStub, settle, signIn, workspaceSql, type Session, type Socket, type WorkspaceSocket } from "./support";
+import { timeZoneOf, type Workspace } from "../src/workspace";
+import { api, connect, createRoom, direct, freshDeploy, freshRoom, openWorkspaceSocket, post, roomSql, roomStub, settle, signIn, standInForRooms, workspaceSql, workspaceStub, type Session, type Socket, type WorkspaceSocket } from "./support";
 
 // Each person's Activity, as Slack's is: what mentions them, comes in their DMs, replies in threads they
 // follow, reacts to their messages or adds them to private rooms, kept once read.
@@ -194,6 +195,19 @@ describe("Activity", () => {
     expect((await activityOf(ada.session)).items).toEqual([]);
   });
 
+  it("records a reaction to a reply in its thread, which the item opens", async () => {
+    const room = await freshRoom("thread reactions");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await connect(room, "Grace", { visible: true });
+    const parent = await post(grace, "a question");
+    const answer = await reply(ada, parent, "an answer");
+    grace.send({ type: "boost.create", messageId: answer.id, content: "🎉" });
+    await grace.next("boost.created");
+    await delivered(room);
+    await sleep(50);
+    expect((await activityOf(ada.session)).items).toEqual([item({ kind: "reaction", messageId: answer.id, parentId: parent.id })]);
+  });
+
   it("takes a deleted message's items out of everyone's Activity", async () => {
     const room = await freshRoom("deleting");
     const ada = await connect(room, "Ada", { visible: true });
@@ -358,6 +372,165 @@ describe("Activity", () => {
 
   it("answers 401 without a session", async () => {
     expect((await api("/api/activity")).status).toBe(401);
+  });
+});
+
+/** Has the Workspace forget that it has filled in Activity, as a new object with no storage would. */
+async function forgetBackfill(): Promise<void> {
+  await runInDurableObject(workspaceStub(), async (instance: Workspace, state: DurableObjectState) => {
+    (instance as unknown as { activityBackfill: Promise<void> | null }).activityBackfill = null;
+    await state.storage.delete(["activityBackfilled", "activityBackfilledRooms"]);
+  });
+}
+
+describe("Activity's backfill", () => {
+  it("fills in what came before Activity began, already read, after everything recorded since", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const dm = await direct(ada, grace);
+    const room = await freshRoom("history");
+    const adaInDm = await connect(dm.id, ada, { visible: true });
+    const adaInRoom = await connect(room, ada, { visible: true });
+    const graceInRoom = await connect(room, grace, { visible: false });
+    await post(adaInDm, "lunch?");
+    await post(adaInRoom, `${mention(grace.user)} look`);
+    const thought = await post(graceInRoom, "a thought");
+    await reply(adaInRoom, thought, "agreed");
+    adaInRoom.send({ type: "boost.create", messageId: thought.id, content: "👍" });
+    await adaInRoom.next("boost.created");
+    await post(adaInRoom, "just chatting");
+    await Promise.all([delivered(dm.id), delivered(room)]);
+    await sleep(50);
+    // As before Activity began.
+    await workspaceSql("DELETE FROM activity");
+
+    const page = await activityOf(grace);
+    expect(page.unread).toBe(0);
+    expect(page.items).toEqual([
+      item({ kind: "reaction", messageId: thought.id, actorId: ada.user.id, content: "👍", preview: "a thought", read: true }),
+      item({ kind: "thread", parentId: thought.id, preview: "agreed", read: true }),
+      item({ kind: "mention", roomId: room, read: true }),
+      item({ kind: "direct", roomId: dm.id, preview: "lunch?", read: true }),
+    ]);
+    expect(page.items.every((filled) => filled.id < 0)).toBe(true);
+    // Older pages follow on below zero.
+    expect((await activityOf(grace, page.items[1]!.id)).items.map((filled) => filled.id)).toEqual(page.items.slice(2).map((filled) => filled.id));
+
+    // What comes now is recorded above it.
+    const later = await post(adaInRoom, `${mention(grace.user)} again`);
+    await delivered(room);
+    expect((await activityOf(grace)).items[0]).toEqual(item({ messageId: later.id, read: false }));
+  });
+
+  it("fills in a reaction to a reply in its thread, and puts the reactions recorded before in theirs", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await freshRoom("thread history");
+    const adaInRoom = await connect(room, ada, { visible: true });
+    const graceInRoom = await connect(room, grace, { visible: true });
+    const parent = await post(graceInRoom, "a question");
+    const answer = await reply(adaInRoom, parent, "an answer");
+    const aside = await post(adaInRoom, "an aside");
+    for (const message of [answer, aside]) {
+      graceInRoom.send({ type: "boost.create", messageId: message.id, content: "🎉" });
+      await graceInRoom.next("boost.created");
+    }
+    await delivered(room);
+    await sleep(50);
+    // As recorded before reactions kept their thread: the backfill fills nothing in beside these.
+    await workspaceSql("UPDATE activity SET parent_id = NULL WHERE kind = 'reaction'");
+    expect((await activityOf(ada)).items).toEqual([
+      item({ kind: "reaction", messageId: aside.id, parentId: null }),
+      item({ kind: "reaction", messageId: answer.id, parentId: parent.id }),
+    ]);
+
+    await workspaceSql("DELETE FROM activity");
+    await forgetBackfill();
+    expect((await activityOf(ada)).items).toEqual([
+      item({ kind: "reaction", messageId: aside.id, parentId: null }),
+      item({ kind: "reaction", messageId: answer.id, parentId: parent.id }),
+    ]);
+  });
+
+  it("fills in only the rooms each person is in now, so nothing comes from a private room they've left", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const plans = await createRoom("Plans", { closedTo: [ada.user.id, grace.user.id, linus.user.id], as: ada });
+    const adaInPlans = await connect(plans.id, ada, { visible: true });
+    await post(adaInPlans, `${mention(grace.user)} ${mention(linus.user)} the plan is`);
+    await delivered(plans.id);
+    await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", plans.id, grace.user.id);
+    await workspaceSql("DELETE FROM activity");
+
+    expect((await activityOf(grace)).items).toEqual([]);
+    expect((await activityOf(linus)).items).toEqual([item({ kind: "mention", roomId: plans.id, read: true })]);
+  });
+
+  it("records nothing twice, run again or beside what was recorded as it came", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await freshRoom("again");
+    const adaInRoom = await connect(room, ada, { visible: true });
+    await post(adaInRoom, `${mention(grace.user)} before`);
+    await delivered(room);
+    await workspaceSql("DELETE FROM activity");
+    const [filled] = (await activityOf(grace)).items;
+    expect(filled!.id).toBeLessThan(0);
+
+    const recorded = await post(adaInRoom, `${mention(grace.user)} after`);
+    await delivered(room);
+    await forgetBackfill();
+    const items = (await activityOf(grace)).items;
+    expect(items.map((each) => each.id)).toEqual([expect.any(Number), filled!.id]);
+    expect(items[0]).toEqual(item({ messageId: recorded.id, read: false }));
+    expect(items[0]!.id).toBeGreaterThan(0);
+  });
+
+  it("keeps each person's newest items, however many one room has", () => {
+    const at = (second: number) => new Date(Date.UTC(2026, 10, 1) + second * 1000).toISOString();
+    // 300 people, each mentioned in 667 @everyone messages: more items than one call takes as arguments.
+    const many: BackfillItem[] = Array.from({ length: 200_100 }, (_, index) => ({
+      userId: `u${index % 300}`, kind: "mention", roomId: "general", messageId: `m${Math.floor(index / 300)}`, parentId: null, actorId: "ada", preview: "", content: null, at: at(Math.floor(index / 300)),
+    }));
+    expect(() => [].push(...(many as never[]))).toThrow(RangeError);
+    const items = new BackfillItems();
+    items.add(many);
+    items.add([{ ...many[0]!, userId: "linus" }]);
+    const kept = items.newest();
+    const theirs = kept.filter((each) => each.userId === "u7").map((each) => each.messageId);
+    expect(theirs).toHaveLength(BACKFILL_PER_PERSON);
+    expect([theirs.at(0), theirs.at(-1)]).toEqual([`m${667 - BACKFILL_PER_PERSON}`, "m666"]);
+    expect(kept.filter((each) => each.userId === "linus")).toHaveLength(1);
+  });
+
+  it("doesn't bring back a message deleted or edited while it's under way", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await freshRoom("racing");
+    const adaInRoom = await connect(room, ada, { visible: true });
+    const gone = await post(adaInRoom, `${mention(grace.user)} delete me`);
+    const changed = await post(adaInRoom, `${mention(grace.user)} first draft`);
+    await delivered(room);
+    await workspaceSql("DELETE FROM activity");
+    // The room answers as it was before either changed, once both have.
+    const before = await roomStub(room).activityHistory(room as RoomId, new Date(Date.now() - 86_400_000).toISOString());
+    // Flags, not promises, which can't settle across Durable Objects.
+    const held = { asked: false, answered: false };
+    const restore = await standInForRooms({
+      activityHistory: async () => {
+        held.asked = true;
+        while (!held.answered) await sleep(10);
+        return before;
+      },
+    });
+    try {
+      const page = activityOf(grace);
+      await expect.poll(() => held.asked).toBe(true);
+      adaInRoom.send({ type: "message.delete", messageId: gone.id });
+      await adaInRoom.next("message.deleted");
+      adaInRoom.send({ type: "message.update", messageId: changed.id, body: `${mention(grace.user)} second draft` });
+      await adaInRoom.next("message.updated");
+      await sleep(200);
+      held.answered = true;
+      expect((await page).items).toEqual([item({ messageId: changed.id, preview: expect.stringContaining("second draft"), read: true })]);
+    } finally {
+      await restore();
+    }
   });
 });
 

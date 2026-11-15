@@ -1,6 +1,6 @@
 import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import { hasLinkable, type PreparedBody } from "@ember/richtext";
-import { roomHistory, type RoomHistory } from "./activity-backfill";
+import { roomHistory, threadsOf, type ReplyThread, type RoomHistory } from "./activity-backfill";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
 import { deletingAllFiles, deletingFilesOf, type AttachedFile } from "./files/blobs";
@@ -619,6 +619,11 @@ export class MessageStore {
   /** The room's messages and reactions since `since`, for the Workspace's Activity backfill. */
   history(since: string): Promise<RoomHistory> {
     return roomHistory(this.db, this.roomId, since);
+  }
+
+  /** Which of `messageIds` are replies, and in which thread. */
+  threadsOf(messageIds: string[]): Promise<ReplyThread[]> {
+    return threadsOf(this.db, this.roomId, messageIds);
   }
 
   async authors(): Promise<User[]> {

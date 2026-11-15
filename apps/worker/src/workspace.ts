@@ -155,7 +155,7 @@ import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import { ActivityStore, type RecordedItems, type RemovedItems } from "./activity";
-import { BACKFILL_DAYS, BackfillItems, itemsOf, recipientsOf, recordBackfill } from "./activity-backfill";
+import { BACKFILL_DAYS, BackfillItems, itemsOf, recipientsOf, recordBackfill, threadReactions, unthreadedReactions } from "./activity-backfill";
 import type { RoomEvent } from "./room-log";
 import { RoomTabStore, type KeptTab, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
 import type { Canvas, CanvasSave, FileMark, FileMarks } from "@ember/protocol/library";
@@ -236,6 +236,8 @@ const SETUP_TRY_WINDOW = "setupTryWindow";
 /** What the Workspace keeps in its own storage once Activity is filled in from every room, and the rooms it's filled in from so far. */
 const ACTIVITY_BACKFILLED = "activityBackfilled";
 const ACTIVITY_BACKFILLED_ROOMS = "activityBackfilledRooms";
+/** What it keeps once the reactions recorded before they kept their thread are in theirs. */
+const ACTIVITY_REACTIONS_THREADED = "activityReactionsThreaded";
 /** How many rooms the Activity backfill asks at a time. */
 const ROOMS_BACKFILLED_AT_ONCE = 8;
 const KEPT_MODELS_FILE = "keptModelsFile";
@@ -4782,8 +4784,15 @@ export class Workspace extends DurableObject<Env> {
     return this.activityBackfill;
   }
 
-  /** Fills in Activity from the rooms not filled in from yet, answering whether every room is. */
+  /** Fills in Activity and puts earlier reactions in their threads, answering whether every room's done. */
   private async fillActivity(): Promise<boolean> {
+    const filled = await this.fillActivityFromRooms();
+    const threaded = await this.threadEarlierReactions();
+    return filled && threaded;
+  }
+
+  /** Fills in Activity from the rooms not filled in from yet, answering whether every room is. */
+  private async fillActivityFromRooms(): Promise<boolean> {
     if (await this.ctx.storage.get<boolean>(ACTIVITY_BACKFILLED)) return true;
     const filled = new Set((await this.ctx.storage.get<RoomId[]>(ACTIVITY_BACKFILLED_ROOMS)) ?? []);
     const now = Date.now();
@@ -4819,6 +4828,30 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Puts the reaction items recorded before they kept the thread of the reply they're about in it, once,
+   * asking each room with any which of their messages are replies, answering whether every room answered.
+   */
+  private async threadEarlierReactions(): Promise<boolean> {
+    if (await this.ctx.storage.get<boolean>(ACTIVITY_REACTIONS_THREADED)) return true;
+    const rooms = await unthreadedReactions(this.db);
+    let complete = true;
+    for (let start = 0; start < rooms.length; start += ROOMS_BACKFILLED_AT_ONCE) {
+      await Promise.all(
+        rooms.slice(start, start + ROOMS_BACKFILLED_AT_ONCE).map(async ({ roomId, messageIds }) => {
+          try {
+            await threadReactions(this.db, await this.env.CHAT_ROOM.getByName(roomId).threadsOf(roomId, messageIds));
+          } catch (error) {
+            complete = false;
+            console.error(`Activity will try putting room ${roomId}'s reactions in their threads again:`, error);
+          }
+        }),
+      );
+    }
+    if (complete) await this.ctx.storage.put(ACTIVITY_REACTIONS_THREADED, true);
+    return complete;
+  }
+
+  /**
    * Marks items of the Activity of the person `credentials` signs in read or unread, as `marks` says,
    * telling their tabs, answering false without a valid session.
    */
@@ -4832,10 +4865,11 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Records `reactorId`'s reaction, `content`, to message `messageId` in room `roomId`, which `authorId`
-   * wrote and whose text starts `plainText`, in its author's Activity, as the room asks once it's saved.
+   * wrote and whose text starts `plainText`, in its author's Activity, in the thread of `parentId` if it's a
+   * reply there, as the room asks once it's saved. A room from before the deploy names no thread.
    */
-  async reacted(roomId: RoomId, messageId: string, authorId: UserId, reactorId: UserId, content: string, plainText: string, at: string): Promise<void> {
-    this.tellOfActivity(await this.activity.recordReaction(roomId, messageId, authorId, reactorId, content, plainText, at));
+  async reacted(roomId: RoomId, messageId: string, authorId: UserId, reactorId: UserId, content: string, plainText: string, at: string, parentId: string | null = null): Promise<void> {
+    this.tellOfActivity(await this.activity.recordReaction(roomId, messageId, parentId, authorId, reactorId, content, plainText, at));
   }
 
   /** Takes back the item a reaction recorded, as the room asks once the reaction is removed. */

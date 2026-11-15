@@ -167,7 +167,7 @@ test.describe("Activity", () => {
     const feed = grace.page.getByRole("list", { name: "Activity items" });
     await expect(feed.getByRole("button", { name: /Mention in #general/ })).toBeVisible();
 
-    await feed.getByRole("button", { name: /@channel Lunch\?/ }).click();
+    await feed.getByRole("button", { name: /@channel Lunch\?,/ }).click();
     const general = grace.page.getByRole("heading", { level: 1, name: "general" });
     await expect(general).toBeVisible();
     // The address says what's open beside the feed, so a reload keeps it, and Back closes it.

@@ -84,7 +84,7 @@ import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
 import { urlOf } from "./request-url";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
-import type { RoomHistory } from "./activity-backfill";
+import type { ReplyThread, RoomHistory } from "./activity-backfill";
 import { RoomLog, type RoomEvent } from "./room-log";
 import { POSTED_AT_ONCE, ScheduledMessages, type DueMessage } from "./scheduled";
 import { searchIndex } from "./search-index";
@@ -690,6 +690,11 @@ export class ChatRoom extends DurableObject<Env> {
   /** Room `roomId`'s messages and reactions since `since`, which the Workspace fills in Activity from once. */
   async activityHistory(roomId: RoomId, since: string): Promise<RoomHistory> {
     return this.serially(() => this.storeFor(roomId).history(since));
+  }
+
+  /** Which of room `roomId`'s messages `messageIds` are replies, and in which thread, for the Workspace to put their reaction items in. */
+  async threadsOf(roomId: RoomId, messageIds: string[]): Promise<ReplyThread[]> {
+    return this.serially(() => this.storeFor(roomId).threadsOf(messageIds));
   }
 
   /**
@@ -1655,7 +1660,7 @@ export class ChatRoom extends DurableObject<Env> {
     this.broadcast({ type: "boost.created", boost, seq });
     // Unless it's been taken back by the time a try again comes round.
     this.tellActivity(`reaction ${boost.id}`, async () => {
-      if (await store.findBoost(boost.id)) await workspace(this.env).reacted(store.roomId, message.id, message.creator.id, user.id, content, message.plainText, now);
+      if (await store.findBoost(boost.id)) await workspace(this.env).reacted(store.roomId, message.id, message.creator.id, user.id, content, message.plainText, now, message.parentId ?? null);
     });
     // Search results show a message's boosts, so the index takes it again.
     this.couriersFor(store.roomId).index.deliver();
