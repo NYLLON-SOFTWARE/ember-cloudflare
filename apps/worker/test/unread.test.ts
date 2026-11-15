@@ -1,4 +1,5 @@
-import type { RoomId, Sidebar, WorkspaceServerFrame } from "@ember/protocol";
+import { UNREAD_COUNT_CAP, type RoomId, type Sidebar, type WorkspaceServerFrame } from "@ember/protocol";
+import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UNDELIVERED_EVENTS, type RoomEvent } from "../src/room-log";
@@ -416,5 +417,109 @@ describe("Hibernating rooms", () => {
     await post(ada, "after a nap");
     expect(await heard(hoppersTab, room)).toEqual([unread(room)]);
     expect(await heard(gracesTab, room)).toEqual([]);
+  });
+});
+
+describe("Unread counts", () => {
+  /** A mention of `session`'s person, as the composer writes one. */
+  const mention = (session: Session) => `<action-text-attachment sgid="${mentionSgid(session.user.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+  const involve = (room: RoomId, session: Session, involvement: string) =>
+    api(`/api/rooms/${room}/involvement`, { method: "PUT", headers: { Cookie: session.cookie }, body: JSON.stringify({ involvement }) });
+  /** How many unread messages `session`'s sidebar counts in room `room`, if any. */
+  const countOf = async (session: Session, room: RoomId) => {
+    const sidebar = (await (await api("/api/sidebar", { headers: { Cookie: session.cookie } })).json()) as Sidebar;
+    return sidebar.rooms.find(({ id }) => id === room)?.unreadCount;
+  };
+
+  it("counts each message since a room was marked unread, up to UNREAD_COUNT_CAP, telling the count as it changes, and none once it's read", async () => {
+    const room = await freshRoom("counting");
+    const ada = await connect(room, "Ada", { visible: true });
+    const hopper = await signIn("Hopper");
+    expect((await involve(room, hopper, "everything")).status).toBe(200);
+    const tab = await openWorkspaceSocket(hopper);
+
+    const first = await post(ada, "one");
+    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: first.createdAt, count: 1 }]);
+    await post(ada, "two");
+    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: first.createdAt, count: 2 }]);
+    expect(await countOf(hopper, room)).toBe(2);
+
+    // Messages the room sends the Workspace together are told of once, with the count they leave, which
+    // stops at the cap, saying nothing more once it's there.
+    for (let i = 0; i < UNREAD_COUNT_CAP; i++) await post(ada, `more ${i}`);
+    const counts = (await heard(tab, room)).map((frame) => (frame as { count?: number }).count!);
+    expect(counts.at(-1)).toBe(UNREAD_COUNT_CAP);
+    expect(counts).toEqual([...counts].sort((a, b) => a - b));
+    expect(new Set(counts).size).toBe(counts.length);
+    expect(await countOf(hopper, room)).toBe(UNREAD_COUNT_CAP);
+    await post(ada, "past the cap");
+    expect(await heard(tab, room)).toEqual([]);
+
+    const reading = await connect(room, hopper, { visible: true });
+    await settle(reading);
+    expect(await heard(tab, room)).toEqual([read(room)]);
+    expect(await countOf(hopper, room)).toBeUndefined();
+    reading.close();
+    await ada.next("presence.left");
+    const after = await post(ada, "after reading");
+    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: after.createdAt, count: 1 }]);
+  });
+
+  it("counts only the messages that mention someone where they follow the room at @mentions or not at all, marking it all the same", async () => {
+    const room = await freshRoom("muted-counting");
+    const ada = await connect(room, "Ada", { visible: true });
+    const [hopper, lin] = [await signIn("Hopper"), await signIn("Lin")];
+    // Hopper follows it at @mentions, as everyone starts in an open room, and Lin not at all.
+    expect((await involve(room, lin, "nothing")).status).toBe(200);
+    const [hoppersTab, linsTab] = [await openWorkspaceSocket(hopper), await openWorkspaceSocket(lin)];
+
+    const plain = await post(ada, "nothing for anyone");
+    expect(await heard(hoppersTab, room)).toEqual([unread(room, plain.createdAt)]);
+    expect(await heard(linsTab, room)).toEqual([unread(room, plain.createdAt)]);
+    expect(await countOf(hopper, room)).toBeUndefined();
+
+    await post(ada, `<p>${mention(hopper)} and ${mention(lin)}, a look?</p>`);
+    expect(await heard(hoppersTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }]);
+    expect(await heard(linsTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }]);
+    expect(await countOf(lin, room)).toBe(1);
+  });
+
+  it("says a room mentions someone once a message it counts does, past the cap too, until they read it", async () => {
+    const room = await freshRoom("mentioning");
+    const ada = await connect(room, "Ada", { visible: true });
+    const hopper = await signIn("Hopper");
+    expect((await involve(room, hopper, "everything")).status).toBe(200);
+    const tab = await openWorkspaceSocket(hopper);
+    const mentionedOf = async () => ((await (await api("/api/sidebar", { headers: { Cookie: hopper.cookie } })).json()) as Sidebar).rooms.find(({ id }) => id === room)?.unreadMentioned;
+
+    for (let i = 0; i < UNREAD_COUNT_CAP; i++) await post(ada, `plain ${i}`);
+    expect((await heard(tab, room)).some((frame) => "mentioned" in frame)).toBe(false);
+    expect(await mentionedOf()).toBeUndefined();
+    // Past the cap, a mention still says so, with the count as it is.
+    await post(ada, `<p>${mention(hopper)} over here</p>`);
+    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: expect.any(String), count: UNREAD_COUNT_CAP, mentioned: true }]);
+    expect(await mentionedOf()).toBe(true);
+    // Once a room mentions him, another mention says nothing more.
+    await post(ada, `<p>${mention(hopper)} again</p>`);
+    expect(await heard(tab, room)).toEqual([]);
+
+    const reading = await connect(room, hopper, { visible: true });
+    await settle(reading);
+    expect(await heard(tab, room)).toEqual([read(room)]);
+    expect(await mentionedOf()).toBeUndefined();
+  });
+
+  it("counts nothing for its author, nor for a reply sent only to its thread", async () => {
+    const room = await freshRoom("not-counting");
+    const ada = await connect(room, "Ada", { visible: true });
+    const hopper = await signIn("Hopper");
+    for (const session of [ada.session, hopper]) expect((await involve(room, session, "everything")).status).toBe(200);
+    const tab = await openWorkspaceSocket(hopper);
+    const parent = await post(ada, "a thread");
+    ada.send({ type: "message.create", clientMessageId: crypto.randomUUID(), body: "<p>only in the thread</p>", parentId: parent.id, alsoSend: false });
+    await ada.next("message.created");
+    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: parent.createdAt, count: 1 }]);
+    expect(await countOf(hopper, room)).toBe(1);
+    expect(await countOf(ada.session, room)).toBeUndefined();
   });
 });
