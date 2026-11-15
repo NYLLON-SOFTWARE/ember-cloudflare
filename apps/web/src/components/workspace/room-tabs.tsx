@@ -289,7 +289,7 @@ function useShownTab(): ShownTab {
  * The address of the page shown, but showing `tab` in its room: Messages leaves `tab` out, so a room's own
  * link shows its messages. Each tab is an entry in the history, for Back and Forward, and a reload keeps it.
  */
-function addressShowing(tab: ShownTab): string {
+export function addressShowing(tab: ShownTab): string {
   const query = new URLSearchParams(location.search);
   if (tab === "messages") query.delete("tab");
   else query.set("tab", tab);

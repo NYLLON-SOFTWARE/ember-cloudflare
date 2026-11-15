@@ -86,7 +86,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   }, [foundGone]);
   // The page shows why in the room's place once it hears, which is just after this.
   const whyGone = foundGone;
-  const tabs = useRoomTabs(room, deleted, onFailed);
+  const tabs = useRoomTabs(room, whyGone !== null, onFailed);
 
   // The room opens at the message its address names. Following its permalink, or one to another message
   // in it, or the room's own link, goes there, or to the newest, even when it's the page shown. One
