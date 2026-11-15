@@ -1822,6 +1822,15 @@ export type ClientFrame =
    * answer reaches the room as any message of its does.
    */
   | { type: "command.run"; commandId: string; name: string; text: string }
+  /**
+   * One of the workspace's message shortcuts, run on the message `messageId` is, as a message's More
+   * actions offers one. It goes on the room's own socket, as a `command.run` does, so whoever picked it
+   * being in the room and no ban blocking them are the checks every change here gets, and the room
+   * reports it to the bot the shortcut invokes, delivering the message as Slack tells a message_action,
+   * and answers `shortcut.ran`, or an `error`, with `shortcutId`, while the bot's answer reaches the
+   * room as any message of its does.
+   */
+  | { type: "shortcut.run"; shortcutId: string; messageId: string }
   | { type: "ping" };
 
 /**
@@ -1896,11 +1905,14 @@ export type ServerFrame =
   | { type: "card.clicked"; clickId: string }
   /** Answers command.run once the bot has answered the command: the bot's answer comes as any message of its does. */
   | { type: "command.ran"; commandId: string }
+  /** Answers shortcut.run once the bot has answered the shortcut: the bot's answer comes as any message of its does. */
+  | { type: "shortcut.ran"; shortcutId: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about, `clickId` the click, or `commandId` the command.
+   * `clientMessageIds` the messages it was about, `clickId` the click, `commandId` the command, or
+   * `shortcutId` the shortcut.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; failed?: ClientFrame["type"] }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; shortcutId?: string; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
 /**
@@ -2256,6 +2268,8 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       const text = typeof f.text === "string" && f.text.length <= MAX_MESSAGE_HTML_LENGTH ? f.text.trim() : null;
       return name && text !== null ? { type: f.type, commandId: f.commandId, name, text } : null;
     }
+    case "shortcut.run":
+      return id(f.shortcutId) && id(f.messageId) ? { type: f.type, shortcutId: f.shortcutId, messageId: f.messageId } : null;
     case "typing.start":
     case "typing.stop":
     case "ping":

@@ -69,7 +69,7 @@ import {
 } from "@ember/protocol/assistant";
 import type { AgentProfile, AgentRoom } from "@ember/protocol/agents";
 import type { AppId } from "@ember/protocol/apps";
-import type { Command, Commands, EventSubscription } from "@ember/protocol/bots";
+import type { Command, Commands, EventSubscription, Shortcut } from "@ember/protocol/bots";
 import type { LiveHuddle } from "@ember/protocol/huddles";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
@@ -1054,6 +1054,9 @@ const storedBot = (row: BotRow, rooms: BotRoom[]): StoredBot => ({ ...directoryE
 /** A command as the bots page and the composer's menu list it, as `COMMANDS` and `COMMAND_BY_ID` read it. */
 const commandOf = ({ bot_id, bot_name, ...command }: CommandRow): Command => ({ ...command, bot: { id: bot_id, name: bot_name } });
 
+/** A shortcut as the bots page lists it and a message's More actions offers it, as `SHORTCUTS` and `SHORTCUT_BY_ID` read it. */
+const shortcutOf = ({ bot_id, bot_name, ...shortcut }: ShortcutRow): Shortcut => ({ ...shortcut, bot: { id: bot_id, name: bot_name } });
+
 /** An agent as the AI assistant tab lists it, as `AGENTS` reads it. */
 interface AgentRow extends DirectoryRow {
   description: string;
@@ -1932,6 +1935,22 @@ const COMMAND_BY_NAME = `SELECT commands.id, commands.name, commands.description
 const COMMAND_BY_ID = `SELECT commands.id, commands.name, commands.description, users.id AS bot_id, users.name AS bot_name
   FROM commands JOIN users ON users.id = commands.bot_id
   WHERE commands.id = ?1`;
+
+/** A shortcut is the same columns as a command, kept as its own rows (migrations/0075_shortcuts.sql) are. */
+type ShortcutRow = CommandRow;
+
+/** The workspace's shortcuts, by name, each with the bot it invokes by its name now: a deactivated bot's shortcut goes with the bot. */
+const SHORTCUTS = `SELECT shortcuts.id, shortcuts.name, shortcuts.description, users.id AS bot_id, users.name AS bot_name
+  FROM shortcuts JOIN users ON users.id = shortcuts.bot_id
+  ORDER BY shortcuts.name`;
+
+/** The shortcut `?1` is, with the bot that invokes it by its name now: nothing unless there is one. */
+const SHORTCUT_BY_ID = `SELECT shortcuts.id, shortcuts.name, shortcuts.description, users.id AS bot_id, users.name AS bot_name
+  FROM shortcuts JOIN users ON users.id = shortcuts.bot_id
+  WHERE shortcuts.id = ?1`;
+
+/** Whether a shortcut with the name `?1` is registered already, which a new one can't take. */
+const SHORTCUT_BY_NAME = `SELECT shortcuts.id FROM shortcuts WHERE shortcuts.name = ?1`;
 
 /** Puts bot ?2 on room ?1's message events, unless it's there already, and answers when it joined them. */
 const SUBSCRIBE = `INSERT INTO bot_subscriptions (room_id, user_id, created_at) VALUES (?1, ?2, ?3)
@@ -3696,8 +3715,9 @@ export class WorkspaceStore {
       statement(`DELETE FROM own_app_sign_ins WHERE user_id = ?`, userId),
       statement(`DELETE FROM outside_spent_tokens WHERE connection_id IN (SELECT id FROM outside_connections WHERE user_id = ?)`, userId),
       statement(`DELETE FROM outside_connections WHERE user_id = ?`, userId),
-      // A bot's commands and subscriptions go with it, as its being one of the workspace's does.
+      // A bot's commands, shortcuts and subscriptions go with it, as its being one of the workspace's does.
       statement(`DELETE FROM commands WHERE bot_id = ?`, userId),
+      statement(`DELETE FROM shortcuts WHERE bot_id = ?`, userId),
       statement(`DELETE FROM bot_subscriptions WHERE user_id = ?`, userId),
       statement(DEACTIVATE, `-deactivated-${uuid}@`, now, userId),
     ]);
@@ -4493,6 +4513,33 @@ export class WorkspaceStore {
     return row !== undefined;
   }
 
+  /** The workspace's shortcuts, by name, each with its bot, as a message's More actions offers them. */
+  async shortcuts(): Promise<Shortcut[]> {
+    return (await this.db.all<ShortcutRow>(SHORTCUTS)).map(shortcutOf);
+  }
+
+  /** The shortcut `id` is, with its bot, or null unless there is one. */
+  async shortcut(id: string): Promise<Shortcut | null> {
+    const [row] = await this.db.all<ShortcutRow>(SHORTCUT_BY_ID, id);
+    return row ? shortcutOf(row) : null;
+  }
+
+  /** Whether a shortcut with `name` is registered already. */
+  async shortcutTaken(name: string): Promise<boolean> {
+    return (await this.db.all(SHORTCUT_BY_NAME, name)).length > 0;
+  }
+
+  /** Registers a shortcut, with `id` and what's given of it, for the bot `botId`, recording when. */
+  async registerShortcut({ id, name, description, botId }: { id: string; name: string; description: string | null; botId: UserId }, now: string): Promise<void> {
+    await this.db.run(`INSERT INTO shortcuts (id, name, description, bot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, id, name, description, botId, now, now);
+  }
+
+  /** Forgets the shortcut `id`, answering whether there was one. */
+  async removeShortcut(id: string): Promise<boolean> {
+    const [row] = await this.db.all(`DELETE FROM shortcuts WHERE id = ? RETURNING id`, id);
+    return row !== undefined;
+  }
+
   /** Puts the active bot `botId` on room `roomId`'s message events, answering whether it was put there. */
   async subscribeToMessages(botId: UserId, roomId: RoomId, now: string): Promise<boolean> {
     const [row] = await this.db.all(SUBSCRIBE, roomId, botId, now);
@@ -4527,6 +4574,34 @@ export class WorkspaceStore {
     return {
       command: command ? { id: command.id, name: command.name } : null,
       bot: command ? { id: command.bot_id, name: command.bot_name } : null,
+      sender: { id: senderId, name: sender.name },
+      roomName: sender.room_name,
+      webhook,
+    };
+  }
+
+  /**
+   * The shortcut `shortcutId` names in room `roomId`, as its delivery finds it, with whoever picked it,
+   * `senderId`, by their names now: null once whoever picked it isn't an active member of the room; the
+   * shortcut null within that once no shortcut has the id, and the webhook null once its bot isn't an
+   * active one in the room with one, as `BOT_WEBHOOK` finds none for it then.
+   */
+  async shortcutWebhook(roomId: RoomId, senderId: UserId, shortcutId: string): Promise<{
+    shortcut: { id: string; name: string } | null;
+    bot: User | null;
+    sender: User;
+    roomName: string | null;
+    webhook: BotWebhook | null;
+  } | null> {
+    const [[sender], [shortcut]] = (await this.db.batch([statement(CLICKER, roomId, senderId), statement(SHORTCUT_BY_ID, shortcutId)])) as [
+      Array<{ name: string; room_name: string | null }>,
+      ShortcutRow[],
+    ];
+    if (!sender) return null;
+    const webhook = shortcut ? await this.botWebhook(roomId, shortcut.bot_id) : null;
+    return {
+      shortcut: shortcut ? { id: shortcut.id, name: shortcut.name } : null,
+      bot: shortcut ? { id: shortcut.bot_id, name: shortcut.bot_name } : null,
       sender: { id: senderId, name: sender.name },
       roomName: sender.room_name,
       webhook,

@@ -160,7 +160,7 @@ import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
-import { createCommand, listCommands, removeCommand, subscribeToRoomMessages, unsubscribeFromRoomMessages } from "./bots/commands";
+import { createCommand, createShortcut, listCommands, listShortcuts, removeCommand, removeShortcut, subscribeToRoomMessages, unsubscribeFromRoomMessages } from "./bots/commands";
 import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import { guestSignIn, type Env } from "./env";
@@ -1481,6 +1481,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/commands" && request.method === "POST") return () => createCommand(request, env);
   const command = pathname.match(/^\/api\/account\/commands\/([^/]+)$/);
   if (command && request.method === "DELETE") return () => removeCommand(request, env, command[1]!);
+  if (pathname === "/api/account/shortcuts" && request.method === "GET") return () => listShortcuts(request, env);
+  if (pathname === "/api/account/shortcuts" && request.method === "POST") return () => createShortcut(request, env);
+  // A shortcut's id is a sortable id, which never needs percent-encoding, so an encoded segment names none.
+  const shortcut = pathname.match(/^\/api\/account\/shortcuts\/([^/]+)$/);
+  if (shortcut && request.method === "DELETE") return () => removeShortcut(request, env, shortcut[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
   if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);

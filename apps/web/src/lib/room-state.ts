@@ -486,6 +486,8 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "pin.created":
     case "pin.deleted":
     case "command.ran":
+    // A shortcut's answer, which its picker's menu has closed and the flash tells of.
+    case "shortcut.ran":
     case "pong":
       return state;
   }

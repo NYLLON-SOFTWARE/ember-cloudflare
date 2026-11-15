@@ -183,3 +183,63 @@ export function parseNewCommand(data: unknown): NewCommand | string {
   if (trimmed.length > MAX_COMMAND_DESCRIPTION_LENGTH) return `Description can't be longer than ${MAX_COMMAND_DESCRIPTION_LENGTH} characters`;
   return { botId, name: kept, ...(trimmed !== "" && { description: trimmed }) };
 }
+
+// Message shortcuts, as administrators add and take them away through `/api/account/shortcuts`, as
+// Slack's message shortcuts have a workspace's: a name as it's shown ("Translate this"), what it's
+// for, and the bot it invokes. Picking one in a message's More actions delivers a Slack-shaped
+// `message_action` payload about that message to the bot's webhook, as a command's delivery is, and
+// what the bot answers is posted as the bot.
+
+/** The longest name a shortcut can have, where Slack gives a shortcut's name 80 characters. */
+export const MAX_SHORTCUT_NAME_LENGTH = 80;
+
+/** Why a shortcut with a name that's taken already is refused, as Slack keeps its shortcuts' names apart. */
+export const SHORTCUT_NAME_TAKEN = "A shortcut with that name is registered already";
+
+/** A shortcut as the bots page lists it and a message's More actions offers it: its name, what it's for, and the bot it invokes. */
+export interface Shortcut {
+  id: string;
+  /** The name as it's kept, as it's shown: "Translate this", capitals and all, where a command's is one case. */
+  name: string;
+  description: string | null;
+  /** The bot it invokes, as rooms and lists name it. */
+  bot: User;
+}
+
+/** What `GET /api/account/shortcuts` answers: the workspace's shortcuts, by name. */
+export interface Shortcuts {
+  shortcuts: Shortcut[];
+}
+
+/** What `POST /api/account/shortcuts` answers, once it has registered one. */
+export interface ShortcutAnswer {
+  shortcut: Shortcut;
+}
+
+/** What `POST /api/account/shortcuts` takes: the bot it invokes, its name, and what it's for, if anything. */
+export interface NewShortcut {
+  botId: UserId;
+  name: string;
+  description?: string;
+}
+
+/**
+ * Parses an untrusted new shortcut. Returns why it's refused instead: a name has to have more than
+ * spaces, and no more than `MAX_SHORTCUT_NAME_LENGTH` of them, kept as they're typed — a shortcut's
+ * name is shown, where a command's is a name to type — its description no more than a command's can
+ * have when there is one, and the bot it invokes a person's id.
+ */
+export function parseNewShortcut(data: unknown): NewShortcut | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const { botId, name, description } = data as Record<string, unknown>;
+  if (typeof botId !== "string" || !botId) return "Which bot it invokes must be a person";
+  if (typeof name !== "string") return "Name must be text";
+  const kept = name.trim();
+  if (!kept) return "Name can't be blank";
+  if (kept.length > MAX_SHORTCUT_NAME_LENGTH) return `Name can't be longer than ${MAX_SHORTCUT_NAME_LENGTH} characters`;
+  if (description === undefined) return { botId, name: kept };
+  if (typeof description !== "string") return "Description must be text";
+  const trimmed = description.trim();
+  if (trimmed.length > MAX_COMMAND_DESCRIPTION_LENGTH) return `Description can't be longer than ${MAX_COMMAND_DESCRIPTION_LENGTH} characters`;
+  return { botId, name: kept, ...(trimmed !== "" && { description: trimmed }) };
+}

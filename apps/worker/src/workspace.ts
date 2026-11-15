@@ -111,7 +111,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
-import type { Command, Commands, NewCommand } from "@ember/protocol/bots";
+import type { Command, Commands, NewCommand, NewShortcut, Shortcut, Shortcuts } from "@ember/protocol/bots";
 import {
   MAX_APP_SCOPE_LENGTH,
   MAX_APPS,
@@ -737,6 +737,20 @@ export interface ClickAccess extends WebhookAccess {
  */
 export interface CommandAccess {
   command: { id: string; name: string } | null;
+  bot: User | null;
+  webhook: WebhookAccess | null;
+  sender: User;
+  roomName: string | null;
+}
+
+/**
+ * The shortcut `shortcutId` names, as its delivery in a room finds it: the shortcut, or null when no
+ * shortcut has that id; the bot that invokes it, by its name now, or null with the shortcut; and its
+ * webhook as `WebhookAccess` is, or null once the bot isn't an active one in the room with one, with
+ * whoever picked it, by their name now, and the room's name, or null for a DM's.
+ */
+export interface ShortcutAccess {
+  shortcut: { id: string; name: string } | null;
   bot: User | null;
   webhook: WebhookAccess | null;
   sender: User;
@@ -3980,6 +3994,48 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The workspace's shortcuts, each with its bot, for the person `credentials` signs in: they're what a
+   * message's More actions offers, which everyone signed in reads, though only administrators change
+   * them, as bots are. Null without a valid session.
+   */
+  async shortcuts(credentials: Credentials): Promise<Shortcuts | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return { shortcuts: await this.store.shortcuts() };
+  }
+
+  /**
+   * Registers a shortcut with `name` and what it's for, invoking the active bot `botId`, as the person
+   * `credentials` signs in asks. Answers it as the bots page lists it: "forbidden" unless that's an
+   * administrator, "not found" unless `botId` is an active bot, "taken" for a name one of the
+   * workspace's shortcuts has already, or null without a valid session.
+   */
+  async registerShortcut(credentials: Credentials, botId: UserId, { name, description }: NewShortcut): Promise<Shortcut | "forbidden" | "not found" | "taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.activeBot(botId))) return "not found";
+      if (await this.store.shortcutTaken(name)) return "taken";
+      const id = sortableId();
+      await this.store.registerShortcut({ id, name, description: description ?? null, botId }, new Date().toISOString());
+      return (await this.store.shortcut(id))!;
+    });
+  }
+
+  /**
+   * Forgets the shortcut `id`, whose name is free again, as the person `credentials` signs in asks:
+   * "forbidden" unless they're an administrator, "not found" unless there is one, or null without a
+   * valid session.
+   */
+  async removeShortcut(credentials: Credentials, shortcutId: string): Promise<"removed" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return (await this.store.removeShortcut(shortcutId)) ? "removed" : "not found";
+  }
+
+  /**
    * Puts the active bot `botId` on room `roomId`'s message events, as the person `credentials` signs in
    * ticks it: every message written in the room by someone else is delivered to the bot's webhook, as a
    * command's delivery is. Answers "subscribed", or that again for a tick of one it's on already:
@@ -5564,6 +5620,30 @@ export class Workspace extends DurableObject<Env> {
         authorizedAt,
       };
     return { command, bot, webhook: access || null, sender, roomName };
+  }
+
+  /**
+   * The shortcut `shortcutId` names, as its delivery in room `roomId` by `senderId` finds it, when its
+   * turn comes: null once whoever picked it isn't an active member of the room, so that a shortcut
+   * waiting its turn goes nowhere once they're taken out. Within that, the shortcut null once no
+   * shortcut has the id, and the webhook null as `botWebhook` answers it, so that deleting a bot, taking
+   * it out of the room or removing its webhook stops what's on its way to it, and a new URL or key takes
+   * effect at once.
+   */
+  async shortcutWebhook(roomId: RoomId, senderId: UserId, shortcutId: string): Promise<ShortcutAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.shortcutWebhook(roomId, senderId, shortcutId);
+    if (!found) return null;
+    const { shortcut, bot, sender, roomName, webhook } = found;
+    const access =
+      webhook && {
+        bot: webhook.bot,
+        url: webhook.url,
+        key: botKeyOf(webhook.bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, webhook.bot.id, webhook)),
+        authorizedAt,
+      };
+    return { shortcut, bot, webhook: access || null, sender, roomName };
   }
 
   /**
