@@ -44,7 +44,7 @@ function roomFrames() {
 function showThread({ deleted = false, replyId = undefined as string | undefined } = {}) {
   const room = roomFrames();
   const { unmount } = render(
-    <ThreadPanel room={general} name="general" me={ada} parentId="m1" replyId={replyId} frames={room.frames} status="open" offline={false} deleted={deleted} roomNotice={null} onDismissRoomNotice={() => {}} />,
+    <ThreadPanel room={general} name="general" me={ada} parentId="m1" replyId={replyId} frames={room.frames} status="open" offline={false} gone={deleted ? "deleted" : null} roomNotice={null} onDismissRoomNotice={() => {}} />,
   );
   return { ...room, unmount, user: userEvent.setup() };
 }

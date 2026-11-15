@@ -197,14 +197,14 @@ test.describe("Edit a message", () => {
     const zed = await members.signIn(`Zed ${tag}`);
     await sendMention(zed, "Hey ", tag, [`Bea ${tag}`, `Zed ${tag}`]);
 
-    await (await zed.actions("Hey")).getByRole("button", { name: "Edit" }).click();
+    await zed.edit("Hey");
     await expect(mention(zed.editor(), `Bea ${tag}`)).toBeVisible();
     await zed.editor().pressSequentially(" and ");
     await typeMention(zed.editor(), tag);
     await expect(offered(zed)).toHaveText([`Bea ${tag}`, `Zed ${tag}`]);
     await zed.editor().press("Escape");
     await expect(prompt(zed)).toBeHidden();
-    await zed.page.getByRole("button", { name: "Save changes" }).click();
+    await zed.message("Hey").getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(zed.editor()).toBeHidden();
     await expect(zed.message("Hey")).toContainText(`and @${tag}`);

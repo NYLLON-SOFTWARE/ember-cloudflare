@@ -16,7 +16,7 @@ import {
   type User,
   type UserId,
 } from "@ember/protocol";
-import { AtSign, Attachment, ChatBubbleEmpty, ClockRotateRight, FilterList, Hashtag, Link, MessageText, Plus, Search as SearchIcon, Trash, User as UserIcon, Xmark } from "@/components/icons/iconoir";
+import { AtSign, Attachment, ChatBubbleEmpty, ClockRotateRight, FilterList, Hashtag, Link, Lock, MessageText, Plus, Search as SearchIcon, Trash, User as UserIcon, Xmark } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
@@ -114,9 +114,11 @@ export function useSearchNames(me: Me, rooms: readonly Room[]): SearchNames {
   );
 }
 
-/** A room's own icon, or a DM's chat bubble, as a thread's panel shows them, `size` pixels square. */
+/** A room's own icon, a private room's lock, or a DM's chat bubble, as a thread's panel shows them, `size` pixels square. */
 export function RoomMark({ room, size }: { room: Room | null; size: number }) {
   if (room?.kind === "direct") return <ChatBubbleEmpty className="shrink-0" style={{ width: size, height: size }} />;
+  // A private room without an icon of its own has a lock, as the sidebar shows it.
+  if (room?.kind === "closed" && room.icon === null) return <Lock aria-hidden="true" className="shrink-0" style={{ width: size, height: size }} />;
   return (
     <span aria-hidden className="inline-flex shrink-0 items-center leading-none" style={{ fontSize: size }}>
       <RoomIcon icon={room?.icon ?? null} size={size} />

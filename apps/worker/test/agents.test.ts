@@ -7,6 +7,7 @@ import {
   type NewWorkspace,
   type PersonAnswer,
   type RoomId,
+  type SharedRoom,
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -730,6 +731,37 @@ describe("AI agents", () => {
       expect(await roomsOf(recap.id)).toEqual([...(await openRooms()), leads.id].sort());
     });
 
+    it("takes it out of the sub-rooms of a parent it leaves, as one picked alone isn't joined", async () => {
+      const administrator = await setUp();
+      const parent = await createRoom("Support", { as: administrator });
+      const response = await api("/api/rooms", { method: "POST", headers: as(administrator), body: JSON.stringify({ kind: "open", name: "Billing", parentId: parent.id }) });
+      const { room: child } = (await response.json()) as { room: SharedRoom };
+      const recap = await made(administrator, { rooms: [parent.id, child.id] });
+      expect(await roomsOf(recap.id)).toEqual([parent.id, child.id].sort());
+
+      await agentOf(await changeAgent(administrator, recap.id, { rooms: [child.id] }));
+      expect(await roomsOf(recap.id)).toEqual([]);
+      expect(await roomsOf((await made(administrator, { name: "Juniper", rooms: [child.id] })).id)).toEqual([]);
+    });
+
+    it("keeps it out of the open sub-rooms of a room picked, as the room is changed and as one is made under it", async () => {
+      const administrator = await setUp();
+      const parent = await createRoom("Support", { as: administrator });
+      const subRoom = async (name: string) => {
+        const response = await api("/api/rooms", { method: "POST", headers: as(administrator), body: JSON.stringify({ kind: "open", name, parentId: parent.id }) });
+        expect(response.status, await response.clone().text()).toBe(201);
+        return ((await response.json()) as { room: SharedRoom }).room;
+      };
+      await subRoom("Billing");
+      const recap = await made(administrator, { rooms: [parent.id] });
+      const everyOpenRoom = await made(administrator, { name: "Juniper" });
+
+      await changeRoom(administrator, parent.id, { name: "Help" });
+      const refunds = await subRoom("Refunds");
+      expect(await roomsOf(recap.id)).toEqual([parent.id]);
+      expect(await roomsOf(everyOpenRoom.id)).toContain(refunds.id);
+    });
+
     it("saves nothing once the agent was changed while its new model answered", async () => {
       const administrator = await setUp();
       const recap = await made(administrator);
@@ -811,6 +843,20 @@ describe("AI agents", () => {
       expect(await workspaceSql("SELECT kept_rooms FROM agents")).toEqual([{ kept_rooms: null }, { kept_rooms: null }]);
       expect(await shownAgent(administrator, recap.id)).toEqual({ ...recap, avatarUrl: expect.any(String) as string });
       expect(await shownAgent(administrator, juniper.id)).toEqual({ ...juniper, rooms: [{ id: launch.id, name: "Launch" }], avatarUrl: expect.any(String) as string });
+    });
+    it("come back in a sub-room they were in only with its parent, as one picked alone isn't joined", async () => {
+      const administrator = await setUp();
+      const [support, launch, sales] = [await createRoom("Support", { as: administrator }), await createRoom("Launch", { as: administrator }), await createRoom("Sales", { as: administrator })];
+      const juniper = await made(administrator, { name: "Juniper", model: GPT, rooms: [support.id, launch.id, sales.id] });
+
+      await turnOff(administrator);
+      // Meanwhile, Support moves under Launch, which Juniper was in, and Sales under Design, which it wasn't.
+      const design = await createRoom("Design", { as: administrator });
+      await changeRoom(administrator, support.id, { parentId: launch.id });
+      await changeRoom(administrator, sales.id, { parentId: design.id });
+
+      await turnOn(administrator);
+      expect(await roomsOf(juniper.id)).toEqual([support.id, launch.id].sort());
     });
   });
 

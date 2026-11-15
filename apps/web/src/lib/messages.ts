@@ -1,5 +1,5 @@
 import type { Message, UserId } from "@ember/protocol";
-import { displayMarkup, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
+import { quoteMarkup, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
 
 /**
  * How far apart a person's messages can be, either way, and still group, as Campfire's
@@ -79,18 +79,30 @@ export function timeline(messages: Message[]): TimelineItem[] {
 }
 
 /**
- * What Quote writes in the composer (reply_controller.js): what the message shows but its link previews,
- * quoted, with each mention as the bare name `nameOf` gives, then its author with a link to it, and a line
- * to reply on.
+ * When a quoted message was written, as its quote's cite shows it to the reader, as of `now`: "3:04 PM" today,
+ * "Nov 11, 3:04 PM" on another day this year, and "Nov 11, 2025, 3:04 PM" in another year.
  */
-export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string): string {
-  const linkToOriginal: DisplayNode = { kind: "element", name: "a", attrs: { href: link }, children: [{ kind: "text", value: "#" }] };
-  const quote: DisplayNode[] = [
-    { kind: "element", name: "blockquote", attrs: {}, children: quoted(nodes) },
-    { kind: "element", name: "cite", attrs: {}, children: [{ kind: "text", value: `${author} ` }, linkToOriginal] },
-    { kind: "element", name: "p", attrs: {}, children: [{ kind: "element", name: "br", attrs: {}, children: [] }] },
-  ];
-  return displayMarkup(quote, ({ userId }) => nameOf(userId));
+export function quotedTimeLabel(date: Date, now = new Date()): string {
+  if (dayFormat.format(date) === dayFormat.format(now)) return timeLabel(date);
+  const day = (yearFormat.format(date) === yearFormat.format(now) ? monthDayFormat : shortDateFormat).format(date);
+  return `${day}, ${timeLabel(date)}`;
+}
+
+/** The quoted message, as Quote's cite names it: its author's name, when they wrote it, and its address. */
+export interface Quoted {
+  author: string;
+  createdAt: string;
+  link: string;
+}
+
+/**
+ * What Quote writes in the composer (reply_controller.js): what the message shows but its link previews,
+ * quoted, with each mention as the bare name `nameOf` gives, then its author, when they wrote it and a link
+ * to it, and a line to reply on.
+ */
+export function replyQuote(nodes: DisplayNode[], { author, createdAt, link }: Quoted, nameOf: (userId: UserId) => string): string {
+  const citation = { author, createdAt, when: quotedTimeLabel(new Date(createdAt)), link };
+  return `${quoteMarkup(quoted(nodes), citation, ({ userId }) => nameOf(userId))}<p><br></p>`;
 }
 
 /**

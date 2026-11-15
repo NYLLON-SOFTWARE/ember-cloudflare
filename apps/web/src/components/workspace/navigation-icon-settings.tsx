@@ -15,6 +15,7 @@ const SLOT_LABELS: Record<NavigationSlot, string> = {
   home: "Home",
   dms: "DMs",
   activity: "Activity",
+  todos: "To-dos",
   search: "Search",
   admin: "Admin",
   light: "Light mode",
