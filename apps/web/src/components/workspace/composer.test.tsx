@@ -974,14 +974,15 @@ function roomFrames() {
   return { frames, send, hear };
 }
 
-async function showScheduling({ roomId, threadId }: { roomId: string; threadId?: string }) {
+async function showScheduling({ roomId, threadId, offline = false }: { roomId: string; threadId?: string; offline?: boolean }) {
   const { frames, send, hear } = roomFrames();
   const onSend = vi.fn(() => true);
-  const { unmount } = render(
-    <Composer roomId={roomId} roomName="general" userId="u1" typing={[]} disabled={false} threadId={threadId} frames={frames} onSend={onSend} onSendFiles={() => {}} onTyping={() => {}} />,
+  const composer = (offline: boolean) => (
+    <Composer roomId={roomId} roomName="general" userId="u1" typing={[]} disabled={offline} threadId={threadId} frames={frames} onSend={onSend} onSendFiles={() => {}} onTyping={() => {}} />
   );
+  const { unmount, rerender } = render(composer(offline));
   const input = await screen.findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { send, hear, onSend, input, unmount, user: userEvent.setup() };
+  return { send, hear, onSend, input, unmount, setOffline: (offline: boolean) => rerender(composer(offline)), user: userEvent.setup() };
 }
 
 const scheduleMenu = () => screen.getByRole("button", { name: "Schedule for later" });
@@ -1396,6 +1397,70 @@ describe("Schedule for later", () => {
     send.mockReset().mockReturnValue(true);
     hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("says its time passed, not to pick another, when one kept to schedule reaches the room just after its time", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s16" });
+    await user.type(input, "Later");
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    const frame = send.mock.calls[0]![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    const now = vi.spyOn(Date, "now").mockReturnValue(frame.sendAt + 50);
+    try {
+      hear({ type: "error", message: "Pick a time in the next 120 days.", clientMessageId: frame.clientMessageId, failed: "scheduled.create" });
+      expect(input).toHaveValue("Later");
+      expect(screen.getByRole("alert")).toHaveTextContent(SCHEDULE_TIME_PASSED);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("says it can't schedule while the room has been away a while, from the chevron, keeping what's written", async () => {
+    const { send, input, user, setOffline } = await showScheduling({ roomId: "s17" });
+    await user.type(input, "Later");
+    setOffline(true);
+    await user.click(scheduleMenu());
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(SCHEDULE_OFFLINE);
+    expect(input).toHaveValue("Later");
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("says it can't schedule while offline when Send is held on a phone, without sending", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === PHONE_LAYOUT || media === "(pointer: coarse)", media, addEventListener() {}, removeEventListener() {} }));
+    try {
+      const { send, onSend, input, user } = await showScheduling({ roomId: "s18", offline: true });
+      await user.type(input, "Later");
+      fireEvent.contextMenu(screen.getByRole("button", { name: "Send Message" }));
+      expect(screen.getByRole("alert")).toHaveTextContent(SCHEDULE_OFFLINE);
+      expect(input).toHaveValue("Later");
+      expect(send).not.toHaveBeenCalled();
+      expect(onSend).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("stops saying it couldn't schedule offline once the room's back, and why something came back once it's deleted", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s19" });
+    await user.type(input, "Later");
+    send.mockReturnValue(false);
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    expect(screen.getByRole("alert")).toHaveTextContent(SCHEDULE_OFFLINE);
+    send.mockReturnValue(true);
+    hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    const frame = send.mock.calls.at(-1)![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    hear({ type: "error", message: "Pick a time that's still ahead.", clientMessageId: frame.clientMessageId, failed: "scheduled.create" });
+    // Why it came back stays as the room lets the socket back in, for as long as what came back does.
+    hear({ type: "resumed", you: { id: "u1", name: "Ada" }, messages: [], deletedIds: [], present: [], seq: 0 });
+    expect(screen.getByRole("alert")).toHaveTextContent("Pick a time that's still ahead.");
+    await user.clear(input);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("puts what the room wouldn't schedule after what's been written since, once", async () => {

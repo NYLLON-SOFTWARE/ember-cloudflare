@@ -156,6 +156,9 @@ interface SendButtonProps {
   empty?: boolean;
   /** Whether there's nothing to schedule: nothing written, or files picked, which go at once. */
   cannotSchedule: boolean;
+  /** Whether the room is away, when opening Schedule message calls `onScheduleOffline` instead, to say so. */
+  offline?: boolean;
+  onScheduleOffline?: () => void;
   /** Schedules what's written for `at`. */
   onSchedule: (at: Date) => void;
   /** Whether it saves a message being edited, which it says, with a check, rather than send. */
@@ -167,8 +170,9 @@ interface SendButtonProps {
  * Schedule message. Holding the arrow down opens Schedule message too, rather than sending, and keeps the
  * phone's own long-press menu away.
  */
-export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule, saves = false }: SendButtonProps) {
-  const [scheduling, setScheduling] = useState(false);
+export function SendButton({ disabled, empty = false, cannotSchedule, offline = false, onScheduleOffline, onSchedule, saves = false }: SendButtonProps) {
+  const [scheduling, setSchedulingOpen] = useState(false);
+  const setScheduling = (open: boolean) => (open && offline ? onScheduleOffline?.() : setSchedulingOpen(open));
   // A phone's Send is one circle, which holding opens Send later, as Slack's does.
   const phone = usePhoneLayout();
   const holdToSchedule = () => {

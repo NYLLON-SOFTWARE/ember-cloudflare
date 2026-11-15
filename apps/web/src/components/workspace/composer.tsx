@@ -294,13 +294,15 @@ function useKeptSchedules(
       for (const clientMessageId of frame.stored) if (isKept(clientMessageId)) takeScheduling(userId, clientMessageId);
       forgetScheduled(userId, roomId, listed());
       for (const clientMessageId of frame.missing) refused(clientMessageId, SCHEDULE_TIME_PASSED);
-    } else if (frame.type === "error" && frame.failed === "scheduled.create" && frame.clientMessageId !== undefined) refused(frame.clientMessageId, frame.message);
+    } else if (frame.type === "error" && frame.failed === "scheduled.create" && frame.clientMessageId !== undefined)
+      // One whose time passed on the way is refused as a time out of range, which no one picked.
+      refused(frame.clientMessageId, (kept) => (kept.message.sendAt <= Date.now() ? SCHEDULE_TIME_PASSED : frame.message));
   });
   const isKept = (clientMessageId: string) => restoringOf(userId).some((kept) => kept.clientMessageId === clientMessageId && mine(kept));
-  const refused = (clientMessageId: string, why: string) => {
+  const refused = (clientMessageId: string, why: string | ((kept: Restoring) => string)) => {
     if (!isKept(clientMessageId)) return;
     const kept = takeScheduling(userId, clientMessageId);
-    if (kept) onRefused(kept.message.body, why);
+    if (kept) onRefused(kept.message.body, typeof why === "string" ? why : why(kept));
   };
   useEffect(() => {
     sendKept();
@@ -449,6 +451,13 @@ export function Composer({
     setScheduleRefusal(why);
     writeBack(body);
   });
+  // Being offline is no longer why once the room lets the socket back in.
+  useEffect(
+    () => frames?.listen((frame) => {
+      if (frame.type === "welcome" || frame.type === "resumed") setScheduleRefusal((why) => (why === SCHEDULE_OFFLINE ? null : why));
+    }),
+    [frames],
+  );
   const scheduledHere = scheduled.messages.filter((message) => message.parentId === threadId).map((message) => ({ ...message, text: writtenBody(message.body).plainText }));
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
@@ -459,6 +468,8 @@ export function Composer({
   // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept,
   // but for a message being edited, which isn't a draft, nor typing anything new.
   const wrote = (body: string | null) => {
+    // Why what's written came back goes with it.
+    if (body === null) setScheduleRefusal(null);
     if (heldDraft.current !== undefined) return setBlank(body === null);
     if (body !== null) onTyping(true);
     else if (!wasBlank.current) onTyping(false);
@@ -836,7 +847,9 @@ export function Composer({
                 disabled={false}
                 saves={!!editing}
                 empty={blank && picked.files.length === 0}
-                cannotSchedule={disabled || !!editing || !frames || blank || picked.files.length > 0}
+                cannotSchedule={!!editing || !frames || blank || picked.files.length > 0}
+                offline={disabled}
+                onScheduleOffline={() => setScheduleRefusal(SCHEDULE_OFFLINE)}
                 onSchedule={schedule}
               />
             </div>
