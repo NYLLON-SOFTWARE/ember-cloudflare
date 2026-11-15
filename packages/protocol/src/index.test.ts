@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_CANVAS_CLIENT_ID_LENGTH,
+  MAX_CANVAS_STEPS,
   ASSISTANT_NAME,
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
@@ -114,6 +116,27 @@ import {
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
 /** What a room socket's address with `params` says, as the worker's URLSearchParams reads it. */
 const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null });
+
+describe("Write a canvas together", () => {
+  const step = { stepType: "replace", from: 1, to: 1 };
+  it("takes joining, steps over a version and leaving, from editors that name themselves", () => {
+    expect(parse({ type: "canvas.join", tabId: "t1" })).toEqual({ type: "canvas.join", tabId: "t1" });
+    expect(parse({ type: "canvas.join", tabId: "t1", version: 3 })).toEqual({ type: "canvas.join", tabId: "t1", version: 3 });
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [step] })).toEqual({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [step] });
+    expect(parse({ type: "canvas.leave", tabId: "t1" })).toEqual({ type: "canvas.leave", tabId: "t1" });
+  });
+
+  it("refuses versions that aren't counts, steps that aren't objects, too many or none, and long editor ids", () => {
+    expect(parse({ type: "canvas.join", tabId: "t1", version: -1 })).toBeNull();
+    expect(parse({ type: "canvas.join", tabId: "t1", version: 1.5 })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: ["step"] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: [[step]] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c", steps: Array(MAX_CANVAS_STEPS + 1).fill(step) })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "t1", version: 0, clientId: "c".repeat(MAX_CANVAS_CLIENT_ID_LENGTH + 1), steps: [step] })).toBeNull();
+    expect(parse({ type: "canvas.steps", tabId: "", version: 0, clientId: "c", steps: [step] })).toBeNull();
+  });
+});
 
 describe("Send a message", () => {
   it("accepts a well-formed message, leaving its markup for the room to read", () => {

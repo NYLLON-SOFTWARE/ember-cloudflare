@@ -147,6 +147,23 @@ describe("Unread rooms", () => {
     expect(roomListReducer(read, { type: "marked", roomId: "r1", at: later }).list!.rooms[0]).toEqual(since(room("r1", "Design"), later));
   });
 
+  it("keeps the count the server tells with a mark, until the room's read", () => {
+    const counted = roomListReducer(loaded, { type: "marked", roomId: "r1", at: NOON, count: 1 });
+    expect(counted.list!.rooms[0]).toEqual({ ...since(room("r1", "Design")), unreadCount: 1 });
+    const more = roomListReducer(counted, { type: "marked", roomId: "r1", at: NOON, count: 4 });
+    expect(more.list!.rooms[0]!.unreadCount).toBe(4);
+    // A mark told without a count leaves the one it has.
+    expect(roomListReducer(more, { type: "marked", roomId: "r1", at: NOON }).list!.rooms[0]!.unreadCount).toBe(4);
+    const read = roomListReducer(more, { type: "marked", roomId: "r1", at: null });
+    expect(read.list!.rooms[0]).toEqual(room("r1", "Design"));
+  });
+
+  it("keeps a room's count and mention when it's renamed or its icon changes", () => {
+    const counted = roomListReducer(loaded, { type: "marked", roomId: "r1", at: NOON, count: 3, mentioned: true });
+    const renamed: Room = { id: "r1", kind: "open", name: "Product design", icon: "image" };
+    expect(withRoom(counted.list!.rooms, renamed)[0]).toEqual({ ...since(room("r1", "Product design")), icon: "image", unreadCount: 3, unreadMentioned: true });
+  });
+
   it("marks a room's row unread unless the tab shows the room", () => {
     expect(markedUnread(room("r1", "Design", true), null)).toBe(true);
     expect(markedUnread(room("r1", "Design", true), "r2")).toBe(true);

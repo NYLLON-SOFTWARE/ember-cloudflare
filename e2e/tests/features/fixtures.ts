@@ -122,8 +122,23 @@ export class Member {
     await expect(this.timeline()).not.toHaveAttribute("aria-busy");
   }
 
-  presence(): Locator {
-    return this.page.getByText(/^\d+ here now$/);
+  /** The room header's members button, a person and the room's count of members. */
+  membersButton(): Locator {
+    return this.page.getByRole("button", { name: /^View members, \d+ members?$/ });
+  }
+
+  /** The rows of the people the open members dialog marks here now. */
+  hereNow(): Locator {
+    return this.page.getByRole("dialog").getByRole("list", { name: "Members" }).getByRole("listitem").filter({ hasText: "here now" });
+  }
+
+  /** Opens the room's members from its header, expects `names` there and nobody else, and closes them. */
+  async expectHere(...names: string[]): Promise<void> {
+    await this.membersButton().click();
+    await expect(this.hereNow()).toHaveCount(names.length);
+    for (const name of names) await expect(this.hereNow().filter({ hasText: name })).toHaveCount(1);
+    await this.page.keyboard.press("Escape");
+    await expect(this.page.getByRole("dialog")).toBeHidden();
   }
 
   /** The names of whoever else is typing, above the composer: hidden and empty while nobody is. */
@@ -205,7 +220,9 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
         await beforeOpen?.(page);
         await page.goto(path);
         const member = new Member(page, session);
-        await member.connected();
+        // A room's page waits for its history, and the DMs page, which has no room, for its list.
+        if (path === "/dms") await expect(page.getByRole("region", { name: "Direct messages" })).toBeVisible();
+        else await member.connected();
         return member;
       },
     });

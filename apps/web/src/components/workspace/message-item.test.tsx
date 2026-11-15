@@ -1415,10 +1415,19 @@ describe("Avatars open people's pages", () => {
 
   it("links the author's avatar to their page, titled with their name, and goes there in place", async () => {
     const { article, user } = show(message());
-    const link = within(article).getByRole("link", { name: "Ada" });
+    const [link] = within(article).getAllByRole("link", { name: "Ada" });
     expect(link).toHaveAttribute("href", "/users/u1");
-    expect(link.querySelector("img")).toHaveAttribute("aria-hidden", "true");
-    await user.click(link);
+    expect(link!.querySelector("img")).toHaveAttribute("aria-hidden", "true");
+    await user.click(link!);
+    expect(location.pathname).toBe("/users/u1");
+  });
+
+  it("links the author's name to their page too, as their avatar does", async () => {
+    const { article, user } = show(message());
+    const name = within(within(article).getByRole("heading", { level: 3 })).getByRole("link", { name: "Ada" });
+    expect(name).toHaveAttribute("href", "/users/u1");
+    expect(name).toHaveAttribute("title", "Ada");
+    await user.click(name);
     expect(location.pathname).toBe("/users/u1");
   });
 
