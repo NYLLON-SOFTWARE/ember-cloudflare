@@ -826,6 +826,20 @@ describe("AI agents", () => {
       expect(await shownAgent(administrator, recap.id)).toEqual({ ...recap, avatarUrl: expect.any(String) as string });
       expect(await shownAgent(administrator, juniper.id)).toEqual({ ...juniper, rooms: [{ id: launch.id, name: "Launch" }], avatarUrl: expect.any(String) as string });
     });
+    it("come back in a sub-room they were in only with its parent, as one picked alone isn't joined", async () => {
+      const administrator = await setUp();
+      const [support, launch, sales] = [await createRoom("Support", { as: administrator }), await createRoom("Launch", { as: administrator }), await createRoom("Sales", { as: administrator })];
+      const juniper = await made(administrator, { name: "Juniper", model: GPT, rooms: [support.id, launch.id, sales.id] });
+
+      await turnOff(administrator);
+      // Meanwhile, Support moves under Launch, which Juniper was in, and Sales under Design, which it wasn't.
+      const design = await createRoom("Design", { as: administrator });
+      await changeRoom(administrator, support.id, { parentId: launch.id });
+      await changeRoom(administrator, sales.id, { parentId: design.id });
+
+      await turnOn(administrator);
+      expect(await roomsOf(juniper.id)).toEqual([support.id, launch.id].sort());
+    });
   });
 
   describe("names", () => {

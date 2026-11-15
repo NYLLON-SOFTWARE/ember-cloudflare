@@ -2242,10 +2242,14 @@ const DEACTIVATE_AGENTS = `UPDATE users SET status = ${DEACTIVATED}, updated_at 
 /** Lets every agent back, as turning Ember AI on does, recording when. */
 const ACTIVATE_AGENTS = `UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE status = ${DEACTIVATED} AND id IN (SELECT user_id FROM agents)`;
 
-/** Puts each agent kept to the open rooms picked back in the ones it was in when Ember AI was turned off, of those still open. */
+/**
+ * Puts each agent kept to the open rooms picked back in the ones it was in when Ember AI was turned off,
+ * of those still open, and a sub-room only with its parent, as `GRANT_PICKED_ROOMS` does.
+ */
 const RESTORE_AGENTS_ROOMS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT rooms.id, agents.user_id, ?1, ?1 FROM agents, json_each(agents.kept_rooms) AS kept JOIN rooms ON rooms.id = kept.value
-  WHERE agents.every_open_room = 0 AND ${OPEN_TO_EVERYONE} ON CONFLICT DO NOTHING`;
+  WHERE agents.every_open_room = 0 AND ${OPEN_TO_EVERYONE}
+    AND (rooms.parent_id IS NULL OR rooms.parent_id IN (SELECT value FROM json_each(agents.kept_rooms))) ON CONFLICT DO NOTHING`;
 
 /** Puts each agent that's in every open room in all of them, keeping the memberships it has. */
 const GRANT_OPEN_ROOMS_TO_AGENTS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
