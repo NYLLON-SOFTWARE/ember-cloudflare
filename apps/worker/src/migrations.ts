@@ -61,6 +61,7 @@ import appScopeWanted from "../migrations/0060_app_scope_wanted.sql";
 import ownAppSignIns from "../migrations/0061_own_app_sign_ins.sql";
 import outsideAi from "../migrations/0062_outside_ai.sql";
 import reminders from "../migrations/0067_reminders.sql";
+import reminderPushes from "../migrations/0074_reminder_pushes.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -148,6 +149,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0061_own_app_sign_ins.sql", scope: "workspace", sql: ownAppSignIns },
   { name: "0062_outside_ai.sql", scope: "workspace", sql: outsideAi },
   { name: "0067_reminders.sql", scope: "workspace", sql: reminders },
+  { name: "0074_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
 ];
 
 /**

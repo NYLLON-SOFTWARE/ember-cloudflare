@@ -2626,6 +2626,14 @@ export interface StoredReminderRow {
   remindAt: number;
 }
 
+/** A reminder that has come due and still has something to say or push, with who asked for it. */
+export interface DueReminder {
+  id: string;
+  userId: UserId;
+  /** Whether its tabs haven't heard it yet: the run that marks it told is the one that says it. */
+  untold: boolean;
+}
+
 /** A reminder to queue, as `queueReminder` takes it. */
 export interface StoredReminder extends StoredReminderRow {
   userId: UserId;
@@ -2646,9 +2654,9 @@ const REMINDER_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ?
 /** One reminder by its id, whoever asked for it, which a delivery reads again before it tells it. */
 const REMINDER_BY_ID = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ?`;
 
-/** The reminders that have come due and haven't been told yet, the oldest due first. */
-const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId FROM reminders
-  WHERE reminded_at IS NULL AND remind_at <= ? ORDER BY remind_at, id LIMIT ?`;
+/** The reminders that have come due and still have a notice to say or pushes to try, the oldest due first. */
+const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId, reminded_at IS NULL AS untold FROM reminders
+  WHERE remind_at <= ? AND (reminded_at IS NULL OR pushed_at IS NULL) ORDER BY remind_at, id LIMIT ?`;
 
 /** Whether someone is in a room, which a reminder of a message in it asks. */
 const IN_ROOM = `SELECT 1 FROM memberships WHERE user_id = ? AND room_id = ?`;
@@ -3523,7 +3531,8 @@ export class WorkspaceStore {
     const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (SELECT min(remind_at) FROM reminders WHERE reminded_at IS NULL) AS reminder`,
+        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp,
+        (SELECT min(remind_at) FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder`,
     );
     const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
@@ -4658,14 +4667,28 @@ export class WorkspaceStore {
     return row ?? null;
   }
 
-  /** The reminders that have come due and haven't been told yet, the oldest due first. */
-  async dueReminders(now: number, limit: number): Promise<Array<StoredReminderRow & { userId: UserId }>> {
-    return this.db.all<StoredReminderRow & { userId: UserId }>(DUE_REMINDERS, now, limit);
+  /**
+   * The reminders that have come due and still have a notice to say or pushes to try, the oldest due
+   * first, with who asked for each and whether its tabs haven't heard it yet. The pushes whose day of
+   * tries is past (`pushesUntil`) are given up on first, in the same transaction, so the read asks
+   * after none of them.
+   */
+  async dueReminders(now: number, pushesUntil: number, limit: number): Promise<DueReminder[]> {
+    const results = await this.db.batch([
+      statement(`UPDATE reminders SET pushed_at = ? WHERE pushed_at IS NULL AND reminded_at IS NOT NULL AND remind_at <= ?`, now, pushesUntil),
+      statement(DUE_REMINDERS, now, limit),
+    ]);
+    return (results[1] as Array<StoredReminderRow & { userId: UserId; untold: number }>).map(({ untold, ...reminder }) => ({ ...reminder, untold: untold === 1 }));
   }
 
   /** Says a reminder has been told, answering whether this run is the one that told it. */
   async markReminderTold(id: string, now: number): Promise<boolean> {
     return (await this.db.all(`UPDATE reminders SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL RETURNING id`, now, id)).length > 0;
+  }
+
+  /** Says a reminder's pushes have gone out, or are given up on, answering whether this run settled them. */
+  async markReminderPushed(id: string, now: number): Promise<boolean> {
+    return (await this.db.all(`UPDATE reminders SET pushed_at = ? WHERE id = ? AND pushed_at IS NULL RETURNING id`, now, id)).length > 0;
   }
 
   /** Takes one of someone's reminders away, answering whether there was one to take. */

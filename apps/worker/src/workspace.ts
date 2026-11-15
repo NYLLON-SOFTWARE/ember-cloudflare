@@ -297,9 +297,10 @@ const PROBE_WAIT_MS = 30 * 1000;
 const WAITING_PROBES = 20;
 /**
  * How many requests of its outbox the Workspace delivers in one run of its alarm, at most, revocations
- * first, then purges, then reindexes, then picture deletions, then the reminders due, and how many rooms
- * a change calls before it answers (`closeQueuedSockets`). Each room it calls or push it sends may count
- * as a subrequest, of which an invocation on the Free plan can make 50, its queries included.
+ * first, then purges, then reindexes, then picture deletions, then the reminders due with what's left
+ * of it, their queries counted into it like their pushes, and how many rooms a change calls before it
+ * answers (`closeQueuedSockets`). Each room it calls, push it sends or query it asks may count as a
+ * subrequest, of which an invocation on the Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
 /**
@@ -307,6 +308,8 @@ const DELIVERIES_PER_RUN = 40;
  * to a room that takes longer.
  */
 const CLOSING_SOCKETS_MS = 2_000;
+/** How long the Workspace waits to ask again what the outbox is due, when the asking failed: a minute, since what's due stays due however long the answer takes. */
+const SCHEDULING_RETRY_MS = 60_000;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
 /** How soon from now someone may ask a reminder to come back, at the soonest. */
@@ -317,6 +320,12 @@ export const REMINDER_LATEST_MS = 365 * 24 * 60 * 60 * 1000;
 const REMINDER_EXCERPT_LENGTH = 280;
 /** How many reminders that have come due one run of the alarm tells, at most. */
 const REMINDERS_PER_RUN = 20;
+/**
+ * How long after its time a reminder's pushes are tried again on the runs after its telling, a day: a
+ * browser that was asleep or out of reach comes back within it, and past it the pushes that kept
+ * failing are given up on, since the notice has been sitting in the person's tabs all along.
+ */
+export const REMINDER_PUSH_GRACE_MS = 24 * 60 * 60 * 1000;
 /**
  * How many memberships the alarm checks in a run, at most, asking Memberful's admin API after them all in
  * one request, a query with an alias for each, so that a run's subrequests stay well within the Free plan's.
@@ -3167,32 +3176,54 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Tells every tab of theirs each reminder that has come due and hasn't been told, reading what the
-   * message kept when they asked, and pushes it to their browsers, marking it told only once its pushes
-   * have gone out: a run sends no more pushes than what the rest of the run's deliveries have left of
-   * its budget (`pushes`), leaving a reminder whose pushes don't fit for the next run to tell them all,
-   * and one a push failed for untold, so the next run tells it again whole. Each is read again before
-   * it's told, since a push can wait long enough that the person dismisses the next reminder meanwhile.
-   * What a run that stops in between has said may be said again once, as a revocation's may. Answers how
-   * many it told.
+   * message kept when they asked, and marks it told before saying it, so no run says a reminder twice:
+   * the notice is the telling. Its pushes go to their browsers the same run when they fit, and a run
+   * that doesn't get them out tries again on the runs after, for a day past the reminder's time
+   * (`REMINDER_PUSH_GRACE_MS`), until they've gone out or the day is past and they're given up on —
+   * the notice has reached their tabs all along. What the reminders spend, their queries as much as
+   * their pushes, since both are requests on D1, comes out of `requests`, and a reminder whose pushes
+   * don't fit leaves them, told or not, for the next run. Each is read again before it's told, since a
+   * push can wait long enough that the person dismisses the next reminder meanwhile. Answers how many
+   * it told.
    */
-  private async deliverReminders(limit: number, pushes: number): Promise<number> {
-    const due = await this.store.dueReminders(Date.now(), limit);
+  private async deliverReminders(limit: number, requests: number): Promise<number> {
+    // The read of what's due and one reminder's own, at the least, before anything is worth asking.
+    if (requests < 2) return 0;
+    const now = Date.now();
+    const due = await this.store.dueReminders(now, now - REMINDER_PUSH_GRACE_MS, limit);
+    let left = requests - 1;
     let told = 0;
-    let sent = 0;
-    for (const { id, userId } of due) {
+    for (const { id, userId, untold } of due) {
+      // A reminder is read again and has its subscriptions read, and one not yet told is marked told
+      // and settled: four requests before any push.
+      if (left < (untold ? 4 : 2)) break;
       const reminder = await this.store.reminder(id);
+      left--;
       if (reminder === null) continue;
       const deliveries = await this.store.pushDeliveriesFor(userId, guestSignIn(this.env));
-      if (sent + deliveries.length > pushes) break;
-      this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
+      left--;
+      if (untold) {
+        // Marked told before it's said, so two runs can't both say it.
+        if (!(await this.store.markReminderTold(id, Date.now()))) continue;
+        left--;
+        this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
+        told++;
+      }
+      // Each push is asked after and sent, two requests, and settling them takes one more.
+      if (deliveries.length * 2 + 1 > left) break;
       const { gone, failed } =
         deliveries.length > 0 ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id)) : { gone: [], failed: 0 };
-      if (gone.length > 0) await this.store.forgetPushSubscriptions(gone);
-      sent += deliveries.length;
-      // A push that failed otherwise may still reach its browser, so the reminder waits to be told whole again.
-      if (failed > 0) continue;
-      await this.store.markReminderTold(id, Date.now());
-      told++;
+      left -= deliveries.length * 2;
+      if (gone.length > 0) {
+        await this.store.forgetPushSubscriptions(gone);
+        left--;
+      }
+      // A push that failed otherwise may still reach its browser, so the pushes wait to be tried
+      // again, unless their day past its time is spent and they're given up on.
+      if (failed === 0 || reminder.remindAt <= now - REMINDER_PUSH_GRACE_MS) {
+        await this.store.markReminderPushed(id, Date.now());
+        left--;
+      }
     }
     return told;
   }
@@ -5025,7 +5056,8 @@ export class Workspace extends DurableObject<Env> {
    * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` requests in all, revocations first,
    * then purges, then reindexes, then picture deletions, then the reminders due with what's left, then
    * checks the memberships due, and sets the alarm for whatever is due next, whether the deliveries
-   * before it went out or not: one that fails leaves what it owes due, for the next run.
+   * before it went out or not: a delivery that fails, or a query the run can't get an answer to, leaves
+   * what it owes due for the next run, and the alarm is set all the same.
    */
   override async alarm(): Promise<void> {
     try {
@@ -5203,10 +5235,18 @@ export class Workspace extends DurableObject<Env> {
     await this.scheduleDelivery();
   }
 
-  /** Sets the alarm for the outbox's next delivery due, if any is waiting. */
+  /**
+   * Sets the alarm for the outbox's next delivery due, if any is waiting, or, when the asking failed,
+   * for a minute on: what's due stays due, and the run that asks again then finds it.
+   */
   private async scheduleDelivery(): Promise<void> {
-    const next = await this.store.nextDeliveryDue();
-    if (next !== null) await this.wakeAt(next);
+    try {
+      const next = await this.store.nextDeliveryDue();
+      if (next !== null) await this.wakeAt(next);
+    } catch (error) {
+      console.error("Could not ask what's due next; waking again shortly", error);
+      await this.wakeAt(Date.now() + SCHEDULING_RETRY_MS);
+    }
   }
 
   /**
