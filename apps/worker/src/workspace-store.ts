@@ -903,13 +903,16 @@ const DISCONNECT_IDENTITY = `DELETE FROM identities WHERE user_id = ?1 AND issue
 
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
- * while ?7 says guests can't stay signed in, or the session ?8 names, which showed the link, has ended,
- * is a guest's while ?7 says that, or is neither theirs nor an active administrator's.
+ * while ?7 says guests can't stay signed in and no stay of a guest of one room still holds them at ?9,
+ * or the session ?8 names, which showed the link, has ended, is a guest's while ?7 says that and no
+ * such stay holds its person either, or is neither theirs nor an active administrator's.
  */
 const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE} AND (guest = 0 OR ?7 = 1)
+  SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}
+    AND (guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?9))
     AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
-      WHERE showing.id = ?8 AND shower.status = ${ACTIVE} AND (shower.guest = 0 OR ?7 = 1)
+      WHERE showing.id = ?8 AND shower.status = ${ACTIVE}
+        AND (shower.guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?9))
         AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /**
@@ -960,7 +963,7 @@ const avatarChange = (userId: UserId, avatar: StoredPicture | null, previous: st
  */
 const roomsChange = (agentId: UserId, rooms: RoomId[] | null, now: string): Statement[] =>
   rooms === null
-    ? [statement(`UPDATE agents SET every_open_room = 1 WHERE user_id = ?`, agentId), statement(GRANT_OPEN_ROOMS_TO_USER, agentId, now, now)]
+    ? [statement(`UPDATE agents SET every_open_room = 1 WHERE user_id = ?`, agentId), statement(GRANT_OPEN_ROOMS_TO_USER, agentId, now, now, agentId)]
     : [
         statement(`UPDATE agents SET every_open_room = 0 WHERE user_id = ?`, agentId),
         statement(LEAVE_UNPICKED_ROOMS, agentId, JSON.stringify(rooms)),
@@ -1520,14 +1523,16 @@ const DIRECT_WITH_KEY = `SELECT rooms.id AS room_id, ${ACTIVE_AT}, users.id, use
  * The people the sidebar suggests ?1 start a DM with, before it leaves out as many as their DMs take:
  * the active people with the oldest accounts who share no DM with them, never them. Unlike Campfire's,
  * it suggests no bots, nor @ember and the agents, whose rows among the DMs would look like DMs nobody
- * started. The people in their DMs come from a subquery, and the index on users' age lets it stop at
- * the last one it needs rather than sorting everyone.
+ * started, nor the guests of one room, whom a DM can't take. The people in their DMs come from a
+ * subquery, and the index on users' age lets it stop at the last one it needs rather than sorting
+ * everyone.
  */
 export const SUGGESTED_FOR_USER = `SELECT id, name FROM users
   WHERE status = ${ACTIVE} AND role <> ${BOT} AND id <> ?1 AND id NOT IN (
     SELECT members.user_id FROM memberships AS mine JOIN rooms ON rooms.id = mine.room_id
       JOIN memberships AS members ON members.room_id = mine.room_id
     WHERE mine.user_id = ?1 AND rooms.kind = 'direct')
+    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
   ORDER BY created_at, id LIMIT ${SUGGESTED_PEOPLE - 1}`;
 
 /**
@@ -2388,9 +2393,13 @@ const ROOM_TO_DELETE = `SELECT rooms.kind, ${CAN_ADMINISTER}
 // backends bind at most 100 values a statement. A WHERE clause comes before each ON CONFLICT, which
 // SQLite would otherwise read as part of a join.
 
-/** Puts someone new in every open room. */
+/**
+ * Puts someone new in every open room, unless a stay of a guest of one room holds them, whose rooms
+ * their stay bounds: unbanning or letting back a suspended guest puts them in none.
+ */
 const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT id, ?, ?, ? FROM rooms WHERE kind = 'open' ON CONFLICT DO NOTHING`;
+  SELECT id, ?, ?, ? FROM rooms WHERE kind = 'open' AND ? NOT IN (SELECT user_id FROM guest_stays)
+  ON CONFLICT DO NOTHING`;
 
 /**
  * Puts every active person in an open room, keeping the memberships they already have, and answers whom
@@ -2418,10 +2427,13 @@ const GRANT_FIRST_ROOM = `INSERT INTO memberships (room_id, user_id, created_at,
 const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'open' AND name = ? ORDER BY created_at, id LIMIT 1`;
 
 /**
- * Puts the people a JSON list names in a room, whatever their status, and answers whom it put in.
+ * Puts the people a JSON list names in a room, whatever their status, and answers whom it put in — but
+ * none whom the stay of a guest of one room holds, whose rooms it bounds, whoever picks them.
  */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
+  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?))
+    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
+  ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /** Takes everyone but the people a JSON list names and anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
 export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
@@ -2805,7 +2817,7 @@ export class WorkspaceStore {
       ),
       ...keeping(administrator.avatar),
       ...rooms.flatMap((room) => [statement(INSERT_FIRST_ROOM, room.id, room.name, administrator.id, now), statement(GRANT_FIRST_ROOM, now, now, room.id)]),
-      statement(GRANT_OPEN_ROOMS_TO_USER, administrator.id, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, administrator.id, now, now, administrator.id),
       statement(INSERT_SESSION, sessionId, administrator.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(OPEN_ROOM_NAMED, rooms[0]!.name),
     ]);
@@ -2835,7 +2847,7 @@ export class WorkspaceStore {
       ),
       ...keeping(person.avatar),
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
-      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now, person.id),
       statement(SPEND_EMAIL_LINKS, person.emailAddress),
     ]);
   }
@@ -2861,7 +2873,7 @@ export class WorkspaceStore {
         account.emailAddress,
       ),
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
-      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now, person.id),
       statement(SPEND_EMAIL_LINKS, person.emailAddress),
     ]);
   }
@@ -3121,7 +3133,7 @@ export class WorkspaceStore {
     await this.db.batch([
       statement(`INSERT INTO users (id, name, guest, created_at, updated_at) VALUES (?, ?, 1, ?, ?)`, user.id, user.name, now, now),
       statement(INSERT_SESSION, sessionId, user.id, tokenDigest, client.ip, client.userAgent, now, now, now),
-      statement(GRANT_OPEN_ROOMS_TO_USER, user.id, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, user.id, now, now, user.id),
     ]);
   }
 
@@ -3144,6 +3156,39 @@ export class WorkspaceStore {
     return row ? { roomId: row.room_id, untilAt: row.until_at } : null;
   }
 
+  /** Which of the people `userIds` names the stay of a guest of one room holds, as starting a DM refuses them. */
+  async heldByStays(userIds: UserId[]): Promise<UserId[]> {
+    if (userIds.length === 0) return [];
+    const rows = await this.db.all<{ user_id: UserId }>(
+      `SELECT guest_stays.user_id FROM guest_stays WHERE guest_stays.user_id IN (SELECT value FROM json_each(?))`,
+      JSON.stringify(userIds),
+    );
+    return rows.map((row) => row.user_id);
+  }
+
+  /**
+   * The guests of one room whose stay holds at `now`, whoever else is active, whose rooms `userId` isn't
+   * in, as announcing someone tells everyone but them: what happens outside their room is none of a
+   * guest's to hear, names of people included.
+   */
+  async stayGuestsBeyond(userId: UserId, now: number): Promise<UserId[]> {
+    const rows = await this.db.all<{ user_id: UserId }>(
+      `SELECT guest_stays.user_id FROM guest_stays JOIN users ON users.id = guest_stays.user_id
+       WHERE users.status = ${ACTIVE} AND guest_stays.until_at > ? AND guest_stays.user_id <> ?
+         AND NOT EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = guest_stays.room_id AND memberships.user_id = ?)`,
+      now,
+      userId,
+      userId,
+    );
+    return rows.map((row) => row.user_id);
+  }
+
+  /** The ids of everyone in room `roomId`, as telling a room's people of their own hears them. */
+  async roomMemberIds(roomId: RoomId): Promise<UserId[]> {
+    const rows = await this.db.all<{ user_id: UserId }>(ROOM_MEMBERS, roomId);
+    return rows.map((row) => row.user_id);
+  }
+
   /**
    * The guests of one room who may still sign in by their stay's name: those active whose stays haven't
    * ended yet, with their names, for matching the name the sign-in form gives (`sameName` compares those).
@@ -3158,17 +3203,20 @@ export class WorkspaceStore {
 
   /**
    * Raises the stay of guest `userId` in room `roomId` to end at `untilAt`, answering whether it did:
-   * a stay of someone whose person was removed, banned or suspended stays as it is, since extending it
-   * wouldn't let them back in.
+   * a stay whose time has passed is none to raise, since its name has been another guest's to take
+   * already, and raising it would sign one of them in as the other; and a stay of someone whose person
+   * was removed, banned or suspended stays as it is, since extending it wouldn't let them back in.
    */
-  async extendGuestStay(userId: UserId, roomId: RoomId, untilAt: number): Promise<boolean> {
+  async extendGuestStay(userId: UserId, roomId: RoomId, untilAt: number, now: number): Promise<boolean> {
     const [row] = await this.db.all(
       `UPDATE guest_stays SET until_at = ?3 WHERE user_id = ?1 AND room_id = ?2
+       AND guest_stays.until_at > ?4
        AND EXISTS (SELECT 1 FROM users WHERE users.id = guest_stays.user_id AND users.status = ${ACTIVE})
        RETURNING user_id`,
       userId,
       roomId,
       untilAt,
+      now,
     );
     return row !== undefined;
   }
@@ -3271,8 +3319,9 @@ export class WorkspaceStore {
 
   /**
    * Starts a session for someone who opened a sign-in link for them that the session `shownBy` showed,
-   * unless they're no longer active, or are a guest while `guests` says guests can't stay signed in, or
-   * that session has ended or is neither theirs nor an active administrator's.
+   * unless they're no longer active, or are a guest while `guests` says guests can't stay signed in and
+   * no stay of a guest of one room still holds them, or that session has ended or is neither theirs nor
+   * an active administrator's.
    */
   async startTransferredSession(
     userId: UserId,
@@ -3284,7 +3333,7 @@ export class WorkspaceStore {
     now: string,
   ): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy),
+      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy, Date.parse(now)),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -3410,7 +3459,7 @@ export class WorkspaceStore {
       statement(QUEUE_UNBANNED_ADDRESS_REVOCATIONS, ADDRESS_TAG_PREFIX, reconnect, dueAt, userId),
       statement(`DELETE FROM bans WHERE user_id = ?`, userId),
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status <> ${ACTIVE}`, now, userId),
-      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now, userId),
       // The outbox holds a row only until its room answers, so this reads it all rather than keep an index.
       statement(`UPDATE pending_purges SET lifted_at = ? WHERE user_id = ? AND lifted_at IS NULL`, now, userId),
     ])) as unknown[][];
@@ -3446,7 +3495,7 @@ export class WorkspaceStore {
   async restorePerson(userId: UserId, issuer: string, subject: string, readAt: number, now: string): Promise<void> {
     await this.db.batch([
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status = ${SUSPENDED}`, now, userId),
-      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now, userId),
       statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt),
     ]);
   }
@@ -4020,7 +4069,7 @@ export class WorkspaceStore {
       statement(INSERT_BOT, id, name, token, avatar?.key ?? null, avatar?.variant ?? null, now, now),
       ...keeping(avatar),
       ...(webhookUrl === null ? [] : [statement(SAVE_WEBHOOK, id, webhookUrl, now)]),
-      statement(GRANT_OPEN_ROOMS_TO_USER, id, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, id, now, now, id),
     ]);
   }
 
@@ -4103,7 +4152,7 @@ export class WorkspaceStore {
       statement(INSERT_BOT, id, name, null, avatar?.key ?? null, avatar?.variant ?? null, now, now),
       ...keeping(avatar),
       statement(INSERT_AGENT, id, ...agentColumns(setup), rooms === null ? 1 : 0, createdBy, now),
-      rooms === null ? statement(GRANT_OPEN_ROOMS_TO_USER, id, now, now) : statement(GRANT_PICKED_ROOMS, id, JSON.stringify(rooms), now),
+      rooms === null ? statement(GRANT_OPEN_ROOMS_TO_USER, id, now, now, id) : statement(GRANT_PICKED_ROOMS, id, JSON.stringify(rooms), now),
     ]);
   }
 
@@ -4393,7 +4442,7 @@ export class WorkspaceStore {
     await this.db.batch([
       statement(SET_ASSISTANT, assistantSetting(assistant), now),
       statement(ACTIVATE_ASSISTANT, ASSISTANT_ID, ASSISTANT_NAME, now),
-      statement(GRANT_OPEN_ROOMS_TO_USER, ASSISTANT_ID, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, ASSISTANT_ID, now, now, ASSISTANT_ID),
       // The agents come back as they were when it was turned off, and while it's on, these change nothing.
       statement(ACTIVATE_AGENTS, now),
       statement(RESTORE_AGENTS_ROOMS, now),

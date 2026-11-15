@@ -69,7 +69,8 @@ const settingsOf = (session: Session, roomId: RoomId) =>
 const directoryOf = async (session: Session): Promise<DirectoryUser[]> => ((await (await api("/api/users", { headers: { Cookie: session.cookie } })).json()) as Directory).users;
 
 /** The sidebar `session` is given. */
-const sidebarOf = async (session: Session) => (await (await api("/api/sidebar", { headers: { Cookie: session.cookie } })).json()) as { rooms: Array<{ id: RoomId }> };
+const sidebarOf = async (session: Session) =>
+  (await (await api("/api/sidebar", { headers: { Cookie: session.cookie } })).json()) as { rooms: Array<{ id: RoomId }>; suggestions: Array<{ id: string; name: string }> };
 
 /** Whether room `roomId`'s socket opens for `session`, or how it closes. */
 async function opened(roomId: RoomId, session: Session): Promise<"welcome" | number> {
@@ -288,14 +289,83 @@ describe("One room, and nothing else", () => {
     expect(await opened(quiet.id, guest)).toBe(CloseCode.NotFound);
   });
 
-  it("joins no DM someone else starts with them, whose room their stay doesn't reach", async () => {
+  it("hears no room arrive on their workspace socket when one is made or opens while they listen", async () => {
+    const quiet = await createRoom("Quiet", { closedTo: [host.user.id] });
+    const tab = await openWorkspaceSocket(guest);
+
+    const made = await createRoom("Later");
+    const openedQuiet = await api(`/api/rooms/${quiet.id}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "open" }) });
+    expect(openedQuiet.status, await openedQuiet.clone().text()).toBe(200);
+    // The frames went to the rooms' people, and a guest of one room is neither's: their tab hears nothing.
+    expect(await tab.quiet()).toBe(true);
+
+    const memberships = (await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>;
+    expect(memberships).toEqual([{ room_id: room }]);
+    expect((await sidebarOf(guest)).rooms.map(({ id }) => id)).toEqual([room]);
+    expect(await opened(made.id, guest)).toBe(CloseCode.NotFound);
+    expect(await opened(quiet.id, guest)).toBe(CloseCode.NotFound);
+  });
+
+  it("joins no closed room made with them among its people, or added to them from its settings", async () => {
+    const member = await signIn("Grace");
+    const made = await createRoom("Secret", { closedTo: [host.user.id, member.user.id, guest.user.id] });
+    // Whoever its settings add it to is granted, and a stay holds the guest out of it there too.
+    const changed = await api(`/api/rooms/${made.id}`, {
+      method: "PATCH",
+      headers: { Cookie: host.cookie },
+      body: JSON.stringify({ kind: "closed", memberIds: [host.user.id, member.user.id, guest.user.id] }),
+    });
+    expect(changed.status, await changed.clone().text()).toBe(200);
+
+    const memberships = (await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>;
+    expect(memberships).toEqual([{ room_id: room }]);
+    expect((await sidebarOf(guest)).rooms.map(({ id }) => id)).toEqual([room]);
+    expect(await opened(made.id, guest)).toBe(CloseCode.NotFound);
+  });
+
+  it("gains no open room from being unbanned, whose stay keeps them to their own", async () => {
+    expect(await opened(room, guest)).toBe("welcome");
+    const banned = await api(`/api/users/${guest.user.id}/ban`, { method: "POST", headers: { Cookie: host.cookie } });
+    expect(banned.status, await banned.clone().text()).toBe(200);
+    expect(await signedIn(guest)).toBe(false);
+
+    // Unbanning puts them back as they were, in no open room, though unbanning a member puts them in all of them.
+    const unbanned = await api(`/api/users/${guest.user.id}/ban`, { method: "DELETE", headers: { Cookie: host.cookie } });
+    expect(unbanned.status, await unbanned.clone().text()).toBe(200);
+    const back = await guestSession("Pat");
+    expect(back.user.id).toBe(guest.user.id);
+
+    const memberships = (await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>;
+    expect(memberships).toEqual([{ room_id: room }]);
+    expect((await sidebarOf(back)).rooms.map(({ id }) => id)).toEqual([room]);
+    expect(await opened(other, back)).toBe(CloseCode.NotFound);
+    expect(await opened(room, back)).toBe("welcome");
+  });
+
+  it("is refused to whoever starts a DM with them, with no conversation made without them", async () => {
     const member = await signIn("Grace");
     const started = await api("/api/directs", { method: "POST", headers: { Cookie: member.cookie }, body: JSON.stringify({ userIds: [guest.user.id] }) });
-    expect(started.status, await started.clone().text()).toBe(201);
-    const dm = ((await started.json()) as { room: { id: RoomId } }).room.id;
-    expect((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>).toEqual([{ room_id: room }]);
+    expect(started.status, await started.clone().text()).toBe(422);
+    expect(await started.json()).toEqual({
+      error: "They're a guest of one room, whose stay is the one room they reach, so a direct message with them isn't yours to start",
+    });
+    // Nothing was made: no DM whose only member would be whoever started it, which the guest would never see.
+    expect(((await workspaceSql("SELECT count(*) AS n FROM rooms WHERE kind = 'direct'")) as Array<{ n: number }>)[0]!.n).toBe(0);
+    // Naming them among others for a group DM is refused the same way, before any of it is made.
+    const group = await api("/api/directs", { method: "POST", headers: { Cookie: member.cookie }, body: JSON.stringify({ userIds: [host.user.id, guest.user.id] }) });
+    expect(group.status).toBe(422);
+    expect(((await workspaceSql("SELECT count(*) AS n FROM rooms WHERE kind = 'direct'")) as Array<{ n: number }>)[0]!.n).toBe(0);
     expect((await sidebarOf(guest)).rooms.map(({ id }) => id)).toEqual([room]);
-    expect(await opened(dm, guest)).toBe(CloseCode.NotFound);
+  });
+
+  it("is suggested to nobody their DM could start from, and suggested nobody themselves", async () => {
+    const member = await signIn("Grace");
+    const suggestions = (await sidebarOf(member)).suggestions.map(({ id }) => id);
+    // Whoever a DM could start with is among the suggestions; the guest, whose stay is a DM none of, is not.
+    expect(suggestions).toContain(host.user.id);
+    expect(suggestions).not.toContain(guest.user.id);
+    // Their own sidebar suggests nobody, a DM being none of theirs to start.
+    expect((await sidebarOf(guest)).suggestions).toEqual([]);
   });
 
   it("can't leave the room they were added to", async () => {
@@ -389,9 +459,44 @@ describe("Expiry", () => {
 
     await runAlarm();
     expect(await lapsed()).toBeLessThan(21);
-    // The next run takes what waited, which the alarm was set for as this one ended.
-    await runAlarm();
+    // Each run takes one budget's worth of what waited, which the alarm was set for as it ended, until
+    // none is left.
+    for (let runs = 1; (await lapsed()) < 21 && runs < 10; runs++) await runAlarm();
     expect(await lapsed()).toBe(21);
+  });
+});
+
+describe("What a guest hears of people", () => {
+  it("hears of the people their room holds, and of nobody else's", async () => {
+    const host = await setUp();
+    const mine = await createRoom("Designers", { closedTo: [host.user.id] }).then((created) => created.id);
+    const elsewhere = await createRoom("Lounge", { closedTo: [host.user.id] }).then((created) => created.id);
+    const nia = await addGuest(host, elsewhere, "Nia");
+    await addGuest(host, mine, "Pat");
+    const guest = await guestSession("Pat");
+    const tab = await openWorkspaceSocket(guest);
+    const hostsTab = await openWorkspaceSocket(host);
+
+    // Nia, a guest of another room, is announced to their room's people alone: the host hears of them, the guest doesn't.
+    const niaSession = await guestSession("Nia");
+    const renamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: niaSession.cookie }, body: JSON.stringify({ name: "Nia Doe" }) });
+    expect(renamed.status, await renamed.clone().text()).toBe(200);
+    expect(await tab.quiet()).toBe(true);
+    expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { id: nia.userId, name: "Nia Doe" } });
+
+    // A member of no room of theirs is none of theirs to hear of either: what the host hears of Grace
+    // saying hello is theirs, then her rename, and the guest hears neither.
+    const grace = await signIn("Grace");
+    expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { name: "Grace" } });
+    const graceRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: grace.cookie }, body: JSON.stringify({ name: "Grace Hopper" }) });
+    expect(graceRenamed.status).toBe(200);
+    expect(await tab.quiet()).toBe(true);
+    expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { name: "Grace Hopper" } });
+
+    // Whoever their room holds, they hear of, as its settings list them.
+    const hostRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ name: "Ada King" }) });
+    expect(hostRenamed.status).toBe(200);
+    expect(await tab.next()).toMatchObject({ type: "user.updated", user: { name: "Ada King" } });
   });
 });
 
@@ -419,6 +524,25 @@ describe("Extending and ending a stay", () => {
 
     // The guest carries on, their session untouched by the stay's being longer.
     expect(await signedIn(guest)).toBe(true);
+  });
+
+  it("extends no stay whose time has passed, whose name is free for another guest to take already", async () => {
+    const host = await setUp();
+    const room = await createRoom("Designers", { closedTo: [host.user.id] }).then((created) => created.id);
+    const { userId } = await addGuest(host, room, "Pat");
+    await expire(userId);
+
+    // Extending a passed stay would bring it back under a name another guest may hold already.
+    const until = new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
+    const extended = await api(`/api/rooms/${room}/guests/${userId}`, { method: "PUT", headers: { Cookie: host.cookie }, body: JSON.stringify({ until }) });
+    expect(extended.status).toBe(404);
+    const kept = (await workspaceSql("SELECT until_at FROM guest_stays WHERE user_id = ?", userId)) as Array<{ until_at: number }>;
+    expect(kept[0]!.until_at).toBeLessThan(Date.now());
+    // The name stays free, as a passed stay's is, and the guest taken for it signs in by it.
+    const again = await addGuest(host, room, "Pat");
+    expect(again.name).toBe("Pat");
+    expect(again.userId).not.toBe(userId);
+    expect((await guestSession("Pat")).user.id).toBe(again.userId);
   });
 
   it("ends a guest's stay now: their sessions end, their sockets close, and their row says they were removed", async () => {
@@ -485,6 +609,24 @@ describe("Renaming", () => {
     expect(renamed.status, await renamed.clone().text()).toBe(200);
     expect((await guestSession("Pat Doe")).user.id).toBe(session.user.id);
   });
+
+  it("keeps a guest's renamed name within what signing in with just a name takes", async () => {
+    const host = await setUp();
+    const room = (await createRoom("Designers", { closedTo: [host.user.id] })).id;
+    await addGuest(host, room, "Pat");
+    const session = await guestSession("Pat");
+
+    // A longer one would save, and then neither it nor the old one would sign them back in.
+    const tooLong = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ name: "P".repeat(49) }) });
+    expect(tooLong.status).toBe(422);
+    expect(await tooLong.json()).toEqual({ error: "Your name must be 1 to 48 characters, as signing in with just a name takes it" });
+    expect((await guestSession("Pat")).user.id).toBe(session.user.id);
+
+    // One the sign-in form takes is theirs to rename to.
+    const kept = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ name: "P".repeat(48) }) });
+    expect(kept.status, await kept.clone().text()).toBe(200);
+    expect((await guestSession("P".repeat(48))).user.id).toBe(session.user.id);
+  });
 });
 
 describe("The guests of the open sign-in", () => {
@@ -498,9 +640,34 @@ describe("The guests of the open sign-in", () => {
     expect(rooms.rooms.length).toBeGreaterThan(0);
     expect((await directoryOf(openGuest)).length).toBeGreaterThan(1);
     expect(await api("/api/directs", { method: "POST", headers: { Cookie: openGuest.cookie }, body: JSON.stringify({ userIds: [] }) })).toMatchObject({ status: 201 });
+    // No stay keeps them, so their name is no one's way in, and a long one is theirs to save.
+    expect((await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: openGuest.cookie }, body: JSON.stringify({ name: "D".repeat(60) }) })).status).toBe(200);
 
     // The flag off, their session is refused, as it always was, whatever any stay would say.
     expect((await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/me", { headers: { Cookie: openGuest.cookie } })).status).toBe(401);
+  });
+});
+
+describe("A guest's sign-in link", () => {
+  it("signs their link in while their stay holds, whatever the flag says, and not once it has passed", async () => {
+    const host = await setUp();
+    const room = (await createRoom("Designers", { closedTo: [host.user.id] })).id;
+    const { userId } = await addGuest(host, room, "Pat");
+    const guest = await guestSession("Pat");
+    const page = await api("/api/users/me/profile", { headers: { Cookie: guest.cookie } });
+    expect(page.status).toBe(200);
+    const { transferId } = (await page.json()) as { transferId: string };
+
+    // The link works, though guests can't stay signed in: their stay is their way in while it lasts.
+    const linked = await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/session/transfers", { method: "POST", body: JSON.stringify({ transferId }) });
+    expect(linked.status, await linked.clone().text()).toBe(201);
+    const browser = { user: shown(((await linked.json()) as { user: Me }).user), cookie: cookieOf(linked) };
+    expect(browser.user.id).toBe(userId);
+    expect(await opened(room, browser)).toBe("welcome");
+
+    // The stay passed, the link is no way in, as its page answers with nothing.
+    await expire(userId);
+    expect((await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/session/transfers", { method: "POST", body: JSON.stringify({ transferId }) })).status).toBe(400);
   });
 });
 
