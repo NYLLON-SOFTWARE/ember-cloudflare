@@ -48,7 +48,7 @@ describe("Create an open room", () => {
 
     const response = await newRoomForm(grace);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ people: [ada.user, grace.user] } satisfies NewRoomForm);
+    expect(await response.json()).toEqual({ people: [ada.user, grace.user], parents: [] } satisfies NewRoomForm);
   });
 
   it("asks who's signed in", async () => {
@@ -71,6 +71,8 @@ describe("Room settings page", () => {
         { ...grace.user, member: false },
         { ...linus.user, member: true },
       ],
+      parents: [],
+      subRooms: 0,
     } satisfies RoomSettings);
   });
 
@@ -216,7 +218,7 @@ describe("Leave a private room", () => {
 
     expect((await leave(room.id, grace)).status).toBe(204);
     expect(await membersOf(room.id)).toEqual(ids(ada, linus));
-    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id });
+    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id, lostAccess: true });
     expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
     expect(await linusInRoom.next("presence.left")).toEqual({ type: "presence.left", userId: grace.user.id });
     expect((await post(linusInRoom, "Still here")).body).toBe("Still here");

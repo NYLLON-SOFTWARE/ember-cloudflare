@@ -144,6 +144,8 @@ describe("Who's in a room's huddle, for the rest of the room", () => {
 
     expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id, linus.user.id] })).status).toBe(200);
     expect([await linussTab.next(), await linussTab.next()]).toEqual([{ type: "room.saved", room }, told(room.id, huddle)]);
+    // Put in a private room, he finds it in his Activity.
+    expect(await linussTab.next()).toMatchObject({ type: "activity.added", items: [{ kind: "invitation", roomId: room.id }] });
     expect((await change(room.id, ada, { kind: "open" })).status).toBe(200);
     expect([await gracesTab.next(), await gracesTab.next()]).toEqual([{ type: "room.saved", room: { ...room, kind: "open" } }, told(room.id, huddle)]);
     // Whoever was in the room has heard of its huddle already.

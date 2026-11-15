@@ -1,7 +1,7 @@
-import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message } from "@ember/protocol";
+import { FILE_TOO_LARGE, MAX_FILE_SIZE, sharedFilesPath, uploadPartPath, uploadPreviewPath, uploadsPath, type Message } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { previewOf } from "./previews";
-import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "./uploads";
+import { CONNECTION_LOST, SHARED_FILE_GONE, shareFile, UPLOAD_FAILED, UploadError, uploadFile } from "./uploads";
 
 // jsdom makes no previews (previews.test.ts tests making them), so files have none unless a test gives one.
 vi.mock("./previews", () => ({ previewOf: vi.fn(async () => null) }));
@@ -230,5 +230,30 @@ describe("Upload progress", () => {
     Object.defineProperty(file, "size", { value: MAX_FILE_SIZE + 1 });
     await expect(uploadFile("r1", file, "c1", () => {})).rejects.toThrow(new UploadError(FILE_TOO_LARGE));
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("Files in Ember", () => {
+  const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 9, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+  const failure = (sharing: Promise<Message>) => sharing.then(() => null, (error: unknown) => (error instanceof UploadError ? error.message : error));
+
+  it("has the room copy a file from another, in a thread too, answering the message it posts", async () => {
+    const fetch = vi.fn(async () => Response.json(message, { status: 201 }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await shareFile("r1", { roomId: "r9", file }, "c1", { parentId: "m0", alsoSend: true })).toEqual(message);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(sharedFilesPath("r1"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId: "r9", fileId: "f1", clientMessageId: "c1", parentId: "m0", alsoSend: true }),
+    });
+  });
+
+  it("says a file that's no longer there is gone, and fails otherwise as an upload does", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "File not found or inaccessible" }, { status: 404 })));
+    expect(await failure(shareFile("r1", { roomId: "r9", file }, "c1"))).toBe(SHARED_FILE_GONE);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 500 })));
+    expect(await failure(shareFile("r1", { roomId: "r9", file }, "c1"))).toBe(UPLOAD_FAILED);
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("offline"))));
+    expect(await failure(shareFile("r1", { roomId: "r9", file }, "c1"))).toBe(CONNECTION_LOST);
   });
 });

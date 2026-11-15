@@ -116,7 +116,7 @@ export async function matchesOf(env: Env, hits: SearchHit[]): Promise<SearchMatc
 }
 
 /** The messages `hits` names that are still there: from D1 at once, where every room keeps them, or else from each room once. */
-async function readNow(env: Env, hits: SearchHit[]): Promise<Message[]> {
+export async function readNow(env: Env, hits: SearchHit[]): Promise<Message[]> {
   if (hits.length === 0) return [];
   const db = sharedDb(env);
   if (db) return messagesAnywhereWithIds(db, hits.map(({ messageId }) => messageId), env.SESSION_SECRET);

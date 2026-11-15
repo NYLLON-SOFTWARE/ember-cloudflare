@@ -80,6 +80,32 @@ export class Member {
     return this.message(text).getByRole("group", { name: "Message actions" });
   }
 
+  /** Opens a message's More actions, as a mouse does, from Message options at the end of its bar, and returns it. */
+  async moreActions(text: string): Promise<Locator> {
+    const panel = this.message(text).getByRole("group", { name: "More actions" });
+    // Message options shuts it again where it's open already.
+    if (await panel.isVisible()) return panel;
+    await this.actions(text);
+    await this.message(text).getByRole("button", { name: "Message options" }).click();
+    return panel;
+  }
+
+  /** Opens a message's editor from More actions' Edit message. */
+  async edit(text: string): Promise<void> {
+    await (await this.moreActions(text)).getByRole("button", { name: "Edit message" }).click();
+  }
+
+  /** The dialog Delete message asks in, while it's open. */
+  deleteDialog(): Locator {
+    return this.page.getByRole("alertdialog", { name: "Delete message?" });
+  }
+
+  /** Deletes a message from More actions' Delete message, answering Delete in the dialog that asks first. */
+  async delete(text: string): Promise<void> {
+    await (await this.moreActions(text)).getByRole("button", { name: "Delete message" }).click();
+    await this.deleteDialog().getByRole("button", { name: "Delete", exact: true }).click();
+  }
+
   /**
    * The header's Connecting… or Reconnecting… badge, shown once the room's socket has been down 5 seconds,
    * rather than the bell's status, which says what a press of it did.
@@ -122,8 +148,23 @@ export class Member {
     await expect(this.timeline()).not.toHaveAttribute("aria-busy");
   }
 
-  presence(): Locator {
-    return this.page.getByText(/^\d+ here now$/);
+  /** The room header's members button, a person and the room's count of members. */
+  membersButton(): Locator {
+    return this.page.getByRole("button", { name: /^View members, \d+ members?$/ });
+  }
+
+  /** The rows of the people the open members dialog marks here now. */
+  hereNow(): Locator {
+    return this.page.getByRole("dialog").getByRole("list", { name: "Members" }).getByRole("listitem").filter({ hasText: "here now" });
+  }
+
+  /** Opens the room's members from its header, expects `names` there and nobody else, and closes them. */
+  async expectHere(...names: string[]): Promise<void> {
+    await this.membersButton().click();
+    await expect(this.hereNow()).toHaveCount(names.length);
+    for (const name of names) await expect(this.hereNow().filter({ hasText: name })).toHaveCount(1);
+    await this.page.keyboard.press("Escape");
+    await expect(this.page.getByRole("dialog")).toBeHidden();
   }
 
   /** The names of whoever else is typing, above the composer: hidden and empty while nobody is. */
@@ -205,7 +246,9 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
         await beforeOpen?.(page);
         await page.goto(path);
         const member = new Member(page, session);
-        await member.connected();
+        // A room's page waits for its history, and the DMs page, which has no room, for its list.
+        if (path === "/dms") await expect(page.getByRole("region", { name: "Direct messages" })).toBeVisible();
+        else await member.connected();
         return member;
       },
     });

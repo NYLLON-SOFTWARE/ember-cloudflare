@@ -1,7 +1,7 @@
 import { useContext, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 import type { DirectoryUser, UserId } from "@ember/protocol";
 import { Search, Xmark } from "@/components/icons/iconoir";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { leave, navigate, roomPath, useRoute } from "@/hooks/use-route";
@@ -209,7 +209,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
           ? "Couldn’t load people. Please try again."
           : "Loading people…"
         : options.length > 0
-          ? "Choose one or more people."
+          ? ""
           : shown.length > 0
             ? "Everyone shown is selected."
             : name
@@ -219,6 +219,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
   return (
     <Dialog open={open} onOpenChange={(open) => open || close()}>
       <DialogContent
+        aria-describedby={undefined}
         showCloseButton={false}
         overlayClassName="bg-dialog-backdrop backdrop-blur-[3px]"
         onOpenAutoFocus={(event) => {
@@ -237,10 +238,8 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
       >
         <form onSubmit={submit}>
           <header className="flex items-start justify-between gap-4 px-6 pt-6 pb-5 upto-500px:px-4 upto-500px:py-5">
-            <div>
-              <DialogTitle className="mb-1.5 text-[20px] leading-[1.3] font-bold">New direct message</DialogTitle>
-              <DialogDescription className="text-[13px] leading-normal">Find people by full name. You can also type @name.</DialogDescription>
-            </div>
+            {/* Its field's placeholder says how to find people, so nothing under its title says it again. */}
+            <DialogTitle className="text-[20px] leading-[1.3] font-bold">New direct message</DialogTitle>
             <button type="button" aria-label="Close" onClick={close} className="grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] touch:size-11">
               <Xmark className="size-5" />
             </button>
@@ -285,7 +284,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
             />
           </label>
           <div ref={browse} className="max-h-[min(340px,40dvh)] min-h-[170px] overflow-y-auto overscroll-contain px-4 pt-3.5 pb-5">
-            <p role="status" className="mx-2 mb-2 text-xs text-muted-foreground">
+            <p role="status" className="mx-2 mb-2 text-xs text-muted-foreground empty:mb-0">
               {status}
             </p>
             <div id={listId} role="listbox" aria-label="People" aria-busy={(unloaded && loading === "loading") || undefined}>
@@ -300,7 +299,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
                   onClick={() => pick(person)}
                   className="flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-[9px] px-2 py-2.5 text-start text-foreground hover:bg-hover aria-selected:bg-hover"
                 >
-                  <UserAvatar user={person} />
+                  <UserAvatar user={person} square />
                   <span className="min-w-0 wrap-anywhere">
                     {nameOf(person)}
                     {isAgent(person) && <AgentBadge className="ms-0.5" />}

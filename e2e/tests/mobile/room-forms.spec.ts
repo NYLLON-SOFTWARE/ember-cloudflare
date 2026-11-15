@@ -1,5 +1,5 @@
 import { cookieHeader, ICON_CATALOG_LOADED, signInAs, type TestRoom } from "../../fixtures";
-import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
+import { expect, hasPhoneLayout, SWITCHES, test } from "./fixtures";
 
 // Asking for the test's room keeps every other test's rooms out of the workspace these pages show.
 test.beforeEach(async ({ page, session, room: _ }) => {
@@ -57,11 +57,12 @@ test("the room icon picker fits the phone", async ({ page, room, screenIsFine })
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
-test("asking about unsaved changes opens over the drawer, keeps focus in, and fits the phone", async ({ page, room, screenIsFine }) => {
+test("asking about unsaved changes, as Go Back or the rail leaves the page, keeps focus in, and fits the phone", async ({ page, room, screenIsFine }) => {
   await page.goto(`/rooms/opens/${room.id}/edit`);
   await page.getByRole("textbox", { name: "Room name" }).fill("Phone draft");
-  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open navigation" }).tap();
-  await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).tap();
+  // A phone's settings take the whole screen, with no tab bar, so Go Back leaves them, for Rooms and permissions.
+  if (hasPhoneLayout(page)) await page.getByRole("link", { name: "Go Back" }).tap();
+  else await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).tap();
   const unsaved = page.getByRole("dialog", { name: "Unsaved Changes" });
   await expect(unsaved).toBeVisible();
   for (let step = 0; step < 4; step++) {
@@ -71,6 +72,6 @@ test("asking about unsaved changes opens over the drawer, keeps focus in, and fi
   await screenIsFine();
 
   await unsaved.getByRole("button", { name: "Discard" }).tap();
-  await expect(page).toHaveURL(/\/account\/edit$/);
+  await expect(page).toHaveURL(/\/account\/edit(#channel-settings)?$/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });

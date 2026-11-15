@@ -58,18 +58,19 @@ describe("Room icon picker", () => {
   it("shows the room's icon on the button that opens the picker, named for what the room is for", () => {
     showPicker("coffee");
     expect(screen.getByText("Room icon")).toBeInTheDocument();
-    expect(trigger()).toHaveTextContent("Break RoomChoose from Lucide and Iconoir");
+    // Its name alone, without a line saying where the icons come from.
+    expect(trigger()).toHaveTextContent(/^Break Room$/);
     expect(trigger()).toHaveAttribute("aria-haspopup", "dialog");
     expect(trigger().querySelector('[data-icon="coffee"]')).toBeInTheDocument();
-    expect(screen.getByText("Shown beside this room for everyone in the workspace.")).toBeInTheDocument();
+    expect(screen.queryByText("Shown beside this room for everyone in the workspace.")).not.toBeInTheDocument();
   });
 
   it("credits Iconoir's icons, and says Default hashtag for a room with `#`", () => {
     showPicker("iconoir:regular:building");
-    expect(trigger()).toHaveTextContent("Company Info · IconoirChoose from Lucide and Iconoir");
+    expect(trigger()).toHaveTextContent("Company Info · Iconoir");
     expect(trigger().querySelector('[data-icon="iconoir:regular:building"]')).toBeInTheDocument();
     showPicker(null);
-    expect(screen.getAllByRole("button", { name: "Choose room icon" })[1]).toHaveTextContent("#Default hashtagChoose from Lucide and Iconoir");
+    expect(screen.getAllByRole("button", { name: "Choose room icon" })[1]).toHaveTextContent("#Default hashtag");
   });
 
   it("opens on every icon, as the catalog orders them for rooms, with the room's icon picked and the search box focused", async () => {
