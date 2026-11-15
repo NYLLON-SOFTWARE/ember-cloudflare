@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActivityItem, Me, SidebarRoom } from "@ember/protocol";
 import { Sheet } from "@/components/ui/sheet";
 import { navigate } from "@/hooks/use-route";
+import { dateLabel, timeLabel } from "@/lib/messages";
 import type { ActivityState } from "@/hooks/use-activity";
 import { ActivityPage, type ActivityPlace } from "./activity-page";
 import { ONE_PANE, type PaneStack } from "./split-panes";
@@ -96,6 +97,17 @@ describe("ActivityPage's rows", () => {
     );
   }
   const timeOf = (row: HTMLElement | undefined) => row!.querySelector("time")!;
+
+  it("gives a row under a day's divider its time alone, the date being the divider's, and in the time's title", () => {
+    history.replaceState(null, "", "/activity");
+    onDesktop(null, [reply]);
+    const date = new Date(reply.at);
+    const [divider, row] = screen.getAllByRole("listitem");
+    expect(divider).toHaveTextContent(dateLabel(date));
+    const time = row!.querySelector("time")!;
+    expect(time).toHaveTextContent(new RegExp(`^${timeLabel(date)}$`));
+    expect(time).toHaveAttribute("title", `${dateLabel(date)}, ${timeLabel(date)}`);
+  });
 
   it("darkens the time and place where grey would fall under 4.5:1: on the unread tint, on hover and on the selected row", () => {
     history.replaceState(null, "", "/activity/rooms/random/threads/m1/@m2");

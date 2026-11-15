@@ -544,8 +544,10 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
   const author = reminder ? "Reminder" : names.nameOf(item.actorId);
   const actor = { id: item.actorId, name: author, avatarUrl: people.get(item.actorId)?.avatarUrl };
   const date = new Date(item.at);
+  // The time alone, as the divider above a row older than today says its day.
+  const time = timeLabel(date);
   const sameDay = date.toDateString() === new Date().toDateString();
-  const when = sameDay ? timeLabel(date) : dateLabel(date);
+  const when = sameDay ? time : `${dateLabel(date)}, ${time}`;
   const markLabel = item.read ? "Mark unread" : "Mark read";
   const toggle = () => onMark(!item.read);
 
@@ -625,8 +627,8 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline touch:pointer-events-none", item.read ? "font-medium" : "font-bold")}>
             {author}
           </PageLink>
-          <time dateTime={item.at} className={cn("shrink-0 text-xs", metaTone(item.read))}>
-            {when}
+          <time dateTime={item.at} title={when} className={cn("shrink-0 text-xs", metaTone(item.read))}>
+            {time}
           </time>
         </div>
         <button
