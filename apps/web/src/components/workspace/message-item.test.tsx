@@ -818,7 +818,7 @@ describe("More actions on a message", () => {
     withMouse();
     const { article, user } = show(message(), { me: grace });
     await openMoreActions(user, article);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Save"]);
   });
 
   it("copies the message's text, or its address, turning the item green and leaving the actions open", async () => {

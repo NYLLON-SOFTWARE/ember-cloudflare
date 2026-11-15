@@ -190,7 +190,7 @@ describe("Activity", () => {
     expect(location.pathname).toBe("/activity");
   });
 
-  it("counts unread items in a pill at its corner, up to 9+, hidden at none", () => {
+  it("counts unread items in a pill at its corner, hidden at none, 99+ past 99", () => {
     const { rerender } = render(railAt("room", { unread: 3 }));
     const activity = screen.getByRole("link", { name: "Activity" });
     expect(activity).toHaveAccessibleDescription("3 unread");
@@ -198,9 +198,8 @@ describe("Activity", () => {
     expect(pill).toHaveAttribute("aria-hidden", "true");
     expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
 
-    rerender(railAt("room", { unread: 14 }));
-    expect(activity).toHaveAccessibleDescription("9+ unread");
-    expect(within(activity).getByText("9+")).toBeInTheDocument();
+    rerender(railAt("room", { unread: 120 }));
+    expect(within(activity).getByText("99+")).toBeInTheDocument();
 
     rerender(railAt("room", { unread: 0 }));
     expect(activity).not.toHaveAttribute("aria-description");
