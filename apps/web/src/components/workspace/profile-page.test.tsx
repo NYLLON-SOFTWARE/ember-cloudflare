@@ -1178,6 +1178,18 @@ describe("The workspace's fields on your profile", () => {
   });
 });
 describe("Your mood", () => {
+  it("fills the Emoji from the picker, which offers the mood's emojis by name", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: "Pick the mood's emoji" }));
+    await user.click(screen.getByRole("option", { name: "Rocket" }));
+    expect(field("Emoji")).toHaveValue("🚀");
+    // The picker closes once one is picked, and any emoji can still be typed over it.
+    expect(screen.queryByRole("option", { name: "Rocket" })).not.toBeInTheDocument();
+    await user.type(field("Emoji"), "🥳");
+    expect(field("Emoji")).toHaveValue("🚀🥳");
+  });
+
   it("wears an emoji and a few words beside your name, until the Clear-at menu says, with the notice ✓", async () => {
     const { onFailed, user } = showPage();
     await loaded();

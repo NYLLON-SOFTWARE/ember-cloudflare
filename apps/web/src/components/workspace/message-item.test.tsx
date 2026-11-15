@@ -966,7 +966,7 @@ describe("More actions on a message", () => {
       withMouse();
       const { actions, article, user } = show(message({ creator: grace }), { administrator: true, pinnedIds: new Set<string>() });
       await openMoreActions(user, article);
-      expect(items()).toEqual(["Pin to room", "Quote", "Copy text", "Copy link", "Edit message", "Delete message"]);
+      expect(items()).toEqual(["Pin to room", "Quote", "Copy text", "Copy link", "Remind me…", "Edit message", "Delete message"]);
       await user.click(within(moreActions()).getByRole("button", { name: "Pin to room" }));
       expect(actions.pin).toHaveBeenCalledWith("m1");
       cleanup();
@@ -1241,6 +1241,16 @@ describe("Custom reactions", () => {
     await pressAction(user, "More reactions");
     await user.click(screen.getByRole("button", { name: "New boost" }));
   }
+
+  it("fills a custom reaction from the picker, which offers the reactions by name", async () => {
+    const { actions, user } = show(message());
+    await newBoost(user);
+    await user.click(screen.getByRole("button", { name: "Pick a reaction" }));
+    await user.click(screen.getByRole("option", { name: "Party popper" }));
+    expect(customField()).toHaveValue("🎉");
+    await user.keyboard("{Enter}");
+    expect(actions.boost).toHaveBeenCalledWith("m1", "🎉");
+  });
 
   it("adds a reaction of your own from New boost's form, then hands focus to Message options", async () => {
     const { actions, user } = show(message());

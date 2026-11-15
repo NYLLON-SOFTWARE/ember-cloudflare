@@ -1,5 +1,5 @@
 import { useContext, useId, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
+import { MAX_BOOST_LENGTH, REACTIONS, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { ArrowUp, Emoji, Minus, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -7,6 +7,7 @@ import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { pressedAlone } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
+import { EmojiPicker } from "./emoji-picker";
 import type { MessageActions } from "./message-item";
 import { AvatarLink, UserAvatar } from "./user-avatar";
 
@@ -226,6 +227,18 @@ function CustomReaction({ me, fieldRef, onAdd, onCancel }: { me: Me; fieldRef?: 
           className="block min-w-[5ch] field-sizing-content bg-transparent text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground touch:text-base"
         />
       </label>
+      <EmojiPicker
+        emojis={REACTIONS}
+        onPick={(emoji) => {
+          setContent(emoji);
+          if (typeof fieldRef === "function") {
+            (document.querySelector('input[aria-label="Custom reaction"]') as HTMLInputElement | null)?.focus();
+          } else {
+            fieldRef?.current?.focus();
+          }
+        }}
+        label="Pick a reaction"
+      />
       <span id={hint} hidden>
         Up to 16 characters.
       </span>

@@ -2667,8 +2667,6 @@ const PROFILE_FIELDS = {
   pushSubscriptionEndpoint: "Push subscription endpoint",
 } as const satisfies Record<Exclude<keyof ProfileChanges, "fieldValues" | "mood">, string>;
 
-} as const satisfies Record<Exclude<keyof ProfileChanges, "mood">, string>;
-
 /**
  * Parses an untrusted mood someone wears beside their name. Returns why it's refused instead. The emoji
  * and the words are both wanted: a mood without either is none, which taking it off is for. The clear
