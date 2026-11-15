@@ -6,7 +6,7 @@ import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
-import { preloadRarePages, RarePage, useOpenedRarePage } from "./rare-pages";
+import { preloadRarePages, RarePage } from "./rare-pages";
 import { ScheduleMenu } from "./schedule-send";
 
 // The buttons of the composer's bottom row, each a piece of its own, so a layout can place them as it
@@ -20,7 +20,7 @@ import { ScheduleMenu } from "./schedule-send";
 export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }: { disabled: boolean; onUpload: () => void; onFilesInEmber: () => void; onReturnFocus: () => void }) {
   const phone = usePhoneLayout();
   const [open, setOpen] = useState(false);
-  const [opened, failed] = useOpenedRarePage(open, () => setOpen(false));
+  const [opened, failed] = [open, () => setOpen(false)] as const;
   // Whether one of its actions was chosen, which goes on from there, so the text doesn't take focus back,
   // raising the keyboard over the file picker or Files in Ember.
   const chose = useRef(false);
@@ -103,7 +103,7 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
 export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disabled?: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
   const [open, setOpen] = useState(false);
   // Shut, saying so, where its code couldn't load.
-  const [opened, failed] = useOpenedRarePage(open, () => setOpen(false));
+  const [opened, failed] = [open, () => setOpen(false)] as const;
   const phone = usePhoneLayout();
   const columns = useSheetColumns();
   const button = (props: ComponentProps<"button">) => (

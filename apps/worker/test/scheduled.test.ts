@@ -1,4 +1,5 @@
 import { latestScheduleTime, type RoomId } from "@ember/protocol";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MESSAGE_GONE, SCHEDULED_AUTHOR_GONE, SCHEDULED_THREAD_GONE } from "../src/chat-room";
 import { connect, freshDeploy, freshRoom, post, roomSql, roomStub, settle, workspaceSql, type Socket } from "./support";

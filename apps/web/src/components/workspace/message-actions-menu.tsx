@@ -47,7 +47,7 @@ import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
 import { UNKNOWN_PERSON } from "./message-body";
-import { RarePage, useOpenedRarePage } from "./rare-pages";
+import { RarePage } from "./rare-pages";
 
 /** With a mouse, the bar overlaps its message. */
 export const OVERLAPPING = "(hover: hover) and (pointer: fine)";
@@ -243,7 +243,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // On a touch screen whose timeline can't hold the bar and enough of the tray to use, as a phone's held
   // sideways, More reactions opens the reactions sheet a phone's Add reaction does instead, over everything.
   const [reactionSheetOpen, setReactionSheetOpen] = useState(false);
-  const [reactionSheetShown, reactionSheetFailed] = useOpenedRarePage(reactionSheetOpen, () => setReactionSheetOpen(false));
+  const [reactionSheetShown, reactionSheetFailed] = [reactionSheetOpen, () => setReactionSheetOpen(false)] as const;
   const trayTooShort = () => {
     const timeline = row.current?.closest('[role="log"]')?.getBoundingClientRect();
     if (!timeline?.height) return false;

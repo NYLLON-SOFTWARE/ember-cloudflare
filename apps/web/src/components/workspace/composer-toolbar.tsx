@@ -3,9 +3,18 @@ import { MoreHoriz, NavArrowDown } from "@/components/icons/iconoir";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { appleKeyboard } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
-import { TEXT_BUTTON, TOOL, TOOL_ICON } from "./composer-buttons";
+import { TEXT_BUTTON } from "./composer-buttons";
 import { BLOCKS, isActive, isDisabled, linkAddress, TOOL_GROUPS, type Block, type Format, type Formats, type Tool } from "./formatting";
 import { PopoverMenu } from "./popover-menu";
+
+/**
+ * A toolbar button, as Slack's: a 28px square, or a fingertip's 44px on touch screens, that's tinted while
+ * its format is on at the cursor and faded while it can't be used there. It keeps focus in the text, so a
+ * phone's keyboard stays up.
+ */
+const TOOL =
+  "flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-muted-foreground touch:size-11 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground aria-pressed:bg-hover aria-pressed:text-foreground disabled:pointer-events-none disabled:opacity-35";
+const TOOL_ICON = "composer-tool-icon size-[18px]";
 
 /** Iconoir's icon for each button, painted from its file (rich-text-editor.css). */
 function ToolIcon({ tool }: { tool: Tool }) {
