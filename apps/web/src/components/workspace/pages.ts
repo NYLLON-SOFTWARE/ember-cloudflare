@@ -42,6 +42,7 @@ export { TimeDialog } from "./time-dialog";
 export { EmailSignUpPage } from "../email-sign-up-page";
 export { InvitationPage } from "../invitation-page";
 export { JoinPage } from "../join-page";
+export { OutsideConnectPage } from "../outside-connect-page";
 export { PasswordResetPage } from "../password-reset-page";
 export { SetupPage } from "../setup-page";
 export { GuestSignIn } from "../guest-sign-in";

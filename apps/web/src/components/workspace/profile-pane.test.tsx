@@ -4,7 +4,8 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me, Person } from "@ember/protocol";
 import { useShowPresence } from "@/hooks/use-shown-presence";
-import { opensProfile, personOfLink, ProfilePanel, type ProfilePane } from "./profile-pane";
+import { opensProfile, personOfLink, type ProfilePane } from "./profile-pane";
+import { ProfilePanel } from "./profile-panel";
 
 const linkTo = (href: string, attributes: Record<string, string> = {}) => {
   const link = document.createElement("a");

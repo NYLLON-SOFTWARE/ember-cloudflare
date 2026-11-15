@@ -2,8 +2,10 @@ import type { DirectoryUser, Me, Room, RoomSettings, SharedRoom } from "@ember/p
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
-import { MembersButton, MembersPage } from "./room-members";
+import { MembersPage } from "./members-dialog";
+import { MembersButton } from "./room-members";
 import { loadRarePages } from "./rare-pages";
 
 // What opens here loads with the pages few visits need, which take a while to import in a test.
@@ -179,7 +181,9 @@ describe("Members", () => {
     const back = vi.fn();
     render(
       <PeopleContext value={people}>
-        <MembersPage room={plans} me={ada} present={[grace]} onBack={back} onFailed={vi.fn()} />
+        <Sheet>
+          <MembersPage room={plans} me={ada} present={[grace]} onBack={back} onFailed={vi.fn()} />
+        </Sheet>
       </PeopleContext>,
     );
     expect(await screen.findByText("2 members")).toBeInTheDocument();
