@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
+import { answerConfirm } from "../../fixtures";
 import { expect, startDirect, test } from "./fixtures";
 
 /** A word in no other test's messages or searches, since every test shares the server and its open rooms. */
@@ -184,17 +185,11 @@ test.describe("Recent searches", () => {
     await expect(grace.page.getByRole("region", { name: "Recent searches" })).toBeHidden();
 
     const clear = recent.getByRole("button", { name: "Clear recent searches" });
-    ada.page.once("dialog", (dialog) => void dialog.dismiss());
     await clear.click();
+    await answerConfirm(ada.page, "Are you sure you want to clear your recent searches?", "Cancel");
     await expect(recent.getByRole("link")).toHaveCount(2);
-    const asked = new Promise<string>((resolve) =>
-      ada.page.once("dialog", (dialog) => {
-        resolve(dialog.message());
-        void dialog.accept();
-      }),
-    );
     await clear.click();
-    expect(await asked).toBe("Are you sure you want to clear your recent searches?");
+    await answerConfirm(ada.page, "Are you sure you want to clear your recent searches?", "Clear");
     await expect(ada.page).toHaveURL("/searches");
     await expect(recent).toBeHidden();
     await ada.page.reload();

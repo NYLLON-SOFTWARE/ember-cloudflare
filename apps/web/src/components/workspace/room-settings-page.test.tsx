@@ -1,11 +1,12 @@
 import type { Room, RoomSettings } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
+import { answerConfirm } from "@/test-confirm";
 import { CONFIRM_DELETE, CONFIRM_LEAVE, RoomSettingsPage } from "./room-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
@@ -18,6 +19,8 @@ const openSettings = (canAdminister = true): RoomSettings => ({
   room: design,
   canAdminister,
   people: [ada, grace, linus].map((person) => ({ ...person, member: true })),
+  parents: [],
+  subRooms: 0,
 });
 const closedSettings: RoomSettings = {
   room: leads,
@@ -27,6 +30,8 @@ const closedSettings: RoomSettings = {
     { ...grace, member: false },
     { ...linus, member: true },
   ],
+  parents: [],
+  subRooms: 0,
 };
 
 /** Answers `settings` for the page, then `saved` (or `refusal`) for a change. */
@@ -92,7 +97,7 @@ describe("Room settings page", () => {
     expect(await roomName()).toHaveValue("Design");
     expect(document.title).toBe("Edit settings for Design");
     expect(screen.getByRole("heading", { level: 1, name: "Room settings" })).toBeInTheDocument();
-    expect(screen.getByText("Manage the room name, access, and members.")).toBeInTheDocument();
+    expect(screen.queryByText("Manage the room name, access, and members.")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");
   });
 
@@ -382,7 +387,11 @@ describe("Who can change a room", () => {
 
 describe("Delete a room", () => {
   const deleteButton = () => screen.findByRole("button", { name: "Delete Design" });
-  const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
+  /** Presses Delete and answers what it asks with Delete, or else Cancel. */
+  const pressDelete = async (user: UserEvent, confirm = true) => {
+    await user.click(await deleteButton());
+    await answerConfirm(user, CONFIRM_DELETE, confirm ? "Delete" : "Cancel");
+  };
   const deleted = () => new Response(null, { status: 204 });
 
   it("offers Delete under the settings, with the trash can and the room's name", async () => {
@@ -395,11 +404,11 @@ describe("Delete a room", () => {
   });
 
   it("deletes the room once you confirm, taking it out of the sidebar and going home", async () => {
-    const confirm = confirmed(true);
+    const confirm = vi.spyOn(window, "confirm");
     const answer = holdChange(openSettings(), "DELETE");
     const { onLeft, onMissing, user } = showPage(design);
-    await user.click(await deleteButton());
-    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_DELETE);
+    await pressDelete(user);
+    expect(confirm).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls.at(-1)).toEqual(["/api/rooms/design", expect.objectContaining({ method: "DELETE" })]);
     // Neither button can be pressed again until it answers.
     expect(await deleteButton()).toBeDisabled();
@@ -412,10 +421,9 @@ describe("Delete a room", () => {
   });
 
   it("deletes nothing unless you confirm", async () => {
-    confirmed(false);
     serve(openSettings());
     const { onLeft, user } = showPage(design);
-    await user.click(await deleteButton());
+    await pressDelete(user, false);
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     expect(onLeft).not.toHaveBeenCalled();
     expect(await deleteButton()).toBeEnabled();
@@ -429,20 +437,18 @@ describe("Delete a room", () => {
   });
 
   it("goes home with the alert when the room's already gone", async () => {
-    confirmed(true);
     const answer = holdChange(openSettings(), "DELETE");
     const { onLeft, onMissing, user } = showPage(design);
-    await user.click(await deleteButton());
+    await pressDelete(user);
     await answer(Response.json({ error: "Room not found or inaccessible" }, { status: 404 }));
     expect(onMissing).toHaveBeenCalledOnce();
     expect(onLeft).not.toHaveBeenCalled();
   });
 
   it("says why the room wasn't deleted, and lets you try again", async () => {
-    confirmed(true);
     const answer = holdChange(openSettings(), "DELETE");
     const { onFailed, onLeft, user } = showPage(design);
-    await user.click(await deleteButton());
+    await pressDelete(user);
     await answer(Response.json({ error: "Only administrators and the room's creator can delete it" }, { status: 403 }));
     expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 403 }));
     expect(onLeft).not.toHaveBeenCalled();
@@ -451,10 +457,9 @@ describe("Delete a room", () => {
   });
 
   it("takes the room out of the sidebar when the answer comes after the page was left, staying where you are", async () => {
-    confirmed(true);
     const answer = holdChange(openSettings(), "DELETE");
     const { onLeft, user, unmount } = showPage(design);
-    await user.click(await deleteButton());
+    await pressDelete(user);
     unmount();
     history.replaceState(null, "", "/rooms/random");
     await answer(deleted());
@@ -465,7 +470,11 @@ describe("Delete a room", () => {
 
 describe("Leave a private room", () => {
   const leaveButton = () => screen.findByRole("button", { name: "Leave Leads" });
-  const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
+  /** Presses Leave and answers what it asks with Leave, or else Cancel. */
+  const pressLeave = async (user: UserEvent, confirm = true) => {
+    await user.click(await leaveButton());
+    await answerConfirm(user, CONFIRM_LEAVE, confirm ? "Leave" : "Cancel");
+  };
   const asMember: RoomSettings = { ...closedSettings, canAdminister: false };
 
   it("offers Leave to someone in a private room they can't change, in its own panel", async () => {
@@ -477,11 +486,11 @@ describe("Leave a private room", () => {
   });
 
   it("leaves once you confirm, taking the room out of the sidebar and going home", async () => {
-    const confirm = confirmed(true);
+    const confirm = vi.spyOn(window, "confirm");
     const answer = holdChange(asMember, "DELETE");
     const { onLeft, onMissing, user } = showPage(leads);
-    await user.click(await leaveButton());
-    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_LEAVE);
+    await pressLeave(user);
+    expect(confirm).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls.at(-1)).toEqual(["/api/rooms/leads/membership", expect.objectContaining({ method: "DELETE" })]);
     expect(await leaveButton()).toBeDisabled();
 
@@ -492,20 +501,18 @@ describe("Leave a private room", () => {
   });
 
   it("leaves nothing unless you confirm", async () => {
-    confirmed(false);
     serve(asMember);
     const { onLeft, user } = showPage(leads);
-    await user.click(await leaveButton());
+    await pressLeave(user, false);
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     expect(onLeft).not.toHaveBeenCalled();
     expect(await leaveButton()).toBeEnabled();
   });
 
   it("says why the room wasn't left, and lets you try again", async () => {
-    confirmed(true);
     const answer = holdChange(asMember, "DELETE");
     const { onLeft, onFailed, user } = showPage(leads);
-    await user.click(await leaveButton());
+    await pressLeave(user);
     await answer(Response.json({ error: "Nobody else could open this room, so you can't leave it" }, { status: 403 }));
     expect(onFailed).toHaveBeenCalledOnce();
     expect(onLeft).not.toHaveBeenCalled();
@@ -637,13 +644,61 @@ describe("Unsaved changes guard", () => {
   });
 
   it("doesn't ask when the room's deleted, which Delete asks about itself", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const answer = holdChange(openSettings(), "DELETE");
     const { user } = showPage(design);
     await user.type(await roomName(), " team");
     await user.click(screen.getByRole("button", { name: "Delete Design" }));
+    await answerConfirm(user, CONFIRM_DELETE, "Delete");
+    // Sent, which the page shows before the answer comes, as it would in a browser.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete Design" })).toBeDisabled());
     await answer(new Response(null, { status: 204 }));
     expect(location.pathname).toBe("/");
     expect(asking()).not.toBeInTheDocument();
+  });
+});
+
+describe("Parent room", () => {
+  const strata = { id: "strata", name: "Strata", icon: null, everyone: false, memberIds: [ada.id] };
+  const parentPicker = () => screen.getByRole("button", { name: "Parent room" });
+  /** Picks `name` from the Parent room's menu. */
+  const pick = async (user: ReturnType<typeof showPage>["user"], name: string) => {
+    await user.click(parentPicker());
+    await user.click(await screen.findByRole("menuitemradio", { name }));
+  };
+
+  it("moves a room under a parent, offering only its people, once you confirm whom it takes out", async () => {
+    serve({ ...openSettings(), parents: [strata] }, { saved: { ...design, parent: { id: "strata", name: "Strata" } } });
+    const confirm = vi.spyOn(window, "confirm");
+    const { user } = showPage(design);
+    await roomName();
+    expect(parentPicker()).toHaveTextContent("None (a room of its own)");
+
+    await pick(user, "Strata");
+    expect(parentPicker()).toHaveTextContent("Strata");
+    const warning = "Moving this room under Strata removes Grace Hopper and Linus Torvalds, who aren’t in Strata.";
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(names()).toEqual(["Everyone in Strata", "Ada Lovelace"]);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await answerConfirm(user, `${warning} Save anyway?`, "Save");
+    expect(sent()).toEqual({ name: "Design", icon: "", kind: "open", parentId: "strata" });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("saves nothing unless you confirm", async () => {
+    serve({ ...openSettings(), parents: [strata] });
+    const { user } = showPage(design);
+    await roomName();
+    await pick(user, "Strata");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await answerConfirm(user, "Moving this room under Strata removes Grace Hopper and Linus Torvalds, who aren’t in Strata. Save anyway?", "Cancel");
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  });
+
+  it("keeps a room with sub-rooms a room of its own", async () => {
+    serve({ ...openSettings(), subRooms: 2 });
+    showPage(design);
+    await roomName();
+    expect(parentPicker()).toBeDisabled();
+    expect(screen.getByText("A room with sub-rooms can’t go under another room.")).toBeInTheDocument();
   });
 });

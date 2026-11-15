@@ -5,6 +5,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, inviteByEmail, isSignedOut, resendInvitation, revokeInvitation } from "@/lib/api";
 import { dateLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 
 // The Invite by email card in Membership, for administrators, whichever ways to join are on: email
@@ -218,6 +219,7 @@ interface PendingProps {
 function PendingInvitation({ invitation, link, emails, sending, onSentAgain, onGone, onFailed }: PendingProps) {
   const [busy, setBusy] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   const { id, emailAddress, invitedBy, expiresAt, delivery } = invitation;
   const expired = Date.parse(expiresAt) <= Date.now();
 
@@ -260,13 +262,14 @@ function PendingInvitation({ invitation, link, emails, sending, onSentAgain, onG
         <button
           type="button"
           disabled={busy || sending}
-          onClick={() => confirm(CONFIRM_REVOKE) && ask(() => revokeInvitation(id), () => onGone(id))}
+          onClick={async () => (await confirmFirst(CONFIRM_REVOKE, { confirm: "Revoke", destructive: true })) && ask(() => revokeInvitation(id), () => onGone(id))}
           aria-label={`Revoke the invitation for ${emailAddress}`}
           className={BUTTON}
         >
           Revoke
         </button>
       </div>
+      {confirmation}
     </li>
   );
 }

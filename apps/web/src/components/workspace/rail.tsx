@@ -2,18 +2,24 @@ import { useContext, type MouseEvent } from "react";
 import type { Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { ACTIVITY_PATH, DMS_PATH, PROFILE_PATH, SEARCHES_PATH, TODOS_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { unreadBadge } from "@/lib/unread-badge";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
+import { FilesRailLink } from "./files-rail-link";
 import { NavigationIcon } from "./navigation-icon";
-import { opensNewDirect } from "./new-direct-dialog";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { UserAvatar } from "./user-avatar";
+import { preloadRarePages } from "./rare-pages";
 
 const RAIL_LINK = cn(
   "relative flex size-14 shrink-0 flex-col items-center justify-center gap-[5px] rounded-[10px] px-[3px] py-1.5 text-[11px] text-muted-foreground",
   "hover:bg-hover hover:text-foreground aria-[current=page]:bg-hover aria-[current=page]:text-foreground",
 );
+
+/** The ink pill at a rail item's corner that counts what's unread there, as Activity's does. */
+const COUNT_BADGE =
+  "absolute top-px right-[5px] inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-[12px] border-2 border-surface bg-foreground px-[3px] text-[10px] leading-none font-semibold text-background";
 
 interface RailLinkProps {
   slot: NavigationSlot;
@@ -22,62 +28,71 @@ interface RailLinkProps {
   current: boolean;
   /** What a dot at the icon's corner says is waiting there, said to screen readers as a description. */
   notice?: string;
+  /** How many are unread there, counted in a pill at the icon's corner up to 9+, hidden at none. */
+  unread?: number;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }
 
-/** One of the rail's links, marked when it's the page shown, with a dot in ink when something's waiting there. */
-function RailLink({ slot, label, href, current, notice, onClick }: RailLinkProps) {
+/**
+ * One of the rail's links, marked when it's the page shown, with a dot in ink when something's waiting
+ * there, or a count of what's unread, said to screen readers as a description, as Activity's is.
+ */
+function RailLink({ slot, label, href, current, notice, unread = 0, onClick }: RailLinkProps) {
+  const description = unread > 0 ? `${unreadBadge(unread)} unread` : notice;
   return (
-    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={notice} onClick={onClick} className={RAIL_LINK}>
+    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={description} onClick={onClick} className={RAIL_LINK}>
       <NavigationIcon slot={slot} size={22} className="size-[22px]" />
       <span>{label}</span>
-      {notice && <span aria-hidden="true" className="absolute top-[5px] right-[13px] size-[11px] rounded-full border-2 border-surface bg-foreground" />}
+      {unread > 0 ? (
+        <span aria-hidden="true" className={COUNT_BADGE}>
+          {unreadBadge(unread)}
+        </span>
+      ) : (
+        notice && <span aria-hidden="true" className="absolute top-[5px] right-[13px] size-[11px] rounded-full border-2 border-surface bg-foreground" />
+      )}
     </PageLink>
   );
 }
 
-/** The Activity filter: whether it's on, and how many conversations are unread. */
+/** Activity, as the rail shows it: how many of its items are unread. */
 export interface Activity {
-  on: boolean;
   unread: number;
-  onToggle: () => void;
 }
 
 /**
- * Activity, which shows only unread conversations while it's pressed, with how many there are in an ink
- * pill at its corner, hidden at none. The count is said to screen readers as a description, so the
- * button's name stays "Activity".
+ * Activity, the page of what's happened to you, with how many of its items are unread in an ink pill at
+ * its corner, hidden at none, "99+" past 99. The count is said to screen readers as a description, so the
+ * link's name stays "Activity".
  */
-function ActivityButton({ on, unread, onToggle }: Activity) {
+function ActivityLink({ unread, current }: Activity & { current: boolean }) {
   return (
-    <button
-      type="button"
-      aria-pressed={on}
-      aria-description={unread > 0 ? `${unread} unread` : undefined}
-      title="Show unread conversations"
-      onClick={onToggle}
-      className={cn(RAIL_LINK, "aria-pressed:bg-hover aria-pressed:text-foreground")}
+    <PageLink
+      href={ACTIVITY_PATH}
+      aria-current={current ? "page" : undefined}
+      aria-description={unread > 0 ? `${unreadBadge(unread)} unread` : undefined}
+      className={RAIL_LINK}
     >
       <NavigationIcon slot="activity" size={22} className="size-[22px]" />
       <span>Activity</span>
       {unread > 0 && (
         <span
           aria-hidden="true"
-          className="absolute top-px right-[5px] inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-[12px] border-2 border-surface bg-foreground px-[3px] text-[10px] leading-none font-semibold text-background"
+          className={COUNT_BADGE}
         >
-          {unread}
+          {unread > 99 ? "99+" : unread}
         </span>
       )}
-    </button>
+    </PageLink>
   );
 }
 
 /**
  * The page shown, whose links the rail marks: every link to the page's own path (the logo and Home at
- * home, Search on search, whatever's searched for, Admin or Workspace on workspace settings, your avatar
- * on your profile), and Home on a room's page, but none while Activity is on.
+ * home, Activity on Activity, Search on search, whatever's searched for, Admin or Workspace on workspace
+ * settings, your avatar on your profile), Home on a room's page, DMs on the DMs page and a DM's, and
+ * Files on the Files page.
  */
-export type RailPage = "home" | "room" | "search" | "workspace" | "profile" | null;
+export type RailPage = "home" | "room" | "dms" | "activity" | "search" | "todos" | "workspace" | "profile" | "files" | null;
 
 interface Props {
   me: Me;
@@ -85,10 +100,10 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
+  /** How many unread messages the DMs have, which DMs counts, as Slack's does. */
+  directsUnread: number;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
-  /** Opens New direct message, which DMs does in place, from the link that opened it. */
-  onNewDirect: (opener: HTMLElement) => void;
 }
 
 /**
@@ -96,14 +111,17 @@ interface Props {
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, directsUnread, newRelease }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
-  const marked = activity.on ? null : current;
+  const marked = current;
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
+    // Pointing at or tabbing to a link starts loading the pages few visits need, so they're there as it's followed.
     <nav
       aria-label="Workspace"
+      onPointerEnter={preloadRarePages}
+      onFocus={preloadRarePages}
       className="flex h-full w-[calc(var(--spacing-rail)+env(safe-area-inset-left))] flex-col items-center gap-3 overflow-y-auto overscroll-contain border-r bg-surface pt-4 pr-3 pb-[max(16px,env(safe-area-inset-bottom))] pl-[calc(12px+env(safe-area-inset-left))] [scrollbar-width:none]"
     >
       <PageLink
@@ -121,9 +139,10 @@ export function Rail({ me, workspaceName, current, activity, newRelease, onNewDi
         )}
       </PageLink>
       <RailLink slot="home" label="Home" href="/" current={marked === "home" || marked === "room"} />
-      {/* Never marked, since its address opens New direct message over the last room visited. */}
-      <RailLink slot="dms" label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
-      <ActivityButton {...activity} />
+      <RailLink slot="dms" label="DMs" href={DMS_PATH} current={marked === "dms"} unread={directsUnread} />
+      <ActivityLink unread={activity.unread} current={marked === "activity"} />
+      <FilesRailLink current={marked === "files"} className={RAIL_LINK} />
+      <RailLink slot="todos" label="To-dos" href={TODOS_PATH} current={marked === "todos"} />
       {/* Opens the search box in place, for everything. */}
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />
       <hr className="my-1 w-8 border-t" />

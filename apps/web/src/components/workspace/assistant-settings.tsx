@@ -3,6 +3,7 @@ import type { WorkspaceSettings } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
 import { forgetAssistant, isSignedOut } from "@/lib/api";
+import { useConfirm } from "./confirm-dialog";
 import { BUTTON } from "./email-settings";
 
 // The Ember AI card on the AI assistant tab, for administrators: whether Ember's AI agents, @ember and
@@ -45,9 +46,10 @@ interface Props {
 export function AssistantSettings({ assistant, onSetUp, onStopped, onFailed }: Props) {
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_ASSISTANT)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_ASSISTANT, { confirm: "Turn off", destructive: true }))) return;
     setStopping(true);
     forgetAssistant().then(
       () => {
@@ -91,6 +93,7 @@ export function AssistantSettings({ assistant, onSetUp, onStopped, onFailed }: P
           </div>
         </>
       )}
+      {confirmation}
     </section>
   );
 }

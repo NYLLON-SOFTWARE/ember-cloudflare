@@ -17,7 +17,7 @@ function serve({ created, refusal, formRefusal }: { created?: Room; refusal?: { 
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     if (init?.method === "POST") return refusal ? Response.json({ error: refusal.error }, { status: refusal.status }) : Response.json({ room: created }, { status: 201 });
     expect(input).toBe("/api/rooms/new");
-    return formRefusal ? Response.json({ error: formRefusal.error }, { status: formRefusal.status }) : Response.json({ people: [ada, grace, linus] });
+    return formRefusal ? Response.json({ error: formRefusal.error }, { status: formRefusal.status }) : Response.json({ people: [ada, grace, linus], parents: [] });
   });
 }
 
@@ -25,7 +25,7 @@ function serve({ created, refusal, formRefusal }: { created?: Room; refusal?: { 
 function holdCreation() {
   let answer = (_: Response) => {};
   vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
-    init?.method === "POST" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json({ people: [ada, grace, linus] })),
+    init?.method === "POST" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json({ people: [ada, grace, linus], parents: [] })),
   );
   return (response: Response) => act(async () => answer(response));
 }
@@ -101,7 +101,7 @@ describe("Create an open room", () => {
     const created = { id: "design", name: "New room", kind: "open", icon: "rocket" } satisfies Room;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (String(input).endsWith("catalog.json")) return Response.json({ icons: [ROCKET], roomOrder: ["rocket"], navigationOrder: ["rocket"] });
-      return init?.method === "POST" ? Response.json({ room: created }, { status: 201 }) : Response.json({ people: [ada, grace, linus] });
+      return init?.method === "POST" ? Response.json({ room: created }, { status: 201 }) : Response.json({ people: [ada, grace, linus], parents: [] });
     });
     const { onCreated, user } = showPage();
     expect(await screen.findByRole("button", { name: "Choose room icon" })).toHaveTextContent("Default hashtag");

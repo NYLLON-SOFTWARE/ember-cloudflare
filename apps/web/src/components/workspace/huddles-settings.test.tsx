@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSettings } from "@ember/protocol";
 import { HUDDLES_FORBIDDEN } from "@ember/protocol/huddles";
 import { ApiError } from "@/lib/api";
+import { answerConfirm } from "@/test-confirm";
 import { CONFIRM_STOP_HUDDLES, HUDDLES_EXPLAINED, HuddlesSettings } from "./huddles-settings";
 
 const APP_ID = "2a95132c15732412d22c1476fa83f27a";
@@ -68,14 +69,15 @@ describe("Set up huddles", () => {
   it("forgets the app's keys once the administrator confirms turning its switch off", async () => {
     const answer = held(() => Response.json({ huddles: null }));
     const fetch = serve(answer.answered);
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user, onStopped } = showCard({ appId: APP_ID });
     await user.click(huddlesSwitch());
-    expect(sure).toHaveBeenCalledWith(CONFIRM_STOP_HUDDLES);
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
     expect(huddlesSwitch()).toBeChecked();
 
     await user.click(huddlesSwitch());
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES, "Turn off");
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "DELETE" }));
     expect(huddlesSwitch()).not.toBeChecked();
     expect(huddlesSwitch()).toBeDisabled();
@@ -83,13 +85,14 @@ describe("Set up huddles", () => {
     await answer.answer();
     expect(onStopped).toHaveBeenCalledOnce();
     expect(huddlesSwitch()).toBeEnabled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("leaves turning it off that failed to the page's alerts, its switch back on", async () => {
     serve(() => Response.json({ error: HUDDLES_FORBIDDEN }, { status: 403 }));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user, onStopped, onFailed } = showCard({ appId: APP_ID });
     await user.click(huddlesSwitch());
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES, "Turn off");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, HUDDLES_FORBIDDEN)));
     expect(onStopped).not.toHaveBeenCalled();
     expect(huddlesSwitch()).toBeChecked();

@@ -18,7 +18,7 @@ import {
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
-import { GuestSignIn } from "@/components/guest-sign-in";
+import { preloadRarePages, RarePage } from "@/components/workspace/rare-pages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTitle } from "@/hooks/use-title";
@@ -69,6 +69,9 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     forgetMemberfulOutcome();
     forgetJoiningProblem();
   }, []);
+  useEffect(() => {
+    if (workspace.guestSignIn) preloadRarePages();
+  }, [workspace.guestSignIn]);
 
   async function submit() {
     setBusy(true);
@@ -105,7 +108,8 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
             </Button>
           </>
         ) : asGuest ? (
-          <GuestSignIn logo={workspace.account.logo} onSignedIn={onSignedIn} onUsePassword={() => setAsGuest(false)} />
+          // It loads with the pages few visits need, which start loading as the page opens where it's offered.
+          <RarePage show={({ GuestSignIn }) => <GuestSignIn logo={workspace.account.logo} onSignedIn={onSignedIn} onUsePassword={() => setAsGuest(false)} />} loading={null} />
         ) : (
           <>
             <AuthHeading title={`Sign in to ${workspace.account.name}`} logo={workspace.account.logo}>Welcome back. Pick up the conversation.</AuthHeading>

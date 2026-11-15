@@ -50,6 +50,7 @@ import { cn } from "@/lib/utils";
 import { AGENTS_PATH, useAgentsOnly } from "./agent-list";
 import { AgentTools } from "./agent-tools";
 import { BotCards } from "./bot-card";
+import { useConfirm } from "./confirm-dialog";
 import { BUTTON } from "./email-settings";
 import { lengthOf, searchingWith, TEXTAREA } from "./ember-settings";
 import { LevelDials } from "./level-dials";
@@ -81,7 +82,7 @@ export const INSTRUCTIONS_EXPLAINED =
 /** What leaving the page with changes asks. */
 export const AGENT_CHANGES = "You’ve made changes to this agent. Save them before you leave, or discard them to keep things as they were.";
 
-/** What Delete agent asks first, in the browser's own dialog. */
+/** What Delete agent asks first. */
 export const CONFIRM_DELETE_AGENT = "Are you sure you want to delete this agent? It leaves every room for good, though its answers stay. This can’t be undone.";
 
 /** What Try it says of itself, of the agent called `name`. */
@@ -341,6 +342,7 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
   const [removingAvatar, setRemovingAvatar] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [busy, setBusy] = useState<"saving" | "deleting" | null>(null);
+  const [confirmFirst, confirmation] = useConfirm();
   const form = useRef<HTMLFormElement>(null);
   const community = useAccount().name;
   const mounted = useMounted();
@@ -451,8 +453,8 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
     run("saving", send);
   };
 
-  const remove = () => {
-    if (saved && confirm(CONFIRM_DELETE_AGENT)) run("deleting", () => deleteAgent(saved.id));
+  const remove = async () => {
+    if (saved && (await confirmFirst(CONFIRM_DELETE_AGENT, { confirm: "Delete", destructive: true }))) run("deleting", () => deleteAgent(saved.id));
   };
 
   const refused = (field: AgentField) => (refusal?.field === field ? true : undefined);
@@ -697,6 +699,7 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
         </>
       )}
       <UnsavedChanges changed={changed} stays={leaves} onSave={sendBeforeLeaving} onStayAfterSave={() => navigate(AGENTS_PATH)} form={form} description={AGENT_CHANGES} />
+      {confirmation}
     </>
   );
 }

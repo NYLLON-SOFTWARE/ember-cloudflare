@@ -157,6 +157,32 @@ export function BellOff(props: IconoirIconProps) {
   );
 }
 
+export function Bookmark(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="bookmark" {...props}>
+      <path
+        d="M5 21V5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L13.0815 17.1953C12.4227 16.7717 11.5773 16.7717 10.9185 17.1953L5 21Z"
+        {...LINE}
+      />
+    </IconoirIcon>
+  );
+}
+
+export function BookmarkSolid(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="bookmark-solid" strokeWidth={undefined} {...props}>
+      <path
+        d="M5 21V5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L13.0815 17.1953C12.4227 16.7717 11.5773 16.7717 10.9185 17.1953L5 21Z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </IconoirIcon>
+  );
+}
+
 export function Box(props: IconoirIconProps) {
   return (
     <IconoirIcon name="box" {...props}>
@@ -255,6 +281,28 @@ export function CheckCircle(props: IconoirIconProps) {
   );
 }
 
+export function CheckCircleSolid(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="check-circle-solid" strokeWidth={undefined} {...props}>
+      <path
+        d="M12 1.25C6.06294 1.25 1.25 6.06294 1.25 12C1.25 17.9371 6.06294 22.75 12 22.75C17.9371 22.75 22.75 17.9371 22.75 12C22.75 6.06294 17.9371 1.25 12 1.25ZM7.53044 11.9697C7.23755 11.6768 6.76268 11.6768 6.46978 11.9697C6.17689 12.2626 6.17689 12.7374 6.46978 13.0303L9.46978 16.0303C9.76268 16.3232 10.2376 16.3232 10.5304 16.0303L17.5304 9.03033C17.8233 8.73744 17.8233 8.26256 17.5304 7.96967C17.2375 7.67678 16.7627 7.67678 16.4698 7.96967L10.0001 14.4393L7.53044 11.9697Z"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        fill="currentColor"
+      />
+    </IconoirIcon>
+  );
+}
+
+export function Clock(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="clock" {...props}>
+      <path d="M12 6L12 12L18 12" {...LINE} />
+      <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function ClockRotateRight(props: IconoirIconProps) {
   return (
     <IconoirIcon name="clock-rotate-right" {...props}>
@@ -264,6 +312,16 @@ export function ClockRotateRight(props: IconoirIconProps) {
         {...LINE}
       />
       <path d="M17 16H21.4C21.7314 16 22 16.2686 22 16.6V21" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function Code(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="code" {...props}>
+      <path d="M13.5 6L10 18.5" {...LINE} />
+      <path d="M6.5 8.5L3 12L6.5 15.5" {...LINE} />
+      <path d="M17.5 8.5L21 12L17.5 15.5" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -404,6 +462,18 @@ export function Emoji(props: IconoirIconProps) {
   );
 }
 
+export function EmptyPage(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="empty-page" {...props}>
+      <path
+        d="M4 21.4V2.6C4 2.26863 4.26863 2 4.6 2H16.2515C16.4106 2 16.5632 2.06321 16.6757 2.17574L19.8243 5.32426C19.9368 5.43679 20 5.5894 20 5.74853V21.4C20 21.7314 19.7314 22 19.4 22H4.6C4.26863 22 4 21.7314 4 21.4Z"
+        {...LINE}
+      />
+      <path d="M16 2V5.4C16 5.73137 16.2686 6 16.6 6H20" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function Eye(props: IconoirIconProps) {
   return (
     <IconoirIcon name="eye" {...props}>
@@ -430,6 +500,17 @@ export function FilterList(props: IconoirIconProps) {
       <path d="M3 6H21" {...LINE} />
       <path d="M7 12L17 12" {...LINE} />
       <path d="M11 18L13 18" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function Folder(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="folder" {...props}>
+      <path
+        d="M2 11V4.6C2 4.26863 2.26863 4 2.6 4H8.77805C8.92127 4 9.05977 4.05124 9.16852 4.14445L12.3315 6.85555C12.4402 6.94876 12.5787 7 12.722 7H21.4C21.7314 7 22 7.26863 22 7.6V11M2 11V19.4C2 19.7314 2.26863 20 2.6 20H21.4C21.7314 20 22 19.7314 22 19.4V11M2 11H22"
+        {...LINE}
+      />
     </IconoirIcon>
   );
 }
@@ -525,6 +606,23 @@ export function Internet(props: IconoirIconProps) {
   );
 }
 
+export function JournalPage(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="journal-page" {...props}>
+      <path d="M6 6L14 6" {...LINE} />
+      <path d="M6 10H18" {...LINE} />
+      <path d="M13 14L18 14" {...LINE} />
+      <path d="M13 18L18 18" {...LINE} />
+      <path
+        d="M2 21.4V2.6C2 2.26863 2.26863 2 2.6 2H18.2515C18.4106 2 18.5632 2.06321 18.6757 2.17574L21.8243 5.32426C21.9368 5.43679 22 5.5894 22 5.74853V21.4C22 21.7314 21.7314 22 21.4 22H2.6C2.26863 22 2 21.7314 2 21.4Z"
+        {...LINE}
+      />
+      <path d="M6 18V14H9V18H6Z" {...LINE} />
+      <path d="M18 2V5.4C18 5.73137 18.2686 6 18.6 6H22" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function Laptop(props: IconoirIconProps) {
   return (
     <IconoirIcon name="laptop" {...props}>
@@ -582,6 +680,34 @@ export function Mail(props: IconoirIconProps) {
       <path
         d="M2 17V7C2 5.89543 2.89543 5 4 5H20C21.1046 5 22 5.89543 22 7V17C22 18.1046 21.1046 19 20 19H4C2.89543 19 2 18.1046 2 17Z"
         {...OUTLINE}
+      />
+    </IconoirIcon>
+  );
+}
+
+export function MediaImage(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="media-image" {...props}>
+      <path
+        d="M21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6Z"
+        {...LINE}
+      />
+      <path d="M3 16L10 13L21 18" {...LINE} />
+      <path d="M16 10C14.8954 10 14 9.10457 14 8C14 6.89543 14.8954 6 16 6C17.1046 6 18 6.89543 18 8C18 9.10457 17.1046 10 16 10Z" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function MediaVideo(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="media-video" {...props}>
+      <path
+        d="M21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6Z"
+        {...LINE}
+      />
+      <path
+        d="M9.89768 8.51296C9.49769 8.28439 9 8.57321 9 9.03391V14.9661C9 15.4268 9.49769 15.7156 9.89768 15.487L15.0883 12.5209C15.4914 12.2906 15.4914 11.7094 15.0883 11.4791L9.89768 8.51296Z"
+        {...LINE}
       />
     </IconoirIcon>
   );
@@ -692,6 +818,32 @@ export function MultiBubble(props: IconoirIconProps) {
   );
 }
 
+export function MultiplePages(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="multiple-pages" {...props}>
+      <path d="M7 18H10.5H14" {...LINE} />
+      <path d="M7 14H7.5H8" {...LINE} />
+      <path d="M7 10H8.5H10" {...LINE} />
+      <path d="M7 2L16.5 2L21 6.5V19" {...LINE} />
+      <path
+        d="M3 20.5V6.5C3 5.67157 3.67157 5 4.5 5H14.2515C14.4106 5 14.5632 5.06321 14.6757 5.17574L17.8243 8.32426C17.9368 8.43679 18 8.5894 18 8.74853V20.5C18 21.3284 17.3284 22 16.5 22H4.5C3.67157 22 3 21.3284 3 20.5Z"
+        {...LINE}
+      />
+      <path d="M14 5V8.4C14 8.73137 14.2686 9 14.6 9H18" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function MusicDoubleNote(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="music-double-note" {...props}>
+      <path d="M20 14V3L9 5V16" {...LINE} />
+      <path d="M17 19H18C19.1046 19 20 18.1046 20 17V14H17C15.8954 14 15 14.8954 15 16V17C15 18.1046 15.8954 19 17 19Z" {...LINE} />
+      <path d="M6 21H7C8.10457 21 9 20.1046 9 19V16H6C4.89543 16 4 16.8954 4 18V19C4 20.1046 4.89543 21 6 21Z" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function NavArrowDown(props: IconoirIconProps) {
   return (
     <IconoirIcon name="nav-arrow-down" {...props}>
@@ -708,6 +860,15 @@ export function NavArrowRight(props: IconoirIconProps) {
   );
 }
 
+export function OpenNewWindow(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="open-new-window" {...props}>
+      <path d="M21 3L15 3M21 3L12 12M21 3V9" {...LINE} />
+      <path d="M21 13V19C21 20.1046 20.1046 21 19 21H5C3.89543 21 3 20.1046 3 19V5C3 3.89543 3.89543 3 5 3H11" {...ROUND_ENDS} />
+    </IconoirIcon>
+  );
+}
+
 export function Page(props: IconoirIconProps) {
   return (
     <IconoirIcon name="page" {...props}>
@@ -718,6 +879,23 @@ export function Page(props: IconoirIconProps) {
       <path d="M8 10L16 10" {...LINE} />
       <path d="M8 18L16 18" {...LINE} />
       <path d="M8 14L12 14" {...LINE} />
+      <path d="M16 2V5.4C16 5.73137 16.2686 6 16.6 6H20" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function PageEdit(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="page-edit" {...props}>
+      <path
+        d="M20 12V5.74853C20 5.5894 19.9368 5.43679 19.8243 5.32426L16.6757 2.17574C16.5632 2.06321 16.4106 2 16.2515 2H4.6C4.26863 2 4 2.26863 4 2.6V21.4C4 21.7314 4.26863 22 4.6 22H11"
+        {...LINE}
+      />
+      <path d="M8 10H16M8 6H12M8 14H11" {...LINE} />
+      <path
+        d="M17.9541 16.9394L18.9541 15.9394C19.392 15.5015 20.102 15.5015 20.5399 15.9394V15.9394C20.9778 16.3773 20.9778 17.0873 20.5399 17.5252L19.5399 18.5252M17.9541 16.9394L14.963 19.9305C14.8131 20.0804 14.7147 20.2741 14.6821 20.4835L14.4394 22.0399L15.9957 21.7973C16.2052 21.7646 16.3988 21.6662 16.5487 21.5163L19.5399 18.5252M17.9541 16.9394L19.5399 18.5252"
+        {...LINE}
+      />
       <path d="M16 2V5.4C16 5.73137 16.2686 6 16.6 6H20" {...LINE} />
     </IconoirIcon>
   );
@@ -743,6 +921,22 @@ export function Plus(props: IconoirIconProps) {
   return (
     <IconoirIcon name="plus" {...props}>
       <path d="M6 12H12M18 12H12M12 12V6M12 12V18" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function Presentation(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="presentation" {...props}>
+      <path
+        d="M22 4.6V17.4C22 17.7314 21.7314 18 21.4 18H2.6C2.26863 18 2 17.7314 2 17.4V4.6C2 4.26863 2.26863 4 2.6 4H21.4C21.7314 4 22 4.26863 22 4.6Z"
+        {...LINE}
+      />
+      <path d="M8.5 21.5L12 18L15.5 21.5" {...LINE} />
+      <path d="M12 2V4" {...LINE} />
+      <path d="M9 12V14" {...LINE} />
+      <path d="M12 10V14" {...LINE} />
+      <path d="M15 8V14" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -951,6 +1145,21 @@ export function SwitchOff(props: IconoirIconProps) {
     <IconoirIcon name="switch-off" {...props}>
       <path d="M7 13C7.55228 13 8 12.5523 8 12C8 11.4477 7.55228 11 7 11C6.44772 11 6 11.4477 6 12C6 12.5523 6.44772 13 7 13Z" {...DOT} />
       <path d="M17 17H7C4.23858 17 2 14.7614 2 12C2 9.23858 4.23858 7 7 7H17C19.7614 7 22 9.23858 22 12C22 14.7614 19.7614 17 17 17Z" {...OUTLINE} />
+    </IconoirIcon>
+  );
+}
+
+export function Table2Columns(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="table-2-columns" {...props}>
+      <path
+        d="M3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4Z"
+        {...OUTLINE}
+      />
+      <path d="M3 16.5H21" {...OUTLINE} />
+      <path d="M3 12H21" {...OUTLINE} />
+      <path d="M21 7.5H3" {...OUTLINE} />
+      <path d="M12 21V3" {...OUTLINE} />
     </IconoirIcon>
   );
 }

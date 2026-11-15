@@ -8,7 +8,7 @@ import { bodyFromPlainText } from "@ember/richtext";
 /** A room's socket, for `page.routeWebSocket`. */
 export const ROOM_SOCKET = /\/api\/rooms\/[^/]+\/socket/;
 /** A tab's workspace socket, for `page.routeWebSocket`. */
-export const WORKSPACE_SOCKET = /\/api\/socket$/;
+export const WORKSPACE_SOCKET = /\/api\/socket(\?|$)/;
 
 /**
  * How long a test waits for the room icon picker's 991 KB catalog, which the test server has taken
@@ -330,10 +330,13 @@ export async function nextSecond(): Promise<void> {
   await expect.poll(() => Math.floor(Date.now() / 1000), { intervals: [100] }).toBeGreaterThan(second);
 }
 
-/** How the sidebar's room rows read: each row's text, with a ★ after a starred room's, whose star is a picture. */
+/** The Home sidebar's room rows, top to bottom: the starred ones under Starred, then the rest under Rooms. */
+export const sidebarRoomRows = (page: Page) => page.getByRole("region", { name: /^(Starred|Rooms)$/ }).getByRole("link");
+
+/** How the sidebar's room rows read: each row's text, with a ★ after a starred room's, which Starred lists. */
 export function rowsWithStars(rows: Locator): Promise<string[]> {
   return rows.evaluateAll((links) =>
-    links.map((link) => `${link.textContent!.replace(/\s+/g, " ").trim()}${link.querySelector('[role="img"][aria-label="Favorite"]') ? "★" : ""}`),
+    links.map((link) => `${link.textContent!.replace(/\s+/g, " ").trim()}${link.closest("section")?.querySelector("h3")?.textContent?.trim() === "Starred" ? "★" : ""}`),
   );
 }
 
@@ -521,3 +524,13 @@ export const test = base.extend<AppFixtures>({
 });
 
 export { expect };
+
+/**
+ * Answers the app's own dialog that asks `question`, which may be only its start, with its `button`, Cancel
+ * or the one that goes ahead, where the browser's `confirm()` once asked. It waits for the dialog to go.
+ */
+export async function answerConfirm(page: Page, question: string, button: string): Promise<void> {
+  const dialog = page.getByRole("alertdialog", { name: question });
+  await dialog.getByRole("button", { name: button, exact: true }).click();
+  await expect(dialog).toBeHidden();
+}

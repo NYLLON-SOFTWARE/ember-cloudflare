@@ -13,13 +13,14 @@ import { useTitle } from "@/hooks/use-title";
 import { changeBot, createBot, deleteBot, fetchBot, isSignedOut, resetBotKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PostingCommands, useAdministratorsOnly } from "./bots-page";
+import { useConfirm } from "./confirm-dialog";
 import { DeleteButton, isMissing, NEGATIVE_BUTTON } from "./room-settings-page";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 // The pages for adding a bot and changing one, which share the bot form and go back to the bots page
 // once they've saved.
 
-/** What Delete bot asks first, in the browser's own dialog. */
+/** What Delete bot asks first. */
 export const CONFIRM_DELETE_BOT = "Are you sure you want to permanently remove this bot from the account? This can’t be undone.";
 
 /** What Generate a new key asks first. */
@@ -118,6 +119,7 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
   const administratorsOnly = useAdministratorsOnly(onFailed);
   const failed = (error: unknown) => (isMissing(error) ? onMissing() : administratorsOnly.failed(error));
   const [busy, send] = useSending(failed);
+  const [confirmFirst, confirmation] = useConfirm();
   useTitle("Edit bot");
 
   useEffect(() => {
@@ -138,11 +140,11 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
     return () => void (stopped = true);
   }, [botId, onMissing, administratorsOnly]);
 
-  const remove = () => {
-    if (confirm(CONFIRM_DELETE_BOT)) send(() => deleteBot(botId));
+  const remove = async () => {
+    if (await confirmFirst(CONFIRM_DELETE_BOT, { confirm: "Delete", destructive: true })) send(() => deleteBot(botId));
   };
-  const newKey = () => {
-    if (confirm(CONFIRM_NEW_KEY)) send(() => resetBotKey(botId));
+  const newKey = async () => {
+    if (await confirmFirst(CONFIRM_NEW_KEY, { confirm: "Generate key", destructive: true })) send(() => resetBotKey(botId));
   };
   return (
     <SettingsPage back={BOTS_PATH}>
@@ -169,6 +171,7 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
           </>
         )}
       </Panel>
+      {confirmation}
     </SettingsPage>
   );
 }

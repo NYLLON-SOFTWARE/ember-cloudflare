@@ -3,6 +3,7 @@ import type { Account, EmailSettings as Email } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeAccount, isSignedOut, sendTestEmail } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 
 // The Email card in Membership, for administrators: what Ember sends email with, and from, and Send me a
 // test email, which says where it went, or why it wasn't sent. Until Ember can send email, it says so,
@@ -47,9 +48,10 @@ export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFail
   const sends = sendsEmail(email);
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_EMAIL)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_EMAIL, { confirm: "Stop sending", destructive: true }))) return;
     setStopping(true);
     const answered = askForAccount();
     changeAccount({ emailFrom: null }).then(
@@ -99,6 +101,7 @@ export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFail
           </button>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }
