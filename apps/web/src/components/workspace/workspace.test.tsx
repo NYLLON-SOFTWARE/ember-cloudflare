@@ -1144,6 +1144,48 @@ describe("Saved pane", () => {
     expect(location.pathname).toBe("/rooms/general");
     expect(screen.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "true");
   });
+
+  it("takes a thread's place as it opens, which closes the thread and has its replies reach this person as pushes again", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    room.letIn();
+    act(() => navigate("/rooms/general/threads/m1"));
+    expect(await screen.findByRole("complementary", { name: "Thread" })).toBeInTheDocument();
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" }));
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    // The thread is gone with its address, which the room hears of as its replies reaching this person again.
+    expect(screen.queryByRole("complementary", { name: "Thread" })).not.toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.close", parentId: "m1" }));
+  });
+
+  it("counts the room it covers as unread still, in the sidebar and Activity both", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    coversRoom();
+    const markedGeneral: SidebarRoom = { ...rooms[0]!, unread: true, involvement: "mentions" };
+    const badges = badgeTheApp();
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([markedGeneral, rooms[1]!])),
+      "GET /api/saves": () => Response.json({ saves: [] }),
+    });
+    const { user } = showWorkspace("/account/edit");
+    expect(await communitySettings()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    // The pane went on to the last room and covers it, which counts as unread still, though its address is the page's.
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    const roomsListed = within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" });
+    const general = within(roomsListed).getByRole("link", { name: /general/ });
+    expect(general).toHaveAttribute("aria-current", "page");
+    expect(general).toHaveAccessibleDescription(/Unread/);
+    expect(general).toHaveClass("font-[650]");
+    expect(screen.getByRole("button", { name: "Activity" })).toHaveAccessibleDescription("1 unread");
+    await waitFor(() => expect(badges).toEqual([1]));
+  });
 });
 
 describe("New releases", () => {

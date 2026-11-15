@@ -43,6 +43,8 @@ interface Props {
   /** The huddles going on in their rooms, by room, whose rows say who's in them. */
   huddles: Record<RoomId, LiveHuddle>;
   currentRoomId: string | null;
+  /** The room that counts as read while it's shown, which the Saved pane covering a room says it isn't yet, and null for none. `currentRoomId` unless said otherwise. */
+  readRoomId?: string | null;
   /** Whether Activity is on, which shows only the rows marked unread. */
   unreadOnly: boolean;
   onSelect: (roomId: string) => void;
@@ -78,6 +80,7 @@ export function Sidebar({
   sharedOrder,
   huddles,
   currentRoomId,
+  readRoomId = currentRoomId,
   unreadOnly,
   onSelect,
   onNewDirect,
@@ -86,7 +89,7 @@ export function Sidebar({
   onSessionChanged,
 }: Props) {
   const { tagline } = useAccount();
-  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
+  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, readRoomId)) : rooms), [rooms, unreadOnly, readRoomId]);
   const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
   const nameOf = (roomId: RoomId) => {
     const room = rooms.find((r) => r.id === roomId);
@@ -143,7 +146,7 @@ export function Sidebar({
         </span>
         <div ref={listRef} {...listProps} className={cn("flex flex-col gap-[3px]", moving && "select-none")}>
           {listed.map((room) => {
-            const unread = markedUnread(room, currentRoomId);
+            const unread = markedUnread(room, readRoomId);
             const star = starred.has(room.id);
             const huddle = huddles[room.id];
             // The words for who's in the room's huddle, which come with its mark.
@@ -204,7 +207,7 @@ export function Sidebar({
             room={room}
             meId={meId}
             current={room.id === currentRoomId}
-            unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
+            unreadId={markedUnread(room, readRoomId) ? unreadId : null}
             onClick={(event) => select(event, room.id)}
           />
         ))}

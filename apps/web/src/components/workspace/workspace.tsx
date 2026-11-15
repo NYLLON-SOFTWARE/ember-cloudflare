@@ -552,9 +552,21 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (event.defaultPrevented && (event.target as Element).closest("a[href]")) afterNavigating(() => setUnreadOnly(false));
   };
   const currentRoomId = room?.id ?? null;
+  // The rail's Saved control, by Activity's conventions: it opens the pane beside the room shown, or
+  // goes home to the last room visited for it from a page of community settings. Opening it asks for
+  // the list again, which a failed ask never brought, but never asks a room for anything, so it marks
+  // nothing read.
+  const coversRoom = useMediaQuery(THREAD_COVERS_ROOM);
+  const savedShown = savedOpen && room !== null;
+  // Below 1180px wide the pane covers the room, which then counts as hidden, and leaves nothing of
+  // itself to reach behind it, as a thread covering the room does.
+  const savedCovered = savedShown && coversRoom;
+  // What the pane covers is marked as it is until it shows: its socket counts the tab hidden while
+  // the pane is over it, so it counts as read nowhere yet, though its address is still the page's.
+  const readRoomId = savedCovered ? null : currentRoomId;
   const activity = {
     on: unreadOnly,
-    unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
+    unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, readRoomId)).length,
     onToggle: () => {
       // A page of community settings has no conversations to show, so Activity goes home to them, once
       // unsaved changes let it. Pressed in the drawer, it keeps the drawer open, as it is when
@@ -568,16 +580,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       });
     },
   };
-  // The rail's Saved control, by Activity's conventions: it opens the pane beside the room shown, or
-  // goes home to the last room visited for it from a page of community settings. Opening it asks for
-  // the list again, which a failed ask never brought, but never asks a room for anything, so it marks
-  // nothing read. The pane shows only over a room, so a pane asked for from a page it doesn't show on
-  // counts as closed, whose press opens it rather than closing a pane that isn't there.
-  const coversRoom = useMediaQuery(THREAD_COVERS_ROOM);
-  const savedShown = savedOpen && room !== null;
-  // Below 1180px wide the pane covers the room, which then counts as hidden, and leaves nothing of
-  // itself to reach behind it, as a thread covering the room does.
-  const savedCovered = savedShown && coversRoom;
+  // The pane shows only over a room, so a pane asked for from a page it doesn't show on counts as
+  // closed, whose press opens it rather than closing a pane that isn't there.
   const saved = {
     on: savedShown,
     count: saver.saves?.length ?? 0,
@@ -585,7 +589,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       setDrawerOpen(false);
       if (savedShown) return setSavedOpen(false);
       saver.load();
-      if (!settings && route.page === "room") return setSavedOpen(true);
+      // A thread open beside the room gives up its place to the pane: its address goes, as one whose
+      // Close is pressed does, so the thread unmounts and its replies reach this person as pushes again.
+      if (!settings && route.page === "room") {
+        if (route.threadId !== undefined) navigate(roomPath(route.roomId));
+        return setSavedOpen(true);
+      }
       navigate("/");
       afterNavigating(() => setSavedOpen(true));
     },
@@ -664,6 +673,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       sharedOrder={sharedOrder}
       huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
+      readRoomId={readRoomId}
       unreadOnly={unreadOnly}
       onSelect={select}
       onNewDirect={openNewDirect}
