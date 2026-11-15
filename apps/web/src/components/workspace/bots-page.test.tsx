@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account, DirectoryUser, UserId } from "@ember/protocol";
-import type { Bot, Bots, Commands } from "@ember/protocol/bots";
+import type { Bot, Bots, Commands, Shortcuts } from "@ember/protocol/bots";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -26,18 +26,22 @@ const BUILD_BOT: Bot = {
 };
 const DEPLOY_BOT: Bot = { ...BUILD_BOT, id: "0mgk3x2a9b4c5f", name: "Deploy Bot", avatarUrl: "/users/d3p/avatar?v=1", key: "0mgk3x2a9b4c5f-Zy9xWv7uTs5r", rooms: [] };
 
-/** Answers loading the bots, and the workspace's commands, as the server does for an administrator, or as `loaded` says. */
+/** Answers loading the bots, and the workspace's commands and shortcuts, as the server does for an administrator, or as `loaded` says. */
 function serve(loaded?: () => Response, commands: () => Response = () => Response.json(NO_COMMANDS)) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     if (request === "GET /api/account/bots") return (loaded ?? (() => Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots)))();
     if (request === "GET /api/account/commands") return commands();
+    if (request === "GET /api/account/shortcuts") return Response.json(NO_SHORTCUTS);
     throw new Error(`Unexpected request for ${request}`);
   });
 }
 
 /** A workspace with no commands registered, and no bot on any room's message events. */
 const NO_COMMANDS = { commands: [], subscriptions: [] } satisfies Commands;
+
+/** A workspace with no shortcuts registered. */
+const NO_SHORTCUTS = { shortcuts: [] } satisfies Shortcuts;
 
 /** Shows the page, whose people directory `showPeople` changes. */
 function showPage(shown = account) {
@@ -92,6 +96,7 @@ describe("Chat bots page", () => {
           "Each of a bot's rooms gets two addresses below, one for posting text or a file and one that takes a Slack incoming webhook's payload. " +
           "Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds. " +
           "Register a command for a bot, and typing /name in a room it's in sends it what was typed, its answer posted as the bot. " +
+          "Register a shortcut, and picking its name in a message's More actions sends it that message, its answer posted as the bot. " +
           "Or set a room to send a bot every message written there, mention or no.",
       ),
     ).toBeInTheDocument();
@@ -202,6 +207,7 @@ describe("Chat bots page", () => {
       const request = `${init?.method ?? "GET"} ${String(input)}`;
       if (request === "GET /api/account/bots") return Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots);
       if (request === "GET /api/account/commands") return Response.json({ commands: [command], subscriptions: [] } satisfies Commands);
+      if (request === "GET /api/account/shortcuts") return Response.json(NO_SHORTCUTS);
       throw new Error(`Unexpected request for ${request}`);
     });
     await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
@@ -241,6 +247,7 @@ describe("Slash commands", () => {
       const request = `${init?.method ?? "GET"} ${String(input)}`;
       if (request === "GET /api/account/bots") return Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots);
       if (request === "GET /api/account/commands") return commands;
+      if (request === "GET /api/account/shortcuts") return Response.json(NO_SHORTCUTS);
       if (request === "POST /api/account/commands") {
         // The name as the server keeps it: without the leading "/" and lowercased.
         const { name: given, description } = JSON.parse(String(init?.body)) as { name: string; description?: string };
@@ -292,6 +299,70 @@ describe("Slash commands", () => {
     const section = within(build!).getByRole("region", { name: "Commands" });
     await userEvent.click(within(section).getByRole("button", { name: "Forget /deploy" }));
     await waitFor(() => expect(within(section).queryByRole("button", { name: "Forget /deploy" })).not.toBeInTheDocument());
+  });
+});
+
+describe("Message shortcuts", () => {
+  const TRANSLATE_SHORTCUT = { id: "srt1", name: "Translate this", description: "Say it in French", bot: { id: BUILD_BOT.id, name: "Build Bot" } };
+
+  /** Answers the shortcuts as `served` says, and each change to them with the reading that follows. */
+  function serveShortcuts(served: () => Response = () => Response.json({ shortcuts: [TRANSLATE_SHORTCUT] } satisfies Shortcuts)) {
+    let shortcuts = served();
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/account/bots") return Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } satisfies Bots);
+      if (request === "GET /api/account/commands") return Response.json(NO_COMMANDS);
+      if (request === "GET /api/account/shortcuts") return shortcuts;
+      if (request === "POST /api/account/shortcuts") {
+        // The name as the server keeps it: as it's typed, its spaces at either end spared.
+        const { name: given, description } = JSON.parse(String(init?.body)) as { name: string; description?: string };
+        const registered = { ...TRANSLATE_SHORTCUT, id: "srt2", name: given.trim(), description: description ?? null };
+        shortcuts = Response.json({ shortcuts: [TRANSLATE_SHORTCUT, registered] } satisfies Shortcuts);
+        return Response.json({ shortcut: registered }, { status: 201 });
+      }
+      if (request === "DELETE /api/account/shortcuts/srt1") {
+        shortcuts = Response.json(NO_SHORTCUTS satisfies Shortcuts);
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request for ${request}`);
+    });
+  }
+
+  it("lists the shortcuts a bot answers, and registers another for it, which the page then lists", async () => {
+    serveShortcuts();
+    showPage();
+    const [build] = await listed(2);
+    const section = within(build!).getByRole("region", { name: "Shortcuts" });
+    expect(within(section).getByText("Translate this")).toBeInTheDocument();
+    expect(within(section).getByText("Say it in French")).toBeInTheDocument();
+
+    await userEvent.type(within(section).getByRole("textbox", { name: "A shortcut's name for Build Bot" }), "Ship it");
+    await userEvent.type(within(section).getByRole("textbox", { name: "What Build Bot's shortcut is for" }), "Send it to production");
+    await userEvent.click(within(section).getByRole("button", { name: "Register" }));
+    await waitFor(() => expect(within(section).getByRole("button", { name: "Forget Ship it" })).toBeInTheDocument());
+    // The form is left clear once it's registered.
+    expect(within(section).getByRole("textbox", { name: "A shortcut's name for Build Bot" })).toHaveValue("");
+  });
+
+  it("says why a name the workspace has given another bot already is refused", async () => {
+    serveShortcuts();
+    showPage();
+    const [build] = await listed(2);
+    const section = within(build!).getByRole("region", { name: "Shortcuts" });
+    await userEvent.type(within(section).getByRole("textbox", { name: "A shortcut's name for Build Bot" }), "Ship it");
+    // The second registration is answered 422, and the first reload below keeps Ship it off the page.
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => Response.json({ error: "A shortcut with that name is registered already" }, { status: 422 }));
+    await userEvent.click(within(section).getByRole("button", { name: "Register" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("A shortcut with that name is registered already");
+  });
+
+  it("takes a shortcut away with the button beside it", async () => {
+    serveShortcuts();
+    showPage();
+    const [build] = await listed(2);
+    const section = within(build!).getByRole("region", { name: "Shortcuts" });
+    await userEvent.click(within(section).getByRole("button", { name: "Forget Translate this" }));
+    await waitFor(() => expect(within(section).queryByRole("button", { name: "Forget Translate this" })).not.toBeInTheDocument());
   });
 });
 

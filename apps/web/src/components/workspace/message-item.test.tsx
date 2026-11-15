@@ -11,6 +11,11 @@ import { SavesContext, type Saver } from "@/hooks/use-saves";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { MessageItem, type ThreadPlace } from "./message-item";
+import { ApiError, fetchShortcuts } from "@/lib/api";
+
+vi.mock("@/lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api")>()), fetchShortcuts: vi.fn() }));
+
+const fetchShortcutsMock = vi.mocked(fetchShortcuts);
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -73,7 +78,7 @@ function show(
     pinnedIds = undefined as ReadonlySet<string> | undefined,
   } = {},
 ) {
-  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), pin: vi.fn(() => sent), unpin: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
+  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), pin: vi.fn(() => sent), unpin: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)), runShortcut: vi.fn(() => Promise.resolve(sent)) };
   let setEditing: (editing: boolean) => void = () => {};
   let setMessage: (message: Message | PendingMessage) => void = () => {};
   let setConnections: (update: (connections: number) => number) => void = () => {};
@@ -393,7 +398,7 @@ describe("Message rows", () => {
   it("follows the name of every agent the people directory lists with the badge, deleted ones too, and no other bot's", () => {
     const bot = (id: string, name: string, changes: Partial<DirectoryUser> = {}): DirectoryUser => ({ id, name, bio: null, role: "bot", status: "active", avatarUrl: "", ...changes });
     const authors = [bot("u4", "Recap", { agent: true }), bot("u5", "Scout", { agent: true, status: "deactivated" }), bot("u6", "Build Bot")];
-    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn(), runShortcut: vi.fn(() => Promise.resolve(true)) };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(
       <PeopleContext value={new Map(authors.map((author) => [author.id, author]))}>
@@ -414,7 +419,7 @@ describe("Message rows", () => {
 
   it("titles the author with their bio as the people directory lists it, or with just their name", () => {
     const listed = (user: User, name: string, bio: string | null) => [user.id, { ...user, name, bio, role: "member", status: "active", avatarUrl: "" }] as const;
-    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn(), runShortcut: vi.fn(() => Promise.resolve(true)) };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     const by = (creator: User) => message({ id: creator.id, clientMessageId: creator.id, creator });
     render(
@@ -984,6 +989,38 @@ describe("More actions on a message", () => {
       expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link"]);
     });
   });
+
+  describe("The workspace's shortcuts", () => {
+    const translate = { id: "srt1", name: "Translate this", description: "Say it in French", bot: { id: "u4", name: "Polyglot" } };
+    const ship = { id: "srt2", name: "Ship it", description: null, bot: { id: "u4", name: "Polyglot" } };
+
+    it("offers them below the built-ins, and runs one on the message as it's picked, closing the actions", async () => {
+      withMouse();
+      fetchShortcutsMock.mockResolvedValue({ shortcuts: [translate, ship] });
+      const { actions, article, user } = show(message());
+      await openMoreActions(user, article);
+      expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Edit message", "Delete message", "Translate this", "Ship it"]);
+
+      await user.click(within(moreActions()).getByRole("button", { name: "Translate this" }));
+      expect(actions.runShortcut).toHaveBeenCalledWith("m1", "srt1");
+      // Picking one closes the menu, as the other items that act at once do, and its bot answers in its own time.
+      expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+    });
+
+    it("offers none while none are registered, or before they've come, or when they can't be had", async () => {
+      withMouse();
+      fetchShortcutsMock.mockResolvedValue({ shortcuts: [] });
+      const { article, user } = show(message(), { me: grace });
+      await openMoreActions(user, article);
+      expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…"]);
+
+      cleanup();
+      fetchShortcutsMock.mockRejectedValue(new ApiError(500, "Something went wrong"));
+      const failed = show(message(), { me: grace });
+      await openMoreActions(failed.user, failed.article);
+      expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…"]);
+    });
+  });
 });
 
 describe("Save a message for later", () => {
@@ -1006,7 +1043,7 @@ describe("Save a message for later", () => {
       forget: vi.fn(async () => {}),
       saveOf: (messageId) => (saved && messageId === shown.id ? { id: "saved-1", roomId: shown.roomId, messageId: shown.id, createdAt: 0, message: shown } : null),
     };
-    const actions = { boost: vi.fn(() => true), unboost: vi.fn(() => true), pin: vi.fn(() => true), unpin: vi.fn(() => true), edit: vi.fn(() => true), remove: vi.fn(() => true), click: vi.fn(() => Promise.resolve(true)) };
+    const actions = { boost: vi.fn(() => true), unboost: vi.fn(() => true), pin: vi.fn(() => true), unpin: vi.fn(() => true), edit: vi.fn(() => true), remove: vi.fn(() => true), click: vi.fn(() => Promise.resolve(true)), runShortcut: vi.fn(() => Promise.resolve(true)) };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     const { container } = render(
       <FlashProvider workspace>
@@ -1080,7 +1117,7 @@ describe("Quote a message", () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: "" }] as const;
     const body = `<p>Thanks <action-text-attachment content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"></action-text-attachment>!</p>`;
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
-    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn(), runShortcut: vi.fn(() => Promise.resolve(true)) };
     render(
       <PeopleContext value={new Map([listed(ada, "Ada King"), listed({ id: "0123456789abcdef", name: "Grace" }, "Grace Hopper")])}>
         <MessageItem message={message({ body, plainText: "Thanks @Grace!" })} me={{ ...grace, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />
@@ -1526,7 +1563,7 @@ describe("How mentions look", () => {
    * `loaded`, and `groups` in it, and which `reloadDirectory` loads again, settling at once by default.
    */
   const editing = (m: Message, people: People, loaded = true, groups: Groups = new Map(), reloadDirectory = () => Promise.resolve()) => {
-    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn(), runShortcut: vi.fn(() => Promise.resolve(true)) };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     return (
       <PeopleContext value={people}>
@@ -1620,7 +1657,7 @@ describe("Edit your profile", () => {
   it("names the author and whoever reacted as the people directory lists them now, so a rename shows on messages sent before it", () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
     const m = message({ boosts: [boost("b1", grace, "👍"), boost("b2", { id: "u3", name: "Linus" }, "👍")] });
-    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn(), runShortcut: vi.fn(() => Promise.resolve(true)) };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(
       <PeopleContext value={new Map([listed(ada, "Ada King"), listed(grace, "Grace Hopper")])}>

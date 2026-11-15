@@ -106,7 +106,7 @@ import {
   type YourAssistantChanged,
   type YourAssistantChanges,
 } from "@ember/protocol";
-import type { Command, CommandAnswer, Commands, NewCommand } from "@ember/protocol/bots";
+import type { Command, CommandAnswer, Commands, NewCommand, NewShortcut, Shortcut, ShortcutAnswer, Shortcuts } from "@ember/protocol/bots";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
 import type {
   AgentToolPicks,
@@ -584,6 +584,28 @@ export async function registerCommand(command: NewCommand): Promise<Command> {
 /** Forgets the command `id`, whose name is free again. Fails as `fetchBot` does. */
 export async function removeCommand(commandId: string): Promise<void> {
   await request(`/api/account/commands/${encodeURIComponent(commandId)}`, { method: "DELETE" });
+}
+
+/**
+ * The workspace's shortcuts, each with its bot, as a message's More actions offers them. Fails with a
+ * 401 ApiError once the session has ended.
+ */
+export async function fetchShortcuts(): Promise<Shortcuts> {
+  return request<Shortcuts>("/api/account/shortcuts");
+}
+
+/**
+ * Registers a shortcut with `name` and what it's for, invoking the bot `botId`. Fails with a 403
+ * ApiError for anyone but an administrator, a 404 for a bot that isn't active, and a 422 for a name
+ * that's refused or taken already.
+ */
+export async function registerShortcut(shortcut: NewShortcut): Promise<Shortcut> {
+  return (await request<ShortcutAnswer>("/api/account/shortcuts", { method: "POST", body: JSON.stringify(shortcut) })).shortcut;
+}
+
+/** Forgets the shortcut `id`, whose name is free again. Fails as `fetchBot` does. */
+export async function removeShortcut(shortcutId: string): Promise<void> {
+  await request(`/api/account/shortcuts/${encodeURIComponent(shortcutId)}`, { method: "DELETE" });
 }
 
 /** Puts the bot `botId` on room `roomId`'s message events, which it must be in. Fails with a 422 ApiError when it isn't. */

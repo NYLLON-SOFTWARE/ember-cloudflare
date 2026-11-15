@@ -1,14 +1,14 @@
 import { useCallback, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { botMessagesPath, botSlackPath, type Bot, type BotRoom, type Command, type Commands } from "@ember/protocol/bots";
+import { botMessagesPath, botSlackPath, type Bot, type BotRoom, type Command, type Commands, type Shortcut, type Shortcuts } from "@ember/protocol/bots";
 import type { RoomId, UserId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
-import { Attachment, ChatBubbleEmpty, EditPencil, Internet, Plus, Terminal, Trash } from "@/components/icons/iconoir";
+import { Attachment, ChatBubbleEmpty, EditPencil, Internet, Plus, Sparks, Terminal, Trash } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { TranslationButton } from "@/components/translation-button";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { botSettingsPath, navigate, NEW_BOT_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, fetchBots, fetchCommands, isSignedOut, registerCommand, removeCommand, subscribeBotToMessages, unsubscribeBotFromMessages } from "@/lib/api";
+import { ApiError, fetchBots, fetchCommands, fetchShortcuts, isSignedOut, registerCommand, registerShortcut, removeCommand, removeShortcut, subscribeBotToMessages, unsubscribeBotFromMessages } from "@/lib/api";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
@@ -54,9 +54,11 @@ export function useAdministratorsOnly(onFailed: (error: unknown) => void) {
 export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
   const [bots, setBots] = useState<Bot[] | null>(null);
   const [commands, setCommands] = useState<Commands | null>(null);
-  // Why the commands couldn't be had, which keeps the bots, their addresses and their settings links
-  // from hiding behind them, said under the list until another ask for the commands answers.
+  const [shortcuts, setShortcuts] = useState<Shortcuts | null>(null);
+  // Why the commands or the shortcuts couldn't be had, which keeps the bots, their addresses and their
+  // settings links from hiding behind them, said under the list until another ask answers.
   const [commandsError, setCommandsError] = useState<unknown>(null);
+  const [shortcutsError, setShortcutsError] = useState<unknown>(null);
   const people = useContext(PeopleContext);
   const { failed } = useAdministratorsOnly(onFailed);
   useTitle("Chat bots");
@@ -78,10 +80,17 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
         if (!stopped) isSignedOut(error) ? failed(error) : setCommandsError(error);
       },
     );
+    fetchShortcuts().then(
+      (loaded) => !stopped && setShortcuts(loaded),
+      (error: unknown) => {
+        if (!stopped) isSignedOut(error) ? failed(error) : setShortcutsError(error);
+      },
+    );
     return () => void (stopped = true);
   }, [failed]);
 
-  // Reads the commands again, as saving one, taking one away or ticking a room changes them.
+  // Reads the commands and the shortcuts again, as registering or forgetting one, or ticking a room,
+  // changes them.
   const commandsChanged = useCallback(() => {
     fetchCommands().then(
       (loaded) => {
@@ -90,12 +99,19 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
       },
       (error: unknown) => !isSignedOut(error) && setCommandsError(error),
     );
+    fetchShortcuts().then(
+      (loaded) => {
+        setShortcuts(loaded);
+        setShortcutsError(null);
+      },
+      (error: unknown) => !isSignedOut(error) && setShortcutsError(error),
+    );
   }, []);
 
   return (
     <SettingsPage back={WORKSPACE_SETTINGS_PATH}>
       {/* `.panel--wide`: 900px. Spaced as workspace settings' sections are. */}
-      <Panel aria-busy={bots === null || commands === null} className="flex w-[900px] flex-col gap-6">
+      <Panel aria-busy={bots === null || commands === null || shortcuts === null} className="flex w-[900px] flex-col gap-6">
         {/*
           Add a chat bot ends the heading's row, as New room does in Rooms and permissions, with the
           explainer under both in lines short enough to read. On phones it follows the explainer, rather
@@ -112,6 +128,7 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
             Each of a bot's rooms gets two addresses below, one for posting text or a file and one that takes a Slack incoming webhook's payload.
             Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds.
             Register a command for a bot, and typing /name in a room it's in sends it what was typed, its answer posted as the bot.
+            Register a shortcut, and picking its name in a message's More actions sends it that message, its answer posted as the bot.
             Or set a room to send a bot every message written there, mention or no.
           </p>
           <PageLink
@@ -123,17 +140,17 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
             <span>Add a chat bot</span>
           </PageLink>
         </header>
-        {/* The bots are listed once they've loaded, whether the commands did or not, which each card
-            takes as they come, and why they couldn't be had is said under the list. */}
+        {/* The bots are listed once they've loaded, whether the commands and shortcuts did or not, which
+            each card takes as they come, and why they couldn't be had is said under the list. */}
         <menu className="flex flex-col gap-4">
           {bots &&
             listedNow(bots, people).map((bot) => (
-              <BotItem key={bot.id} bot={bot} commands={commands} onChanged={commandsChanged} />
+              <BotItem key={bot.id} bot={bot} commands={commands} shortcuts={shortcuts} onChanged={commandsChanged} />
             ))}
         </menu>
-        {commandsError !== null && (
+        {(commandsError !== null || shortcutsError !== null) && (
           <p role="alert" className="flex flex-wrap items-center gap-x-3 px-1 text-[13px] leading-normal text-negative">
-            The workspace's commands couldn't be loaded.
+            The workspace's {commandsError !== null && shortcutsError !== null ? "commands and shortcuts" : commandsError !== null ? "commands" : "shortcuts"} couldn't be loaded.
             <button type="button" onClick={commandsChanged} className="cursor-pointer font-semibold underline">
               Try again
             </button>
@@ -148,8 +165,8 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
 const listedNow = (bots: Bot[], people: People) =>
   byName(bots.filter(({ id }) => people.get(id)?.status !== "deactivated").map((bot) => ({ ...bot, name: people.get(bot.id)?.name ?? bot.name })));
 
-/** The bot, with its avatar, name and edit link, then its rooms' commands, and the commands it answers. The commands are null until they've loaded, or once they couldn't be, which shows neither tick nor command. */
-function BotItem({ bot, commands, onChanged }: { bot: Bot; commands: Commands | null; onChanged: () => void }) {
+/** The bot, with its avatar, name and edit link, then its rooms' commands, the commands it answers, and the shortcuts it answers. The commands and shortcuts are null until they've loaded, or once they couldn't be, which shows neither tick nor command. */
+function BotItem({ bot, commands, shortcuts, onChanged }: { bot: Bot; commands: Commands | null; shortcuts: Shortcuts | null; onChanged: () => void }) {
   const flash = useFlash();
   // A tick that couldn't be saved is unticked again by the reading that answers, so why it didn't is said.
   const ticked = async (roomId: RoomId, subscribed: boolean) => {
@@ -180,6 +197,7 @@ function BotItem({ bot, commands, onChanged }: { bot: Bot; commands: Commands | 
         <RoomCommands key={room.id} room={room} botKey={bot.key} listening={itsRooms.has(room.id)} onTick={ticked} />
       ))}
       <BotCommands bot={bot} commands={(commands?.commands ?? []).filter(({ bot: { id } }) => id === bot.id)} onChanged={onChanged} />
+      <BotShortcuts bot={bot} shortcuts={(shortcuts?.shortcuts ?? []).filter(({ bot: { id } }) => id === bot.id)} onChanged={onChanged} />
     </li>
   );
 }
@@ -330,6 +348,88 @@ function BotCommands({ bot, commands, onChanged }: { bot: Bot; commands: Command
       </form>
       <p className="max-w-prose text-[13px] leading-[18px] text-muted-foreground">
         Typing a command's name in a room {bot.name} is in sends it what was typed after it, and what it answers is posted as the bot.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The shortcuts registered for `bot`, each with a button that takes it away, and the form that registers
+ * another: its name, as it's shown ("Translate this"), and what it's for, which its item in More actions
+ * sits beside. A name one of the workspace's shortcuts has already is refused, as the server keeps the
+ * names apart.
+ */
+function BotShortcuts({ bot, shortcuts, onChanged }: { bot: Bot; shortcuts: Shortcut[]; onChanged: () => void }) {
+  const flash = useFlash();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const said = (error: unknown, otherwise: string) => flash("alert", error instanceof ApiError ? error.message : otherwise);
+
+  const registered = async (event: FormEvent) => {
+    event.preventDefault();
+    if (saving || name.trim() === "") return;
+    setSaving(true);
+    try {
+      await registerShortcut({ botId: bot.id, name, ...(description.trim() !== "" && { description: description.trim() }) });
+      setName("");
+      setDescription("");
+      onChanged();
+    } catch (error) {
+      said(error, "That shortcut couldn't be registered");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const forgot = async (shortcut: Shortcut) => {
+    try {
+      await removeShortcut(shortcut.id);
+      onChanged();
+    } catch (error) {
+      said(error, "That shortcut couldn't be taken away");
+    }
+  };
+
+  return (
+    <section aria-label="Shortcuts" className="flex flex-col gap-y-3">
+      <h2 className="text-[15px] font-semibold text-message-ink">Shortcuts</h2>
+      {shortcuts.map((shortcut) => (
+        <div key={shortcut.id} className="flex items-center gap-x-[1ch]">
+          <Sparks className="size-5 flex-none opacity-70" />
+          <div className="min-w-0">
+            <div className="truncate text-[14px] leading-5">
+              <strong>{shortcut.name}</strong>
+            </div>
+            {shortcut.description !== null && <div className="truncate text-[13px] leading-[18px] text-muted-foreground">{shortcut.description}</div>}
+          </div>
+          <button type="button" onClick={() => void forgot(shortcut)} className={cn(ROUND_BUTTON, "ms-auto")}>
+            <Trash className="size-[1.3em]" />
+            <span className="sr-only">Forget {shortcut.name}</span>
+          </button>
+        </div>
+      ))}
+      <form onSubmit={(event) => void registered(event)} className="flex flex-wrap items-center gap-x-[1ch] gap-y-2">
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          aria-label={`A shortcut's name for ${bot.name}`}
+          placeholder="Translate this"
+          className={cn(INPUT, "min-w-0 grow basis-40")}
+        />
+        <input
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          aria-label={`What ${bot.name}'s shortcut is for`}
+          placeholder="What it's for"
+          className={cn(INPUT, "min-w-0 grow basis-40")}
+        />
+        <button type="submit" disabled={saving || name.trim() === ""} className={cn(BUTTON, "touch:min-h-11")}>
+          Register
+        </button>
+      </form>
+      <p className="max-w-prose text-[13px] leading-[18px] text-muted-foreground">
+        A shortcut's name shows in every message's More actions, and picking it sends that message to {bot.name}, whose answer is posted as the bot.
       </p>
     </section>
   );

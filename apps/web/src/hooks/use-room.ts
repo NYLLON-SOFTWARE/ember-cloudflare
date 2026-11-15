@@ -96,6 +96,24 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
         });
       });
     },
+    runShortcut: (messageId, shortcutId) => {
+      if (!sendOrWarn({ type: "shortcut.run", shortcutId, messageId })) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        const answered = (went: boolean) => {
+          stop();
+          resolve(went);
+        };
+        // The room answers once the bot has, or says why it didn't, which the flash says, as a command's
+        // does. A room that lets the page in again has lost the answer, if not the run.
+        const stop = listen((frame) => {
+          if (frame.type === "shortcut.ran" && frame.shortcutId === shortcutId) answered(true);
+          else if (frame.type === "error" && frame.shortcutId === shortcutId) {
+            warn(frame.message);
+            answered(false);
+          } else if (frame.type === "welcome" || frame.type === "resumed") answered(false);
+        });
+      });
+    },
   };
 }
 

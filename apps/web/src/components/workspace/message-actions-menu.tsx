@@ -14,14 +14,16 @@ import {
   type RefObject,
 } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
+import type { Shortcut } from "@ember/protocol/bots";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { Bookmark, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Timer, Trash } from "@/components/icons/iconoir";
+import { Bookmark, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Sparks, Timer, Trash } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { mentionedPerson, PeopleContext, useNameOf, useNameOfGroup } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSaver } from "@/hooks/use-saves";
+import { useShortcuts } from "@/hooks/use-shortcuts";
 import { permalinkOf } from "@/hooks/use-route";
 import { copyWithSuccess } from "@/lib/clipboard";
 import { replyQuote } from "@/lib/messages";
@@ -76,6 +78,8 @@ interface Props {
   /** Writes a reply in the composer, given the quote it starts with. */
   onQuote: (quote: string) => void;
   onEdit: () => void;
+  /** Runs one of the workspace's shortcuts on the message, as one of its items is picked. */
+  onRunShortcut: (shortcutId: string) => void;
   /** Deletes the message, from More actions, answering whether the deletion was sent. */
   onDelete: () => boolean;
   /** Opens the message's Custom reaction form, from New boost. */
@@ -104,9 +108,9 @@ export interface MessageActionsHandle {
  *
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Pin to room, or
  * Unpin, Save for later, Quote, Copy text, Copy link, and on messages you can change, Edit message and
- * Delete message.
+ * Delete message, then the workspace's shortcuts, each sending the message to the bot it invokes.
  */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, pinned, onPin, onReact, onQuote, onEdit, onDelete, onNewBoost, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, pinned, onPin, onReact, onQuote, onEdit, onRunShortcut, onDelete, onNewBoost, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -181,6 +185,12 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const remind = () => {
     close();
     setReminding(true);
+  };
+
+  // A shortcut closes the menu too, and its bot answers in its own time, which the flash tells of.
+  const runShortcut = (shortcut: Shortcut) => {
+    close();
+    onRunShortcut(shortcut.id);
   };
 
   // New boost closes the bar too, and the form it opens takes focus.
@@ -592,10 +602,33 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </>
             )}
+            <ShortcutItems onRun={runShortcut} />
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The workspace's message shortcuts, below the built-ins: a Sparks before each's name, as the bots'
+ * actions are, and one to a line, as the menu's other items are. Reading them asks the Worker as the
+ * menu opens, so a menu of none — none registered, none come yet, or why they couldn't be had — shows
+ * the built-ins alone.
+ */
+function ShortcutItems({ onRun }: { onRun: (shortcut: Shortcut) => void }) {
+  const shortcuts = useShortcuts();
+  if (shortcuts.length === 0) return null;
+  return (
+    <>
+      <hr className="my-1 border-message-border" />
+      {shortcuts.map((shortcut) => (
+        <button key={shortcut.id} type="button" className={ITEM} onClick={() => onRun(shortcut)}>
+          <Sparks />
+          {shortcut.name}
+        </button>
+      ))}
+    </>
   );
 }
 

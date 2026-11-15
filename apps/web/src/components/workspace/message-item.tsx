@@ -34,6 +34,8 @@ export interface MessageActions {
   remove: (messageId: string) => boolean;
   /** Clicks a button that acts on one of a message's cards, answering whether its bot took the click, once the room says. */
   click: (messageId: string, action: CardAction) => Promise<boolean>;
+  /** Runs one of the workspace's shortcuts on the message, answering whether its bot took it, once the room says. */
+  runShortcut: (messageId: string, shortcutId: string) => Promise<boolean>;
 }
 
 /**
@@ -399,6 +401,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
           onReact={(emoji) => actions.boost(message.id, emoji)}
           onQuote={editors.reply}
           onEdit={() => editors.open(message.id)}
+          onRunShortcut={(shortcutId) => actions.runShortcut(message.id, shortcutId)}
           // As from the editor, the composer takes focus as the message goes.
           onDelete={() => {
             if (!actions.remove(message.id)) return false;
