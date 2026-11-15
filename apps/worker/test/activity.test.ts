@@ -2,9 +2,9 @@ import type { ActivityItem, ActivityPage, Message, RoomId, User, WorkspaceServer
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { BACKFILL_PER_PERSON, capped, type BackfillItem } from "../src/activity-backfill";
+import { BACKFILL_PER_PERSON, BackfillItems, type BackfillItem, type RoomHistory } from "../src/activity-backfill";
 import { timeZoneOf, type Workspace } from "../src/workspace";
-import { api, connect, createRoom, direct, freshDeploy, freshRoom, openWorkspaceSocket, post, roomSql, settle, signIn, workspaceSql, workspaceStub, type Session, type Socket, type WorkspaceSocket } from "./support";
+import { api, connect, createRoom, direct, freshDeploy, freshRoom, openWorkspaceSocket, post, roomSql, roomStub, settle, signIn, standInForRooms, workspaceSql, workspaceStub, type Session, type Socket, type WorkspaceSocket } from "./support";
 
 // Each person's Activity, as Slack's is: what mentions them, comes in their DMs, replies in threads they
 // follow, reacts to their messages or adds them to private rooms, kept once read.
@@ -384,15 +384,55 @@ describe("Activity's backfill", () => {
     expect(items[0]!.id).toBeGreaterThan(0);
   });
 
-  it("keeps each person's newest items", () => {
-    const at = (minute: number) => new Date(Date.UTC(2026, 10, 1, 0, minute)).toISOString();
-    const items: BackfillItem[] = Array.from({ length: BACKFILL_PER_PERSON + 1 }, (_, minute) => ({
-      userId: "grace", kind: "mention", roomId: "general", messageId: `m${minute}`, parentId: null, actorId: "ada", preview: "", content: null, at: at(minute),
+  it("keeps each person's newest items, however many one room has", () => {
+    const at = (second: number) => new Date(Date.UTC(2026, 10, 1) + second * 1000).toISOString();
+    // 300 people, each mentioned in 667 @everyone messages: more items than one call takes as arguments.
+    const many: BackfillItem[] = Array.from({ length: 200_100 }, (_, index) => ({
+      userId: `u${index % 300}`, kind: "mention", roomId: "general", messageId: `m${Math.floor(index / 300)}`, parentId: null, actorId: "ada", preview: "", content: null, at: at(Math.floor(index / 300)),
     }));
-    const kept = capped([...items, { ...items[0]!, userId: "linus" }]);
-    expect(kept.filter((each) => each.userId === "grace")).toHaveLength(BACKFILL_PER_PERSON);
-    expect(kept.some((each) => each.messageId === "m0" && each.userId === "grace")).toBe(false);
+    expect(() => [].push(...(many as never[]))).toThrow(RangeError);
+    const items = new BackfillItems();
+    items.add(many);
+    items.add([{ ...many[0]!, userId: "linus" }]);
+    const kept = items.newest();
+    const theirs = kept.filter((each) => each.userId === "u7").map((each) => each.messageId);
+    expect(theirs).toHaveLength(BACKFILL_PER_PERSON);
+    expect([theirs.at(0), theirs.at(-1)]).toEqual([`m${667 - BACKFILL_PER_PERSON}`, "m666"]);
     expect(kept.filter((each) => each.userId === "linus")).toHaveLength(1);
+  });
+
+  it("doesn't bring back a message deleted or edited while it's under way", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await freshRoom("racing");
+    const adaInRoom = await connect(room, ada, { visible: true });
+    const gone = await post(adaInRoom, `${mention(grace.user)} delete me`);
+    const changed = await post(adaInRoom, `${mention(grace.user)} first draft`);
+    await delivered(room);
+    await workspaceSql("DELETE FROM activity");
+    // The room answers as it was before either changed, once both have.
+    const before = await roomStub(room).activityHistory(room as RoomId, new Date(Date.now() - 86_400_000).toISOString());
+    // Flags, not promises, which can't settle across Durable Objects.
+    const held = { asked: false, answered: false };
+    const restore = await standInForRooms({
+      activityHistory: async () => {
+        held.asked = true;
+        while (!held.answered) await sleep(10);
+        return before;
+      },
+    });
+    try {
+      const page = activityOf(grace);
+      await expect.poll(() => held.asked).toBe(true);
+      adaInRoom.send({ type: "message.delete", messageId: gone.id });
+      await adaInRoom.next("message.deleted");
+      adaInRoom.send({ type: "message.update", messageId: changed.id, body: `${mention(grace.user)} second draft` });
+      await adaInRoom.next("message.updated");
+      await sleep(200);
+      held.answered = true;
+      expect((await page).items).toEqual([item({ messageId: changed.id, preview: expect.stringContaining("second draft"), read: true })]);
+    } finally {
+      await restore();
+    }
   });
 });
 

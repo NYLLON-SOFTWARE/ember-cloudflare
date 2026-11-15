@@ -142,7 +142,7 @@ import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import { ActivityStore, type RecordedItems, type RemovedItems } from "./activity";
-import { BACKFILL_DAYS, capped, itemsOf, recipientsOf, recordBackfill, type BackfillItem } from "./activity-backfill";
+import { BACKFILL_DAYS, BackfillItems, itemsOf, recipientsOf, recordBackfill } from "./activity-backfill";
 import type { RoomEvent } from "./room-log";
 import { RoomTabStore, type KeptTab, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
 import type { Canvas, CanvasSave, FileMark, FileMarks } from "@ember/protocol/library";
@@ -979,6 +979,11 @@ export class Workspace extends DurableObject<Env> {
   private readonly activity: ActivityStore;
   /** The Activity backfill this object has under way, or has finished, which Activity's pages wait for. */
   private activityBackfill: Promise<void> | null = null;
+  /**
+   * While the backfill is under way, the edits, deletions and reactions taken back that rooms tell of, to
+   * do again once it has recorded what rooms answered, which they may have answered before them.
+   */
+  private changedDuringBackfill: Array<() => Promise<void>> | null = null;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /**
    * The account once it exists. Renaming it and regenerating its join code keep this current, and
@@ -4690,14 +4695,15 @@ export class Workspace extends DurableObject<Env> {
     const now = Date.now();
     const since = new Date(now - BACKFILL_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const roomIds = (await this.db.all<{ id: RoomId }>(`SELECT id FROM rooms ORDER BY id`)).map((row) => row.id).filter((id) => !filled.has(id));
-    const items: BackfillItem[] = [];
+    const items = new BackfillItems();
     const answered: RoomId[] = [];
+    this.changedDuringBackfill = [];
     for (let start = 0; start < roomIds.length; start += ROOMS_BACKFILLED_AT_ONCE) {
       await Promise.all(
         roomIds.slice(start, start + ROOMS_BACKFILLED_AT_ONCE).map(async (roomId) => {
           try {
             const [history, recipients] = await Promise.all([this.env.CHAT_ROOM.getByName(roomId).activityHistory(roomId, since), recipientsOf(this.db, roomId)]);
-            items.push(...itemsOf(roomId, recipients, history));
+            items.add(itemsOf(roomId, recipients, history));
             answered.push(roomId);
           } catch (error) {
             console.error(`Activity backfill will try room ${roomId} again:`, error);
@@ -4705,7 +4711,13 @@ export class Workspace extends DurableObject<Env> {
         }),
       );
     }
-    await recordBackfill(this.db, capped(items), new Date(now).toISOString());
+    try {
+      await recordBackfill(this.db, items.newest(), new Date(now).toISOString());
+    } finally {
+      const changed = this.changedDuringBackfill;
+      this.changedDuringBackfill = null;
+      for (const change of changed) await change();
+    }
     await this.ctx.storage.put(ACTIVITY_BACKFILLED_ROOMS, [...filled, ...answered]);
     const complete = answered.length === roomIds.length;
     if (complete) await this.ctx.storage.put(ACTIVITY_BACKFILLED, true);
@@ -4734,6 +4746,7 @@ export class Workspace extends DurableObject<Env> {
 
   /** Takes back the item a reaction recorded, as the room asks once the reaction is removed. */
   async unreacted(messageId: string, reactorId: UserId, content: string): Promise<void> {
+    this.changedDuringBackfill?.push(() => this.unreacted(messageId, reactorId, content));
     this.tellOfRemovedActivity(await this.activity.removeReaction(messageId, reactorId, content));
   }
 
@@ -4742,11 +4755,13 @@ export class Workspace extends DurableObject<Env> {
    * room asks once it's edited, so that nothing edited out of it stays there, telling each of them.
    */
   async messageEdited(roomId: RoomId, messageId: string, plainText: string): Promise<void> {
+    this.changedDuringBackfill?.push(() => this.messageEdited(roomId, messageId, plainText));
     for (const [userId, items] of await this.activity.editMessage(roomId, messageId, plainText)) this.tell([userId], { type: "activity.updated", items });
   }
 
   /** Takes out of everyone's Activity the items about message `messageId` in room `roomId`, as the room asks once it's deleted. */
   async messageDeleted(roomId: RoomId, messageId: string): Promise<void> {
+    this.changedDuringBackfill?.push(() => this.messageDeleted(roomId, messageId));
     this.tellOfRemovedActivity(await this.activity.removeMessage(roomId, messageId));
   }
 

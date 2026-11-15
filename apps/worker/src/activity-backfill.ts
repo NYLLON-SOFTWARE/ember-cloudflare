@@ -151,15 +151,29 @@ export function itemsOf(roomId: RoomId, recipients: Recipient[], { messages, rea
 
 const oldestFirst = (a: BackfillItem, b: BackfillItem) => a.at.localeCompare(b.at) || a.messageId.localeCompare(b.messageId);
 
-/** `items` but each person's newest `BACKFILL_PER_PERSON`, oldest first. */
-export function capped(items: BackfillItem[]): BackfillItem[] {
-  const byPerson = new Map<UserId, BackfillItem[]>();
-  for (const item of items) {
-    const theirs = byPerson.get(item.userId);
-    if (theirs) theirs.push(item);
-    else byPerson.set(item.userId, [item]);
+/** `theirs`, one person's items, but their newest `BACKFILL_PER_PERSON`, oldest first. */
+const newestOf = (theirs: BackfillItem[]) => theirs.sort(oldestFirst).slice(-BACKFILL_PER_PERSON);
+
+/**
+ * The items the backfill collects from room after room, keeping each person's newest `BACKFILL_PER_PERSON`
+ * as they come, so that a room with many people and @everyone messages holds no more than that each.
+ */
+export class BackfillItems {
+  private readonly byPerson = new Map<UserId, BackfillItem[]>();
+
+  add(items: Iterable<BackfillItem>): void {
+    for (const item of items) {
+      let theirs = this.byPerson.get(item.userId);
+      if (!theirs) this.byPerson.set(item.userId, (theirs = []));
+      theirs.push(item);
+      if (theirs.length > 2 * BACKFILL_PER_PERSON) this.byPerson.set(item.userId, newestOf(theirs));
+    }
   }
-  return [...byPerson.values()].flatMap((theirs) => theirs.sort(oldestFirst).slice(-BACKFILL_PER_PERSON)).sort(oldestFirst);
+
+  /** Each person's newest items, everyone's oldest first. */
+  newest(): BackfillItem[] {
+    return [...this.byPerson.values()].flatMap(newestOf).sort(oldestFirst);
+  }
 }
 
 /** The lowest item number so far, or 0 with none below it. */
