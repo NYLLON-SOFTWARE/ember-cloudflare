@@ -1,6 +1,6 @@
 import { useContext } from "react";
 import type { Favorites, Involvement, Me, Room, User } from "@ember/protocol";
-import { ChatBubbleEmpty, MoreHoriz, Search } from "@/components/icons/iconoir";
+import { ChatBubbleEmpty, Lock, MoreHoriz, Search } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
@@ -57,6 +57,9 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
         {direct ? (
           <ChatBubbleEmpty className="size-5 shrink-0" />
+        ) : room.kind === "closed" && room.icon === null ? (
+          // A private room without an icon of its own has a lock where an open one has `#`, as in the sidebar.
+          <Lock aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
         ) : (
           <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />
         )}
@@ -107,7 +110,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>svg]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MoreHoriz className="size-5" />
-          <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>
+          <span className="sr-only">Settings for this {direct ? "DM" : "room"}</span>
         </PageLink>
       </div>
     </PageHeader>

@@ -100,23 +100,35 @@ describe("Room header", () => {
     expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/^#general/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("general");
   });
+
+  it("shows a lock before a private room's name in place of `#`, but its own icon when it has one", () => {
+    const secret = { id: "secret", name: "secret", kind: "closed" as const, icon: null };
+    const { rerender } = renderHeader({ room: secret, name: "secret" });
+    const page = screen.getByRole("navigation", { name: "Page" });
+    expect(page).toHaveTextContent(/^secret/);
+    expect(page.querySelector(".iconoir-lock")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 }).previousElementSibling).toHaveClass("iconoir-lock");
+    rerender(<></>);
+    renderHeader({ room: { ...secret, icon: "coffee" }, name: "secret" });
+    expect(screen.getByRole("navigation", { name: "Page" }).querySelector('[data-icon="coffee"]')).toBeInTheDocument();
+  });
 });
 
 describe("Star rooms", () => {
   it("has a star after the room's name, pressed while it's starred", () => {
     const { unmount } = renderHeader();
-    const star = screen.getByRole("button", { name: "Favorite room" });
+    const star = screen.getByRole("button", { name: "Star room" });
     expect(star).toHaveAttribute("aria-pressed", "false");
     expect(star.compareDocumentPosition(screen.getByRole("heading", { level: 1 })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     unmount();
 
     renderHeader({ favorite: true });
-    expect(screen.getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("has none in a DM, which can't be starred", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
-    expect(screen.queryByRole("button", { name: "Favorite room" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Star room" })).not.toBeInTheDocument();
   });
 });
 
@@ -171,9 +183,9 @@ describe("Group DMs and DM names", () => {
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
   });
 
-  it("links to a DM's settings at a DM's address, saying it's a Ping's", () => {
+  it("links to a DM's settings at a DM's address, saying it's a DM's", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
-    const settings = screen.getByRole("link", { name: "Settings for this Ping" });
+    const settings = screen.getByRole("link", { name: "Settings for this DM" });
     expect(settings).toHaveAttribute("title", "Conversation settings");
     expect(settings).toHaveAttribute("href", "/rooms/directs/direct-1/edit");
   });

@@ -128,6 +128,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
           <MessageList
             roomName={name}
             direct={direct}
+            closed={room.kind === "closed"}
             invitation={invitation}
             onDismissInvitation={onDismissInvitation}
             state={state}
@@ -150,6 +151,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
               roomId={room.id}
               roomName={name}
               direct={direct}
+              closed={room.kind === "closed"}
               userId={me.id}
               typing={typingUsers}
               disabled={state.offline}

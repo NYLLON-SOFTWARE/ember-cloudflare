@@ -9,9 +9,9 @@ import { OpenSearchContext } from "./search-box";
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
-/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
-const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} />
+/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's and `directsUnread` DMs unread. */
+const railAt = (current: RailPage, activity = activityOff, me = ada, newRelease: string | null = null, directsUnread = 0) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} directsUnread={directsUnread} newRelease={newRelease} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -32,7 +32,7 @@ describe("Rail", () => {
     ]);
     expect(within(rail).getByRole("link", { name: "Ember home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-    expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/rooms/directs/new");
+    expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/dms");
     expect(within(rail).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/searches");
     expect(within(rail).getByRole("link", { name: "Workspace" })).toHaveAttribute("href", "/account/edit");
     expect(within(rail).getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/users/me/profile");
@@ -59,7 +59,7 @@ describe("Rail", () => {
 
   it("marks Admin with a dot while a newer release of Ember is out, which it says to screen readers", () => {
     const grace = { ...ada, administrator: true };
-    const { rerender } = render(railAt("home", activityOff, grace, () => {}, "0.2"));
+    const { rerender } = render(railAt("home", activityOff, grace, "0.2"));
     const admin = screen.getByRole("link", { name: "Admin" });
     expect(admin).toHaveAccessibleDescription("Ember 0.2 is available");
     const dot = admin.lastElementChild;
@@ -140,25 +140,40 @@ describe("Search box", () => {
   });
 });
 
-describe("New direct message dialog", () => {
-  it("opens New direct message in place from DMs, which a click with a modifier key leaves to the browser", async () => {
-    const onNewDirect = vi.fn();
-    render(railAt("room", activityOff, ada, onNewDirect));
+describe("DMs page", () => {
+  it("opens the DMs page in place from DMs, which a click with a modifier key leaves to the browser", async () => {
+    render(railAt("room"));
     const dms = screen.getByRole("link", { name: "DMs" });
+    expect(fireEvent.click(dms, { ctrlKey: true })).toBe(true);
+    expect(location.pathname).toBe("/");
     await userEvent.click(dms);
-    expect(onNewDirect).toHaveBeenCalledExactlyOnceWith(dms);
-    expect(location.pathname).toBe("/");
-
-    onNewDirect.mockClear();
-    const opened = fireEvent.click(dms, { ctrlKey: true });
-    expect(opened).toBe(true);
-    expect(onNewDirect).not.toHaveBeenCalled();
-    expect(location.pathname).toBe("/");
+    expect(location.pathname).toBe("/dms");
   });
 
-  it("never marks DMs, whose address goes on to the last room visited", () => {
-    render(railAt("room"));
+  it("marks DMs on the DMs page and a DM's, and Home on a room's", () => {
+    const { rerender } = render(railAt("dms"));
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
+    rerender(railAt("room"));
     expect(screen.getByRole("link", { name: "DMs" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("counts the DMs marked unread in a pill at its corner, as Activity's, up to 9+, hidden at none", () => {
+    const { rerender } = render(railAt("room", activityOff, ada, null, 2));
+    const dms = screen.getByRole("link", { name: "DMs" });
+    expect(dms).toHaveAccessibleDescription("2 unread");
+    const pill = within(dms).getByText("2");
+    expect(pill).toHaveAttribute("aria-hidden", "true");
+    expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
+
+    rerender(railAt("room", activityOff, ada, null, 12));
+    expect(dms).toHaveAccessibleDescription("9+ unread");
+    expect(within(dms).getByText("9+")).toBeInTheDocument();
+
+    rerender(railAt("room", activityOff, ada, null, 0));
+    expect(dms).not.toHaveAttribute("aria-description");
+    expect(dms).toHaveTextContent(/^DMs$/);
   });
 });
 
@@ -177,13 +192,17 @@ describe("Activity filter", () => {
     expect(activity).toHaveClass("aria-pressed:bg-hover", "aria-pressed:text-foreground");
   });
 
-  it("counts unread conversations in a pill at its corner, hidden at none", () => {
+  it("counts unread conversations in a pill at its corner, up to 9+, hidden at none", () => {
     const { rerender } = render(railAt("room", { ...activityOff, unread: 3 }));
     const activity = screen.getByRole("button", { name: "Activity" });
     expect(activity).toHaveAccessibleDescription("3 unread");
     const pill = within(activity).getByText("3");
     expect(pill).toHaveAttribute("aria-hidden", "true");
     expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
+
+    rerender(railAt("room", { ...activityOff, unread: 14 }));
+    expect(activity).toHaveAccessibleDescription("9+ unread");
+    expect(within(activity).getByText("9+")).toBeInTheDocument();
 
     rerender(railAt("room", { ...activityOff, unread: 0 }));
     expect(activity).not.toHaveAttribute("aria-description");
