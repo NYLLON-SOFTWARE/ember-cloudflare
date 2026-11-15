@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { MAX_MOOD_EMOJI_LENGTH, MAX_MOOD_TEXT_LENGTH, sameMood, type PersonMood, type ProfileAnswer } from "@ember/protocol";
+import { MAX_MOOD_EMOJI_LENGTH, MAX_MOOD_TEXT_LENGTH, REACTIONS, sameMood, type PersonMood, type ProfileAnswer } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { EmojiPicker } from "./emoji-picker";
 import { useMounted } from "@/hooks/use-mounted";
 import { changeProfile, isSignedOut } from "@/lib/api";
 import { choiceOf, clearAtOf, currentMood, CLEAR_CHOICES, type ClearChoice } from "@/lib/mood";
@@ -20,6 +21,19 @@ interface Props {
   /** Says why saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
+
+/** The emojis the mood's picker offers: the moods people wear, and the reactions' set after them. */
+const MOOD_EMOJIS = [
+  ["😌", "Relieved"],
+  ["😴", "Asleep"],
+  ["🤔", "Thinking"],
+  ["🥳", "Partying"],
+  ["👀", "Eyes"],
+  ["🚀", "Rocket"],
+  ["☕", "Coffee"],
+  ["🌙", "Moon"],
+  ...REACTIONS,
+] as const;
 
 /** The emoji and words typed, coming off when the Clear-at menu says, or null while either is blank. */
 const moodOf = (emoji: string, text: string, clearAt: ClearChoice, now: Date): PersonMood | null => {
@@ -42,6 +56,7 @@ const choiceOfClearAt = (mood: PersonMood | null): ClearChoice => {
  */
 export function MoodEditor({ mood, onSaving, onSaved, onFailed }: Props) {
   const [emoji, setEmoji] = useState(mood?.emoji ?? "");
+  const emojiField = useRef<HTMLInputElement>(null);
   const [text, setText] = useState(mood?.text ?? "");
   const [clearAt, setClearAt] = useState<ClearChoice>(choiceOfClearAt(mood));
   /** The mood as the page last loaded or saved it. */
@@ -111,50 +126,68 @@ export function MoodEditor({ mood, onSaving, onSaved, onFailed }: Props) {
       </h2>
       <p>An emoji and a few words beside your name, which everyone sees until it comes off.</p>
       <form onSubmit={save} className={cn(AUTH_FORM, "gap-4")}>
-        <div className="flex flex-col gap-4 md:flex-row md:items-start">
-          <Field id="user_mood_emoji" label="Emoji">
-            <Input
-              id="user_mood_emoji"
-              placeholder="😌"
-              maxLength={MAX_MOOD_EMOJI_LENGTH}
-              required
-              disabled={saving}
-              value={emoji}
-              onChange={change(setEmoji)}
-              className={cn(FIELD_INPUT, "w-[10em] max-md:w-full")}
-            />
-          </Field>
-          <Field id="user_mood_text" label="Words">
-            <Input
-              id="user_mood_text"
-              placeholder="A few words beside your name"
-              maxLength={MAX_MOOD_TEXT_LENGTH}
-              required
-              disabled={saving}
-              value={text}
-              onChange={change(setText)}
-              className={cn(FIELD_INPUT, "md:min-w-[16em]")}
-            />
-          </Field>
-          <Field id="user_mood_clear_at" label="Clear at">
-            <select
-              id="user_mood_clear_at"
-              disabled={saving}
-              value={clearAt}
-              onChange={choose}
-              aria-describedby="user-mood-clear-at-note"
-              className={cn(SELECT, "md:w-[10em]")}
-            >
-              {CLEAR_CHOICES.map(({ value, label }) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <p id="user-mood-clear-at-note" className={NOTE}>
-              When it comes off by itself. Never keeps it until you take it off.
-            </p>
-          </Field>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:flex-wrap">
+          <div className="max-md:w-full md:w-[9em] md:shrink-0">
+            <Field id="user_mood_emoji" label="Emoji">
+              <div className="flex items-center gap-2">
+                <Input
+                  id="user_mood_emoji"
+                  ref={emojiField}
+                  placeholder="😌"
+                  maxLength={MAX_MOOD_EMOJI_LENGTH}
+                  required
+                  disabled={saving}
+                  value={emoji}
+                  onChange={change(setEmoji)}
+                  className={cn(FIELD_INPUT, "w-full min-w-0")}
+                />
+                <EmojiPicker
+                  emojis={MOOD_EMOJIS}
+                  onPick={(picked) => {
+                    setEmoji(picked);
+                    emojiField.current?.focus();
+                  }}
+                  label="Pick the mood's emoji"
+                  disabled={saving}
+                />
+              </div>
+            </Field>
+          </div>
+          <div className="md:min-w-[12em] md:flex-1">
+            <Field id="user_mood_text" label="Words">
+              <Input
+                id="user_mood_text"
+                placeholder="A few words beside your name"
+                maxLength={MAX_MOOD_TEXT_LENGTH}
+                required
+                disabled={saving}
+                value={text}
+                onChange={change(setText)}
+                className={cn(FIELD_INPUT, "w-full min-w-0")}
+              />
+            </Field>
+          </div>
+          <div className="max-md:w-full md:w-[13em] md:shrink-0">
+            <Field id="user_mood_clear_at" label="Clear at">
+              <select
+                id="user_mood_clear_at"
+                disabled={saving}
+                value={clearAt}
+                onChange={choose}
+                aria-describedby="user-mood-clear-at-note"
+                className={cn(SELECT, "w-full")}
+              >
+                {CLEAR_CHOICES.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <p id="user-mood-clear-at-note" className={NOTE}>
+                When it comes off by itself. Never keeps it until you take it off.
+              </p>
+            </Field>
+          </div>
         </div>
         <div className="flex flex-col gap-2 md:flex-row-reverse md:items-start">
           <SubmitButton disabled={!typed || saving} className="md:w-auto md:px-[3ch]">
