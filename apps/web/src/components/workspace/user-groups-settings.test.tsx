@@ -16,7 +16,7 @@ const people: People = new Map(
 );
 
 /** Answers the groups API as `route` says, failing any request it has no answer for. */
-function serve(route: (method: string, path: string, body: unknown) => Response = () => Response.json({ groups: [design] })) {
+function serve(route: (method: string, path: string, body: unknown) => Response | Promise<Response> = () => Response.json({ groups: [design] })) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => route(init?.method ?? "GET", String(input), init?.body ? JSON.parse(String(init.body)) : undefined));
 }
 
@@ -145,6 +145,81 @@ describe("User groups", () => {
     expect(within(card()).getByLabelText("Name")).toHaveValue("on call");
     expect(within(card()).getByRole("checkbox", { name: "Grace Hopper" })).toBeChecked();
     expect(within(card()).getByRole("checkbox", { name: "Ada Lovelace" })).not.toBeChecked();
+  });
+
+  it("closes only the form whose save completed, one opened while it was under way keeping what's typed in it", async () => {
+    const onCall: UserGroup = { id: "g2", name: "on call", memberIds: [grace.id] };
+    const changed = { ...design, name: "design & code", memberIds: [ada.id] };
+    let answer: (() => void) | undefined;
+    serve((method, path) => {
+      if (method === "PATCH" && path === `/api/user_groups/${design.id}`) {
+        return new Promise<Response>((resolve) => (answer = () => resolve(Response.json({ group: changed }))));
+      }
+      return Response.json({ groups: [design, onCall] });
+    });
+    const { user, onSaved } = showCard();
+    await user.click(await within(card()).findByRole("button", { name: "Edit design" }));
+    await user.type(within(card()).getByLabelText("Name"), " for web");
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    // The save is under way, and Edit on another group has opened its form: what's typed there is that one's to lose.
+    await user.click(within(card()).getByRole("button", { name: "Edit on call" }));
+    await user.type(within(card()).getByLabelText("Name"), " urgent");
+    // The first save answers, and shows its group without closing the form open now.
+    answer?.();
+    await vi.waitFor(() => expect(within(card()).getByRole("list")).toHaveTextContent("design & code"));
+    expect(onSaved).toHaveBeenCalledOnce();
+    expect(within(card()).getByLabelText("Name")).toHaveValue("on call urgent");
+  });
+
+  it("closes the form whose save answered first, and closes nothing for the one still under way when it lands", async () => {
+    const onCall: UserGroup = { id: "g2", name: "on call", memberIds: [grace.id] };
+    const changedDesign = { ...design, name: "design & code", memberIds: [ada.id] };
+    const changedOnCall = { ...onCall, name: "on call urgent", memberIds: [grace.id] };
+    const answers: Record<string, () => void> = {};
+    serve((method, path) => {
+      if (method === "PATCH") {
+        const id = path === `/api/user_groups/${design.id}` ? design.id : onCall.id;
+        return new Promise<Response>((resolve) => (answers[id] = () => resolve(Response.json({ group: id === design.id ? changedDesign : changedOnCall }))));
+      }
+      return Response.json({ groups: [design, onCall] });
+    });
+    const { user, onSaved, reloadDirectory } = showCard();
+    await user.click(await within(card()).findByRole("button", { name: "Edit design" }));
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    await user.click(within(card()).getByRole("button", { name: "Edit on call" }));
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    // The form open now answers first, and it alone closes.
+    answers[onCall.id]?.();
+    await vi.waitFor(() => expect(within(card()).queryByLabelText("Name")).toBeNull());
+    expect(within(card()).getByRole("list")).toHaveTextContent("on call urgent");
+    // The save still under way answers then, and shows its group without a form opening or closing.
+    answers[design.id]?.();
+    await vi.waitFor(() => expect(within(card()).getByRole("list")).toHaveTextContent("design & code"));
+    expect(within(card()).queryByLabelText("Name")).toBeNull();
+    expect(onSaved).toHaveBeenCalledTimes(2);
+    expect(reloadDirectory).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes nothing for a made group's save that lands after its form is gone, the group showing all the same", async () => {
+    const created = { id: "g2", name: "on call", memberIds: [grace.id] };
+    let answer: (() => void) | undefined;
+    serve((method, path) => {
+      if (method === "POST" && path === "/api/user_groups") {
+        return new Promise<Response>((resolve) => (answer = () => resolve(Response.json({ group: created }, { status: 201 }))));
+      }
+      return Response.json({ groups: [design] });
+    });
+    const { user } = showCard();
+    await user.click(within(card()).getByRole("button", { name: "New group" }));
+    await user.type(within(card()).getByLabelText("Name"), "On Call");
+    await user.click(within(card()).getByRole("checkbox", { name: "Grace Hopper" }));
+    await user.click(within(card()).getByRole("button", { name: "Create group" }));
+    // The making is under way, and Edit has opened another form, whose draft a late answer must keep.
+    await user.click(await within(card()).findByRole("button", { name: "Edit design" }));
+    await user.type(within(card()).getByLabelText("Name"), " for web");
+    answer?.();
+    await vi.waitFor(() => expect(within(card()).getByRole("list")).toHaveTextContent("on call"));
+    expect(within(card()).getByLabelText("Name")).toHaveValue("design for web");
   });
 
   it("lets a member the directory lists gone go, whom no checkbox offers, so saving keeps who's checked alone", async () => {

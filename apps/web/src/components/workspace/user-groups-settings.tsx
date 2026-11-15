@@ -3,6 +3,7 @@ import { MAX_GROUP_MEMBERS, MAX_GROUP_NAME_LENGTH, type GroupId, type UserGroup,
 import { FIELD_INPUT, Field } from "@/components/field";
 import { EditPencil, Minus, Plus } from "@/components/icons/iconoir";
 import { DirectoryLoaded, DirectoryReloading, DirectoryStale, PeopleContext } from "@/hooks/use-directory";
+import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeUserGroup, createUserGroup, deleteUserGroup, fetchUserGroups, isSignedOut } from "@/lib/api";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
@@ -52,10 +53,9 @@ export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
     return () => void (stopped = true);
   }, [onFailed]);
 
-  /** Shows `group` as the server answers it, closes the form, and says the change saved. */
+  /** Shows `group` as the server answers it, and says the change saved; the form whose save it was closes itself. */
   const saved = (group: UserGroup) => {
     setGroups((groups) => (groups?.some((listed) => listed.id === group.id) ? groups.map((listed) => (listed.id === group.id ? group : listed)) : [...(groups ?? []), group]));
-    setEditing(null);
     reloadDirectory();
     onSaved();
   };
@@ -135,7 +135,7 @@ interface GroupFormProps {
   group: UserGroup | null;
   /** Shows the group as the server answers it, once it has. */
   onSaved: (group: UserGroup) => void;
-  /** Closes the form, keeping the group as it was. */
+  /** Closes the form, Cancel keeping the group as it was and a landed save leaving it as the server answered it. */
   onCancel: () => void;
   /** Loads the people directory again, which a save waits for while one is under way, and asks for when its last has failed. */
   reloadDirectory: () => void;
@@ -150,13 +150,16 @@ interface GroupFormProps {
  * capitalised. A member the directory lists gone, as a deactivated one's id is, is let go of, for no
  * checkbox offers them to be unchecked — once the directory has come and stayed come, which a load
  * under way or one that has failed may yet correct. A save waits as much for the directory to have
- * settled come, and a load that has failed again lets it go to be tried.
+ * settled come, and a load that has failed again lets it go to be tried. A save that lands after its
+ * form is gone — another having opened while it was under way — shows its group and says it saved all
+ * the same, and closes nothing: the form open keeps what's typed in it.
  */
 function GroupForm({ group, onSaved, onCancel, reloadDirectory, onFailed }: GroupFormProps) {
   const directory = useContext(PeopleContext);
   const loaded = useContext(DirectoryLoaded);
   const stale = useContext(DirectoryStale);
   const reloading = useContext(DirectoryReloading);
+  const mounted = useMounted();
   const people = byName([...directory.values()].filter((person) => person.status === "active" && person.role !== "bot"));
   const [name, setName] = useState(group?.name ?? "");
   const [members, setMembers] = useState<ReadonlySet<UserId>>(() => new Set(group?.memberIds ?? []));
@@ -201,7 +204,12 @@ function GroupForm({ group, onSaved, onCancel, reloadDirectory, onFailed }: Grou
     const memberIds = loaded ? [...members].filter((id) => directory.get(id)?.status === "active") : [...members];
     const change = group ? changeUserGroup(group.id, { name, memberIds }) : createUserGroup({ name, memberIds });
     change.then(
-      onSaved,
+      (saved) => {
+        onSaved(saved);
+        // The form whose save completed closes, and only while it is still the one open: a form opened
+        // while the save was under way keeps what's typed in it.
+        if (mounted.current) onCancel();
+      },
       (error: unknown) => {
         if (isSignedOut(error)) return onFailed(error);
         setSaving(false);
