@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import type { Me, Message, Room } from "@ember/protocol";
-import { ChatBubbleEmpty, Xmark } from "@/components/icons/iconoir";
+import { ArrowLeft, ChatBubbleEmpty, Xmark } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useMessageEditors } from "@/hooks/use-message-editors";

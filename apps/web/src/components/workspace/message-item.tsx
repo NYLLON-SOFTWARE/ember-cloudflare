@@ -1,11 +1,11 @@
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { Me, Message, User } from "@ember/protocol";
+import type { CardAction, Me, Message, User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { NavArrowRight } from "@/components/icons/iconoir";
 import { MessageSheet, useMessageSheets, type MessageSheetHandle } from "@/components/mobile/message-sheet";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
-import { messagePath, permalinkOf, threadPath } from "@/hooks/use-route";
+import { messagePath, permalinkOf, personPath, threadPath } from "@/hooks/use-route";
 import { cardsQuote, dateTimeLabel, lastReplyLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
@@ -16,7 +16,7 @@ import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
 import { ForwardDialog } from "./forward-dialog";
-import { FixedMessageEditor, MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
 
@@ -29,6 +29,12 @@ export interface MessageActions {
   edit: (messageId: string, body: string) => boolean;
   /** Returns whether the deletion was sent. */
   remove: (messageId: string) => boolean;
+  /** Sends a message shown as not sent again. */
+  retry?: (clientMessageId: string) => void;
+  /** Forgets a message shown as not sent. */
+  discard?: (clientMessageId: string) => void;
+  /** Clicks a button that acts on one of a message's cards, answering whether its bot took the click, once the room says. */
+  click: (messageId: string, action: CardAction) => Promise<boolean>;
 }
 
 /**
@@ -84,6 +90,9 @@ function shownBody(body: string, plainText: string): DisplayNode[] | null {
     return null;
   }
 }
+
+/** Whether a message's text quotes another, as a forward's does, whose file shows in the quote. */
+const quotes = (nodes: DisplayNode[]) => nodes.some((node) => node.kind === "element" && node.name === "blockquote");
 
 /**
  * What shows in place of a message whose text can't be shown, with no author, time, actions or
@@ -190,17 +199,55 @@ function DeletedMessage({ message, thread, open }: { message: Message; thread?: 
 
 /**
  * The author's name as the people directory lists them now, which runs to an ellipsis rather than wrap,
- * and shows their bio on hover, then the agent badge for an AI agent.
+ * and shows their bio on hover, then the agent badge for an AI agent. It links to their page, as their
+ * avatar does, which opens their profile beside the conversation where there's a pane for it.
  */
 function Author({ user }: { user: User }) {
   const listed = useContext(PeopleContext).get(user.id) ?? user;
   return (
     <>
-      <strong title={userTitle(listed)} className="truncate font-bold text-message-ink">
+      <PageLink href={personPath(user.id)} title={userTitle(listed)} className="truncate font-bold text-message-ink hover:underline">
         {listed.name}
-      </strong>
+      </PageLink>
       {isAgent(listed) && <AgentBadge />}
     </>
+  );
+}
+
+/** A message's own small buttons, under it: 13px, or a fingertip's 44px on touch screens. */
+const UNSENT_ACTION = "cursor-pointer rounded-[5px] px-1.5 py-0.5 text-xs font-semibold hover:bg-hover touch:min-h-11";
+
+/**
+ * What a message that couldn't go says, as Slack's does: Not sent, with Retry, which sends it again, Edit,
+ * which writes it in the composer again in its place, and Delete.
+ */
+function NotSent({ message, actions, editors }: { message: PendingMessage; actions: MessageActions | null; editors: MessageEditors }) {
+  return (
+    <p className="col-span-full flex flex-wrap items-center gap-x-1 text-xs">
+      <span className="me-1 text-destructive">Not sent</span>
+      {actions?.retry && (
+        <button type="button" onClick={() => actions.retry?.(message.clientMessageId)} className={UNSENT_ACTION}>
+          Retry
+        </button>
+      )}
+      {actions?.discard && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              editors.reply(message.body);
+              actions.discard?.(message.clientMessageId);
+            }}
+            className={UNSENT_ACTION}
+          >
+            Edit
+          </button>
+          <button type="button" onClick={() => actions.discard?.(message.clientMessageId)} className={cn(UNSENT_ACTION, "text-destructive")}>
+            Delete
+          </button>
+        </>
+      )}
+    </p>
   );
 }
 
@@ -216,8 +263,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
   const pending = isPending(message);
   const upload = isPending(message) ? message.upload : undefined;
-  // The editor shows only while the message can still be changed.
-  const editing = editorOpen && actions !== null && !pending;
+  // The editor shows only while the message can still be changed, and has text to change: a file message's
+  // and a bot's cards' can't be.
+  const editing = editorOpen && actions !== null && !pending && !message.attachment && !message.cards;
   const [customizing, setCustomizing] = useState(false);
   // What opened Forward message, while it's open.
   const [forwarding, setForwarding] = useState<HTMLElement | null>(null);
@@ -241,8 +289,13 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   // without one.
   const context = message.parentId !== undefined && (!thread || message.alsoSent) && <ReplyContext message={message} thread={thread} />;
   const threaded = follows && !context;
-  // Edited messages are marked, as Slack marks them, so readers can tell a message changed.
-  const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
+  // Edited messages are marked after their text, as Slack marks them, so readers can tell a message changed,
+  // and when.
+  const edited = message.editedAt !== null && (
+    <span className="text-[12px] text-message-muted" title={dateTimeLabel(new Date(message.editedAt))}>
+      (edited)
+    </span>
+  );
 
   // The permalink: the time, linking to the message, though not while the message is on its way to the
   // room. A follow-up's shows only on hover or focus, after its text, without moving it.
@@ -305,104 +358,92 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
       {/* The avatar sits 8px down, level with the author's name, and 4px below where the editor starts. */}
       {!threaded && <AvatarLink user={message.creator} square className="mt-2 size-9 max-md:size-[30px]" />}
 
-      {editing && (message.attachment || message.cards) ? (
-        <FixedMessageEditor ref={attachEditor} onDelete={() => actions.remove(message.id) && editors.returnFocus()} onClose={() => editors.close(message.id)}>
-          {message.attachment ? <Attachment file={message.attachment} /> : message.body !== "" && <MessageBody nodes={shown} mentions={message.mentions} />}
-          {message.cards && <BotCards cards={message.cards} />}
-        </FixedMessageEditor>
-      ) : editing ? (
-        <MessageEditor
-          ref={attachEditor}
-          message={message}
-          onSave={(body) => actions.edit(message.id, body)}
-          onDelete={() => actions.remove(message.id) && editors.returnFocus()}
-          onClose={() => editors.close(message.id)}
-        />
-      ) : (
-        // The body, which a permalink outlines. A follow-up's time takes a column of its own after the
-        // text, which the text gives up its room to only as it runs long.
-        <div
-          data-body-content
-          className={cn(
-            "col-start-2 min-w-0",
-            allEmoji ? "py-0" : "py-1",
-            threaded && cn("grid grid-cols-[minmax(0,max-content)_minmax(max-content,1fr)] items-start gap-x-2.5", clearOfOptions),
-            // A message that mentions you, which wiggles as it shows, as Campfire's messages.css has it.
-            mentioned && "animate-wiggle border-l-2 border-mention bg-mention/10 pl-2 motion-reduce:animate-none",
-          )}
-        >
-          {/* The heading, a 15px h3, whose letters are spaced as headings' are. A follow-up's
-              holds only its time, which it leaves to the text's grid. */}
-          {threaded ? (
-            <h3 className="contents text-[15px]">{permalink}</h3>
-          ) : (
-            <h3 className={cn("flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5", !sheets && "max-md:pr-[22px]")}>
-              <Author user={message.creator} />
-              {permalink}
-              {edited}
-            </h3>
-          )}
-          {context}
+      {/* The body, which a permalink outlines. A follow-up's time takes a column of its own after the
+          text, which the text gives up its room to only as it runs long, and the editor its place. */}
+      <div
+        data-body-content
+        className={cn(
+          "col-start-2 min-w-0",
+          allEmoji ? "py-0" : "py-1",
+          threaded && !editing && cn("grid grid-cols-[minmax(0,max-content)_minmax(max-content,1fr)] items-start gap-x-2.5", clearOfOptions),
+          // A message that mentions you, which wiggles as it shows, as Campfire's messages.css has it.
+          mentioned && "animate-wiggle border-l-2 border-mention bg-mention/10 pl-2 motion-reduce:animate-none",
+        )}
+      >
+        {/* The heading, a 15px h3, whose letters are spaced as headings' are. A follow-up's
+            holds only its time, which it leaves to the text's grid. */}
+        {threaded ? (
+          !editing && <h3 className="contents text-[15px]">{permalink}</h3>
+        ) : (
+          <h3 className={cn("flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5", !sheets && "max-md:pr-[22px]")}>
+            <Author user={message.creator} />
+            {permalink}
+          </h3>
+        )}
+        {context}
 
-          {/* A grouped message has no header, so its mark follows the text, or the file a bot replaced. Where
-              Message options is 44px, the text stops 32px short of the row's end, clear of it. A file message
-              shows its file in place of its text, and its upload's
-              card until the room has it. A bot's cards follow, with no text before them where it sent none. */}
-          {upload ? (
-            <div className={threaded ? "col-start-1 row-start-1" : clearOfOptions}>
-              <UploadCard upload={upload} />
-            </div>
-          ) : message.attachment && message.body !== "" ? (
-            // A forwarded file, which shows in its quote.
+        {/* A grouped message has no header, so its mark follows the text, or the file a bot replaced. Where
+            Message options is 44px, the text stops 32px short of the row's end, clear of it. A file message
+            shows its file in place of its text, and its upload's
+            card until the room has it. A bot's cards follow, with no text before them where it sent none. */}
+        {editing ? (
+          <MessageEditor ref={attachEditor} message={message} onSave={(body) => actions.edit(message.id, body)} onClose={() => editors.close(message.id)} />
+        ) : upload ? (
+          <div className={threaded ? "col-start-1 row-start-1" : clearOfOptions}>
+            <UploadCard upload={upload} />
+          </div>
+        ) : message.attachment && quotes(shown) ? (
+          // A forwarded file, which shows in its quote. A bot's file shows in place of its text, below.
+          <MessageBody
+            nodes={shown}
+            mentions={message.mentions}
+            roomId={message.roomId}
+            quotedFile={<Attachment file={message.attachment} />}
+            trailing={edited || undefined}
+            className={threaded ? "col-start-1 row-start-1" : clearOfOptions}
+          />
+        ) : message.attachment ? (
+          <div dir="auto" className={threaded ? "col-start-1 row-start-1" : clearOfOptions}>
+            <Attachment file={message.attachment} />
+            {edited}
+          </div>
+        ) : (
+          (message.body !== "" || !message.cards) && (
             <MessageBody
               nodes={shown}
               mentions={message.mentions}
               roomId={message.roomId}
-              quotedFile={<Attachment file={message.attachment} />}
-              trailing={(threaded && edited) || undefined}
+              emoji={allEmoji}
+              trailing={edited || undefined}
               className={threaded ? "col-start-1 row-start-1" : clearOfOptions}
             />
-          ) : message.attachment ? (
-            <div dir="auto" className={threaded ? "col-start-1 row-start-1" : clearOfOptions}>
-              <Attachment file={message.attachment} />
-              {threaded && edited}
-            </div>
-          ) : (
-            (message.body !== "" || !message.cards) && (
-              <MessageBody
-                nodes={shown}
-                mentions={message.mentions}
-                roomId={message.roomId}
-                emoji={allEmoji}
-                trailing={(threaded && edited) || undefined}
-                className={threaded ? "col-start-1 row-start-1" : clearOfOptions}
-              />
-            )
-          )}
+          )
+        )}
 
-          {message.cards && <BotCards cards={message.cards} className={threaded ? "col-start-1" : clearOfOptions} />}
+        {message.cards && !editing && (
+          <BotCards cards={message.cards} className={threaded ? "col-start-1" : clearOfOptions} onAction={actions && !pending ? (action) => actions.click(message.id, action) : undefined} />
+        )}
 
-          {pending && message.failed && <p className="col-span-full text-xs text-destructive">Not sent</p>}
+        {pending && !upload && (message.failed ? <NotSent message={message} actions={actions} editors={editors} /> : message.queued && <p className="col-span-full text-xs text-message-muted">Sending…</p>)}
 
-          {(message.boosts.length > 0 || customizing) && (
-            <MessageBoosts
-              message={message}
-              me={me}
-              threaded={threaded}
-              actions={actions}
-              customizing={customizing}
-              customField={customField}
-              onNewBoost={newBoost}
-              onAddReaction={sheets ? (button) => sheet.current?.pickReaction(button) : undefined}
-              onCloseCustom={() => setCustomizing(false)}
-              returnFocus={() => (sheet.current ?? menu.current)?.focus()}
-            />
-          )}
+        {!editing && (message.boosts.length > 0 || customizing) && (
+          <MessageBoosts
+            message={message}
+            me={me}
+            threaded={threaded}
+            actions={actions}
+            customizing={customizing}
+            customField={customField}
+            onNewBoost={newBoost}
+            onAddReaction={sheets ? (button) => sheet.current?.pickReaction(button) : undefined}
+            onCloseCustom={() => setCustomizing(false)}
+            returnFocus={() => (sheet.current ?? menu.current)?.focus()}
+          />
+        )}
 
-          {/* As Slack has it, under the reactions. */}
-          {!thread && message.thread && <ThreadSummary message={message} />}
-        </div>
-      )}
+        {/* As Slack has it, under the reactions. */}
+        {!thread && !editing && message.thread && <ThreadSummary message={message} />}
+      </div>
 
       {actionProps &&
         !editing &&

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User, type UserId } from "@ember/protocol";
+import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Xmark } from "@/components/icons/iconoir";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -8,11 +8,12 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@
 import { useAccount } from "@/hooks/use-account";
 import { useActivity } from "@/hooks/use-activity";
 import { useAppBadge } from "@/hooks/use-app-badge";
-import { useDirectPreviews } from "@/hooks/use-direct-previews";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { useDraftCount } from "@/hooks/use-draft-count";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHuddle } from "@/hooks/use-huddle";
-import { useMounted } from "@/hooks/use-mounted";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
+import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
@@ -23,28 +24,31 @@ import { lastChannelVisited, lastRoomVisited, rememberLastChannel } from "@/lib/
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
-import { markedUnread } from "@/lib/room-list";
+import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, dmPath, messagePath, navigate, pageMark, roomPath, routeOf, useHash, usePath, useRoute, type Route } from "@/hooks/use-route";
+import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, usePath, useQuery, useRoute, type Route } from "@/hooks/use-route";
 import { HomePage } from "../mobile/home-page";
-import { KeyboardInset } from "../mobile/keyboard-inset";
 import { NewReleaseContext } from "../mobile/you-sheet";
-import { PhoneDirects } from "../mobile/phone-directs";
-import { usePaneHistory } from "../mobile/pane-history";
 import { TabBar, type TabNotices } from "../mobile/tab-bar";
+import { KeyboardInset } from "../mobile/keyboard-inset";
 import { tabOf, type Tab } from "../mobile/tabs";
+import { addressShowing } from "./room-tabs";
+import type { RoomGone } from "./composer";
 import { ActivityPage } from "./activity-page";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { NewDirectDialog } from "./new-direct-dialog";
-import { opensProfile, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
+import { opensProfile, PROFILE_PARAM, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
+import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
+import { RoomUnavailable } from "./room-unavailable";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar, type SidebarPage } from "./sidebar";
+import { UpdatedNotice } from "./updated-notice";
 import { WelcomePage } from "./welcome-page";
 import { ConversationsContext } from "./quote-cite";
 
@@ -78,6 +82,9 @@ const RARE_PAGES = new Set<Route["page"]>([
   "bot-settings",
   "new-agent",
   "agent-settings",
+  "new-app",
+  "app-settings",
+  "app-signed-in",
   "profile",
   "push-subscriptions",
   "person",
@@ -124,6 +131,9 @@ const RAIL_PAGES = {
   "bot-settings": "workspace",
   "new-agent": "workspace",
   "agent-settings": "workspace",
+  "new-app": "workspace",
+  "app-settings": "workspace",
+  "app-signed-in": "workspace",
   profile: "profile",
   "push-subscriptions": null,
   person: null,
@@ -235,14 +245,13 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 
 /**
  * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
- * home to the last room visited, but on a phone, where home is the Home tab's list, `/rooms` to the newest room, a room's address for its kind to the
- * room's own, and a DM's settings home, unless it's theirs. New direct message's goes home too, under
- * the dialog it opens, and a message's own address goes on to its permalink.
+ * home to the last room visited, but on a phone, where home is the Home tab's list, `/rooms` to the room they were put in latest, a room's address for its
+ * kind to the room's own, and a DM's settings home, unless it's theirs. New direct message's goes home
+ * too, under the dialog it opens, and a message's own address goes on to its permalink.
  */
 function redirectOf(route: Route, rooms: SidebarRoom[], phone: boolean): Redirect | null {
   switch (route.page) {
     case "home": {
-      // On a phone, home is the Home tab's list.
       if (phone) return null;
       // Home lists no DMs, so it goes on to the last room visited that isn't one.
       const room = lastChannelVisited(rooms);
@@ -254,11 +263,13 @@ function redirectOf(route: Route, rooms: SidebarRoom[], phone: boolean): Redirec
     case "room-of-kind": {
       // A direct message's goes on without looking, and the room's own address checks it.
       if (route.kind === "direct") return { path: roomPath(route.roomId) };
+      // A room this person can't see says so at its own address.
       const room = rooms.find((r) => r.id === route.roomId);
-      return room && room.kind !== "direct" ? { path: roomPath(room.id) } : ROOM_NOT_FOUND;
+      return room?.kind === "direct" ? ROOM_NOT_FOUND : { path: roomPath(route.roomId) };
     }
     case "room":
-      return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
+      // A room this person can't see says so in its place.
+      return null;
     // A DM beside the DMs page's list: a room that isn't a DM goes on to its own address.
     case "dms": {
       if (route.roomId === undefined) return null;
@@ -481,12 +492,18 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
   // own socket finds it gone or the workspace socket, which can hear first, says so. A DM's settings
   // stay too, which go home once their own deletion answers, as the workspace socket can tell of it first.
-  const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
-  const roomGone = (room: Room) => {
-    setGone({ room, route });
+  const [gone, setGone] = useState<{ room: Room; route: Route; why: RoomGone } | null>(null);
+  const roomGone = (room: Room, why: RoomGone) => {
+    setGone({ room, route, why });
     unlistRoom(room.id);
   };
-  const goneRoom = gone?.route === route ? gone.room : null;
+  const goneHere = gone?.route === route ? gone : null;
+  const goneRoom = goneHere?.room ?? null;
+  // A room that's gone has no tabs, so its address names none.
+  const tabAddressed = new URLSearchParams(useQuery()).has("tab");
+  useEffect(() => {
+    if (goneHere && tabAddressed) navigate(addressShowing("messages"), { replace: true });
+  }, [goneHere, tabAddressed]);
   // A room shown as gone that's listed again, as when someone is put back in it, shows as it is on a page
   // started afresh, since its own socket may have stopped. `returns` counts the rooms that came back so.
   const [returns, setReturns] = useState(0);
@@ -553,9 +570,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const direct = route.page !== "direct-settings" || goingOn || !rooms ? null : directIn(goneRoom ? [goneRoom] : rooms, route.roomId);
   // The workspace socket's news that a room is gone takes it out of the list, and the room or the DM's
   // settings shown stay. Declared as a function, so that `useSidebar` above can take it.
-  function shownRoomGone(roomId: RoomId) {
+  function shownRoomGone(roomId: RoomId, lostAccess: boolean) {
     const shown = room ?? direct;
-    if (shown?.id === roomId) setGone({ room: shown, route });
+    if (shown?.id === roomId) setGone({ room: shown, route, why: lostAccess ? "lost access" : "deleted" });
   }
   // Go Back on the settings pages returns to the last room visited, or home when there's none.
   const lastRoom = rooms && lastRoomVisited(rooms);
@@ -592,15 +609,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const currentRoomId = room?.id ?? null;
   const unreadConversations = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length;
 
-  // Someone's profile, open beside the room or Activity's conversation, until another page shows.
-  const [profileOpen, setProfileOpen] = useState<{ userId: UserId; route: Route } | null>(null);
-  // On a phone, someone's profile is a page of its own, over the one it's opened from.
+  // Someone's profile, open beside the room or Activity's conversation, as the address's `profile` says,
+  // so a reload keeps it and Back closes it. Another profile takes its place in the history, and closing
+  // it goes back, as Back would, to the page it opened on.
+  const query = useQuery();
+  const profileId = new URLSearchParams(query).get(PROFILE_PARAM);
   const profilePane: ProfilePane | null =
-    !phone && (route.page === "room" || route.page === "activity")
+    route.page === "room" || route.page === "activity"
       ? {
-          userId: profileOpen?.route === route ? profileOpen.userId : null,
-          open: (userId) => setProfileOpen({ userId, route }),
-          close: () => setProfileOpen(null),
+          userId: profileId || null,
+          open: (userId) => navigate(`${location.pathname}?${new URLSearchParams({ [PROFILE_PARAM]: userId })}`, { replace: profileId !== null }),
+          close: () => returnTo(location.pathname),
           startDirect: startDirectWith,
         }
       : null;
@@ -665,29 +684,32 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // rows, once the server's list has come: the empty one a failed first load leaves knows nothing of
   // what's unread. The rail's Activity counts Activity's unread items.
   useAppBadge(answered ? unreadConversations : null);
-  // On a phone, what's waiting on each tab, which the tab bar marks.
-  const unreadRooms = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId));
-  const tabNotices: TabNotices = {
-    home: unreadRooms.some((r) => r.kind !== "direct") ? "Unread rooms" : undefined,
-    dms: unreadRooms.some((r) => r.kind === "direct") ? "Unread DMs" : undefined,
-    activity: activityFeed.feed.unread > 0 ? `${activityFeed.feed.unread} unread` : undefined,
-  };
-  // Activity's panes, which a phone shows one at a time, go back one at a time with the phone's Back too.
-  const paneHistory = usePaneHistory();
   // A DM, and its settings, show beside the DMs page's list, as the DMs page does, and the rail marks DMs
   // for them; any other page shows beside Home's, which goes back to the last room it showed.
   const directsShown = route.page === "dms" || route.page === "direct-settings" || room?.kind === "direct";
-  const previews = useDirectPreviews(rooms, directsShown, () => onSessionChanged(null));
   const channelShown = room && room.kind !== "direct" ? room.id : null;
   useEffect(() => {
     if (channelShown !== null) rememberLastChannel(channelShown);
   }, [channelShown]);
+  // How many DMs there are, but the hidden ones, how many are unread, and how many unread messages they
+  // have, as far as each counts them, or one for a DM marked unread without a count, which DMs on the rail
+  // counts, as Slack's does.
+  const directCounts = useMemo(() => {
+    if (rooms === null) return null;
+    const unread = apart(rooms).directs.filter((r) => markedUnread(r, currentRoomId));
+    return { conversations: apart(rooms).directs.length, unread: unread.length, messages: unread.reduce((sum, r) => sum + (r.unreadCount ?? 1), 0) };
+  }, [rooms, currentRoomId]);
+  const draftCount = useDraftCount(me.id);
+  // In the drawer layout the DMs page shows its list in the page itself, so the sidebar, hidden there,
+  // doesn't draw it a second time.
+  const directsInPage = useMediaQuery(DRAWER_LAYOUT) && route.page === "dms" && route.roomId === undefined;
   const rail = (
     <Rail
       me={me}
       workspaceName={workspaceName}
       current={room?.kind === "direct" ? "dms" : RAIL_PAGES[route.page]}
       activity={{ unread: activityFeed.feed.unread }}
+      directsUnread={directCounts?.messages ?? 0}
       newRelease={newRelease}
     />
   );
@@ -695,12 +717,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // browser is idle, so it's there by the time DMs is followed; until then its column is blank.
   const directsPane = (
     <RarePage
-      show={({ DirectsPane }) => (
-        <DirectsPane
+      show={({ DirectsColumn }) => (
+        <DirectsColumn
           meId={me.id}
           rooms={rooms ?? NO_ROOMS}
           loaded={rooms !== null}
-          previews={previews}
+          onSignedOut={() => onSessionChanged(null)}
           suggestions={suggestions}
           currentRoomId={currentRoomId}
           unreadOnly={false}
@@ -718,12 +740,15 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   ) : (
     <Sidebar
       workspaceName={workspaceName}
+      meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
       favorites={favorites}
       sharedOrder={sharedOrder}
+      huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
       currentPage={SIDEBAR_PAGES[route.page] ?? null}
+      draftCount={draftCount}
       unreadOnly={false}
       onSelect={select}
       onStarred={starredRooms}
@@ -733,6 +758,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The Files page has its own column in the sidebar's place, as Slack's has.
   const filesNav =
     route.page === "files" ? <RarePage show={({ FilesNav }) => <FilesNav me={me} place={route.place} />} loading={null} onFailed={failed} /> : null;
+
+  // On a phone, what's waiting on each tab, which the tab bar marks.
+  const unreadRooms = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId));
+  const tabNotices: TabNotices = {
+    home: unreadRooms.some((r) => r.kind !== "direct") ? "Unread rooms" : undefined,
+    dms: unreadRooms.some((r) => r.kind === "direct") ? "Unread DMs" : undefined,
+    activity: activityFeed.feed.unread > 0 ? `${activityFeed.feed.unread} unread` : undefined,
+  };
 
   /**
    * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
@@ -759,7 +792,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           onDismissInvitation={dismissCard}
           me={me}
           favorite={starred.has(shown.id)}
-          gone={false}
           onStarred={starredRooms}
           involvement={shown.involvement}
           askForRoom={askForRoom}
@@ -824,6 +856,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ AgentSettingsPage }) => (
           <AgentSettingsPage key={route.agentId} agentId={route.agentId} me={me} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
+      case "new-app":
+        return rarePage(({ NewAppPage }) => <NewAppPage me={me} onFailed={failed} />);
+      case "app-settings":
+        return rarePage(({ AppSettingsPage }) => <AppSettingsPage key={route.appId} appId={route.appId} me={me} onMissing={showNotFound} onFailed={failed} />);
+      case "app-signed-in":
+        return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
@@ -840,9 +878,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ ThreadsPage }) => <ThreadsPage me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "activity":
         if (!rooms) return LOADING;
-        return <ActivityPage me={me} rooms={rooms} activity={activityFeed} onPaneStack={phone ? paneHistory : undefined} renderRoom={(place, panes) => roomPane(rooms, place, `${place.itemId}`, panes)} />;
+        return (
+          <ActivityPage
+            me={me}
+            place={route.roomId === undefined ? null : { roomId: route.roomId, messageId: route.messageId, threadId: route.threadId, replyId: route.replyId }}
+            rooms={rooms}
+            activity={activityFeed}
+            renderRoom={(place, panes) => roomPane(rooms, place, "activity", panes)}
+          />
+        );
       case "todos":
-        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} onPaneStack={phone ? paneHistory : undefined} />);
+        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "saved":
         return rarePage(({ SavedPage }) => (
           <SavedPage
@@ -850,7 +896,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             me={me}
             rooms={rooms ?? NO_ROOMS}
             onFailed={failed}
-            onPaneStack={phone ? paneHistory : undefined}
             renderRoom={(place, panes) => roomPane(rooms ?? NO_ROOMS, place, `saved/${route.itemId}`, panes)}
           />
         ));
@@ -870,14 +915,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       // The DMs page, with a DM picked there shown as a room's page shows it.
       case "dms":
       default:
-        if (route.page === "dms" && route.roomId === undefined) {
-          if (phone) return <PhoneDirects me={me} list={directsPane} onNewDirect={openNewDirect} />;
-          return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} />);
-        }
+        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} counts={directCounts} onNewDirect={openNewDirect} />);
         if (direct)
           return rarePage(({ DirectSettingsPage }) => (
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />
           ));
+        // A room that's gone, or an address naming one this person can't see, says so in the room's place.
+        if (route.page === "room" && goneHere) return <RoomUnavailable room={goneHere.room} gone={goneHere.why} goTo={lastRoom} me={me} />;
+        if (route.page === "room" && !room && rooms && !askingAgain && !unansweredHere) return <RoomUnavailable room={null} gone="lost access" goTo={lastRoom} me={me} />;
         if (room)
           return (
             <RoomView
@@ -891,7 +936,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onDismissInvitation={dismissCard}
               me={me}
               favorite={starred.has(room.id)}
-              gone={goneRoom !== null}
               onStarred={starredRooms}
               // As the list has it, or as it starts once the room has gone from the list.
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
@@ -946,7 +990,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DrawerOpen value={drawerOpen}>
         <div
           className={cn(
-            // On a phone, it ends above the on-screen keyboard where that covers the page (`KeyboardInset`), and has a row for the tab bar.
+            // On a phone, it ends above the on-screen keyboard where that covers the page (`KeyboardInset`).
             "relative grid h-dvh max-md:h-[calc(100dvh-var(--keyboard-inset,0px))] grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)_auto]",
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)_auto]",
             // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
@@ -964,7 +1008,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             {/* Activity's feed and To-dos' list take the conversations' place. */}
             {!settings && route.page !== "activity" && route.page !== "todos" && (
               <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
-                {filesNav ?? sidebar}
+                {filesNav ?? (!directsInPage && sidebar)}
               </aside>
             )}
           </div>
@@ -1008,12 +1052,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           </SheetContent>
 
           {page()}
-          {phone && <KeyboardInset />}
-          {phone && TAB_BAR_PAGES.has(route.page) && (
-            <TabBar current={tabOf(ownTab, openedFromTab, room?.kind === "direct")} notices={tabNotices} roomId={currentRoomId} />
-          )}
           {room && profilePane?.userId && <ProfilePanel key={profilePane.userId} userId={profilePane.userId} me={me} pane={profilePane} placement="column" />}
-          <MovedNotice />
+          {phone && <KeyboardInset />}
+          {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(ownTab, openedFromTab, room?.kind === "direct")} notices={tabNotices} roomId={currentRoomId} />}
+          <Notices>
+            <MovedNotice />
+            <UpdatedNotice />
+          </Notices>
           {newDirect && (
             <NewDirectDialog
               opener={newDirect.opener}
