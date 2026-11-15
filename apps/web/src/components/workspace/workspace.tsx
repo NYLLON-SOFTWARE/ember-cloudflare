@@ -27,12 +27,14 @@ import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { NewDirectDialog } from "./new-direct-dialog";
+import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar } from "./sidebar";
+import { UpdatedNotice } from "./updated-notice";
 import { WelcomePage } from "./welcome-page";
 
 type RarePages = typeof import("./pages");
@@ -65,6 +67,9 @@ const RARE_PAGES = new Set<Route["page"]>([
   "bot-settings",
   "new-agent",
   "agent-settings",
+  "new-app",
+  "app-settings",
+  "app-signed-in",
   "profile",
   "push-subscriptions",
   "person",
@@ -103,6 +108,9 @@ const RAIL_PAGES = {
   "bot-settings": "workspace",
   "new-agent": "workspace",
   "agent-settings": "workspace",
+  "new-app": "workspace",
+  "app-settings": "workspace",
+  "app-signed-in": "workspace",
   profile: "profile",
   "push-subscriptions": null,
   person: null,
@@ -187,9 +195,9 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 
 /**
  * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
- * home to the last room visited, `/rooms` to the newest room, a room's address for its kind to the
- * room's own, and a DM's settings home, unless it's theirs. New direct message's goes home too, under
- * the dialog it opens, and a message's own address goes on to its permalink.
+ * home to the last room visited, `/rooms` to the room they were put in latest, a room's address for its
+ * kind to the room's own, and a DM's settings home, unless it's theirs. New direct message's goes home
+ * too, under the dialog it opens, and a message's own address goes on to its permalink.
  */
 function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
@@ -619,6 +627,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       suggestions={suggestions}
       favorites={favorites}
       sharedOrder={sharedOrder}
+      huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
       unreadOnly={unreadOnly}
       onSelect={select}
@@ -689,6 +698,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ AgentSettingsPage }) => (
           <AgentSettingsPage key={route.agentId} agentId={route.agentId} me={me} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
+      case "new-app":
+        return rarePage(({ NewAppPage }) => <NewAppPage me={me} onFailed={failed} />);
+      case "app-settings":
+        return rarePage(({ AppSettingsPage }) => <AppSettingsPage key={route.appId} appId={route.appId} me={me} onMissing={showNotFound} onFailed={failed} />);
+      case "app-signed-in":
+        return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
@@ -834,7 +849,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           </SheetContent>
 
           {page()}
-          <MovedNotice />
+          <Notices>
+            <MovedNotice />
+            <UpdatedNotice />
+          </Notices>
           {newDirect && (
             <NewDirectDialog
               opener={newDirect.opener}

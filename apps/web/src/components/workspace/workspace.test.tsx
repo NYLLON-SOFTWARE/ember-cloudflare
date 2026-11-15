@@ -6,6 +6,7 @@ import type { AgentSettings } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
+import { SHIPPED_MODELS } from "@/hooks/use-offered-models";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
 import { joinHuddle } from "@/lib/huddle";
@@ -47,9 +48,12 @@ const workspaceSettings: WorkspaceSettings = {
   canAdminister: false,
   memberfulSite: null,
   memberfulWebhooks: false,
+  memberfulKeys: null,
+  memberfulSiteKept: null,
   turnstile: null,
   assistant: null,
   huddles: null,
+  outsideAi: false,
   cloudflareAccountId: null,
   email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
   invitations: [],
@@ -206,7 +210,7 @@ describe("Open a room", () => {
     serve({ "GET /api/sidebar": () => Response.json(lists.shift()) });
     showWorkspace("/rooms/design");
     expect(await roomHeading()).toHaveTextContent("Design");
-    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+    expect(sidebarRooms()).toEqual(["general", "random", "Design"]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -273,13 +277,13 @@ describe("Go back to the last room", () => {
     expect(location.pathname).toBe("/rooms/random");
   });
 
-  it("goes from / to your oldest room when you haven't visited one, which isn't the first by name", async () => {
+  it("goes from / to the room you were put in first when you haven't visited one, which the sidebar lists first, whatever its name", async () => {
     const zebra: Room = { id: "zebra", name: "Zebra", kind: "closed", icon: null };
     serve({ "GET /api/sidebar": () => Response.json(roomList([zebra, ...rooms])) });
     showWorkspace("/");
     expect(await roomHeading()).toHaveTextContent("Zebra");
     expect(location.pathname).toBe("/rooms/zebra");
-    expect(sidebarRooms()).toEqual(["general", "random", "Zebra"]);
+    expect(sidebarRooms()).toEqual(["Zebra", "general", "random"]);
   });
 
   it("says there are no rooms yet, with your name for screen readers, under Home", async () => {
@@ -355,7 +359,7 @@ describe("Room addresses", () => {
 });
 
 describe("Create an open room", () => {
-  it("makes a room from workspace settings, lists it in its place by name, and opens it", async () => {
+  it("makes a room from workspace settings, lists it below every other room, whatever its name, and opens it", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     serve({
       "GET /api/rooms/new": () => Response.json({ people: [ada] }),
@@ -373,7 +377,7 @@ describe("Create an open room", () => {
 
     await waitFor(() => expect(location.pathname).toBe("/rooms/design"));
     expect(await roomHeading()).toHaveTextContent("Design");
-    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+    expect(sidebarRooms()).toEqual(["general", "random", "Design"]);
   });
 
   it("lists a room made before the room list arrived, which the list may not have yet", async () => {
@@ -390,7 +394,7 @@ describe("Create an open room", () => {
     // The list answers as it was before the room was made.
     await act(async () => answer(Response.json(roomList(rooms))));
     expect(await roomHeading()).toHaveTextContent("Design");
-    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+    expect(sidebarRooms()).toEqual(["general", "random", "Design"]);
   });
 });
 
@@ -559,7 +563,8 @@ describe("Link to a message", () => {
 
     act(() => navigate("/rooms/general/threads/m1"));
     expect(await screen.findByRole("complementary", { name: "Thread" })).toBeInTheDocument();
-    expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" });
+    // The thread opens in an effect, which can run after the panel shows.
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" }));
     expect(room.sent).not.toContainEqual({ type: "history.around" });
   });
 
@@ -1201,7 +1206,7 @@ describe("Search box", () => {
 
 describe("Edit your profile", () => {
   it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
     await user.click(screen.getByRole("link", { name: "Your profile" }));
@@ -1215,7 +1220,7 @@ describe("Edit your profile", () => {
   });
 
   it("logs out from your profile", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
     const { onSignOut, user } = showWorkspace("/users/me/profile");
     await user.click(screen.getByRole("button", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
@@ -1227,7 +1232,7 @@ describe("Connect Memberful", () => {
 
   it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
     const memberful = { membersOnly: true, connected: { name: "Ada Lovelace", emailAddress: "ada@example.com" } };
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [], outsideAi: null } }) });
     const { unmount } = showWorkspace("/users/me/profile?memberful=connected#top");
     expect(await screen.findByRole("alert")).toHaveTextContent("Your Memberful account is connected.");
     expect(address()).toBe("/users/me/profile#top");
@@ -1314,7 +1319,7 @@ describe("Activity filter", () => {
 
     await user.click(activity());
     expect(activity()).toHaveAttribute("aria-pressed", "false");
-    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+    expect(sidebarRooms()).toEqual(["general", "random", "Design"]);
     expect(railCurrent()).toEqual(["Home"]);
   });
 
@@ -1454,10 +1459,10 @@ describe("Live sidebar updates", () => {
     showWorkspace("/rooms/general");
     await roomHeading();
     await workspaceSends({ type: "room.saved", room: { id: "design", name: "Design", kind: "open", icon: null } });
-    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+    expect(sidebarRooms()).toEqual(["general", "random", "Design"]);
 
     await workspaceSends({ type: "room.saved", room: { ...rooms[0]!, name: "plans" } });
-    expect(sidebarRooms()).toEqual(["Design", "plans", "random"]);
+    expect(sidebarRooms()).toEqual(["plans", "random", "Design"]);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("plans");
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #plans");
   });
@@ -1537,7 +1542,7 @@ describe("Star rooms", () => {
     });
     const { user } = showWorkspace("/rooms/design");
     expect(await roomHeading()).toHaveTextContent("Design");
-    expect(sidebarRooms()).toEqual(["random★", "Design", "general"]);
+    expect(sidebarRooms()).toEqual(["random★", "general", "Design"]);
     expect(star()).toHaveAttribute("aria-pressed", "false");
 
     await user.click(star());
@@ -1689,9 +1694,12 @@ describe("Shared room order", () => {
     expect(sidebarRooms()).toEqual(["random★", "general", "Design"]);
     act(() => navigate("/account/edit#channel-settings"));
     const order = await screen.findByRole("list", { name: "Room order" });
-    expect(roomsIn(order)).toEqual(["general", "Design", "random"]);
+    expect(roomsIn(order)).toEqual(["general", "random", "Design"]);
 
-    fireEvent.keyDown(within(order).getAllByRole("listitem")[1]!, { key: "ArrowUp", altKey: true });
+    // Design up to the top.
+    const designRow = within(order).getAllByRole("listitem")[2]!;
+    for (let moves = 0; moves < 2; moves++) fireEvent.keyDown(designRow, { key: "ArrowUp", altKey: true });
+    expect(roomsIn(order)).toEqual(["Design", "general", "random"]);
     await user.click(screen.getByRole("button", { name: "Save order" }));
     expect(await screen.findByText("Room order saved for everyone.")).toBeInTheDocument();
     expect(roomsIn(order)).toEqual(["Design", "general", "random"]);
@@ -2096,12 +2104,30 @@ describe("Agent pages", () => {
     changedBy: { id: ada.id, name: ada.name },
     changedAt: "2026-11-09T12:00:00.000Z",
   };
+  /** A connected app, as its page shows it. */
+  const linear = {
+    id: "p1",
+    name: "Linear",
+    url: "https://mcp.linear.example/mcp",
+    hasToken: false,
+    serverName: null,
+    tools: [{ name: "create_issue", title: null, description: "Creates an issue." }],
+    setAside: [],
+    toolsLeftOut: 0,
+    toolsReadAt: "2026-11-13T10:30:00.000Z",
+    connectedBy: { id: ada.id, name: ada.name },
+    signIn: null,
+  };
   /** What an administrator's workspace answers while Ember AI is on. */
   const withAgents = (responses: Parameters<typeof serve>[0] = {}) =>
     serve({
       "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true, assistant }),
       "GET /api/account/agents": () => Response.json({ agents: [recap] }),
-      "POST /api/account/assistant/catalog": () => Response.json({ models: assistant.models, refusal: null }),
+      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length, setAside: 0, signInEnded: false, wantsAccess: false }] }),
+      "POST /api/account/assistant/offered": () => Response.json(SHIPPED_MODELS),
+      // The Tools card of each agent's page.
+      "GET /api/account/agents/a1/tools": () => Response.json({ apps: [], outsideAi: null }),
+      "GET /api/account/agents/ember/tools": () => Response.json({ apps: [], outsideAi: null }),
       ...responses,
     });
   const sectionMarked = () => within(screen.getByRole("navigation", { name: "Community settings" })).getByRole("link", { current: "page" });
@@ -2127,6 +2153,34 @@ describe("Agent pages", () => {
     expect(document.title).toBe("New agent");
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await screen.findByRole("region", { name: "Agents" })).toBeInTheDocument();
+  });
+
+  it("shows the apps' pages at their addresses from the AI assistant tab, marking it, and Admin on the rail, with Go Back to it", async () => {
+    withAgents({ "GET /api/account/apps/p1": () => Response.json({ app: linear }) });
+    const { user } = showWorkspace("/account/edit#assistant-settings", asAdministrator);
+    await user.click(await screen.findByRole("link", { name: "Edit Linear" }));
+    expect(await screen.findByRole("textbox", { name: "Name" })).toHaveValue("Linear");
+    expect(location.pathname).toBe("/account/apps/p1/edit");
+    expect(document.title).toBe("Edit app");
+    expect(railCurrent()).toEqual(["Admin"]);
+    expect(sectionMarked()).toHaveTextContent("AI assistant");
+
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    await user.click(await screen.findByRole("link", { name: "Connect an app" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Connect an app" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/account/apps/new");
+    expect(document.title).toBe("Connect an app");
+    expect(sectionMarked()).toHaveTextContent("AI assistant");
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await screen.findByRole("region", { name: "Apps" })).toBeInTheDocument();
+  });
+
+  it("loads an app's page again when no app has the id, for the Worker to answer the 404 page", async () => {
+    vi.mocked(loadPage).mockClear();
+    withAgents({ "GET /api/account/apps/nothing": () => Response.json({ error: "Not found" }, { status: 404 }) });
+    showWorkspace("/account/apps/nothing/edit", asAdministrator);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledExactlyOnceWith("/account/apps/nothing/edit"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("loads an agent's settings again when no agent has the id, for the Worker to answer the 404 page", async () => {
@@ -2290,10 +2344,15 @@ describe("Huddles", () => {
     vi.mocked(joinHuddle).mockReset();
   });
 
-  it("has no huddle button until huddles are on", async () => {
+  /** What a room's row in the sidebar says of the huddle going on in it, or nothing with none. */
+  const inSidebar = (room: string) => within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: room }).querySelector("[title]");
+
+  it("has no huddle button until huddles are on, nor a sidebar that says a huddle is going on", async () => {
+    serveRooms({ ...roomList(rooms), huddles: { general: { startedAt: "2026-11-10T09:00:00.000Z", userIds: ["u2"] } } });
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(screen.queryByRole("button", { name: /huddle/i })).not.toBeInTheDocument();
+    expect(inSidebar("general")).toBeNull();
   });
 
   it("has none in a DM", async () => {
@@ -2356,10 +2415,20 @@ describe("Huddles", () => {
     expect(await screen.findByRole("dialog", { name: "Start a huddle in general" })).toBeVisible();
   });
 
-  it("lists the huddles going on as the sidebar loads them", async () => {
+  it("lists the huddles going on as the sidebar loads them, in the room's header and at the end of its row in the sidebar", async () => {
     serveRooms({ ...roomList(rooms), huddles: { random: { startedAt: "2026-11-10T09:00:00.000Z", userIds: ["u2"] } } });
     showWorkspace("/rooms/random", ada, HUDDLES_ON);
     expect(await screen.findByRole("button", { name: "Join huddle, 1 in it" })).toBeInTheDocument();
+    expect(inSidebar("random")).toHaveTextContent(/^1/);
+    expect(inSidebar("general")).toBeNull();
+
+    // The row follows the huddle as the workspace socket tells of it.
+    await workspaceSends({ type: "room.huddle", roomId: "random", huddle: { startedAt: "2026-11-10T09:00:00.000Z", userIds: ["u2", "u3"] } });
+    await waitFor(() => expect(inSidebar("random")).toHaveTextContent(/^2/));
+    await workspaceSends({ type: "room.huddle", roomId: "general", huddle: { startedAt: "2026-11-10T09:05:00.000Z", userIds: ["u1"] } });
+    await waitFor(() => expect(inSidebar("general")).toHaveAttribute("title", "Just you in the huddle"));
+    await workspaceSends({ type: "room.huddle", roomId: "random", huddle: null });
+    await waitFor(() => expect(inSidebar("random")).toBeNull());
   });
 
   it("opens the preview from a huddle's link, and leaves the room's address in its place", async () => {
