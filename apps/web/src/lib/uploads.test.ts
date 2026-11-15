@@ -5,6 +5,11 @@ import { CONNECTION_LOST, SHARED_FILE_GONE, shareFile, UPLOAD_FAILED, UploadErro
 
 // jsdom makes no previews (previews.test.ts tests making them), so files have none unless a test gives one.
 vi.mock("./previews", () => ({ previewOf: vi.fn(async () => null) }));
+// Uploads take previewOf from the pages few visits need, which, loaded cold, outlast the tests' waits.
+vi.mock("@/components/workspace/rare-pages", async () => {
+  const { previewOf } = await import("./previews");
+  return { loadRarePages: async () => ({ previewOf }) };
+});
 
 /** Stands in for the browser's XMLHttpRequest, which tests answer as the Worker would. */
 class FakeRequest {
