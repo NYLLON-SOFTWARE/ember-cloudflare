@@ -360,6 +360,48 @@ describe("Message events", () => {
     await settle(inRoom);
   });
 
+  it("posts a payload of blocks a bot answers a thread's event with in that thread", async () => {
+    const { ada, bot, general } = await withBot();
+    expect((await subscribe(ada, bot.id, general)).status).toBe(204);
+    const inRoom = await connect(general, ada);
+    // Only the reply's event is answered with blocks, that the thread's card is the one it keeps; the
+    // thread's first message is answered with a bare 200, which says nothing.
+    bots(async (delivery) => {
+      const sent = sentIn(delivery) as { text?: string };
+      if (sent.text !== "Shipping now") return new Response(null, { status: 200 });
+      return Response.json({
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "Deployed *v42* to production" },
+            accessory: { type: "button", text: { type: "plain_text", text: "Roll it back" }, action_id: "rollback" },
+          },
+        ],
+      });
+    });
+
+    await post(inRoom, "Starting a thread").then(async (root) => {
+      // A reply also sent to the room is one of the room's events, so the bot watching hears of it, the
+      // event naming the thread it was said in. (A reply to the thread alone is none of the room's
+      // events, and none of the bot's.)
+      const replyId = crypto.randomUUID();
+      inRoom.send({ type: "message.create", clientMessageId: replyId, body: "<p>Shipping now</p>", parentId: root.id, alsoSend: true });
+      const { message: reply } = await inRoom.next("message.created");
+      expect(reply).toMatchObject({ clientMessageId: replyId, parentId: root.id });
+
+      // The bot's card answers the reply where it was said, in the thread, and not as a new message of
+      // the room's, as its text answers are.
+      const { message: card } = await inRoom.next("message.created");
+      expect(card).toMatchObject({
+        creator: { id: bot.id },
+        parentId: root.id,
+        plainText: "Deployed v42 to production\nRoll it back",
+        cards: [{ source: "blocks", parts: [{ kind: "section", button: { text: "Roll it back", action: { id: "rollback" } } }] }],
+      });
+    });
+    await settle(inRoom);
+  });
+
   it("waits while a person's earlier events are answered, and delivers no more of theirs than of their commands", async () => {
     const { ada, bot, general } = await withBot();
     expect((await subscribe(ada, bot.id, general)).status).toBe(204);
