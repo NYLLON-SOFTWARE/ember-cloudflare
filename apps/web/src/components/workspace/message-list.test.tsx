@@ -222,10 +222,38 @@ describe("Open a room", () => {
   });
 });
 
+describe("A room gone while it's shown", () => {
+  it("minds nothing the browser tells of the timeline's size or scroll once it's gone, as it can when its room's deleted", () => {
+    const { unmount } = render(list({ messages: messages(1, 3), paged: true }));
+    const log = screen.getByRole("log");
+    layOut(log);
+    // The browser can have seen a resize before the timeline went, and tell of it after.
+    const seen = [...FakeResizeObserver.observers];
+    unmount();
+    expect(() => seen.forEach((observer) => observer.callback())).not.toThrow();
+  });
+});
+
 describe("Empty room", () => {
-  it("welcomes people to a room with no messages yet", () => {
+  it("welcomes people to a room with no messages yet, with nothing more to say", () => {
     render(list({ messages: [] }));
     expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
+    expect(screen.queryByText(/very beginning/)).not.toBeInTheDocument();
+  });
+
+  it("says what a sub-room with no messages yet is a sub-room of", () => {
+    render(
+      <MessageList roomName="Strata – Sales" parentName="Strata" invitation={null} onDismissInvitation={vi.fn()} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} onLoadNewer={vi.fn()} onJumpToNewest={vi.fn()} />,
+    );
+    expect(screen.getByRole("heading", { name: "Welcome to #Strata – Sales" })).toBeInTheDocument();
+    expect(screen.getByText("A sub-room of Strata")).toBeInTheDocument();
+  });
+
+  it("welcomes people to a private room after a lock rather than a `#`", () => {
+    render(list({ messages: [] }, vi.fn(), null, { closed: true }));
+    const welcome = screen.getByRole("heading", { name: "Welcome to general" });
+    expect(welcome.querySelector("svg")).toHaveClass("iconoir-lock");
+    expect(welcome).not.toHaveTextContent("#");
   });
 
   it("doesn't claim the room is empty before it has loaded", () => {

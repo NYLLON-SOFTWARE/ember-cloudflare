@@ -173,7 +173,7 @@ test.describe("Custom reactions", () => {
     await grace.send(text);
     await (await newBoost(ada, text)).fill("Hey!");
 
-    await (await grace.actions(text)).getByRole("button", { name: "Edit" }).click();
+    await grace.edit(text);
     await grace.editor().fill("Redacted!");
     await grace.editor().press("ControlOrMeta+Enter");
     await react(grace, "Redacted!", "Clapping");
