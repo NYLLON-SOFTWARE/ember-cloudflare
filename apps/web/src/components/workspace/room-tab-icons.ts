@@ -1,0 +1,24 @@
+import { createContext, lazy, type ComponentType } from "react";
+import type { RoomTabKind } from "@ember/protocol/library";
+import { EmptyPage, Folder, Link, PageEdit, type IconoirIconProps } from "@/components/icons/iconoir";
+import type { RoomFrames } from "@/hooks/use-room";
+
+/** The tab shown over a room: Messages, Files & links, or one the members added, by its id. */
+export type ShownTab = "messages" | "files" | string;
+
+/** Each kind of tab's icon, in the strip and Edit tabs. */
+export const TAB_ICONS: Record<RoomTabKind, ComponentType<IconoirIconProps>> = { file: EmptyPage, link: Link, folder: Folder, canvas: PageEdit };
+
+/**
+ * A canvas's editor, with Tiptap, which loads the first time a canvas opens. It's loaded from here, in the app's
+ * own chunk, rather than from the tabs' panels, which load lazily themselves: Rolldown takes a chunk loaded
+ * from a lazy chunk for one that can load without the app's, and would move React and the rest of what the
+ * two share out of the app's script.
+ */
+export const CanvasEditor = lazy(() => import("./canvas-editor").then(({ CanvasEditor }) => ({ default: CanvasEditor })));
+
+/**
+ * The room's socket, which the room's view shares with what it shows besides the timeline, for a canvas
+ * to be written together over, or null where there's none.
+ */
+export const RoomFramesContext = createContext<RoomFrames | null>(null);

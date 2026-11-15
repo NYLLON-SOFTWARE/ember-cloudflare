@@ -1,21 +1,25 @@
-import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
+import { createPortal } from "react-dom";
 import type { Favorites, Invitation, Involvement, Me } from "@ember/protocol";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMessageEditors } from "@/hooks/use-message-editors";
 import { useRoom } from "@/hooks/use-room";
-import { useVisit } from "@/hooks/use-route";
+import { useShowPresence } from "@/hooks/use-shown-presence";
+import { useQuery, useVisit } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
 import { roomName } from "@/lib/directs";
 import { rememberLastRoom } from "@/lib/last-room";
 import type { RoomAnswer } from "@/lib/room-list";
 import { isPending } from "@/lib/room-state";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
+import { RoomFramesContext } from "./room-tab-icons";
+import { RoomTabs, RoomTabsContext, useRoomTabs } from "./room-tabs";
 import { ThreadPanel } from "./thread-panel";
 
 /** Where a thread covers its room, rather than showing beside it: below 1180px wide. */
@@ -36,8 +40,6 @@ interface Props {
   me: Me;
   /** Whether this person has starred the room. */
   favorite: boolean;
-  /** Whether the workspace socket has said the room is gone for this person, as it can before the room's own socket does. */
-  gone: boolean;
   /** Called with this person's stars once the room's star saves them. */
   onStarred: (favorites: Favorites) => void;
   /** This person's notification level in the room. */
@@ -50,8 +52,16 @@ interface Props {
   /** Says why the room's bell couldn't save a level, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
   /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
-  onGone: (room: Room) => void;
+  onGone: (room: Room, gone: RoomGone) => void;
+  /** Shows the room in a pane, and its thread in another, as Activity does, rather than in the page's grid. */
+  panes?: RoomPanes;
   ref?: Ref<RoomViewHandle>;
+}
+
+/** Where a room shown in a pane puts its open thread, once there's a pane for it, and what closes it. */
+export interface RoomPanes {
+  thread: HTMLElement | null;
+  onCloseThread: () => void;
 }
 
 export interface RoomViewHandle {
@@ -59,35 +69,41 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
+export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, panes, ref }: Props) {
   const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
+  // What's beside the room, such as someone's profile, says who's in it.
+  useShowPresence(state.present);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
   useTitle(name);
   // The room shown is remembered, for home and Go Back to return to.
   useEffect(() => rememberLastRoom(room.id), [room.id]);
-  const foundGone = state.status === "gone";
-  const roomGone = useEffectEvent(() => onGone(room));
+  const foundGone: RoomGone | null = state.status !== "gone" ? null : state.lostAccess ? "lost access" : "deleted";
+  const roomGone = useEffectEvent((found: RoomGone) => onGone(room, found));
   useEffect(() => {
-    if (foundGone) roomGone();
+    if (foundGone) roomGone(foundGone);
   }, [foundGone]);
-  const deleted = gone || foundGone;
+  // The page shows why in the room's place once it hears, which is just after this.
+  const whyGone = foundGone;
+  const tabs = useRoomTabs(room, whyGone !== null, onFailed);
 
   // The room opens at the message its address names. Following its permalink, or one to another message
   // in it, or the room's own link, goes there, or to the newest, even when it's the page shown. One
   // followed while the room is away goes there once the room lets the page in again. Opening a thread,
   // even at a permalink, whose address the thread's takes the place of, going to one of its replies, or
-  // closing it leaves the room's messages as they are.
+  // closing it leaves the room's messages as they are. So does going from one of the room's tabs to another.
   const visit = useVisit();
-  const visited = useRef({ messageId, visit, threadId });
+  const tab = new URLSearchParams(useQuery()).get("tab");
+  const visited = useRef({ messageId, visit, threadId, tab });
   const goTo = useEffectEvent((messageId: string | null) => jump(messageId));
   useEffect(() => {
     const last = visited.current;
     if (last.messageId === messageId && last.visit === visit) return;
     const inThread = threadId !== undefined || (last.threadId !== undefined && last.messageId === messageId);
-    if (inThread || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId };
-  }, [messageId, visit, threadId, state.connections]);
+    const toTab = last.tab !== tab && last.messageId === messageId;
+    if (inThread || toTab || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId, tab };
+  }, [messageId, visit, threadId, tab, state.connections]);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);
@@ -95,7 +111,9 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   const { editing, editors } = useMessageEditors(composer);
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
   // A thread that covers the room leaves nothing of it to reach until it's closed.
-  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined;
+  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined && !panes;
+  // In panes, the thread goes in its own, once it's there.
+  const placed = (thread: ReactNode) => (panes ? panes.thread && createPortal(thread, panes.thread) : thread);
 
   // Up Arrow edits your newest message, unless it's still on its way, or the timeline is reading older
   // history and may not hold it.
@@ -106,81 +124,92 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   };
 
   return (
-    <>
-      {/* The room's header and messages, placed in the page's grid as if they were its own. */}
-      <div className="contents" inert={covered}>
-        <RoomHeader
-          room={room}
-          name={name}
-          present={state.present}
-          status={state.status}
-          offline={state.offline}
-          favorite={favorite}
-          onStarred={onStarred}
-          involvement={involvement}
-          askForRoom={askForRoom}
-          onSessionChanged={onSessionChanged}
-          onFailed={onFailed}
-        />
-        {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
-        <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
-          <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
-          <MessageList
-            roomName={name}
-            direct={direct}
-            invitation={invitation}
-            onDismissInvitation={onDismissInvitation}
-            state={state}
+    <RoomTabsContext value={tabs}>
+      <RoomFramesContext value={frames}>
+        {/* The room's header and messages, placed in the page's grid as if they were its own. */}
+        <div className={panes ? "grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]" : "contents"} inert={covered}>
+          <RoomHeader
+            room={room}
             me={me}
-            actions={deleted ? null : messageActions}
-            editing={editing}
-            editors={editors}
-            onLoadOlder={loadOlder}
-            onLoadNewer={loadNewer}
-            onJumpToNewest={() => jump(null)}
-            onDropFiles={(files) => composer.current?.addFiles(files)}
-            openThread={threadId}
-            newSince={newSince}
+            name={name}
+            present={state.present}
+            status={state.status}
+            offline={state.offline}
+            favorite={favorite}
+            onStarred={onStarred}
+            involvement={involvement}
+            askForRoom={askForRoom}
+            onSessionChanged={onSessionChanged}
+            onFailed={onFailed}
           />
-          {deleted ? (
-            <RoomDeleted />
-          ) : (
-            <Composer
-              ref={composer}
-              roomId={room.id}
+          {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
+          <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+            <RoomTabs room={room} me={me} state={tabs} onFailed={onFailed} />
+            <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
+            <MessageList
               roomName={name}
               direct={direct}
-              userId={me.id}
-              typing={typingUsers}
-              disabled={state.offline}
-              // Only while the room's first messages are on their way, not once it's been out of reach a while.
-              deferEditor={state.status === "connecting" && !state.offline}
-              // The thread open beside the room takes focus as it opens.
-              autoFocus={threadId === undefined}
-              onSend={postMessage}
-              onSendFiles={postFiles}
-              onTyping={typing}
-              onEditLastMessage={editLastMessage}
+              parentName={room.kind === "direct" ? undefined : room.parent?.name}
+              closed={room.kind === "closed"}
+              invitation={invitation}
+              onDismissInvitation={onDismissInvitation}
+              state={state}
+              me={me}
+              actions={whyGone ? null : messageActions}
+              editing={editing}
+              editors={editors}
+              onLoadOlder={loadOlder}
+              onLoadNewer={loadNewer}
+              onJumpToNewest={() => jump(null)}
+              onDropFiles={(files) => composer.current?.addFiles(files)}
+              openThread={threadId}
+              newSince={newSince}
             />
+            {whyGone ? (
+              <RoomGoneNotice gone={whyGone} />
+            ) : (
+              <Composer
+                ref={composer}
+                roomId={room.id}
+                roomName={name}
+                direct={direct}
+                closed={room.kind === "closed"}
+                userId={me.id}
+                typing={typingUsers}
+                disabled={state.offline}
+                // Only while the room's first messages are on their way, not once it's been out of reach a while.
+                deferEditor={state.status === "connecting" && !state.offline}
+                // The thread open beside the room takes focus as it opens.
+                autoFocus={threadId === undefined}
+                frames={frames}
+                onSend={postMessage}
+                onSendFiles={postFiles}
+                onTyping={typing}
+                onEditLastMessage={editLastMessage}
+              />
+            )}
+          </MainContent>
+        </div>
+        {threadId !== undefined &&
+          placed(
+            <ThreadPanel
+              key={threadId}
+              room={room}
+              name={name}
+              me={me}
+              parentId={threadId}
+              replyId={replyId}
+              frames={frames}
+              status={state.status}
+              offline={state.offline}
+              gone={whyGone}
+              roomNotice={covered ? state.notice : null}
+              onDismissRoomNotice={dismissNotice}
+              placement={panes ? "pane" : "column"}
+              onClose={panes?.onCloseThread}
+            />,
           )}
-        </MainContent>
-      </div>
-      {threadId !== undefined && (
-        <ThreadPanel
-          key={threadId}
-          room={room}
-          name={name}
-          me={me}
-          parentId={threadId}
-          replyId={replyId}
-          frames={frames}
-          status={state.status}
-          offline={state.offline}
-          deleted={deleted}
-          roomNotice={covered ? state.notice : null}
-          onDismissRoomNotice={dismissNotice}
-        />
-      )}
-    </>
+      </RoomFramesContext>
+    </RoomTabsContext>
   );
 }
