@@ -4,13 +4,14 @@ import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Camera } from "@/components/icons/iconoir";
+import { Camera } from "@/components/icons/iconoir-more";
 import { TurnstileCheck } from "@/components/turnstile-check";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useTitle } from "@/hooks/use-title";
 import type { EmailLink } from "@/hooks/use-email-link";
-import { ApiError, joinWithEmailLink, joinWorkspace, signUp, type ChosenPhoto } from "@/lib/api";
+import { ApiError, type ChosenPhoto } from "@/lib/api";
+import { joinWithEmailLink, joinWorkspace, signUp } from "@/lib/api-pages";
 import { loadPage } from "@/lib/page";
 
 // The join page, which the workspace's join link opens for someone signed out. Without a code it's open

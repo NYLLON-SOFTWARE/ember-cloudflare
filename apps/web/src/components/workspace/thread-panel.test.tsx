@@ -41,10 +41,10 @@ function roomFrames() {
   return { frames, send, receive };
 }
 
-function showThread({ deleted = false, replyId = undefined as string | undefined } = {}) {
+function showThread({ deleted = false, replyId = undefined as string | undefined, room: shown = general, name = "general" } = {}) {
   const room = roomFrames();
   const { unmount } = render(
-    <ThreadPanel room={general} name="general" me={ada} parentId="m1" replyId={replyId} frames={room.frames} status="open" offline={false} deleted={deleted} roomNotice={null} onDismissRoomNotice={() => {}} />,
+    <ThreadPanel room={shown} name={name} me={ada} parentId="m1" replyId={replyId} frames={room.frames} status="open" offline={false} gone={deleted ? "deleted" : null} roomNotice={null} onDismissRoomNotice={() => {}} />,
   );
   return { ...room, unmount, user: userEvent.setup() };
 }
@@ -133,6 +133,18 @@ describe("Threads", () => {
     await user.click(screen.getByRole("checkbox", { name: "Also send to #general" }));
     await user.type(box, "Found them{Enter}");
     expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ type: "message.create", body: "<p>Found them</p>", parentId: "m1", alsoSend: true }));
+  });
+
+  it("names a private room after its lock in Also send to and the header, rather than a #", async () => {
+    const { receive } = showThread({ room: { ...general, name: "QA Lab", kind: "closed", icon: null }, name: "QA Lab" });
+    receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+    await screen.findByRole("textbox", { name: "Write a reply" });
+    const label = screen.getByRole("checkbox").closest("label")!;
+    expect(label).toHaveTextContent(/^Also send to QA Lab$/);
+    expect(label.querySelector("strong svg")).toBeInTheDocument();
+    const header = screen.getByRole("link", { name: "QA Lab" });
+    expect(header).not.toHaveTextContent("#");
+    expect(header.querySelector("svg")).toBeInTheDocument();
   });
 
   it("says the room was deleted in place of the composer", () => {

@@ -3,11 +3,12 @@ import { modelName, type AssistantField, type AssistantSettings, type OfferedMod
 import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useMounted } from "@/hooks/use-mounted";
-import { addAssistantModel, ApiError, isSignedOut } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { addAssistantModel } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { Actions } from "./assistant-setup";
 import { ModelPicker, NOTE, type Refusal } from "./model-picker";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./dialog-styles";
 
 // Add a model, for administrators: a model people can pick for @ember to answer them with, of those Ember
 // offers through Ember AI's account, as the Ember AI card has them listed, but those people can pick

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { huddleShortcut, muteShortcut, opensFind, opensLink, opensShortcuts, SHORTCUTS, pressedAlone, savesEdit, sendsMessage, togglesHuddle, togglesMute } from "./keyboard";
+import { huddleShortcut, muteShortcut, opensFind, opensLink, opensShortcuts, SHORTCUTS, pressedAlone, sendsMessage, togglesHuddle, togglesMute } from "./keyboard";
 
 function pointer(coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && coarse }));
@@ -23,10 +23,12 @@ describe("sendsMessage", () => {
     expect(sendsMessage(press("Enter"))).toBe(false);
   });
 
-  it("starts a new paragraph on Enter while the formatting toolbar is open", () => {
+  it("starts a new line on Enter in a code block, and a new item in a list, where Ctrl+Enter still sends", () => {
     pointer(false);
-    expect(sendsMessage(press("Enter"), { toolbarOpen: true })).toBe(false);
-    expect(sendsMessage(press("Enter", { ctrlKey: true }), { toolbarOpen: true })).toBe(true);
+    expect(sendsMessage(press("Enter"), { inCodeBlock: true })).toBe(false);
+    expect(sendsMessage(press("Enter", { ctrlKey: true }), { inCodeBlock: true })).toBe(true);
+    expect(sendsMessage(press("Enter"), { inList: true })).toBe(false);
+    expect(sendsMessage(press("Enter", { metaKey: true }), { inList: true })).toBe(true);
   });
 
   it("sends on Cmd+Enter or Ctrl+Enter everywhere", () => {
@@ -60,22 +62,6 @@ describe("opensLink", () => {
     expect(opensLink(press("k", { ctrlKey: true, shiftKey: true }))).toBe(false);
     expect(opensLink(press("k", { metaKey: true, altKey: true }))).toBe(false);
     expect(opensLink(press("j", { ctrlKey: true }))).toBe(false);
-  });
-});
-
-describe("savesEdit", () => {
-  it("is Ctrl+Enter or Cmd+Enter", () => {
-    expect(savesEdit(press("Enter", { ctrlKey: true }))).toBe(true);
-    expect(savesEdit(press("Enter", { metaKey: true }))).toBe(true);
-  });
-
-  it("isn't Enter on its own, with other keys held, or while an input method is composing", () => {
-    expect(savesEdit(press("Enter"))).toBe(false);
-    expect(savesEdit(press("Enter", { shiftKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { ctrlKey: true, metaKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { ctrlKey: true, shiftKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { metaKey: true, altKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { ctrlKey: true, isComposing: true }))).toBe(false);
   });
 });
 

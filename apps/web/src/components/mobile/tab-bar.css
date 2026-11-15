@@ -1,0 +1,31 @@
+/*
+ * On a phone, the tab bar floats over the end of a page whose <main> is marked `data-under-tab-bar`
+ * (`UNDER_TAB_BAR` in tab-page.tsx), as Slack's does: the page goes on behind it, fading out over its top
+ * 24px, rather than ending at the bar's top edge. Such a page clears it with the lengths set on its
+ * <main> here. A room's conversation, whose composer sits on the tab bar, keeps the bar under it.
+ */
+@media (width < 56.3125rem) {
+  html:not([data-typing]) main[data-under-tab-bar] {
+    /* The bar's 6px over its pill, the pill, which is taller than Search, and the home indicator under them. */
+    --mobile-tab-bar-inset: calc(6px + 58px + max(8px, env(safe-area-inset-bottom)));
+    /* And New direct message's 56px button 16px over it, with 16px to spare. */
+    --mobile-bottom-inset: calc(var(--mobile-tab-bar-inset) + 88px);
+
+    /* A short screen's tab bar shows its icons alone, in a 54px pill 4px under its top. */
+    @media (height < 37.5rem) {
+      --mobile-tab-bar-inset: calc(4px + 54px + max(8px, env(safe-area-inset-bottom)));
+    }
+  }
+
+  /* The bar takes no height of its own, and draws its pill and Search up from the bottom of the screen. */
+  body:has(main[data-under-tab-bar]) [data-tab-bar] {
+    height: 0;
+
+    > div {
+      position: absolute;
+      inset-inline: 0;
+      bottom: 0;
+      background: linear-gradient(to bottom, transparent, var(--background) 24px);
+    }
+  }
+}

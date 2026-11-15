@@ -20,8 +20,8 @@ const roomRows = (page: Page) => page.getByRole("region", { name: "Rooms" }).get
 /** Signs a member in on a browser that has turned notifications on, so the room header's bell is their level's. */
 const notificationsOn = { beforeOpen: (page: Page) => allowNotifications(page.context()) };
 
-/** The rail's Activity, whose description counts the conversations marked unread. */
-const activity = (page: Page) => page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Activity" });
+/** A room's row in the sidebar, whose description says when it's marked unread. */
+const roomRow = (page: Page, name: string) => roomRows(page).filter({ hasText: name });
 
 /** Opens your profile from the rail, where your rooms and DMs are listed with their bells. */
 async function openYourProfile(page: Page) {
@@ -187,12 +187,12 @@ test.describe("Turn on notifications", () => {
 });
 
 test.describe("Levels on your profile", () => {
-  test("lists your rooms by name, then your DMs, each with its bell, and dims a room you hide there, leaving it out of Activity", async ({ members, request, rooms }) => {
+  test("lists your rooms by name, then your DMs, each with its bell, and dims a room you hide there, leaving it out of the sidebar", async ({ members, request, rooms }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"), { path: `/rooms/${rooms.random.id}` });
     await startDirect(request, ada, [grace]);
     await ada.send("Lunch?");
-    await expect(activity(grace.page)).toHaveAccessibleDescription("1 unread");
+    await expect(roomRow(grace.page, "general")).toHaveAccessibleDescription(/^Unread/);
 
     const list = await openYourProfile(grace.page);
     await expect(list.getByRole("link")).toHaveText(["general", "random", ada.name]);
@@ -210,14 +210,13 @@ test.describe("Levels on your profile", () => {
     }
     await expect(general).toHaveCSS("opacity", "0.5");
     await expect(roomRows(grace.page)).toHaveText(["#random"]);
-    await expect(activity(grace.page)).not.toHaveAttribute("aria-description");
 
     // Shown again, it's still marked unread from before it was hidden.
     await bell.click();
     await expect(bell).toHaveAccessibleName(MENTIONS);
     await expect(general).toHaveCSS("opacity", "1");
     await expect(roomRows(grace.page)).toHaveText(["#general", "#random"]);
-    await expect(activity(grace.page)).toHaveAccessibleDescription("1 unread");
+    await expect(roomRow(grace.page, "general")).toHaveAccessibleDescription(/^Unread/);
   });
 });
 
@@ -347,13 +346,12 @@ const keepBadges = async (page: Page) => {
 const badges = (page: Page) => page.evaluate(() => (window as unknown as { badges: Badge[] }).badges);
 
 test.describe("App icon badge", () => {
-  test("badges the app with the conversations marked unread, as Activity counts them, and clears the badge once they're read", async ({ members, rooms }) => {
+  test("badges the app with the conversations marked unread, and clears the badge once they're read", async ({ members, rooms }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"), { path: `/rooms/${rooms.random.id}`, beforeOpen: keepBadges });
     await expect.poll(() => badges(grace.page)).toEqual(["cleared"]);
 
     await ada.send("Lunch?");
-    await expect(activity(grace.page)).toHaveAccessibleDescription("1 unread");
     await expect.poll(() => badges(grace.page)).toEqual(["cleared", 1]);
 
     await roomRows(grace.page).filter({ hasText: "general" }).click();

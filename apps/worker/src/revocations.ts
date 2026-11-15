@@ -24,6 +24,13 @@ export const ADDRESS_TAG_PREFIX = "ip:";
 /** The tag on the sockets from an IP address, so banning it, or lifting the ban, can find them. */
 export const addressTag = (ipAddress: string) => `${ADDRESS_TAG_PREFIX}${ipAddress}`;
 
+/** What a revocation names a request by: its person, its session, and its IP address, if that fits a tag. */
+export const requestTags = (userId: string, sessionId: string, ip: string | null): string[] => [
+  userId,
+  sessionTag(sessionId),
+  ...(ip !== null && ip.length <= MAX_ADDRESS_LENGTH ? [addressTag(ip)] : []),
+];
+
 /** The longest an IP address is written, as IPv6 ending in IPv4's form: no tag needs to be longer. */
 export const MAX_ADDRESS_LENGTH = "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255".length;
 

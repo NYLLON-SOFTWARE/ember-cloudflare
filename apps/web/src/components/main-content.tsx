@@ -1,7 +1,8 @@
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-const MAIN_CONTENT = "main-content";
+/** The id of the page's main content, which the skip link focuses. */
+export const MAIN_CONTENT = "main-content";
 
 /**
  * "Skip to main content", first in the tab order and hidden until it's focused, when it shows as a

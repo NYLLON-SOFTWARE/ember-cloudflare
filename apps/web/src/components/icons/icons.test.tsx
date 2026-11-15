@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { render } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { describe, expect, it } from "vitest";
-import * as iconoir from "./iconoir";
+import * as iconoirIcons from "./iconoir";
+import * as iconoirMore from "./iconoir-more";
+
+/** Every icon drawn here: the app script's and those only the pages few visits need draw. */
+const iconoir = { ...iconoirIcons, ...iconoirMore };
 
 function pascalCase(name: string) {
   return name.split("-").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join("");
@@ -16,7 +20,7 @@ const files = new Map(
   ]),
 );
 
-/** The file iconoir.tsx draws each icon from, by the icon's name: MultiBubble's is `multi-bubble`, and StarSolid's `solid/star`. */
+/** The file iconoir.tsx or iconoir-more.tsx draws each icon from, by the icon's name: MultiBubble's is `multi-bubble`, and StarSolid's `solid/star`. */
 const fileOf = new Map([...files.keys()].map((file) => [pascalCase(file.replace(/^solid\/(.*)$/, "$1-solid")), file]));
 
 /** The files the app serves as they are, from apps/web/public, that draw Iconoir's icons. */

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { EmailLinkKind } from "@ember/protocol";
-import { ApiError, lookUpEmailLink } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { lookUpEmailLink } from "@/lib/api-pages";
 
 // The pages a link Ember emails opens hold its secret in the fragment (`invitationLink`,
 // `emailSignUpLink`): they take it out of the address, as the sign-in link's page does, and ask what

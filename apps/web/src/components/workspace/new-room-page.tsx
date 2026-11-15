@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { NewRoom, Room, RoomIconName, User, UserId } from "@ember/protocol";
+import type { Me, NewRoom, ParentChoice, Room, RoomIconName, RoomId, User, UserId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, newRoomPath, roomPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, createRoom, fetchNewRoomForm, isSignedOut } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { createRoom, fetchNewRoomForm } from "@/lib/api-pages";
+import { peopleIn } from "@/lib/sub-rooms";
+import { parentChoice } from "./parent-picker";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
@@ -16,10 +19,13 @@ const DEFAULT_ROOM_NAME = "New room";
 /** The Everyone switch moves between New room's two forms, keeping the draft. */
 const isNewRoomPath = (path: string) => path === newRoomPath("open") || path === newRoomPath("closed");
 
+/** The parent the address asks for, as New sub-room on a room in workspace settings does. */
+const askedParent = (): RoomId | null => new URLSearchParams(location.search).get("parent") || null;
+
 interface Props {
   /** Which of the two forms the address shows: a room for everyone, or a private one. */
   access: Access;
-  me: User;
+  me: Me;
   /** Lists the room made, for the sidebar. The page then shows it, unless it was left first. */
   onCreated: (room: Room) => void;
   /** Says why something failed, as the workspace's alerts do. */
@@ -32,11 +38,20 @@ interface Props {
  * administrators can create rooms, anyone else is sent to workspace settings with an alert.
  */
 export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
-  useTitle("New chat room");
   const [people, setPeople] = useState<User[] | null>(null);
+  const [parents, setParents] = useState<ParentChoice[]>([]);
+  // The room it goes under, kept as the Everyone switch moves between the forms.
+  const [asked] = useState(askedParent);
+  const [parentId, setParentId] = useState<RoomId | null>(asked);
+  const parent = parentChoice(parents, parentId);
+  useTitle(parent ? `New sub-room in ${parent.name}` : "New chat room");
   const [name, setName] = useState(DEFAULT_ROOM_NAME);
   const [icon, setIcon] = useState<RoomIconName | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
+  // A private room is its maker's too, as Slack's are, unless an administrator making it for others takes
+  // themselves out before it's made.
+  const [withMe, setWithMe] = useState(true);
+  const inRoom = (person: User) => (person.id === me.id ? withMe || !me.administrator : chosen.has(person.id));
   const [saving, setSaving] = useState(false);
   // The room the unsaved changes dialog's Save made, while the app goes on to where the person was going.
   const [created, setCreated] = useState<Room | null>(null);
@@ -49,7 +64,11 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   useEffect(() => {
     let stopped = false;
     fetchNewRoomForm().then(
-      (form) => !stopped && setPeople(form.people),
+      (form) => {
+        if (stopped) return;
+        setPeople(form.people);
+        setParents(form.parents);
+      },
       (error: unknown) => {
         // A page left before its form loads only reports a session that's ended, which goes to sign in.
         if (stopped && !isSignedOut(error)) return;
@@ -62,12 +81,31 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     return () => void (stopped = true);
   }, [flash, onFailed]);
 
-  /** Creates the room and lists it in the sidebar. */
+  /**
+   * Whether the room is made with you in it: an administrator may leave themselves out of a private one,
+   * which then isn't theirs to list or open, as only its members may.
+   */
+  const joins = () => access === "open" || inRoom(me);
+
+  /**
+   * Shows the room made, or, made without you in it, Rooms and permissions, which lists it, saying so.
+   */
+  const show = (room: Room, inIt: boolean) => {
+    if (inIt) return navigate(roomPath(room.id));
+    navigate(workspaceSectionPath("channel-settings"));
+    flash("notice", `Created ${"name" in room ? room.name : name}. You’re not in it.`);
+  };
+
+  /** Creates the room and lists it in the sidebar, unless you're not in it. */
   const send = () => {
-    // The private form lists its creator with a check mark and sends them as one of its members.
-    const room: NewRoom = access === "open" ? { kind: access, name, icon: icon ?? "" } : { kind: access, name, icon: icon ?? "", memberIds: [me.id, ...chosen] };
+    // The private form lists its creator, in it, and sends them as one of its members.
+    const under = parent ? { parentId: parent.id } : {};
+    // Only people in its parent can be in a sub-room.
+    const memberIds = peopleIn(people ?? [], parent).flatMap((person) => (inRoom(person) ? [person.id] : []));
+    const room: NewRoom = access === "open" ? { kind: access, name, icon: icon ?? "", ...under } : { kind: access, name, icon: icon ?? "", ...under, memberIds };
+    const inIt = joins();
     return createRoom(room).then((room) => {
-      onCreated(room);
+      if (inIt) onCreated(room);
       setCreated(room);
       return room;
     });
@@ -75,12 +113,13 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
 
   const save = () => {
     // A room made already isn't made twice: Save shows it, as it does a room it makes.
-    if (created) return navigate(roomPath(created.id));
+    if (created) return show(created, joins());
     setSaving(true);
     // An answer that comes after the page was left lists the room, but leaves the page shown then alone.
+    const inIt = joins();
     send().then(
       (room) => {
-        if (mounted.current) navigate(roomPath(room.id));
+        if (mounted.current) show(room, inIt);
       },
       (error: unknown) => {
         // Once the page is left, only a session that's ended matters, which goes to sign in from any page.
@@ -93,12 +132,17 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
 
   // Anything filled in, or the other form, which the page didn't open on, until the room's made.
   const changed =
-    people !== null && !saving && !created && (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || (access === "closed" && chosen.size > 0));
+    people !== null &&
+    !saving &&
+    !created &&
+    (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || parentId !== asked || (access === "closed" && (chosen.size > 0 || !withMe)));
   return (
     // Go Back returns to Rooms and permissions.
     <SettingsPage back={workspaceSectionPath("channel-settings")}>
       <Panel aria-busy={people === null}>
-        <PageHeading title="New room">Create a place for a team, topic, or project.</PageHeading>
+        <PageHeading title={parent ? "New sub-room" : "New room"}>
+          {parent ? `Create a room inside ${parent.name} for some or all of its people.` : "Create a place for a team, topic, or project."}
+        </PageHeading>
         {people && (
           <RoomForm
             canAdminister
@@ -106,13 +150,22 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
             onNameChange={setName}
             icon={icon}
             onIconChange={setIcon}
-            everyone={{ on: access === "open", onFlip: () => navigate(newRoomPath(access === "open" ? "closed" : "open"), { replace: true }) }}
-            groups={[people]}
+            everyone={{
+              on: access === "open",
+              onFlip: () => navigate(newRoomPath(access === "open" ? "closed" : "open"), { replace: true }),
+              ...(parent && { label: `Everyone in ${parent.name}` }),
+            }}
+            parent={{ value: parent?.id ?? null, choices: parents, onChange: setParentId }}
+            groups={[peopleIn(people, parent)]}
             mark={(person) =>
-              access === "open" || person.id === me.id ? (
+              access === "open" || (person.id === me.id && !me.administrator) ? (
                 <CheckMark />
               ) : (
-                <AccessSwitch person={person} checked={chosen.has(person.id)} onCheckedChange={(checked) => setChosen((chosen) => withChoice(chosen, person, checked))} />
+                <AccessSwitch
+                  person={person}
+                  checked={inRoom(person)}
+                  onCheckedChange={(checked) => (person.id === me.id ? setWithMe(checked) : setChosen((chosen) => withChoice(chosen, person, checked)))}
+                />
               )
             }
             saving={saving}

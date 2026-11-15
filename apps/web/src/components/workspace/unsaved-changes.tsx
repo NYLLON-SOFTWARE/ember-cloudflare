@@ -3,7 +3,7 @@ import { Edit, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useMounted } from "@/hooks/use-mounted";
 import { guardLeaving } from "@/hooks/use-route";
-import { cn } from "@/lib/utils";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 
 // The guard for room forms and its dialog, which guard workspace settings' room order too. Where the
 // app's other dialogs are native ones, this is a Radix dialog, so it can open over the drawer, a Radix
@@ -12,23 +12,8 @@ import { cn } from "@/lib/utils";
 /** What the dialog says about a room's form. */
 const ROOM_CHANGES = "You’ve made changes to this room. Save them before you leave, or discard them to keep things as they were.";
 
-/** The dialog's buttons: Campfire's `.btn`, 42px tall, 44px for fingers, and sharing a phone's width. */
-const ACTION = "inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-[9px] border px-[22px] py-[0.5em] font-semibold touch:min-h-11 disabled:cursor-default upto-480px:flex-1";
-/** Save, the dialog's main action, in ink, and Discard, the other, which dialogs styled as this one share. */
-export const MAIN_ACTION = cn(ACTION, "border-transparent bg-foreground text-background hover:not-active:brightness-70");
-export const OTHER_ACTION = cn(ACTION, "bg-background text-foreground");
-
-/** The dialog: 420px wide, within the screen and its safe areas, scrolling what doesn't fit them. */
-export const DIALOG = cn(
-  "block w-[420px] max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))] sm:max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
-  "max-h-[calc(100dvh-32px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-auto rounded-[18px] p-7 text-foreground upto-480px:p-6",
-  "shadow-[0_24px_80px_var(--color-dialog-shadow),0_4px_16px_var(--color-dialog-shadow-faint)]",
-);
-/** What's laid over the page behind the dialog. */
-export const DIALOG_BACKDROP = "bg-dialog-backdrop backdrop-blur-[3px]";
-export const DIALOG_TITLE = "mb-2.5 text-[22px] leading-[1.25] font-bold";
-/** The button in the dialog's corner that closes it. */
-export const DIALOG_CLOSE = "absolute end-3 top-3 inline-flex cursor-pointer items-center justify-center rounded-[9px] px-[1.1em] py-[0.5em] touch:min-h-11 disabled:cursor-default";
+// The dialog's look, which the app's other dialogs share, is in dialog-styles.ts; it's said again here for them.
+export { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 
 interface Props<T> {
   /** Whether the page holds changes that leaving would lose. */
@@ -64,6 +49,10 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   // Save found a field the form won't accept, which the browser points at once the dialog has closed.
   const invalid = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
+  // What had focus as it asked, the link that was followed, say, which keeping editing hands focus back to.
+  const opener = useRef<Element | null>(null);
+  // Whether it closed to keep editing, where the page stays, rather than to leave it.
+  const kept = useRef(false);
   const mounted = useMounted();
 
   useEffect(() => {
@@ -77,6 +66,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
       // The page's own dialogs, such as its icon pickers, are native ones, which would stay above this
       // one and keep it from being answered. They close first.
       for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
+      opener.current = document.activeElement;
       setAsking(true);
       return true;
     });
@@ -96,6 +86,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   const keepEditing = () => {
     if (saving) return;
     proceed.current = null;
+    kept.current = true;
     setAsking(false);
   };
 
@@ -146,11 +137,16 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           saveButton.current?.focus();
         }}
         onInteractOutside={(event) => event.preventDefault()}
+        // Radix would focus the trigger a dialog opens from, which this one hasn't, leaving focus on the page's body.
         onCloseAutoFocus={(event) => {
-          if (!invalid.current) return;
-          invalid.current = false;
           event.preventDefault();
-          form?.current?.reportValidity();
+          const back = kept.current ? opener.current : null;
+          kept.current = false;
+          opener.current = null;
+          if (invalid.current) {
+            invalid.current = false;
+            form?.current?.reportValidity();
+          } else if (back instanceof HTMLElement && back.isConnected) back.focus();
         }}
         className={DIALOG}
       >

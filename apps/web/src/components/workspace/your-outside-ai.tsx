@@ -2,7 +2,8 @@ import { useState } from "react";
 import { MCP_PATH, type OutsideConnection } from "@ember/protocol/outside";
 import { useFlash } from "@/components/flash";
 import { useMounted } from "@/hooks/use-mounted";
-import { disconnectOutside, isSignedOut } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { disconnectOutside } from "@/lib/api-pages";
 import { dateTimeLabel } from "@/lib/messages";
 import { BUTTON } from "./email-settings";
 

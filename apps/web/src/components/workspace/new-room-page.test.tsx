@@ -1,4 +1,4 @@
-import type { Room } from "@ember/protocol";
+import type { Me, Room } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,8 +7,9 @@ import { Sheet } from "@/components/ui/sheet";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { NewRoomPage } from "./new-room-page";
+import { workspaceSectionPath } from "./settings-navigation";
 
-const ada = { id: "u1", name: "Ada Lovelace" };
+const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace = { id: "u2", name: "Grace Hopper" };
 const linus = { id: "u3", name: "Linus Torvalds" };
 
@@ -17,7 +18,7 @@ function serve({ created, refusal, formRefusal }: { created?: Room; refusal?: { 
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     if (init?.method === "POST") return refusal ? Response.json({ error: refusal.error }, { status: refusal.status }) : Response.json({ room: created }, { status: 201 });
     expect(input).toBe("/api/rooms/new");
-    return formRefusal ? Response.json({ error: formRefusal.error }, { status: formRefusal.status }) : Response.json({ people: [ada, grace, linus] });
+    return formRefusal ? Response.json({ error: formRefusal.error }, { status: formRefusal.status }) : Response.json({ people: [ada, grace, linus], parents: [] });
   });
 }
 
@@ -25,24 +26,24 @@ function serve({ created, refusal, formRefusal }: { created?: Room; refusal?: { 
 function holdCreation() {
   let answer = (_: Response) => {};
   vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
-    init?.method === "POST" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json({ people: [ada, grace, linus] })),
+    init?.method === "POST" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json({ people: [ada, grace, linus], parents: [] })),
   );
   return (response: Response) => act(async () => answer(response));
 }
 
 /** The page, at the form its address names, as the workspace shows it. */
-function NewRoomRoute(props: { onCreated: (room: Room) => void; onFailed: (error: unknown) => void }) {
+function NewRoomRoute({ me = ada, ...props }: { me?: Me; onCreated: (room: Room) => void; onFailed: (error: unknown) => void }) {
   const route = useRoute();
-  return route.page === "new-room" ? <NewRoomPage access={route.access} me={ada} {...props} /> : null;
+  return route.page === "new-room" ? <NewRoomPage access={route.access} me={me} {...props} /> : null;
 }
 
-function showPage(path = "/rooms/opens/new") {
+function showPage(path = "/rooms/opens/new", me: Me = ada) {
   const [onCreated, onFailed] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
   render(
     <FlashProvider workspace>
       <Sheet>
-        <NewRoomRoute onCreated={onCreated} onFailed={onFailed} />
+        <NewRoomRoute me={me} onCreated={onCreated} onFailed={onFailed} />
       </Sheet>
     </FlashProvider>,
   );
@@ -101,7 +102,7 @@ describe("Create an open room", () => {
     const created = { id: "design", name: "New room", kind: "open", icon: "rocket" } satisfies Room;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (String(input).endsWith("catalog.json")) return Response.json({ icons: [ROCKET], roomOrder: ["rocket"], navigationOrder: ["rocket"] });
-      return init?.method === "POST" ? Response.json({ room: created }, { status: 201 }) : Response.json({ people: [ada, grace, linus] });
+      return init?.method === "POST" ? Response.json({ room: created }, { status: 201 }) : Response.json({ people: [ada, grace, linus], parents: [] });
     });
     const { onCreated, user } = showPage();
     expect(await screen.findByRole("button", { name: "Choose room icon" })).toHaveTextContent("Default hashtag");
@@ -242,6 +243,33 @@ describe("Create a private room", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     expect(posted()).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [ada.id, linus.id] });
+  });
+
+  it("lists an administrator in it too, with a switch they may turn off to make the room for others alone, which isn't theirs to list or open", async () => {
+    const created = { id: "leads", name: "Leads", kind: "closed", icon: null } satisfies Room;
+    serve({ created });
+    const { onCreated, user } = showPage("/rooms/closeds/new", { ...ada, administrator: true });
+    await roomName();
+    const mine = screen.getByRole("switch", { name: `Give ${ada.name} access to this room` });
+    expect(mine).toBeChecked();
+    expect(hasCheckMark(ada.name)).toBe(false);
+    await user.click(mine);
+    await user.click(screen.getByRole("switch", { name: `Give ${grace.name} access to this room` }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // Only its members may open it, so it goes to Rooms and permissions, which lists it, rather than to No access.
+    await waitFor(() => expect(location.pathname + location.hash).toBe(workspaceSectionPath("channel-settings")));
+    expect(await screen.findByText("Created Leads. You’re not in it.")).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(posted()).toEqual({ kind: "closed", name: "New room", icon: "", memberIds: [grace.id] });
+  });
+
+  it("counts an administrator taking themselves out as a change to ask about before leaving", async () => {
+    serve();
+    const { user } = showPage("/rooms/closeds/new", { ...ada, administrator: true });
+    await user.click(await screen.findByRole("switch", { name: `Give ${ada.name} access to this room` }));
+    act(() => navigate("/account/edit"));
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/closeds/new");
   });
 
   it("keeps who's chosen when Everyone goes on and off again", async () => {

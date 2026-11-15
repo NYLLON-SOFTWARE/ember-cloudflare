@@ -6,7 +6,8 @@ import { PRIMARY_BUTTON } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { useMounted } from "@/hooks/use-mounted";
 import { useTitle } from "@/hooks/use-title";
-import { answerOutsideAsk, ApiError, describeOutsideAsk, isSignedOut } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { answerOutsideAsk, describeOutsideAsk } from "@/lib/api-pages";
 import { loadPage } from "@/lib/page";
 import { rememberThisPage } from "@/lib/return-path";
 
