@@ -12,7 +12,9 @@ import {
   type OpenedTab,
   type RoomTab,
 } from "@ember/protocol/library";
+import { env, listDurableObjectIds } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Env } from "../src/env";
 import { linksOf } from "../src/library";
 import { api, connect, createRoom, freshDeploy, freshRoom, post, recordedImage, roomSql, searchSql, signIn, upload, workspaceSql, type Session } from "./support";
 
@@ -35,6 +37,8 @@ async function ok<T>(response: Response, status = 200): Promise<T> {
 const filesOf = async (session: Session) => ok<Library>(await asking(session, "/api/files"));
 const tabsOf = async (session: Session, room: RoomId) => (await ok<{ tabs: RoomTab[] }>(await asking(session, roomTabsPath(room)))).tabs;
 const addTab = (session: Session, room: RoomId, tab: unknown) => asking(session, roomTabsPath(room), "POST", tab);
+
+const bindings = env as unknown as Env;
 
 beforeEach(freshDeploy);
 
@@ -91,6 +95,34 @@ describe("The Files page", () => {
     expect((await filesOf(grace)).files).toEqual([]);
     expect((await asking(ada, `/api/rooms/${room}`, "PATCH", { kind: "closed", memberIds: [grace.user.id] })).status).toBe(200);
     expect((await filesOf(ada)).files).toEqual([]);
+  });
+
+  it("asks who's signed in, and whether they're in the room, before opening the room, so nothing tells what a room holds", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const closed = (await createRoom("files-outsiders", { closedTo: [grace.user.id], as: grace })).id;
+    const file = await upload(grace, closed, "Plans.csv", new TextEncoder().encode("a\n1\n"), "text/csv");
+    const made = (roomId: string) => ({ fileId: "x", roomId, messageId: "y", starred: true });
+    const madeUpSession = { Cookie: `__Host-session_token=${"A".repeat(43)}` };
+
+    // A made-up session opens no room's object, whatever room it names.
+    const nowhere = "made-up-room-1";
+    const before = await listDurableObjectIds(bindings.CHAT_ROOM);
+    expect((await api("/api/files/marks", { method: "PUT", headers: madeUpSession, body: JSON.stringify(made(nowhere)) })).status).toBe(401);
+    expect((await api(roomTabsPath(nowhere), { method: "POST", headers: madeUpSession, body: JSON.stringify({ kind: "file", messageId: "y", title: "Y" }) })).status).toBe(401);
+    expect(await listDurableObjectIds(bindings.CHAT_ROOM)).toHaveLength(before.length);
+
+    // Someone outside a room hears the same of a file it holds as of one it doesn't.
+    const real = { fileId: file.attachment.id, roomId: closed, messageId: file.id, starred: true };
+    for (const mark of [real, made(closed)]) {
+      const answer = await asking(ada, "/api/files/marks", "PUT", mark);
+      expect(answer.status).toBe(404);
+      expect(await answer.json()).toEqual({ error: "Room not found or inaccessible" });
+    }
+    for (const messageId of [file.id, "y"]) {
+      const answer = await addTab(ada, closed, { kind: "file", messageId, title: "Plans" });
+      expect(answer.status).toBe(404);
+      expect(await answer.json()).toEqual({ error: "Room not found or inaccessible" });
+    }
   });
 
   it("marks only a file a message in the room holds, or one of its canvases, keeping nothing for anything else", async () => {
@@ -198,6 +230,26 @@ describe("Room tabs", () => {
     const removed = await ok<OpenedTab>(await asking(ada, `${items}/${withFile.items![0]!.id}`, "DELETE"));
     expect(removed.items!.map(({ title }) => title)).toEqual(["NASA"]);
     expect((await asking(ada, `${roomTabPath(room, tab.tab.id)}/items`, "POST", { kind: "link", title: "x", url: "https://x.example" })).status).toBe(404);
+  });
+
+  it("lets go of a file's tabs and folders' copies as its message is deleted, so none still serves the file", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("tabs-deleted-file");
+    const file = await upload(ada, room, "Moon landing.jpg", recordedImage("moon-thumb.jpg"));
+    const kept = await upload(ada, room, "Kept.jpg", recordedImage("moon-thumb.jpg"));
+    const tab = await ok<OpenedTab>(await addTab(ada, room, { kind: "file", title: "Moon", messageId: file.id }));
+    await ok<OpenedTab>(await addTab(ada, room, { kind: "file", title: "Kept", messageId: kept.id }));
+    const folder = await ok<OpenedTab>(await addTab(ada, room, { kind: "folder", title: "Pictures" }));
+    const items = `${roomTabPath(room, folder.tab.id)}/items`;
+    await ok(await asking(ada, items, "POST", { kind: "file", title: "Moon", messageId: file.id }));
+    await ok(await asking(ada, items, "POST", { kind: "file", title: "Kept", messageId: kept.id }));
+
+    const socket = await connect(room, ada);
+    socket.send({ type: "message.delete", messageId: file.id });
+    await socket.next("message.deleted");
+    await expect.poll(async () => (await tabsOf(ada, room)).map(({ title }) => title)).toEqual(["Kept", "Pictures"]);
+    expect((await ok<OpenedTab>(await asking(ada, roomTabPath(room, folder.tab.id)))).items!.map(({ title }) => title)).toEqual(["Kept"]);
+    expect((await asking(ada, roomTabPath(room, tab.tab.id))).status).toBe(404);
   });
 
   it("saves a canvas over the version it changed, refusing a save over an older one, and lists it on the Files page", async () => {

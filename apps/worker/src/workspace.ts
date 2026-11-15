@@ -4853,9 +4853,13 @@ export class Workspace extends DurableObject<Env> {
     for (const [userId, items] of await this.activity.editMessage(roomId, messageId, plainText)) this.tell([userId], { type: "activity.updated", items });
   }
 
-  /** Takes out of everyone's Activity the items about message `messageId` in room `roomId`, as the room asks once it's deleted. */
+  /**
+   * Takes out of everyone's Activity the items about message `messageId` in room `roomId`, as the room asks
+   * once it's deleted, and the room's tabs and folders' files holding its file.
+   */
   async messageDeleted(roomId: RoomId, messageId: string): Promise<void> {
     this.changedDuringBackfill?.push(() => this.messageDeleted(roomId, messageId));
+    await new RoomTabStore(this.db).forgetMessage(roomId, messageId);
     this.tellOfRemovedActivity(await this.activity.removeMessage(roomId, messageId));
   }
 
@@ -5159,9 +5163,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Whom `credentials` signs in, with the canvas, if they can change room `roomId`'s canvas `tabId`: they're
    * in the room, and no ban blocks their address. Their save then goes through the room's object, where
-   * people may be writing the canvas together (canvas-sessions.ts).
+   * people may be writing the canvas together (canvas-sessions.ts), which turns it away if a revocation
+   * since `authorizedAt` names their `sessionId`.
    */
-  async canvasWriter(credentials: Credentials, roomId: RoomId, tabId: string): Promise<{ actor: User; tab: KeptTab } | "forbidden" | "not found" | null> {
+  async canvasWriter(credentials: Credentials, roomId: RoomId, tabId: string): Promise<{ actor: User; tab: KeptTab; sessionId: string; authorizedAt: number } | "forbidden" | "not found" | null> {
+    // Before anything is read, as for sockets, so a revocation saved while this checks counts as later.
+    const authorizedAt = Date.now();
     const session = await this.session(credentials);
     if (!session) return null;
     const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
@@ -5169,7 +5176,7 @@ export class Workspace extends DurableObject<Env> {
     const actor = { id: session.user.id, name: session.user.name };
     const opened = await new RoomTabStore(this.db).act(roomId, actor, banned, { act: "open", tabId }, new Date().toISOString());
     if (typeof opened !== "object" || !("tab" in opened) || opened.tab.kind !== "canvas") return "not found";
-    return banned ? "forbidden" : { actor, tab: opened.tab };
+    return banned ? "forbidden" : { actor, tab: opened.tab, sessionId: session.id, authorizedAt };
   }
 
   /** Room `roomId`'s canvas `tabId`, for the room's object, which people write it together through. */

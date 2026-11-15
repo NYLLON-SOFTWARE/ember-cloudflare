@@ -1,4 +1,4 @@
-import type { RoomId } from "@ember/protocol";
+import { CloseCode, type RoomId } from "@ember/protocol";
 import { CANVAS_TOO_LONG, EMPTY_CANVAS, MAX_CANVAS_LENGTH, roomTabPath, roomTabsPath, type OpenedTab } from "@ember/protocol/library";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -252,6 +252,21 @@ describe("Writing a canvas together", () => {
     const stale = await asking(grace, `${roomTabPath(room, tabId)}/canvas`, "PUT", { body: EMPTY_CANVAS, version: 1 });
     expect(stale.status).toBe(409);
     expect(await stale.json()).toMatchObject({ canvas: { version: 2 } });
+  });
+
+  it("refuses a canvas saved whole once the room hears the writer's access ended after the Workspace let them in", async () => {
+    const room = await freshRoom("canvas-revoked");
+    const ada = await signIn("Ada");
+    const tabId = await canvasIn(room, ada);
+    const authorizedAt = Date.now();
+    const writer = (at: number) => ({ actor: { id: ada.user.id, name: "Ada" }, tags: [ada.user.id], authorizedAt: at });
+    const body = JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "After" }] }] });
+    // Taken out of the room, or signed out elsewhere, as the room's queue reached the save.
+    await roomStub(room).revoke(room, [{ tag: ada.user.id, code: CloseCode.NotFound }], authorizedAt);
+
+    expect(await roomStub(room).saveCanvas(room, tabId, writer(authorizedAt), { body, version: 0 })).toBeNull();
+    expect((await saved(ada, room, tabId)).version).toBe(0);
+    expect(await roomStub(room).saveCanvas(room, tabId, writer(authorizedAt + 1), { body, version: 0 })).toMatchObject({ canvas: { version: 1 } });
   });
 
   it("names the last save sent whole that a canvas took, a page's closing save included once its steps came first", async () => {

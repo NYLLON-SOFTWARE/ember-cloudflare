@@ -44,27 +44,41 @@ export const countOf = (count: number) => `${count} ${count === 1 ? "member" : "
 /** The button at the top of a room: a person and how many are in the room, which opens who they are. */
 /**
  * The people in `room`, from its settings, which are asked for as it opens and each time `ask` is called,
- * and `added` takes in once Add people saves them: the button's, and the members page's.
+ * and `added` takes in once Add people saves them: the button's, and the members page's. `failed` says the
+ * latest ask came to nothing, as offline.
  */
 export function useMembers(room: Room, onFailed: (error: unknown) => void) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
+  const [failed, setFailed] = useState(false);
   const shared = room.kind !== "direct";
   const [asked, setAsked] = useState(0);
   useEffect(() => {
     if (!shared) return;
     let stopped = false;
     fetchRoomSettings(room.id).then(
-      // Only settings that list the room's people count them.
-      (settings) => !stopped && setSettings(settings?.room && Array.isArray(settings.people) ? settings : null),
-      (error: unknown) => isSignedOut(error) && onFailed(error),
+      (settings) => {
+        if (stopped) return;
+        // Only settings that list the room's people count them.
+        const listed = settings?.room && Array.isArray(settings.people);
+        setSettings(listed ? settings : null);
+        setFailed(!listed);
+      },
+      (error: unknown) => {
+        if (isSignedOut(error)) onFailed(error);
+        else if (!stopped) setFailed(true);
+      },
     );
     return () => void (stopped = true);
   }, [room.id, shared, asked, onFailed]);
-  return { members: membersOf(room, settings), ask: () => setAsked((asked) => asked + 1), added: setSettings };
+  const ask = () => {
+    setFailed(false);
+    setAsked((asked) => asked + 1);
+  };
+  return { members: membersOf(room, settings), failed, ask, added: setSettings };
 }
 
 export function MembersButton({ room, me, present, onFailed }: Props) {
-  const { members, ask, added } = useMembers(room, onFailed);
+  const { members, failed, ask, added } = useMembers(room, onFailed);
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const count = members?.people.length;
@@ -94,6 +108,8 @@ export function MembersButton({ room, me, present, onFailed }: Props) {
               me={me}
               present={present}
               members={members}
+              failed={failed}
+              onRetry={ask}
               opener={button}
               onClose={() => setOpen(false)}
               onAdded={added}

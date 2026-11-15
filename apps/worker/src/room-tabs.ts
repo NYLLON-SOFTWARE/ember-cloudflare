@@ -233,6 +233,10 @@ function storedTarget(target: KeptTarget): string | null {
   return null;
 }
 
+/** Takes out the file tabs, and the folders' files, that hold room `roomId`'s message `messageId`'s file. */
+const FORGET_MESSAGE_TABS = `DELETE FROM room_tabs WHERE room_id = ? AND kind = 'file' AND json_extract(target, '$.messageId') = ?`;
+const FORGET_MESSAGE_ITEMS = `DELETE FROM room_tab_items WHERE room_id = ? AND json_extract(target, '$.messageId') = ?`;
+
 /** What forgets a deleted room's tabs, folders and the marks on its files, in the batch that deletes it. */
 export function forgettingRoomTabs(roomId: RoomId): Statement[] {
   return [
@@ -335,6 +339,11 @@ export class RoomTabStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
+  }
+
+  /** Forgets the tabs and folders' files that hold message `messageId`'s file, as it's deleted, so none still serves it. */
+  async forgetMessage(roomId: RoomId, messageId: string): Promise<void> {
+    await this.db.batch([statement(FORGET_MESSAGE_TABS, roomId, messageId), statement(FORGET_MESSAGE_ITEMS, roomId, messageId)]);
   }
 
   /** What `userId` has starred and opened. */

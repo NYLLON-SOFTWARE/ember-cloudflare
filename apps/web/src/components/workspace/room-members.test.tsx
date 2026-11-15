@@ -136,6 +136,19 @@ describe("Members", () => {
     expect(rows.map((row) => row.textContent)).toEqual(["Ada Lovelace (you)Analytical engines", "Grace HopperCompilers", "Deploy Bot Bot"]);
   });
 
+  it("says the members couldn't be loaded, rather than loading for ever, and loads them on Try again", async () => {
+    let asks = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => (++asks <= 2 ? Response.json({ error: "Down" }, { status: 500 }) : Response.json(settings(false))));
+    renderButton(plans);
+    await userEvent.click(screen.getByRole("button", { name: "View members" }));
+    const failed = await screen.findByRole("alert");
+    expect(failed).toHaveTextContent("Couldn’t load the members.");
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    await userEvent.click(within(failed).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveAccessibleDescription("2 members"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("adds people to a private room for whoever can change it, beside whoever is in it then", async () => {
     serve(settings(true));
     renderButton(plans);

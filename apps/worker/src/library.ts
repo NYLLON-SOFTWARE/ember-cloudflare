@@ -33,6 +33,7 @@ import type { KeptFile, KeptItem, KeptTab, KeptTarget, LibraryShelf, TabAction, 
 import { searchIndex, type ShelvedMessage } from "./search-index";
 import { readNow } from "./searches";
 import { indexedMessages } from "./store";
+import { requestTags } from "./revocations";
 import { workspace, type Credentials } from "./workspace";
 
 // The Files page's list of the workspace's files, a room's Files & links, starring files, and a room's tabs
@@ -173,8 +174,10 @@ async function markFile(request: Request, env: Env): Promise<Response> {
   if (!credentials) return problem(401, NOT_SIGNED_IN);
   const mark = parseFileMark(await jsonBodyOf(request));
   if (typeof mark === "string") return problem(422, mark);
-  // Only a file a message in the room still holds, or one of its canvases, can be marked.
   if (!isRoomId(mark.roomId)) return problem(404, ROOM_NOT_FOUND);
+  const refused = await refusedOutside(env, credentials, mark.roomId);
+  if (refused) return refused;
+  // Only a file a message in the room still holds, or one of its canvases, can be marked.
   if (mark.messageId !== undefined) {
     const [message] = await env.CHAT_ROOM.getByName(mark.roomId).messagesWithIds(mark.roomId, [mark.messageId]);
     if (!message || message.deleted || message.attachment?.id !== mark.fileId) return problem(404, FILE_NOT_FOUND);
@@ -182,6 +185,17 @@ async function markFile(request: Request, env: Env): Promise<Response> {
   const marks = await workspace(env).markFile(credentials, mark);
   if (!marks) return problem(401, NOT_SIGNED_IN);
   return marks === "not found" ? problem(404, ROOM_NOT_FOUND) : json(marks satisfies FileMarks);
+}
+
+/**
+ * What a request from someone `credentials` doesn't sign in, or who isn't in room `roomId`, answers, before
+ * anything asks the room's object, which a made-up session would otherwise have open any room's storage,
+ * and learn from its answers what the room holds; or null for a member.
+ */
+async function refusedOutside(env: Env, credentials: Credentials, roomId: RoomId): Promise<Response | null> {
+  const access = await workspace(env).roomAccess(credentials, roomId);
+  if (!access) return problem(401, NOT_SIGNED_IN);
+  return access.member ? null : problem(404, ROOM_NOT_FOUND);
 }
 
 /** `file` as a tab keeps it, without its addresses, which are signed as it's read. */
@@ -251,6 +265,10 @@ async function addTo(request: Request, env: Env, roomId: RoomId, tabId: string |
   const body = await jsonBodyOf(request);
   const added = tabId === null ? parseNewTab(body) : parseNewFolderItem(body);
   if (typeof added === "string") return problem(422, added);
+  if (added.kind === "file") {
+    const refused = await refusedOutside(env, credentials, roomId);
+    if (refused) return refused;
+  }
   const target = await keptTargetOf(env, roomId, added);
   if (!target) return problem(422, FILE_NOT_FOUND);
   const answer = await workspace(env).roomTabs(
@@ -284,7 +302,9 @@ async function saveCanvas(request: Request, env: Env, roomId: RoomId, tabId: str
   if (!writer) return problem(401, NOT_SIGNED_IN);
   if (writer === "not found") return problem(404, TAB_NOT_FOUND);
   if (writer === "forbidden") return problem(403, "You can't change this room's tabs");
-  const answer = await env.CHAT_ROOM.getByName(roomId).saveCanvas(roomId, tabId, writer.actor, save);
+  const tags = requestTags(writer.actor.id, writer.sessionId, credentials.client.ip);
+  const answer = await env.CHAT_ROOM.getByName(roomId).saveCanvas(roomId, tabId, { actor: writer.actor, tags, authorizedAt: writer.authorizedAt }, save);
+  if (!answer) return problem(404, ROOM_NOT_FOUND);
   if (answer === "not found") return problem(404, TAB_NOT_FOUND);
   if ("conflict" in answer) return Response.json({ error: CANVAS_CHANGED, canvas: answer.conflict satisfies Canvas }, { status: 409 });
   return json({ tab: await shownTab(writer.tab, await signer(env)), canvas: answer.canvas } satisfies OpenedTab);

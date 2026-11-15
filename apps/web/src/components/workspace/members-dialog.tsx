@@ -26,6 +26,9 @@ interface DialogProps {
   me: Me;
   present: User[];
   members: Members | null;
+  /** Whether asking for the members came to nothing, which `onRetry` asks again. */
+  failed: boolean;
+  onRetry: () => void;
   /** The button that opened it, which gets focus back as it closes. */
   opener: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
@@ -45,7 +48,7 @@ function ConversationIcon({ room }: { room: Room }) {
  * details: the room and how many are in it, then the same list the dialog has.
  */
 export function MembersPage({ room, me, present, onBack, onFailed }: Props & { onBack: () => void }) {
-  const { members, added } = useMembers(room, onFailed);
+  const { members, failed, ask, added } = useMembers(room, onFailed);
   return (
     <div className="flex h-full min-h-0 flex-col bg-background pb-[env(safe-area-inset-bottom)]">
       {/* The room's own header, as a phone draws it: a round Back, and the page's name and count in a capsule. */}
@@ -58,7 +61,7 @@ export function MembersPage({ room, me, present, onBack, onFailed }: Props & { o
           <p className="truncate text-xs leading-4 text-muted-foreground">{members ? countOf(members.people.length) : " "}</p>
         </div>
       </PageHeader>
-      <MembersList me={me} present={present} members={members} onPicked={() => {}} onAdded={added} onFailed={onFailed} />
+      <MembersList me={me} present={present} members={members} failed={failed} onRetry={ask} onPicked={() => {}} onAdded={added} onFailed={onFailed} />
     </div>
   );
 }
@@ -71,7 +74,7 @@ const NOTE = "px-2 py-3 text-sm text-muted-foreground";
 const CLOSE =
   "[&>[data-slot=dialog-close]]:top-5 [&>[data-slot=dialog-close]]:right-5 [&>[data-slot=dialog-close]]:grid [&>[data-slot=dialog-close]]:size-9 [&>[data-slot=dialog-close]]:place-items-center [&>[data-slot=dialog-close]]:rounded-lg [&>[data-slot=dialog-close]]:opacity-100 [&>[data-slot=dialog-close]]:hover:bg-hover [&>[data-slot=dialog-close]]:touch:size-11 [&>[data-slot=dialog-close]_svg]:size-5";
 
-export function MembersDialog({ room, me, present, members, opener, onClose, onAdded, onFailed }: DialogProps) {
+export function MembersDialog({ room, me, present, members, failed, onRetry, opener, onClose, onAdded, onFailed }: DialogProps) {
   const nameOf = useNameOf();
   const title = room.kind === "direct" ? room.members.filter((member) => member.id !== me.id).map(nameOf).join(", ") || nameOf(me) : room.name;
   return (
@@ -96,7 +99,7 @@ export function MembersDialog({ room, me, present, members, opener, onClose, onA
           </div>
           <DialogDescription className="mt-0.5 text-[14px] text-muted-foreground">{members ? countOf(members.people.length) : " "}</DialogDescription>
         </div>
-        <MembersList me={me} present={present} members={members} onPicked={onClose} onAdded={onAdded} onFailed={onFailed} />
+        <MembersList me={me} present={present} members={members} failed={failed} onRetry={onRetry} onPicked={onClose} onAdded={onAdded} onFailed={onFailed} />
       </DialogContent>
     </Dialog>
   );
@@ -106,6 +109,8 @@ interface ListProps {
   me: Me;
   present: User[];
   members: Members | null;
+  failed: boolean;
+  onRetry: () => void;
   /** Called as a person is picked, whose page opens. */
   onPicked: () => void;
   onAdded: (settings: RoomSettings) => void;
@@ -113,7 +118,7 @@ interface ListProps {
 }
 
 /** Find people, Add people where you can, and the people, which the dialog and the members page share. */
-function MembersList({ me, present, members, onPicked, onAdded, onFailed }: ListProps) {
+function MembersList({ me, present, members, failed, onRetry, onPicked, onAdded, onFailed }: ListProps) {
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
   const list = useRef<HTMLDivElement>(null);
@@ -154,7 +159,18 @@ function MembersList({ me, present, members, onPicked, onAdded, onFailed }: List
           Add people
         </button>
       )}
-      {members ? <PeopleList people={members.people} me={me} present={present} q={q} onPicked={onPicked} /> : <p className={NOTE}>Loading…</p>}
+      {members ? (
+        <PeopleList people={members.people} me={me} present={present} q={q} onPicked={onPicked} />
+      ) : failed ? (
+        <p role="alert" className={NOTE}>
+          Couldn’t load the members.{" "}
+          <button type="button" onClick={onRetry} className="cursor-pointer font-medium text-foreground underline underline-offset-2">
+            Try again
+          </button>
+        </p>
+      ) : (
+        <p className={NOTE}>Loading…</p>
+      )}
     </div>
   );
 }

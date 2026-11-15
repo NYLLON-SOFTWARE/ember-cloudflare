@@ -1364,8 +1364,12 @@ export class ChatRoom extends DurableObject<Env> {
    * Saves canvas `tabId` sent whole over `save.version` by `actor`, whom the Workspace has let write it, as a
    * page going away sends one: through what people writing it together have, if anyone is.
    */
-  async saveCanvas(roomId: RoomId, tabId: string, actor: User, save: CanvasSave): Promise<CanvasAnswer> {
-    return this.serially(() => this.canvasesFor(roomId).saveWhole(tabId, actor, save));
+  async saveCanvas(roomId: RoomId, tabId: string, writer: { actor: User; tags: string[]; authorizedAt: number }, save: CanvasSave): Promise<CanvasAnswer | null> {
+    return this.serially(async () => {
+      // Turned away as their sockets would be, by a removal or sign-out since the Workspace let them in.
+      if (await this.revocationsFor(roomId).refuse(writer.tags, writer.authorizedAt)) return null;
+      return this.canvasesFor(roomId).saveWhole(tabId, writer.actor, save);
+    });
   }
 
   /**
