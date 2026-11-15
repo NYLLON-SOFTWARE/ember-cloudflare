@@ -17,7 +17,7 @@ async function offered(viewer: Session, query = ""): Promise<string[]> {
 }
 
 describe("@-mention people", () => {
-  it("offers the room's active members whose names contain what's typed, by name, bots and you included", async () => {
+  it("offers the room's active members whose names contain what's typed, by name, bots after people, and you included", async () => {
     const ada = await signIn("Ada Lovelace");
     const grace = await signIn("grace Hopper");
     const alan = await signIn("Alan Turing");
@@ -29,15 +29,26 @@ describe("@-mention people", () => {
     await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", katherine.user.id);
     const inRoom = `?room_id=${room.id}`;
 
-    expect(await offered(ada, inRoom)).toEqual(["Ada Lovelace", "Alan Turing", "Bender Bot", "grace Hopper"]);
-    expect(await offered(ada, `${inRoom}&filter=`)).toEqual(["Ada Lovelace", "Alan Turing", "Bender Bot", "grace Hopper"]);
+    expect(await offered(ada, inRoom)).toEqual(["Ada Lovelace", "Alan Turing", "grace Hopper", "Bender Bot"]);
+    expect(await offered(ada, `${inRoom}&filter=`)).toEqual(["Ada Lovelace", "Alan Turing", "grace Hopper", "Bender Bot"]);
     expect(await offered(ada, `${inRoom}&filter=AL`)).toEqual(["Alan Turing"]);
-    expect(await offered(ada, `${inRoom}&filter=o`)).toEqual(["Ada Lovelace", "Bender Bot", "grace Hopper"]);
+    expect(await offered(ada, `${inRoom}&filter=o`)).toEqual(["Ada Lovelace", "grace Hopper", "Bender Bot"]);
     expect(await offered(ada, `${inRoom}&filter=zz`)).toEqual([]);
     // The DM picker searches with `query`, which a blank `filter` leaves to.
     expect(await offered(ada, `${inRoom}&filter=%20&query=hop`)).toEqual(["grace Hopper"]);
     // `LIKE`: a wildcard is a wildcard.
     expect(await offered(ada, `${inRoom}&filter=a_l`)).toEqual(["Ada Lovelace"]);
+  });
+
+  it("offers those with a word of their name starting with what's typed first, as Slack does", async () => {
+    const ada = await signIn("Ada");
+    const bot = await signIn("Deploy Bot");
+    await workspaceSql("UPDATE users SET role = 2 WHERE id = ?", bot.user.id);
+    await signIn("Priya Patel");
+    await signIn("Leo Park");
+    await signIn("Uptime");
+    expect(await offered(ada, "?filter=p")).toEqual(["Leo Park", "Priya Patel", "Uptime", "Deploy Bot"]);
+    expect(await offered(ada, "?filter=pa")).toEqual(["Leo Park", "Priya Patel"]);
   });
 
   it("offers anyone active without a room, or with a blank one", async () => {

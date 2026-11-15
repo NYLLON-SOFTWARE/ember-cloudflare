@@ -2,7 +2,9 @@ import { useContext, type ComponentProps, type ReactNode } from "react";
 import { ArrowLeft } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
+import { BackButton } from "../mobile/back-button";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { SettingsLayout } from "./settings-navigation";
 
@@ -12,13 +14,19 @@ import { SettingsLayout } from "./settings-navigation";
  * scrolls clear of the home indicator.
  */
 export function SettingsPage({ back, links, children }: { back: string; links?: ReactNode; children: ReactNode }) {
+  const phone = usePhoneLayout();
   return (
     <>
       <PageHeader>
-        <PageLink href={back} className={HEADER_BUTTON}>
-          <ArrowLeft className="size-5" />
-          <span className="sr-only">Go Back</span>
-        </PageLink>
+        {/* On a phone, Go Back goes back the way the person came, as the phone's own Back does. */}
+        {phone ? (
+          <BackButton fallback={back} label="Go Back" />
+        ) : (
+          <PageLink href={back} className={HEADER_BUTTON}>
+            <ArrowLeft className="size-5" />
+            <span className="sr-only">Go Back</span>
+          </PageLink>
+        )}
         {links && <div className="ml-auto flex items-center gap-[1ch]">{links}</div>}
       </PageHeader>
       <MainContent className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)]">
@@ -67,13 +75,13 @@ export const TITLE = "text-[23px] leading-[1.3] font-[650]";
 export const TITLE_LINK = "inline-flex min-h-11 items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-3.5 py-2.5 font-medium";
 
 /** A page's heading, whose title a panel sets at 23px. */
-export function PageHeading({ title, id, className, children }: { title: string; id?: string; className?: string; children: ReactNode }) {
+export function PageHeading({ title, id, className, children }: { title: string; id?: string; className?: string; children?: ReactNode }) {
   return (
     <header className={cn("mb-6", className)}>
       <h1 id={id} className={cn("mb-1.5", TITLE)}>
         {title}
       </h1>
-      <p className="text-muted-foreground">{children}</p>
+      {children && <p className="text-muted-foreground">{children}</p>}
     </header>
   );
 }

@@ -441,7 +441,7 @@ describe("Where bots show up", () => {
     const member = await joinAsGrace();
     const bot = await added(administrator, { name: "Build Bot" });
     const everyone = [administrator.user, shown(bot), member.user];
-    expect(await answered<NewRoomForm>(administrator, "/api/rooms/new")).toEqual({ people: everyone });
+    expect((await answered<NewRoomForm>(administrator, "/api/rooms/new")).people).toEqual(everyone);
 
     const builds = await createRoom("Builds", { closedTo: [administrator.user.id, bot.id], as: administrator });
     expect((await answered<RoomSettings>(administrator, `/api/rooms/${builds.id}/settings`)).people).toEqual(
@@ -454,7 +454,7 @@ describe("Where bots show up", () => {
 
     // Once it's deleted, nobody can pick it, as nobody can pick someone removed.
     expect((await deleteBot(administrator, bot.id)).status).toBe(204);
-    expect(await answered<NewRoomForm>(administrator, "/api/rooms/new")).toEqual({ people: [administrator.user, member.user] });
+    expect((await answered<NewRoomForm>(administrator, "/api/rooms/new")).people).toEqual([administrator.user, member.user]);
   });
 
   it("offers an active bot to mention in the rooms it's in until it's deleted, but never suggests a DM with it", async () => {

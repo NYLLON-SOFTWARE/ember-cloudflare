@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type TouchEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject, type TouchEvent } from "react";
 import type { RoomId } from "@ember/protocol";
 import { movedBefore } from "@/lib/room-list";
 
@@ -49,6 +49,8 @@ interface Options {
   onMove: (order: RoomId[], roomId: RoomId) => void;
   /** Called as a dragged row is put back. */
   onCancel: () => void;
+  /** The element the list scrolls in, when another list holds it, as a parent's holds its sub-rooms'. */
+  scroller?: RefObject<HTMLElement | null>;
 }
 
 /** The room whose row `target` is in, if it's in one. */
@@ -65,9 +67,9 @@ const anywhere = () => true;
  * `order`, which `onMove` changes.
  *
  * The list's element takes `listRef` and `listProps`, its rows carry `data-room-id`, and the element the
- * list scrolls in takes `scrollerRef`, unless that's the list itself.
+ * list scrolls in takes `scrollerRef`, unless that's the list itself or `scroller` names it.
  */
-export function useRoomDrag({ order, movable, holdMs, grabs = anywhere, isLocked, onDrag, onMove, onCancel }: Options) {
+export function useRoomDrag({ order, movable, holdMs, grabs = anywhere, isLocked, onDrag, onMove, onCancel, scroller: outer }: Options) {
   const listRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<RoomId[] | null>(null);
@@ -145,7 +147,7 @@ export function useRoomDrag({ order, movable, holdMs, grabs = anywhere, isLocked
   function scroll() {
     const pressed = press.current;
     if (!pressed?.dragging) return;
-    const scroller = scrollerRef.current ?? listRef.current;
+    const scroller = outer?.current ?? scrollerRef.current ?? listRef.current;
     if (scroller) {
       const box = scroller.getBoundingClientRect();
       const step = pressed.lastY < box.top + EDGE_PX ? -SCROLL_PX : pressed.lastY > box.bottom - EDGE_PX ? SCROLL_PX : 0;

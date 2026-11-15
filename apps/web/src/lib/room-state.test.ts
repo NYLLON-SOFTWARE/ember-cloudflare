@@ -1,5 +1,5 @@
 import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { timeline } from "./messages";
 import { initialRoomState, isPending, MAX_MESSAGES, roomReducer, type PendingMessage, type PendingUpload, type RoomState } from "./room-state";
 
@@ -244,26 +244,41 @@ describe("Catch up after a reconnect", () => {
     expect(state.notice).toBeNull();
   });
 
-  it("shows only the messages still waiting as not sent once the page is offline, and says so", () => {
+  it("keeps what's waiting for a connection waiting once the page is offline, saying nothing, as Slack does", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2" }), pending: true, queued: true } });
     state = roomReducer(state, { type: "offline", offline: true });
-    // The first went before the connection dropped, so it waits for the room's answer.
-    expect(state.messages.map((m) => [m.clientMessageId, isPending(m) && m.failed === true])).toEqual([
-      ["c1", false],
-      ["c2", true],
-    ]);
-    expect(state.messages[1]).not.toHaveProperty("queued");
-    expect(state.notice).toBe("Not connected. Your message wasn't sent.");
-
-    state = roomReducer(state, { type: "dismiss-notice" });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c3", clientMessageId: "c3" }), pending: true, queued: true } });
-    expect(state.messages[2]).toMatchObject({ pending: true, failed: true });
-    expect(state.notice).toBe("Not connected. Your message wasn't sent.");
-
+    expect(state.messages.map((m) => [m.clientMessageId, isPending(m) && m.queued === true, isPending(m) && m.failed === true])).toEqual([
+      ["c1", false, false],
+      ["c2", true, false],
+      ["c3", true, false],
+    ]);
+    expect(state.notice).toBeNull();
     state = roomReducer(state, { type: "offline", offline: false });
     expect(state.offline).toBe(false);
-    expect(state.messages.map((m) => isPending(m) && m.failed === true)).toEqual([false, true, true]);
+  });
+
+  it("shows what's waited too long as not sent, to send again with Retry or forget", () => {
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1", createdAt: "2026-11-12T10:00:00Z" }), pending: true, queued: true } });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2", createdAt: "2026-11-12T10:04:00Z" }), pending: true, queued: true } });
+    state = roomReducer(state, { type: "give-up", before: "2026-11-12T10:02:00Z" });
+    expect(state.messages[0]).toMatchObject({ clientMessageId: "c1", failed: true });
+    expect(state.messages[0]).not.toHaveProperty("queued");
+    expect(state.messages[1]).toMatchObject({ clientMessageId: "c2", queued: true });
+
+    vi.useFakeTimers({ now: Date.parse("2026-11-12T10:06:00Z") });
+    state = roomReducer(state, { type: "retry", clientMessageId: "c1" });
+    vi.useRealTimers();
+    expect(state.messages[0]).toMatchObject({ clientMessageId: "c1", queued: true, createdAt: "2026-11-12T10:00:00Z", queuedAt: "2026-11-12T10:06:00.000Z" });
+    expect(state.messages[0]).not.toHaveProperty("failed");
+    // Retried, it waits its five minutes again.
+    state = roomReducer(state, { type: "give-up", before: "2026-11-12T10:02:00Z" });
+    expect(state.messages[0]).toMatchObject({ queued: true });
+
+    state = roomReducer(state, { type: "give-up", before: "2026-11-12T10:05:00Z" });
+    state = roomReducer(state, { type: "discard", clientMessageId: "c2" });
+    expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1"]);
   });
 
   it("says nothing on going offline with nothing waiting", () => {

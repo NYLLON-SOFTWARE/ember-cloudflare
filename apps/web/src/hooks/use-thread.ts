@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef } from "react";
 import { HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, MESSAGE_TOO_LONG, type Message, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
-import { handOver, leftUnsent, takeBack } from "@/lib/outbox";
+import { handOver, leftUnsent } from "@/lib/outbox";
 import { isQueued, unconfirmed, type ConnectionStatus, type PendingMessage } from "@/lib/room-state";
 import { initialThreadState, threadReducer } from "@/lib/thread-state";
-import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
+import { isEmberFile, sendableFacts, shareFile, UPLOAD_FAILED, UploadError, uploadFile, type Sendable } from "@/lib/uploads";
 import { useLatestReducer } from "./use-latest-reducer";
+import { takeBackUnsent as takeBackKept, useUnsent } from "./use-unsent";
 import { isTooLong, messageActionsOf, pendingMessage, TYPING_TTL_MS, type RoomFrames } from "./use-room";
 
 /**
@@ -21,7 +22,7 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
   const { send } = frames;
   const closed = useRef(false);
   // As the room's timeline takes back what was left unsent there, the thread takes back its replies.
-  const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me, parentId));
+  const takeBackUnsent = useEffectEvent(() => takeBackKept(roomId, me, parentId));
 
   // As useRoom asks about the messages a reconnect doesn't confirm, the thread asks about its replies,
   // once it has opened again.
@@ -108,15 +109,16 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
   // Each file goes as a reply of its own, one at a time, as useRoom's postFiles sends them. Closing the
   // thread drops those whose upload hasn't started.
   const postFiles = useCallback(
-    async (files: File[], alsoSend: boolean) => {
+    async (files: Sendable[], alsoSend: boolean) => {
       for (const file of files) {
         if (closed.current) return;
         const clientMessageId = crypto.randomUUID();
-        const upload = { name: file.name, size: file.size, percent: 0 };
-        dispatch({ type: "pending", message: { ...pendingReply(clientMessageId, "", file.name, [], alsoSend), upload } });
+        const upload = { ...sendableFacts(file), percent: 0 };
+        dispatch({ type: "pending", message: { ...pendingReply(clientMessageId, "", upload.name, [], alsoSend), upload } });
         try {
           const thread = { parentId, alsoSend };
-          const message = await uploadFile(roomId, file, clientMessageId, (percent) => dispatch({ type: "upload-progress", clientMessageId, percent }), thread);
+          const progress = (percent: number) => dispatch({ type: "upload-progress", clientMessageId, percent });
+          const message = isEmberFile(file) ? await shareFile(roomId, file, clientMessageId, thread) : await uploadFile(roomId, file, clientMessageId, progress, thread);
           dispatch({ type: "uploaded", message });
         } catch (error) {
           dispatch({ type: "upload-failed", clientMessageId, error: error instanceof UploadError ? error.message : UPLOAD_FAILED });
@@ -147,7 +149,9 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
    */
   const jump = useCallback((replyId: string | null) => dispatch(replyId === null ? { type: "focus", messageId: null } : { type: "open-at", replyId }), []);
 
-  const messageActions = useMemo(() => messageActionsOf(frames, warn), [frames, warn]);
+  const latestReplies = useCallback(() => latest.current.replies.messages, [latest]);
+  const unsent = useUnsent(roomId, me, parentId, state.replies, dispatch, latestReplies, send);
+  const messageActions = useMemo(() => messageActionsOf(frames, warn, unsent), [frames, warn, unsent]);
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 
   return { state, postReply, postFiles, loadOlder, jump, messageActions, dismissNotice };

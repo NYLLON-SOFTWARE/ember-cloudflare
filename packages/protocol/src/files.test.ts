@@ -8,6 +8,8 @@ import {
   MAX_FILE_SIZE,
   MAX_ID_LENGTH,
   parseNewUpload,
+  parseSharedFile,
+  sharedFilesPath,
   uploadPartPath,
   uploadPreviewPath,
   uploadsPath,
@@ -109,5 +111,25 @@ describe("Image, video and file previews", () => {
       "image/gif",
       "image/webp",
     ]);
+  });
+});
+
+describe("Files in Ember", () => {
+  it("takes a file posted in another room to share by its room and id, in a thread too", () => {
+    const shared = { roomId: "r9" as RoomId, fileId: "f1", clientMessageId };
+    expect(sharedFilesPath("r1" as RoomId)).toBe("/api/rooms/r1/uploads/shared");
+    expect(parseSharedFile(shared)).toEqual(shared);
+    expect(parseSharedFile({ ...shared, parentId: "m1" })).toEqual({ ...shared, parentId: "m1", alsoSend: false });
+    expect(parseSharedFile({ ...shared, parentId: "m1", alsoSend: true })).toEqual({ ...shared, parentId: "m1", alsoSend: true });
+  });
+
+  it("refuses one without its room, its id or its message's id", () => {
+    const shared = { roomId: "r9", fileId: "f1", clientMessageId };
+    expect(parseSharedFile([])).toBe("Expected a JSON object");
+    expect(parseSharedFile({ ...shared, roomId: "" })).toBe("A shared file needs the room it's in");
+    expect(parseSharedFile({ ...shared, fileId: 1 })).toBe("A shared file needs its id");
+    expect(parseSharedFile({ ...shared, fileId: "f".repeat(MAX_ID_LENGTH + 1) })).toBe("A shared file needs its id");
+    expect(parseSharedFile({ ...shared, clientMessageId: undefined })).toBe("A file needs an id for its message");
+    expect(parseSharedFile({ ...shared, parentId: "" })).toBe("A reply's thread must be a message's id");
   });
 });
