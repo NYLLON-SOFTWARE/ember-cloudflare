@@ -2321,8 +2321,8 @@ const SAVE_MESSAGE = `INSERT INTO saves (id, user_id, room_id, message_id, creat
 /** How many rows the statement before it added: 1 when it saved the message, 0 when it was saved already. */
 const SAVE_MESSAGE_COUNT = `SELECT changes() AS inserted`;
 
-/** Someone's saves, newest save first, at most the MAX_SAVES they saved most recently, as the index on (user_id, created_at) reads them. */
-const SAVES_FOR_USER = `SELECT id, room_id, message_id, created_at FROM saves WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`;
+/** Someone's saves, newest save first, at most the MAX_SAVES they saved most recently, as the index on (user_id, created_at) reads them, ties as the trim that keeps the newest reads them. */
+const SAVES_FOR_USER = `SELECT id, room_id, message_id, created_at FROM saves WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`;
 
 /** Deletes someone's save ?2, if it's theirs. */
 const FORGET_SAVE = `DELETE FROM saves WHERE id = ?1 AND user_id = ?2`;

@@ -262,6 +262,26 @@ describe("The Saved pane's answer", () => {
     expect(saves.slice(1).map(({ messageId }) => messageId)).toEqual(older.slice(1).reverse().map(({ id }) => id));
     expect(await storedSaves(ada)).toHaveLength(MAX_SAVES);
   });
+
+  it("reads saves made in the same instant in the order the trim keeps them, by their ids", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await createRoom("Design");
+    const first = await messageIn(room.id, grace, "Saved in the same instant");
+    const second = await messageIn(room.id, grace, "And this one too");
+    await first.done();
+    await second.done();
+    // Two saves of one created_at, as saving twice within the same millisecond makes, whose order the
+    // list reads as the trim that keeps the newest does, so it reads the same however it's asked.
+    const firstId = crypto.randomUUID();
+    const secondId = crypto.randomUUID();
+    await workspaceSql("INSERT INTO saves (id, user_id, room_id, message_id, created_at) VALUES (?, ?, ?, ?, ?)", firstId, ada.user.id, room.id, first.message.id, 1000);
+    await workspaceSql("INSERT INTO saves (id, user_id, room_id, message_id, created_at) VALUES (?, ?, ?, ?, ?)", secondId, ada.user.id, room.id, second.message.id, 1000);
+
+    const saves = await savesOf(ada);
+    expect(saves.map(({ id }) => id)).toEqual([firstId, secondId].sort().reverse());
+    expect((await savesOf(ada)).map(({ id }) => id)).toEqual([firstId, secondId].sort().reverse());
+  });
 });
 
 describe("Forget a save", () => {
