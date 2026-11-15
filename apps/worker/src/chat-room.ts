@@ -2007,7 +2007,7 @@ export class ChatRoom extends DurableObject<Env> {
    * the subscriptions they found gone.
    */
   private async push(pushes: MessagePush[]): Promise<void> {
-    const gone = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
+    const { gone } = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
     if (gone.length === 0) return;
     await workspace(this.env)
       .forgetPushSubscriptions(gone)

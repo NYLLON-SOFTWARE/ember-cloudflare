@@ -184,7 +184,7 @@ describe("Who gets a push", () => {
   it("sends each push to its subscription's push service as the gem does: encrypted for its browser, signed, urgent, kept for four weeks", async () => {
     const receiver = await pushBrowser();
     const { send, sent } = pushService();
-    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver, 4])], anyone, send)).toEqual([]);
+    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver, 4])], anyone, send)).toEqual({ gone: [], failed: 0 });
 
     expect(sent).toHaveLength(1);
     const [[endpoint, init]] = sent as [[string, RequestInit]];
@@ -225,7 +225,7 @@ describe("Who gets a push", () => {
       ["https://fcm.googleapis.com/fcm/send/3", receiver],
       ["https://fcm.googleapis.com/fcm/send/4", { p256dh: "dGVzdF9rZXk", auth: "dGVzdF9hdXRo" }],
     );
-    expect((await sendPushes(pushEnv(), [push], anyone, send)).sort()).toEqual([1, 2, 4]);
+    expect((await sendPushes(pushEnv(), [push], anyone, send)).gone.sort()).toEqual([1, 2, 4]);
     expect(sent.map(([endpoint]) => new URL(endpoint).pathname).sort()).toEqual(["/fcm/send/1", "/fcm/send/2", "/fcm/send/3"]);
     expect(log).not.toHaveBeenCalled();
   });
@@ -245,7 +245,7 @@ describe("Who gets a push", () => {
     ];
     for (const [status, statusText, kind] of answers) {
       const { send, sent } = pushService(() => new Response(null, { status, statusText }));
-      expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], anyone, send)).toEqual([]);
+      expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], anyone, send)).toEqual({ gone: [], failed: 1 });
       expect(sent).toHaveLength(1);
       expect(log).toHaveBeenLastCalledWith(`Error in WebPush::Pool.deliver: ${kind} host: fcm.googleapis.com, status: ${status}`);
     }
@@ -256,7 +256,7 @@ describe("Who gets a push", () => {
     await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], anyone, failing(new TypeError("Network connection lost.")));
     expect(log).toHaveBeenLastCalledWith("Error in WebPush::Pool.deliver: SystemCallError Network connection lost.");
     const { send } = pushService();
-    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, { p256dh: "", auth: receiver.auth }])], anyone, send)).toEqual([]);
+    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, { p256dh: "", auth: receiver.auth }])], anyone, send)).toEqual({ gone: [], failed: 1 });
     expect(log).toHaveBeenLastCalledWith("Error in WebPush::Pool.deliver: ArgumentError p256dh cannot be blank");
   });
 
@@ -264,7 +264,7 @@ describe("Who gets a push", () => {
     const { send, sent } = pushService();
     const receiver = await pushBrowser();
     const endpoints = ["https://attacker.example.com/collect", "https://fcm.googleapis.com:22/fcm/send/abc", "http://fcm.googleapis.com/fcm/send/abc", "https://evilfcm.googleapis.com.attacker.example/webhook"];
-    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, ...endpoints.map((endpoint) => [endpoint, receiver] as [string, typeof receiver]))], anyone, send)).toEqual([]);
+    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, ...endpoints.map((endpoint) => [endpoint, receiver] as [string, typeof receiver]))], anyone, send)).toEqual({ gone: [], failed: 0 });
     expect(sent).toEqual([]);
   });
 
@@ -291,7 +291,7 @@ describe("Who gets a push", () => {
     expect(asked).toEqual([1, 2, 3, 4, 5, 6]);
     banned.add(7);
     release();
-    expect(await sending).toEqual([]);
+    expect(await sending).toEqual({ gone: [], failed: 0 });
     expect(asked).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(sent.map(([endpoint]) => new URL(endpoint).pathname)).toEqual([1, 2, 3, 4, 5, 6].map((i) => `/fcm/send/${i}`));
     expect(warn).toHaveBeenCalledExactlyOnceWith("push authorization failed for subscription 8: Error: The database's answer was lost");
@@ -316,7 +316,7 @@ describe("Who gets a push", () => {
   it("sends nothing while Web Push is off", async () => {
     const { send, sent } = pushService();
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(await sendPushes(pushEnv({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined }), [messagePush(PAYLOAD, [ENDPOINT, await pushBrowser()])], anyone, send)).toEqual([]);
+    expect(await sendPushes(pushEnv({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined }), [messagePush(PAYLOAD, [ENDPOINT, await pushBrowser()])], anyone, send)).toEqual({ gone: [], failed: 0 });
     expect(sent).toEqual([]);
   });
 });
