@@ -21,7 +21,6 @@ import {
   type NewUpload,
   type RoomId,
   type ServerFrame,
-  type StoredFile,
   type TimelinePage,
   type User,
   type UserId,
@@ -222,20 +221,11 @@ export interface Retelling {
   /** Who wrote the original, after whom a forward with a note reads as forwarded. */
   author: string;
   /**
-   * The original's file, as told apart from another, or null for none: a forward keeps its copy while it's the
-   * same file, and loses it otherwise, as a bot giving its message another file makes the copy out of date.
+   * Whether the forward keeps its copy of the original's file: while the original has the file it copied, and
+   * not once it has another, as a bot giving its message a new file makes the copy out of date, or none.
    */
-  file: FileFingerprint | null;
+  keepFile: boolean;
 }
-
-/** What tells one file from another without reading it, as a forward's copy has its original's name, type and size. */
-export type FileFingerprint = Pick<StoredFile, "name" | "contentType" | "byteSize" | "width" | "height">;
-
-/** A file's fingerprint (`Retelling`). */
-export const fingerprintOf = ({ name, contentType, byteSize, width, height }: FileFingerprint): FileFingerprint => ({ name, contentType, byteSize, width, height });
-
-/** Whether two fingerprints are of the same file. */
-const sameFile = (a: FileFingerprint, b: FileFingerprint) => JSON.stringify(fingerprintOf(a)) === JSON.stringify(fingerprintOf(b));
 
 /**
  * How long after its original's room records a forward it may still be posting, copying the original's file:
@@ -963,19 +953,6 @@ export class ChatRoom extends DurableObject<Env> {
     });
   }
 
-  /**
-   * The message `messageId`, for `person` to forward, with the size of its file's preview, if it has one,
-   * or null when the room turns them away, as it does an upload, or no longer has the message.
-   */
-  async forwardable(roomId: RoomId, person: Uploader, messageId: string): Promise<{ message: Message; preview: ImageSize | null } | null> {
-    return this.serially(async () => {
-      if (await this.revocationsFor(roomId).refuse(person.tags, person.authorizedAt)) return null;
-      const message = await this.findUndeleted(this.storeFor(roomId), messageId);
-      if (!message) return null;
-      const blob = message.attachment ? await this.blobsFor(roomId).find(message.attachment.id) : null;
-      return { message, preview: blob?.preview ?? null };
-    });
-  }
 
   /**
    * Starts the copy of a forwarded file, named `filename`, of `declaredType`, which R2 is to keep here
@@ -993,17 +970,21 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Records that `person` is forwarding the message `messageId` here as message `forwardId` in room
-   * `toRoomId`, so its deletion takes what the forward quotes away (`originDeleted`), answering whether the
-   * room still has the message, or null when it turns them away, as it does an upload.
+   * Records that message `messageId` here is forwarded as message `forwardId` in room `toRoomId`, before the
+   * forward posts, so that its deletion or edit reaches the forward however the forward's request ends, and
+   * answers the message as it is now, with its picture's preview's size, if it has one, to quote and copy.
+   * Reading it and recording the forward go together, so no edit falls between them. Answers null when the
+   * room turns `person` away or has no such message, as for a forward of what they can't see.
    */
-  async recordForward(roomId: RoomId, person: Uploader, messageId: string, toRoomId: RoomId, forwardId: string): Promise<boolean | null> {
+  async recordForward(roomId: RoomId, person: Uploader, messageId: string, toRoomId: RoomId, forwardId: string): Promise<{ message: Message; preview: ImageSize | null } | null> {
     return this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(person.tags, person.authorizedAt)) return null;
       const store = this.storeFor(roomId);
-      if (!(await this.findUndeleted(store, messageId))) return false;
-      await store.recordForward(messageId, toRoomId, forwardId, new Date().toISOString());
-      return true;
+      const message = await this.findUndeleted(store, messageId);
+      if (!message) return null;
+      await store.recordForward(messageId, toRoomId, forwardId, message.attachment?.id ?? null, new Date().toISOString());
+      const blob = message.attachment ? await this.blobsFor(roomId).find(message.attachment.id) : null;
+      return { message, preview: blob?.preview ?? null };
     });
   }
 
@@ -1072,25 +1053,29 @@ export class ChatRoom extends DurableObject<Env> {
    * original's file. Its plain text follows the quote where it has no note to read as. A forward that's
    * gone, or quotes a deleted original already, stays as it is.
    */
-  async originChanged(roomId: RoomId, forwardId: string, { quoted, plainText, author, file }: Retelling): Promise<void> {
-    await this.serially(async () => {
-      if (await this.isDeleted()) return;
+  async originChanged(roomId: RoomId, forwardId: string, { quoted, plainText, author, keepFile: keepsFile }: Retelling): Promise<boolean> {
+    return this.serially(async () => {
+      if (await this.isDeleted()) return true;
       const store = this.storeFor(roomId);
-      const message = await this.findUndeleted(store, forwardId);
-      if (!message) return;
+      const found = await store.find(forwardId);
+      // Not here yet, as while it posts, unless it was here and deleted since.
+      if (!found) return store.wasDeleted(forwardId);
+      if (found.deleted) return true;
+      const message = found;
       // The note, then the quote, then its cite, which comes last: a quote's own quotes come before it.
       const quoteAt = message.body.indexOf("<blockquote");
       const citeAt = message.body.lastIndexOf("<cite");
-      if (quoteAt === -1 || citeAt < quoteAt) return;
+      if (quoteAt === -1 || citeAt < quoteAt) return true;
       const note = message.body.slice(0, quoteAt);
       const prepared = this.prepareAnyLength(`${note}<blockquote>${quoted}</blockquote>${message.body.slice(citeAt)}`);
-      if (!prepared) return;
+      if (!prepared) return true;
       // A note reads as itself and whose message it forwards, as when it was posted, never as what it quoted then.
       const noted = note.trim() === "" ? "" : (this.prepareAnyLength(note)?.plainText.trim() ?? "");
       const body = { ...prepared, plainText: noted === "" ? plainText : `${noted} — forwarded from ${author}` };
-      const keepFile = file !== null && message.attachment !== undefined && sameFile(file, message.attachment);
-      if (body.html === message.body && body.plainText === message.plainText && (keepFile || !message.attachment)) return;
+      const keepFile = keepsFile && message.attachment !== undefined;
+      if (body.html === message.body && body.plainText === message.plainText && (keepFile || !message.attachment)) return true;
       await this.retell(store, message, body, keepFile);
+      return true;
     });
   }
 
@@ -1828,7 +1813,7 @@ export class ChatRoom extends DurableObject<Env> {
     const [toldOrphaned, toldChanged] = await Promise.all([
       Promise.allSettled(orphaned.map(({ toRoomId, forwardId }) => room(toRoomId).originDeleted(toRoomId, forwardId))),
       Promise.allSettled(
-        changed.map(({ toRoomId, forwardId, messageId }) => {
+        changed.map(({ toRoomId, forwardId, messageId, fileId }) => {
           const original = originals.get(messageId);
           // One deleted since is marked orphaned, which tells its forwards' rooms itself.
           if (!original) return Promise.resolve();
@@ -1836,7 +1821,8 @@ export class ChatRoom extends DurableObject<Env> {
             quoted: quotedMarkup(original, ""),
             plainText: quotedText(original),
             author: original.creator.name,
-            file: original.attachment ? fingerprintOf(original.attachment) : null,
+            // One recorded before forwards kept their original's file keeps its copy while the original has a file.
+            keepFile: original.attachment !== undefined && (fileId === null || original.attachment.id === fileId),
           });
         }),
       ),
@@ -1846,7 +1832,10 @@ export class ChatRoom extends DurableObject<Env> {
     const heardOrphaned = heard(orphaned, toldOrphaned).filter(
       (forward) => (toldOrphaned[orphaned.indexOf(forward)] as PromiseFulfilledResult<boolean>).value || Date.now() - Date.parse(forward.createdAt) > FORWARD_IN_FLIGHT_MS,
     );
-    const heardChanged = heard(changed, toldChanged);
+    // As with a deletion: a change to a forward its room doesn't have yet stays marked to tell it once it does.
+    const heardChanged = heard(changed, toldChanged).filter(
+      (forward) => (toldChanged[changed.indexOf(forward)] as PromiseFulfilledResult<boolean | undefined>).value !== false || Date.now() - Date.parse(forward.createdAt) > FORWARD_IN_FLIGHT_MS,
+    );
     await this.serially(async () => {
       for (const forward of heardOrphaned) await store().forgetForward(forward);
       for (const forward of heardChanged) await store().retoldForward(forward);

@@ -2,7 +2,7 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { env } from "cloudflare:test";
 import { MAX_MESSAGE_LENGTH, searchQuery, type ActivityPage, type Message, type NewForward, type RoomId, type SearchResults } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { fingerprintOf, FORWARD_IN_FLIGHT_MS, ORIGINAL_DELETED } from "../src/chat-room";
+import { FORWARD_IN_FLIGHT_MS, ORIGINAL_DELETED } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { objectKey } from "../src/files/blobs";
 import { api, connect, createRoom, direct, freshRoom, origin, post, recordedImage, roomSql, signIn, upload, type Session } from "./support";
@@ -255,6 +255,26 @@ describe("A forward still posting as its original is deleted", () => {
   });
 });
 
+describe("A forward still posting as its original is edited", () => {
+  it("is told the edit again until it's there, as the original's room keeps the change marked", async () => {
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const room = await freshRoom("forward-edit-in-flight");
+    const ada = await connect(room, adaSession);
+    const original = await post(ada, "<p>The aardvark plan</p>");
+    const dm = await direct(adaSession, graceSession);
+    // Recorded, as a forward is before it posts, while its file copies.
+    await roomSql(room, "INSERT INTO forwards (room_id, message_id, to_room_id, forward_id, created_at) VALUES (?, ?, ?, ?, ?)", room, original.id, dm.id, "posting", new Date().toISOString());
+
+    ada.send({ type: "message.update", messageId: original.id, body: "<p>The plan</p>" });
+    await ada.next("message.updated");
+    // Its room doesn't have it yet, and says so, so the change stays marked to tell it once it does.
+    const forwardRoom = (env as unknown as Env).CHAT_ROOM.getByName(dm.id);
+    expect(await forwardRoom.originChanged(dm.id, "posting", { quoted: "<p>The plan</p>", plainText: "The plan", author: "Ada", keepFile: false })).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(await roomSql(room, "SELECT changed_at IS NOT NULL AS marked FROM forwards WHERE room_id = ?", room)).toEqual([{ marked: 1 }]);
+  });
+});
+
 describe("A noted forward following its original's edit", () => {
   it("reads as its note, edited or not, and whose message it forwards, never as what it quoted before", async () => {
     const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
@@ -277,7 +297,7 @@ describe("A noted forward following its original's edit", () => {
 });
 
 describe("A forward's copy of its original's file", () => {
-  it("stays while the original has the same file, and goes once it has another", async () => {
+  it("stays while the original's room says the original has the file it copied, and goes once it says it doesn't", async () => {
     const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
     const room = await freshRoom("forward-file-replaced");
     const original = await upload(adaSession, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
@@ -287,11 +307,11 @@ describe("A forward's copy of its original's file", () => {
     const forwardRoom = (env as unknown as Env).CHAT_ROOM.getByName(dm.id);
     const retelling = { quoted: "<p>moon.jpg</p>", plainText: "moon.jpg", author: "Ada" };
 
-    await forwardRoom.originChanged(dm.id, copy.id, { ...retelling, file: fingerprintOf(original.attachment!) });
+    await forwardRoom.originChanged(dm.id, copy.id, { ...retelling, keepFile: true });
     expect((await connect(dm.id, graceSession)).welcome.messages.find((message) => message.id === copy.id)!.attachment).toBeDefined();
 
     // As a bot gives its message another file in place of the first.
-    await forwardRoom.originChanged(dm.id, copy.id, { ...retelling, file: { ...fingerprintOf(original.attachment!), byteSize: original.attachment!.byteSize + 1 } });
+    await forwardRoom.originChanged(dm.id, copy.id, { ...retelling, keepFile: false });
     const { message } = await grace.next("message.updated");
     expect(message.attachment).toBeUndefined();
     await vi.waitFor(async () => expect(await (env as unknown as Env).FILES!.get(objectKey(copy.attachment!.id))).toBeNull(), { timeout: 10_000 });

@@ -78,6 +78,7 @@ import savedRemindersSent from "../migrations/0086_saved_reminders_sent.sql";
 import noteUploads from "../migrations/0087_note_uploads.sql";
 import fileMarkMessages from "../migrations/0088_file_mark_messages.sql";
 import canvasSaveIds from "../migrations/0089_canvas_save_ids.sql";
+import forwardFiles from "../migrations/0091_forward_files.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -184,6 +185,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0087_note_uploads.sql", scope: "workspace", sql: noteUploads },
   { name: "0088_file_mark_messages.sql", scope: "workspace", sql: fileMarkMessages },
   { name: "0089_canvas_save_ids.sql", scope: "workspace", sql: canvasSaveIds },
+  { name: "0091_forward_files.sql", scope: "room", sql: forwardFiles },
 ];
 
 /**

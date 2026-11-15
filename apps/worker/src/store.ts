@@ -93,9 +93,11 @@ export interface OrphanedForward {
 export interface ChangedForward extends OrphanedForward {
   messageId: string;
   changedAt: string;
+  /** The original's file the forward copied, or null for none, or for one recorded before forwards kept it. */
+  fileId: string | null;
 }
 
-const CHANGED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId, created_at AS createdAt, message_id AS messageId, changed_at AS changedAt FROM forwards
+const CHANGED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId, created_at AS createdAt, message_id AS messageId, changed_at AS changedAt, file_id AS fileId FROM forwards
   WHERE room_id = ? AND changed_at IS NOT NULL AND orphaned_at IS NULL ORDER BY changed_at LIMIT ?`;
 
 /**
@@ -695,14 +697,15 @@ export class MessageStore {
     return { message: { ...rest, ...(!dropsFile && attachment && { attachment }), body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now }, seq };
   }
 
-  /** Records that `messageId` here was forwarded as message `forwardId` in room `toRoomId`, at `now`. */
-  async recordForward(messageId: string, toRoomId: RoomId, forwardId: string, now: string): Promise<void> {
+  /** Records that `messageId` here, with its file `fileId` if it has one, was forwarded as message `forwardId` in room `toRoomId`, at `now`. */
+  async recordForward(messageId: string, toRoomId: RoomId, forwardId: string, fileId: string | null, now: string): Promise<void> {
     await this.db.run(
-      `INSERT INTO forwards (room_id, message_id, to_room_id, forward_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      `INSERT INTO forwards (room_id, message_id, to_room_id, forward_id, file_id, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
       this.roomId,
       messageId,
       toRoomId,
       forwardId,
+      fileId,
       now,
     );
   }

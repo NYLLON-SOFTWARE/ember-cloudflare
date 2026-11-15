@@ -81,11 +81,10 @@ export async function forwardMessage(request: Request, env: Env, roomId: RoomId,
   const sent = await destination.sentAlready(forward.to, to, forward.clientMessageId);
   if (sent) return Response.json(sent, { status: 200 });
   const source = env.CHAT_ROOM.getByName(roomId);
-  const found = await source.forwardable(roomId, from, messageId);
+  const id = sortableId();
+  const found = await source.recordForward(roomId, from, messageId, forward.to, id);
   if (!found) return problem(404, MESSAGE_NOT_FOUND);
   const { message } = found;
-  const id = sortableId();
-  if (!(await source.recordForward(roomId, from, messageId, forward.to, id))) return problem(404, MESSAGE_NOT_FOUND);
 
   let kept: KeptFile | undefined;
   if (message.attachment) {
