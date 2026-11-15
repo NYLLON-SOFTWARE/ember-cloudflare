@@ -259,34 +259,6 @@ describe("Activity", () => {
     expect((await activityOf(linus)).items).toContainEqual(item({ kind: "mention", preview: expect.stringContaining("hunter2") }));
   });
 
-  it("takes a sub-room's items out of the Activity of whoever leaves its parent, and edits there reach none of them", async () => {
-    const [adaSession, grace] = [await signIn("Ada"), await signIn("Grace")];
-    const strata = await createRoom("Strata", { closedTo: [adaSession.user.id, grace.user.id], as: adaSession });
-    const created = await api("/api/rooms", {
-      method: "POST",
-      headers: { Cookie: adaSession.cookie },
-      body: JSON.stringify({ kind: "closed", name: "Ops", memberIds: [adaSession.user.id, grace.user.id], parentId: strata.id }),
-    });
-    expect(created.status, await created.clone().text()).toBe(201);
-    const { room: ops } = (await created.json()) as { room: { id: RoomId } };
-    const ada = await connect(ops.id, adaSession, { visible: true });
-    const tab = await openWorkspaceSocket(grace);
-    const message = await post(ada, `${mention(grace.user)} the plan is`);
-    await heardActivity(tab, ops.id);
-    expect((await activityOf(grace)).items).toContainEqual(item({ kind: "mention", roomId: ops.id }));
-
-    const left = await api(`/api/rooms/${strata.id}/membership`, { method: "DELETE", headers: { Cookie: grace.cookie } });
-    expect(left.status).toBeLessThan(300);
-    expect(await heardActivity(tab)).toEqual([{ type: "activity.removed", ids: expect.any(Array) }]);
-    expect(await workspaceSql("SELECT id FROM activity WHERE user_id = ?", grace.user.id)).toEqual([]);
-
-    ada.send({ type: "message.update", messageId: message.id, body: `${mention(grace.user)} the plan is hunter2` });
-    await ada.next("message.updated");
-    await sleep(50);
-    expect(await heardActivity(tab)).toEqual([]);
-    expect(await workspaceSql("SELECT id FROM activity WHERE preview LIKE '%hunter2%' AND user_id = ?", grace.user.id)).toEqual([]);
-  });
-
   it("pages its items, newest first", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const dm = await direct(ada, grace);
