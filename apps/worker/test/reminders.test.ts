@@ -1,7 +1,7 @@
 import type { Reminder, WorkspaceServerFrame } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Workspace } from "../src/workspace";
+import { REMINDER_PUSH_GRACE_MS, type Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
 import {
   api,
@@ -75,8 +75,8 @@ afterEach(() => {
 
 /**
  * Stands in for every push service, answering each of the first ten pushes at once and holding every one
- * after until `go`, keeping what was pushed where. The ten are all one run may push here, so the run the
- * untold reminders set sits at its first pushes, held, while the test sees what that run left.
+ * after until `go`, keeping what was pushed where. The runs push in tens here, so the run that follows
+ * the first sits at its first pushes, held, while the test sees what the runs before it left.
  */
 function heldPushServices() {
   const pushed: Array<{ endpoint: string; body: Uint8Array }> = [];
@@ -288,23 +288,36 @@ describe("Reminders", () => {
   });
 
   it("sends no more pushes than one run may, leaving the rest for the next", async () => {
-    const pushed = pushServices();
     const room = await freshRoom("budgeting");
     const ada = await connect(room, "Ada", { visible: true });
     const grace = await signIn("Grace");
     await connect(room, grace, { visible: true });
-    // Ten browsers is the most someone saves, so five reminders ask fifty pushes, one run's worth more than the forty it may send.
+    // Ten browsers is the most someone saves, and each push is asked after and sent: two of the forty
+    // requests one run may spend on the reminders, their queries counted like their pushes. Five
+    // reminders ask fifty pushes, so the run buys the read and the first reminder told and pushed,
+    // tells the second and leaves it its pushes, and the last three wait whole for the runs after.
     for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) await subscribe(grace, `grace-${n}`);
     const message = await post(ada, "<p>Tell me at noon</p>");
     for (const n of [1, 2, 3, 4, 5]) await remind(grace, room, message.id, soon());
     await makeRemindersDue();
 
+    const { pushed, go } = heldPushServices();
     expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
-    expect(pushed).toHaveLength(40);
-    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 1 }]);
-    // What the run left, the run it sets for the rest takes, whether that's asked for or comes of its wake.
-    await vi.waitFor(() => expect(pushed).toHaveLength(50));
-    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 0 }]);
+    // The next run sits at its first pushes, held, so what the first left can be seen: the first
+    // reminder's ten pushes went whole, and the second's tabs heard it without theirs.
+    await vi.waitFor(
+      async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 2 }]),
+      { timeout: 10_000 },
+    );
+    expect(pushed.slice(0, 10).map(({ endpoint }) => endpoint.split("/").at(-1))).toEqual(
+      expect.arrayContaining(["grace-1", "grace-2", "grace-3", "grace-4", "grace-5", "grace-6", "grace-7", "grace-8", "grace-9", "grace-10"]),
+    );
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 3 }]);
+    // What the runs left, the run the held one's `go` unblocks takes, and the ones its wakes set after.
+    go();
+    await vi.waitFor(() => expect(pushed).toHaveLength(50), { timeout: 10_000 });
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 5 }]);
   });
 
   it("pushes reminders with what the run's other deliveries leave of its budget, and the rest wait for the next run", async () => {
@@ -313,8 +326,9 @@ describe("Reminders", () => {
     const grace = await signIn("Grace");
     await connect(room, grace, { visible: true });
     // Thirty pictures come due the same run, and ten browsers Grace saved make five reminders ask fifty
-    // pushes: twenty more than the forty the run may spend in all, so the pictures take thirty and the
-    // reminders push with the ten left, telling the first alone.
+    // pushes: the pictures take thirty of the forty requests the run may spend, and what's left tells
+    // the first reminder, whose pushes wait for the next run — ten requests buy no push, each asked
+    // after and sent.
     for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30])
       await workspaceSql("INSERT INTO pending_picture_deletions (object_key, due_at) VALUES (?, ?)", `pictures/${n}`, Date.now() - 1_000);
     for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) await subscribe(grace, `grace-${n}`);
@@ -324,21 +338,22 @@ describe("Reminders", () => {
 
     const { pushed, go } = heldPushServices();
     expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
-    // Each of the ten browsers the run pushed heard the first reminder, and nothing else went out.
-    expect(pushed.slice(0, 10).map(({ endpoint }) => endpoint.split("/").at(-1))).toEqual(
-      expect.arrayContaining(["grace-1", "grace-2", "grace-3", "grace-4", "grace-5", "grace-6", "grace-7", "grace-8", "grace-9", "grace-10"]),
+    // The next run pushes the first reminder's ten and the one after sits held at its first, so what
+    // the pictures left can be seen: the first reminder told and pushed, the second told without its
+    // pushes, and three waiting whole.
+    await vi.waitFor(
+      async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 2 }]),
+      { timeout: 10_000 },
     );
     expect(await workspaceSql("SELECT count(*) AS n FROM pending_picture_deletions")).toEqual([{ n: 0 }]);
-    // The next run sits at its first pushes, held, so what the first left can be seen: four reminders
-    // untold.
-    await vi.waitFor(() => expect(pushed.length).toBeGreaterThan(10));
-    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 4 }]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]);
+    // What the runs left, the run the held one's `go` unblocks takes, and the ones its wakes set after.
     go();
-    await vi.waitFor(() => expect(pushed).toHaveLength(50));
-    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 0 }]);
+    await vi.waitFor(() => expect(pushed).toHaveLength(50), { timeout: 10_000 });
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 5 }]);
   });
 
-  it("leaves a reminder whose push failed untold, and tells it again the run after", async () => {
+  it("tells the tabs once though its push failed, and tries the pushes again the run after", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     let status = 503;
     const pushed = pushServices(() => status);
@@ -346,6 +361,7 @@ describe("Reminders", () => {
     const ada = await connect(room, "Ada", { visible: true });
     const grace = await signIn("Grace");
     await connect(room, grace, { visible: true });
+    const tab = await openWorkspaceSocket(grace);
     const browser = await pushBrowser();
     await subscribe(grace, "grace", browser);
     const message = await post(ada, "<p>Tell me though the push fails</p>");
@@ -353,12 +369,125 @@ describe("Reminders", () => {
     await makeRemindersDue();
 
     expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
-    expect(pushed).toHaveLength(1);
-    // The push didn't reach the browser, so the reminder isn't marked told: it stays due, and a later run tells it again.
-    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 0 }]);
+    expect(await heard(tab)).toEqual([
+      { type: "reminder.due", reminder: expect.objectContaining({ excerpt: "Tell me though the push fails" }) },
+    ]);
+    // The push didn't reach the browser, so the reminder waits to push again: told, not settled.
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
+
+    // The runs after try the push again, and however often they do, they say nothing more to the
+    // tabs, which have heard it.
+    await vi.waitFor(() => expect(pushed.length).toBeGreaterThan(1), { timeout: 10_000 });
+    expect(await heard(tab)).toEqual([]);
+    // Once a push goes out the reminder is settled, and the tabs have still heard it once and only once.
     status = 201;
-    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]));
-    expect(pushed.length).toBeGreaterThan(1);
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]), { timeout: 10_000 });
+    expect(await heard(tab)).toEqual([]);
+  });
+
+  it("gives up on pushes that keep failing once the day past its time is spent, and stays told", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const pushed = pushServices(() => 503);
+    const room = await freshRoom("giving up");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    const tab = await openWorkspaceSocket(grace);
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const message = await post(ada, "<p>Tell me though the browser never hears</p>");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await heard(tab)).toEqual([
+      { type: "reminder.due", reminder: expect.objectContaining({ excerpt: "Tell me though the browser never hears" }) },
+    ]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
+
+    // The day past its time is spent: the run that sees it gives the pushes up, the notice having
+    // reached the tabs all along.
+    await workspaceSql("UPDATE reminders SET remind_at = ?", Date.now() - REMINDER_PUSH_GRACE_MS - 1_000);
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]), { timeout: 10_000 });
+    // Settled, nothing is set for the alarm to try again, and the tabs have heard the notice once.
+    await vi.waitFor(async () => expect(await runDurableObjectAlarm(workspaceStub())).toBe(false), { timeout: 10_000 });
+    expect(pushed.length).toBeGreaterThanOrEqual(1);
+    expect(await heard(tab)).toEqual([]);
+  });
+
+  it("sets the alarm for what's due next even when a query fails", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("queries");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const message = await post(ada, "<p>Wake for me though the read is lost</p>");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    let restore!: () => void;
+    try {
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const reading = store.dueReminders.bind(store);
+        restore = () => {
+          store.dueReminders = reading;
+        };
+        store.dueReminders = () => Promise.reject(new Error("The database's answer was lost"));
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // The read of what's due failed, and the alarm for it was set all the same.
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    } finally {
+      restore?.();
+    }
+
+    // What the failed run left, a later run tells.
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]), { timeout: 10_000 });
+    expect(pushed.length).toBeGreaterThan(0);
+  });
+
+  it("sets the alarm for what's due next even when asking what's due fails", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("asking");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const message = await post(ada, "<p>Wake for me though the asking is lost</p>");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    let restore!: () => void;
+    try {
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const asking = store.nextDeliveryDue.bind(store);
+        restore = () => {
+          store.nextDeliveryDue = asking;
+        };
+        store.nextDeliveryDue = () => Promise.reject(new Error("The database's answer was lost"));
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // The asking failed, and the alarm was set for a minute on all the same, which the tests' clock
+      // fires at once.
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    } finally {
+      restore?.();
+    }
+
+    // The reminder itself went out on the run that couldn't ask; the wake it set for a minute on
+    // finds nothing left when the tests' clock fires it at once, and nothing waits after it.
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]), { timeout: 10_000 });
+    expect(pushed.length).toBeGreaterThan(0);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(false);
   });
 
   it("sets the alarm for what's due next even when a delivery fails", async () => {
