@@ -91,6 +91,14 @@ describe("Threads page", () => {
     expect(within(card).getByRole("link", { name: "4 more replies" })).toBeInTheDocument();
   });
 
+  it("shows a thread whose first message was deleted, as the room keeps it, over its replies", async () => {
+    const deleted: Message = { ...thread.parent, body: "", plainText: "", deleted: true };
+    showPage({ threads: [{ ...thread, parent: deleted }], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in general" });
+    expect(within(card).getByText("This message was deleted.")).toBeInTheDocument();
+    expect(within(card).getByText("Ship it")).toBeInTheDocument();
+  });
+
   it("marks the threads that mention you, and the ones you follow", async () => {
     showPage({ threads: [{ ...thread, mentioned: true, following: true }, { ...thread, parent: message("p2", "Lunch?", grace, 1), replies: [], count: 1, following: true }, { ...thread, parent: message("p3", "FYI", grace, 2), replies: [], count: 1 }], next: null });
     const [mentions, following, other] = await screen.findAllByRole("article", { name: "Thread in general" });

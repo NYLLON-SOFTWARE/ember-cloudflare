@@ -84,6 +84,29 @@ describe("DM previews", () => {
 });
 
 describe("Threads", () => {
+  it("keeps a thread whose first message was deleted while it has replies, showing that message deleted, as the room does", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await freshRoom("deleted root");
+    const [adaIn, graceIn] = [await connect(room, ada), await connect(room, grace)];
+    const plan = await post(adaIn, "<p>Plan?</p>");
+    const answer = await reply(graceIn, plan, "<p>Ship it</p>");
+    adaIn.send({ type: "message.delete", messageId: plan.id });
+    // Kept for its reply, it's updated deleted rather than gone.
+    while (!(await adaIn.next("message.updated")).message.deleted);
+    await caughtUp(room);
+
+    const { threads } = await asked<ListedThreads>(grace, "/api/threads");
+    expect(threads).toHaveLength(1);
+    expect(threads[0]).toMatchObject({ roomId: room, parent: { id: plan.id, deleted: true }, count: 1 });
+    expect(threads[0]!.replies.map(({ id }) => id)).toEqual([answer.id]);
+
+    // Still there after another reply.
+    await reply(graceIn, plan, "<p>Shipped</p>");
+    await caughtUp(room);
+    const again = (await asked<ListedThreads>(ada, "/api/threads")).threads;
+    expect(again.map(({ parent, count }) => [parent.id, count])).toEqual([[plan.id, 2]]);
+  });
+
   it("lists every thread in the rooms and DMs you're in, latest active first, marking the ones you follow or are mentioned in", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const room = await freshRoom("threads");

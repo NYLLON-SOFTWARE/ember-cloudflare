@@ -3,6 +3,7 @@ import { credentialsOf } from "./auth";
 import type { Env } from "./env";
 import { urlOf } from "./request-url";
 import { numberAt, searchIndex, type ThreadMarks, type ThreadMessageRow } from "./search-index";
+import { readNow } from "./searches";
 import { indexedMessages } from "./store";
 import { workspace } from "./workspace";
 
@@ -43,13 +44,22 @@ export async function listedThreads(request: Request, env: Env): Promise<Respons
   const roomIds = me.rooms.map(({ id }) => id);
   const { rows, threads: marks, next } = await searchIndex(env).listedThreads(me.userId, roomIds, after, THREADS_LIMIT, THREAD_CONTEXT);
   const messages = await messagesById(rows.flatMap(({ message }) => message ?? []), env);
+  // A first message the index doesn't keep, as one deleted while its thread has replies, which the room
+  // keeps as a placeholder, or one too big to keep, comes from its room.
+  const unkept = marks.flatMap(({ threadId }) => {
+    const inThread = messages.has(threadId) ? undefined : rows.find((row) => row.threadId === threadId);
+    return inThread ? [{ messageId: threadId, roomId: inThread.roomId, number: 0, message: null, words: [] }] : [];
+  });
+  for (const parent of await readNow(env, unkept)) messages.set(parent.id, parent);
   const threads = threadsOf(marks, rows, messages);
   return Response.json({ threads, next } satisfies ListedThreads, { headers: NO_STORE });
 }
 
 /**
- * The threads `marks` names, in order, from their messages' rows, leaving out any whose first message
- * the index hasn't kept, each with its latest replies, so its card shows `THREAD_CONTEXT` messages at most.
+ * The threads `marks` names, in order, from their messages' rows and `messages`, leaving out any whose
+ * first message isn't among them, each with its latest replies, so its card shows `THREAD_CONTEXT`
+ * messages at most, and how many replies it has: its rows' count but for its first message's, which
+ * the index has only while it keeps that message.
  */
 export function threadsOf(marks: ThreadMarks[], rows: ThreadMessageRow[], messages: Map<string, Message>): ListedThread[] {
   const byThread = Map.groupBy(rows, ({ threadId }) => threadId);
@@ -58,7 +68,8 @@ export function threadsOf(marks: ThreadMarks[], rows: ThreadMessageRow[], messag
     const parent = messages.get(threadId);
     if (!parent || inThread.length === 0) return [];
     const replies = inThread.flatMap(({ messageId }) => (messageId === threadId ? [] : (messages.get(messageId) ?? [])));
-    return [{ roomId: inThread[0]!.roomId, parent, replies: replies.slice(-(THREAD_CONTEXT - 1)), count: inThread[0]!.total - 1, following: following === 1, mentioned: mentioned === 1 }];
+    const count = inThread[0]!.total - (inThread.some(({ messageId }) => messageId === threadId) ? 1 : 0);
+    return [{ roomId: inThread[0]!.roomId, parent, replies: replies.slice(-(THREAD_CONTEXT - 1)), count, following: following === 1, mentioned: mentioned === 1 }];
   });
 }
 
