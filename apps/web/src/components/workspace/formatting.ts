@@ -99,6 +99,12 @@ export const TOOL_GROUPS: { tool: Tool; label: string; keys?: string }[][] = [
   ],
 ];
 
+/**
+ * A phone's tools, which take the place of the composer's buttons while Aa is on, as Slack's do: the
+ * character formats, then Link and the lists.
+ */
+export const PHONE_TOOL_GROUPS: typeof TOOL_GROUPS = [TOOL_GROUPS[0]!.filter(({ tool }) => tool !== "block"), TOOL_GROUPS[1]!];
+
 /** The paragraph menu's kinds of line, as it lists them. */
 export const BLOCKS: { block: Block; label: string }[] = [
   { block: "paragraph", label: "Normal text" },
