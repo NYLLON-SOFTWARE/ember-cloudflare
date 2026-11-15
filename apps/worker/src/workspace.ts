@@ -16,6 +16,7 @@ import {
   isRoomId,
   mailboxOf,
   mailboxUnder,
+  MAX_GUEST_NAME_LENGTH,
   MAX_PROFILE_FIELDS,
   NAVIGATION_SLOTS,
   othersAfterMove,
@@ -321,6 +322,12 @@ const WAITING_PROBES = 20;
 const DELIVERIES_PER_RUN = 40;
 /** How many lapsed stays of the guests of one room one run lapses, before the next takes the rest. */
 const GUEST_STAYS_LAPSED_AT_ONCE = 20;
+/**
+ * What lapsing one stay costs a run's budget, of which a run of the alarm has `DELIVERIES_PER_RUN` after
+ * its deliveries: the batch that saves it, the sessions it ends, the room it asks to close its sockets,
+ * and the person it publishes again, each a query or a call.
+ */
+const COSTS_PER_LAPSED_STAY = 5;
 /**
  * How long a change waits for the rooms to close the sockets it queued before it answers. The alarm sees
  * to a room that takes longer.
@@ -3001,10 +3008,37 @@ export class Workspace extends DurableObject<Env> {
     await this.publishPerson(userId);
   }
 
+  /**
+   * Tells the workspace sockets of everyone a person's listing may reach of `user.updated`, as the
+   * people directory lists them: everyone, but the guests of one room whose stay holds and whose room
+   * doesn't hold them too, since what happens outside their room is none of a guest's to hear, names of
+   * people included. One of the guests themselves is heard of by their room's people alone.
+   */
+  private async announce(listed: DirectoryUser): Promise<void> {
+    const frame: WorkspaceServerFrame = { type: "user.updated", user: listed };
+    const stay = await this.store.guestStayOf(listed.id);
+    if (stay) {
+      this.tell(await this.store.roomMemberIds(stay.roomId), frame);
+      return;
+    }
+    const beyond = await this.store.stayGuestsBeyond(listed.id, Date.now());
+    if (beyond.length === 0) return this.broadcast(frame);
+    const held = new Set(beyond);
+    const data = JSON.stringify(frame);
+    for (const socket of this.ctx.getWebSockets()) {
+      if (held.has(this.ctx.getTags(socket)[0]!)) continue;
+      try {
+        socket.send(data);
+      } catch {
+        // It has closed since, and its close handler has nothing to clean up.
+      }
+    }
+  }
+
   /** Tells every workspace socket of `userId` as the people directory now lists them. */
   private async publishPerson(userId: UserId): Promise<void> {
     const person = await this.store.person(userId);
-    if (person) this.broadcast({ type: "user.updated", user: await this.directoryUser(person) });
+    if (person) await this.announce(await this.directoryUser(person));
   }
 
   /** Tells everyone's workspace sockets of every agent, as the people directory lists it. */
@@ -3198,15 +3232,20 @@ export class Workspace extends DurableObject<Env> {
    * The sidebar of the person `credentials` signs in: the rooms they're in, the ones they've starred and
    * the shared order of the rest, with the welcome card's invitation if they're an administrator in the
    * workspace's first room who hasn't dismissed the card, the people it suggests for DMs, and the huddles
-   * going on in their rooms. Null without a valid session.
+   * going on in their rooms. A guest of one room, who starts no DM, is suggested nobody, whose names
+   * would be none of theirs to have. Null without a valid session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, sharedOrder, suggestions, huddles, invitationRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, sharedOrder, suggestions, huddles, invitationRoomId }, account, stay] = await Promise.all([
+      this.store.roomsFor(user.id),
+      this.joinableAccount(),
+      this.stayOf(user.id),
+    ]);
     const invited = invitationRoomId !== null && rooms.some((room) => room.id === invitationRoomId);
     const invitation = account && invited ? { roomId: invitationRoomId, joinCode: account.joinCode } : null;
-    return { rooms, favorites, sharedOrder, invitation, suggestions, huddles };
+    return { rooms, favorites, sharedOrder, invitation, suggestions: stay ? [] : suggestions, huddles };
   }
 
   /**
@@ -3467,13 +3506,19 @@ export class Workspace extends DurableObject<Env> {
    * who exist, whatever their status, or their DM with themselves when it names nobody else. A group of
    * people has one DM, so the one they have opens again. Answers it, and whether it's new, "forbidden"
    * for a guest of one room, whose stay is the one room they reach, or null without a valid session.
-   * Everyone in a new DM sees it in their sidebars at once, and nobody else hears of it.
+   * "unavailable" when one of the people `userIds` names is such a guest, whose stay is the one room
+   * they reach and a DM none of: it refuses before any room is made, which leaving them out would make
+   * a conversation with everyone but them. Everyone in a new DM sees it in their sidebars at once, and
+   * nobody else hears of it.
    */
-  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | "forbidden" | null> {
+  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | "forbidden" | "unavailable" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (await this.stayOf(user.id)) return "forbidden";
     const people = userIds.length > 0 ? await this.store.peopleWithIds(userIds) : [];
+    // Before the room is made, since the grant that fills it would leave such a guest out, and the DM
+    // would start with everyone but them.
+    if ((await this.store.heldByStays(people.map((person) => person.id))).length > 0) return "unavailable";
     const memberIds = [user.id, ...people.map((person) => person.id)];
     const direct = await this.store.startDirect(sortableId(), user.id, memberIds, new Date().toISOString());
     if (direct.started) this.tell(direct.room.members.map((member) => member.id), { type: "room.saved", room: direct.room });
@@ -3695,7 +3740,7 @@ export class Workspace extends DurableObject<Env> {
         (session) => session.user.id === userId,
         () => this.store.changeRole(userId, role, now),
       );
-      this.broadcast({ type: "user.updated", user: changed });
+      await this.announce(changed);
       return changed;
     });
   }
@@ -3742,7 +3787,7 @@ export class Workspace extends DurableObject<Env> {
       this.closeSockets(id, CloseCode.Revoked);
       if (queued) await this.revocationsQueued(now);
     }
-    this.broadcast({ type: "user.updated", user: removed });
+    await this.announce(removed);
     return removed;
   }
 
@@ -4688,7 +4733,7 @@ export class Workspace extends DurableObject<Env> {
         if (queued) await this.revocationsQueued(now);
       }
       const listed = await this.directoryUser(banned ?? person);
-      if (banned) this.broadcast({ type: "user.updated", user: listed });
+      if (banned) await this.announce(listed);
       return listed;
     });
   }
@@ -4728,7 +4773,7 @@ export class Workspace extends DurableObject<Env> {
         if (queued) await this.revocationsQueued(now);
       }
       const listed = await this.directoryUser(unbanned ?? person);
-      if (unbanned) this.broadcast({ type: "user.updated", user: listed });
+      if (unbanned) await this.announce(listed);
       return listed;
     });
   }
@@ -4837,16 +4882,11 @@ export class Workspace extends DurableObject<Env> {
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
    * browser's, at `pushEndpoint`, and a password that replaces one they had unlinks the accounts
-<<<<<<< HEAD
    * elsewhere they connected with it. Everyone's workspace sockets hear of a new name, bio or mood,
-   * which the people directory lists. A new name can't be @ember's ("name reserved"), or an agent's
-   * ("agent's name"), unless it was theirs before.
-=======
-   * elsewhere they connected with it. Everyone's workspace sockets hear of a new name or bio, which the
-   * people directory lists. A new name can't be @ember's ("name reserved"), an agent's ("agent's name"),
-   * or, for a guest of one room, another guest's, whose stay signs them in by it too ("another guest's
-   * name"), unless it was theirs before.
->>>>>>> 89e01e94 (A guest can't take another guest's name, whose stay signs them in with it)
+   * which the people directory lists. A new name can't be @ember's ("name reserved"), an agent's
+   * ("agent's name"), or, for a guest of one room, another guest's, whose stay signs them in by it too
+   * ("another guest's name") and, while their stay holds them, one longer than signing in with just a
+   * name takes ("guest's name too long"), unless it was theirs before.
    */
   async changeProfile(
     credentials: Credentials,
@@ -4855,11 +4895,7 @@ export class Workspace extends DurableObject<Env> {
     checked: string | null,
     pushEndpoint: string | null,
     memberfulSite: string | null,
-<<<<<<< HEAD
-  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "unknown field" | "not a choice" | null> {
-=======
-  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "another guest's name" | null> {
->>>>>>> 89e01e94 (A guest can't take another guest's name, whose stay signs them in with it)
+  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "unknown field" | "not a choice" | "another guest's name" | "guest's name too long" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -4885,6 +4921,9 @@ export class Workspace extends DurableObject<Env> {
       }
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
+      // A guest of one room signs in by their name, so it takes no more characters than the sign-in form
+      // gives it: a longer one, and neither it nor any other would sign them back in once saved.
+      if (session.guest && profile.name.length > MAX_GUEST_NAME_LENGTH && (await this.stayOf(user.id))) return "guest's name too long";
       // A guest of one room signs in by their name, so theirs is the only stay under it, as adding one
       // can't take another's either. Renaming keeps it, and one they alone hold, while the stays last.
       if (
@@ -4926,7 +4965,7 @@ export class Workspace extends DurableObject<Env> {
         if (unlinked) await this.forgetUnlinked();
       }
       const changed = { ...person, ...profile, password: person.password || passwordDigest !== null, accounts: unlinked ? [] : person.accounts, updatedAt: at };
-      if (listed) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
+      if (listed) await this.announce(await this.directoryUser(changed));
       return this.yourProfile(changed, session);
     });
   }
@@ -4985,7 +5024,7 @@ export class Workspace extends DurableObject<Env> {
         await this.store.changeAvatar(user.id, avatar, previous, updatedAt, now);
         if (previous) await this.wakeAt(now);
         const changed = { ...person, avatar, updatedAt };
-        this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
+        await this.announce(await this.directoryUser(changed));
         return this.yourProfile(changed, session);
       }),
     );
@@ -5089,7 +5128,9 @@ export class Workspace extends DurableObject<Env> {
       const now = Date.now();
       const untilAt = Date.parse(until);
       if (!(untilAt > now)) return "passed";
-      if (!(await this.store.extendGuestStay(userId, roomId, untilAt))) return "not found";
+      // A stay whose time has passed is none to extend, its name free for another guest to take, so
+      // extending it would sign one of them in as the other: it answers as one nobody has.
+      if (!(await this.store.extendGuestStay(userId, roomId, untilAt, now))) return "not found";
       const person = await this.store.person(userId);
       // The alarm lapses the stay when its new end passes, which the next delivery is set for here.
       await this.scheduleDelivery();
@@ -5519,7 +5560,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Who `credentials` signs in, with their session, whether they're in room `roomId` and whether a ban
-   * blocks the IP address they come from, as of `authorizedAt`, or null without a valid session.
+   * blocks the IP address they come from, as of `authorizedAt`, or null without a valid session. A stay
+   * of a guest of one room is the room they reach, so no membership beyond it lets them in, however it
+   * came to be saved.
    */
   async roomAccess(credentials: Credentials, roomId: RoomId): Promise<RoomAccess | null> {
     // Before anything is read, so that a revocation saved while this checks counts as later than it,
@@ -5527,6 +5570,8 @@ export class Workspace extends DurableObject<Env> {
     const authorizedAt = Date.now();
     const session = await this.session(credentials);
     if (!session) return null;
+    const stay = await this.store.guestStayOf(session.user.id);
+    if (stay && stay.roomId !== roomId) return { user: session.user, sessionId: session.id, member: false, banned: false, authorizedAt };
     // From the database rather than what `isBanned` keeps, which a ban saving now hasn't changed yet.
     const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
     return { user: session.user, sessionId: session.id, member, banned, authorizedAt };
@@ -5565,7 +5610,9 @@ export class Workspace extends DurableObject<Env> {
       const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
       await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
       await this.checkMemberships();
-      await this.lapseDueGuestStays();
+      // What the sweep lapses keeps within the run's budget, its deliveries accounted for, so a crowd of
+      // stays ending at once can't spend past what the plan allows an invocation.
+      await this.lapseDueGuestStays(DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
     } catch (error) {
       console.error("Could not deliver everything due; trying again later", error);
     }
@@ -5574,13 +5621,16 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Lapses the stays of the guests of one room whose time has passed, at most one run's worth
-   * (`GUEST_STAYS_LAPSED_AT_ONCE`), so their sessions end, their sockets close and their rows say they
-   * were removed. A whole batch lapsed leaves more, which the next run takes: the alarm is set for the
+   * (`GUEST_STAYS_LAPSED_AT_ONCE`), and only while the run's budget (`budget`, its deliveries already
+   * spent) covers what each lapse costs (`COSTS_PER_LAPSED_STAY`), so their sessions end, their sockets
+   * close and their rows say they were removed. Any left wait for the next run: the alarm is set for the
    * stay that ends next, whose time has passed already, so it wakes at once for the rest.
    */
-  private async lapseDueGuestStays(): Promise<void> {
+  private async lapseDueGuestStays(budget: number): Promise<void> {
     await this.oneAtATime(async () => {
-      const due = await this.store.lapsedGuestStays(Date.now(), GUEST_STAYS_LAPSED_AT_ONCE);
+      const most = Math.min(GUEST_STAYS_LAPSED_AT_ONCE, Math.floor(budget / COSTS_PER_LAPSED_STAY));
+      if (most <= 0) return;
+      const due = await this.store.lapsedGuestStays(Date.now(), most);
       for (const userId of due) await this.lapseGuestStay(userId);
     });
   }

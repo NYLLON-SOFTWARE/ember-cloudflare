@@ -785,6 +785,7 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
   if (yours === "another guest's name") return problem(422, guestsNameTaken(rest.name!));
+  if (yours === "guest's name too long") return problem(422, `Your name must be 1 to ${MAX_NAME_LENGTH} characters, as signing in with just a name takes it`);
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   if (yours === "unknown field") return problem(422, PROFILE_FIELD_UNKNOWN);
   if (yours === "not a choice") return problem(422, PROFILE_FIELD_VALUE_NOT_A_CHOICE);
@@ -1099,6 +1100,8 @@ async function startDirect(request: Request, env: Env): Promise<Response> {
   const started = await workspace(env).startDirect(credentials, direct.userIds);
   if (!started) return problem(401, "Not signed in");
   if (started === "forbidden") return problem(403, "You're a guest of one room, so direct messages aren't yours to start");
+  if (started === "unavailable")
+    return problem(422, "They're a guest of one room, whose stay is the one room they reach, so a direct message with them isn't yours to start");
   return json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 });
 }
 

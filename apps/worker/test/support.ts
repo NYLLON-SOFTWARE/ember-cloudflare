@@ -524,8 +524,15 @@ export async function openWorkspaceSocket(session: Session) {
     return (await next()).type === "pong";
   }
 
+  /** Whether no frame has arrived in `ms`, leaving whatever came for the next `next()` to answer. */
+  async function quiet(ms = 300): Promise<boolean> {
+    const before = frames.length;
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    return frames.length === before;
+  }
+
   const welcome = await next();
-  return { ws, welcome, next, answers, closed, send: (data: string) => ws.send(data) };
+  return { ws, welcome, next, quiet, answers, closed, send: (data: string) => ws.send(data) };
 }
 
 export type WorkspaceSocket = Awaited<ReturnType<typeof openWorkspaceSocket>>;
