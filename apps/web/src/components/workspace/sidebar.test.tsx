@@ -267,7 +267,7 @@ describe("Starred sub-rooms", () => {
 
   it("nests a starred parent's sub-rooms under it in Starred, folding with its arrow, and not in Rooms", async () => {
     renderSidebar({ rooms: team, favorites: { rooms: ["strata"], version: 1 } });
-    expect(section("Starred")).toEqual(["#Strata", "#Inventory Ops", "#Sales"]);
+    expect(section("Starred")).toEqual(["#Strata", "#Sales", "#Inventory Ops"]);
     expect(section("Rooms")).toEqual(["#general", "#random"]);
 
     await userEvent.click(screen.getByRole("button", { name: "Hide Strata’s sub-rooms" }));
@@ -284,9 +284,9 @@ describe("Starred sub-rooms", () => {
   it("moves a starred parent with its sub-rooms as Alt and an arrow move it", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ favorites: { rooms: ["general", "strata"], version: 3 } }));
     renderSidebar({ rooms: team, favorites: { rooms: ["strata", "general"], version: 2 } });
-    expect(section("Starred")).toEqual(["#Strata", "#Inventory Ops", "#Sales", "#general"]);
+    expect(section("Starred")).toEqual(["#Strata", "#Sales", "#Inventory Ops", "#general"]);
     fireEvent.keyDown(screen.getByRole("link", { name: /^#?Strata$/ }), { key: "ArrowDown", altKey: true });
-    expect(section("Starred")).toEqual(["#general", "#Strata", "#Inventory Ops", "#Sales"]);
+    expect(section("Starred")).toEqual(["#general", "#Strata", "#Sales", "#Inventory Ops"]);
   });
 });
 
