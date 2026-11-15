@@ -708,7 +708,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     const unread = apart(rooms).directs.filter((r) => markedUnread(r, currentRoomId));
     return { conversations: apart(rooms).directs.length, unread: unread.length, messages: unread.reduce((sum, r) => sum + (r.unreadCount ?? 1), 0) };
   }, [rooms, currentRoomId]);
-  const draftCount = useDraftCount(me.id);
+  const draftCount = useDraftCount(me.id, rooms);
   // In the drawer layout the DMs page shows its list in the page itself, so the sidebar, hidden there,
   // doesn't draw it a second time.
   const directsInPage = useMediaQuery(DRAWER_LAYOUT) && route.page === "dms" && route.roomId === undefined;
@@ -950,7 +950,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         // On a phone, Home's list, but for someone in no rooms yet, who has nothing to list.
         if (route.page === "home" && rooms && !goingOn) {
           if (phone && rooms.length > 0)
-            return <HomePage me={me} workspaceName={workspaceName} sidebar={sidebar} huddles={liveHuddles} newRelease={newRelease} onNewDirect={openNewDirect} />;
+            return <HomePage me={me} workspaceName={workspaceName} rooms={rooms} sidebar={sidebar} huddles={liveHuddles} newRelease={newRelease} onNewDirect={openNewDirect} />;
           return <WelcomePage me={me} />;
         }
         // Why the room can't show, kept where it would show rather than in an alert that fades, as a

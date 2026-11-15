@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
-import type { LiveHuddle, Me, RoomId } from "@ember/protocol";
+import type { LiveHuddle, Me, Room, RoomId } from "@ember/protocol";
 import { EditPencil, Group, Headset, MultiBubble } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
@@ -14,6 +14,8 @@ import { NewReleaseContext } from "./you-sheet";
 interface Props {
   me: Me;
   workspaceName: string;
+  /** Your rooms and DMs, as the sidebar's list has them, or null until it has loaded, which Drafts & sent counts drafts in. */
+  rooms: readonly Room[] | null;
   /** The conversations, as the sidebar lists them. */
   sidebar: ReactNode;
   /** The huddles going on in this person's rooms, by room. */
@@ -30,11 +32,11 @@ interface Props {
  * once huddles are on, then the conversations, with New direct message floating over their bottom right.
  * The logo, the cards and the rooms' icons line up 16px from the screen's edge.
  */
-export function HomePage({ me, workspaceName, sidebar, huddles, newRelease, onNewDirect }: Props) {
+export function HomePage({ me, workspaceName, rooms, sidebar, huddles, newRelease, onNewDirect }: Props) {
   const { logo, huddles: huddlesOn } = useAccount();
   const live = Object.keys(huddles) as RoomId[];
   const people = useDirectoryCount();
-  const drafts = useDraftCount(me.id);
+  const drafts = useDraftCount(me.id, rooms);
   return (
     <NewReleaseContext value={newRelease}>
       <TabPage

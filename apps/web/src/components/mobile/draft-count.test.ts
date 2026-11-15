@@ -10,7 +10,7 @@ describe("Counting your drafts", () => {
     localStorage.setItem("composer-draft-u1-general/threads/7", "<p>Reply</p>");
     localStorage.setItem("composer-draft-u1-random", " ");
     localStorage.setItem("composer-draft-u2-general", "<p>Someone else's</p>");
-    const { result } = renderHook(() => useDraftCount("u1"));
+    const { result } = renderHook(() => useDraftCount("u1", null));
     expect(result.current).toBe(2);
 
     localStorage.setItem("composer-draft-u1-random", "<p>More</p>");

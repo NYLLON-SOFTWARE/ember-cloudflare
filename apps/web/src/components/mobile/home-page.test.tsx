@@ -23,7 +23,7 @@ function renderHome({ huddles = {}, loaded = true }: { huddles?: Record<RoomId, 
         <DirectoryLoaded value={loaded}>
           {/* The layout's drawer, whose button the top bar has outside a phone. */}
           <Sheet>
-            <HomePage me={ada} workspaceName={ACCOUNT.name} sidebar={<div />} huddles={huddles} newRelease={null} onNewDirect={() => {}} />
+            <HomePage me={ada} workspaceName={ACCOUNT.name} rooms={null} sidebar={<div />} huddles={huddles} newRelease={null} onNewDirect={() => {}} />
           </Sheet>
         </DirectoryLoaded>
       </PeopleContext>
