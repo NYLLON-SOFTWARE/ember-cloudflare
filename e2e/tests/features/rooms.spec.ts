@@ -1,3 +1,5 @@
+import type { Room, Sidebar, WorkspaceServerFrame } from "@ember/protocol";
+import type { APIRequestContext, BrowserContext, Page, WebSocketRoute } from "@playwright/test";
 import { administratorSession, connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, makeAdministrator, rowsWithStars, sidebarRoomRows, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 

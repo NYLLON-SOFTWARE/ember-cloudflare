@@ -7,6 +7,7 @@ import { PageLink } from "@/components/page-link";
 import { useMounted } from "@/hooks/use-mounted";
 import { DRAFTS_PATH, permalinkOf, roomPath, SENT_PATH, threadPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
+import { fetchSearch, isSignedOut } from "@/lib/api";
 import { DRAFTS_CHANGED } from "@/lib/draft-keys";
 import { discardDraft, draftsOf, type Draft } from "@/lib/drafts";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";

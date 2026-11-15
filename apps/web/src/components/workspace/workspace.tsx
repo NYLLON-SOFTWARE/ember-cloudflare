@@ -697,6 +697,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   ) : (
     <Sidebar
       workspaceName={workspaceName}
+      meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
       favorites={favorites}
