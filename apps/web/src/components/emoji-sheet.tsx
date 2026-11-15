@@ -4,7 +4,7 @@ import { EmojiPicker } from "./emoji-picker";
 import { DIALOG_BACKDROP } from "./workspace/dialog-styles";
 
 interface Props {
-  /** How many 44px emoji a row holds, within the sheet's gutters. */
+  /** How many 44px emoji a row holds, within the sheet's gutters, until the picker measures its own. */
   columns: number;
   onPick: (emoji: string) => void;
   onClose: () => void;
@@ -14,8 +14,8 @@ interface Props {
 
 /**
  * The emoji picker on phones: a sheet from the bottom of the screen, as wide as the screen allows, which
- * leaves the keyboard down until the search is tapped. It loads with the picker, so its dialog doesn't
- * weigh on the app's script.
+ * leaves the keyboard down until the search is tapped, and then sits on it (`KeyboardInset`). It loads with
+ * the picker, so its dialog doesn't weigh on the app's script.
  */
 export function EmojiSheet({ columns, onPick, onClose, onReturnFocus }: Props) {
   const sheet = useRef<HTMLDivElement>(null);
@@ -35,10 +35,17 @@ export function EmojiSheet({ columns, onPick, onClose, onReturnFocus }: Props) {
           event.preventDefault();
           onReturnFocus();
         }}
-        className="top-auto bottom-0 left-0 block w-full max-w-none translate-x-0 translate-y-0 gap-0 rounded-t-[18px] rounded-b-none border-x-0 border-b-0 px-2 pt-2 pb-[max(8px,env(safe-area-inset-bottom))] sm:max-w-none"
+        className="top-auto bottom-[var(--keyboard-inset,0px)] left-0 block w-full max-w-none translate-x-0 translate-y-0 gap-0 rounded-t-[18px] rounded-b-none border-x-0 border-b-0 px-2 pt-2 pb-[max(8px,env(safe-area-inset-bottom))] sm:max-w-none"
       >
         <DialogTitle className="sr-only">Emoji</DialogTitle>
-        <EmojiPicker columns={columns} autoFocus={false} onPick={onPick} onClose={onClose} className="h-[min(22rem,calc(100dvh-4rem))] w-full" />
+        <EmojiPicker
+          columns={columns}
+          fit
+          autoFocus={false}
+          onPick={onPick}
+          onClose={onClose}
+          className="h-[min(22rem,calc(100dvh-var(--keyboard-inset,0px)-4rem))] w-full"
+        />
       </DialogContent>
     </Dialog>
   );

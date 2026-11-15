@@ -35,9 +35,10 @@ export function ReactionSheet({ open, onOpenChange, onCloseAutoFocus, onReact, o
     <BottomSheet open={open} onOpenChange={onOpenChange} title="Add reaction" titleHidden onCloseAutoFocus={onCloseAutoFocus}>
       <EmojiPicker
         columns={columns}
+        fit
         autoFocus={false}
         onPick={(emoji) => close(() => onReact(emoji))}
-        className="h-[min(22rem,calc(100dvh-10rem))] w-full shrink-0"
+        className="h-[min(22rem,calc(100dvh-var(--keyboard-inset,0px)-10rem))] w-full shrink-0"
       />
       <button type="button" className={ROW} onClick={() => close(onNewBoost)}>
         <ChatPlusIn className="size-5 text-muted-foreground" />

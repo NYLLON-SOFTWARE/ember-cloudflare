@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PHONE_LAYOUT } from "@/hooks/use-phone-layout";
@@ -157,6 +157,42 @@ describe("Emoji picker", () => {
     expect(grid().firstElementChild).toBe(rows);
   });
 
+  it("fits as many 44px emoji to a row as its rows' width holds, less their padding, in a sheet, as the screen turns", () => {
+    // A landscape phone's sheet, whose sides the safe areas widen past what the screen's width says.
+    const width = { rows: 440 };
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("aria-label") === "Emoji" ? width.rows : 0;
+    });
+    let resized = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          resized = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    render(<EmojiPicker columns={12} fit onPick={() => {}} />);
+    grid().style.padding = "0 8px";
+    const columns = () => grid().querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns;
+    // Measured before the padding was set, as jsdom has no style sheet: 440px holds 10.
+    expect(columns()).toBe("repeat(10, 1fr)");
+    expect((grid().firstElementChild as HTMLElement).style.getPropertyValue("--columns")).toBe("10");
+
+    width.rows = 320;
+    act(() => resized());
+    // 320px less 16px of padding holds 6, as a 320px phone's sheet does.
+    expect(columns()).toBe("repeat(6, 1fr)");
+  });
+
+  it("keeps the columns it's given where it isn't asked to fit them", () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
+    render(<EmojiPicker columns={12} onPick={() => {}} />);
+    expect(grid().querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns).toBe("repeat(12, 1fr)");
+  });
+
   it("jumps to a category from its first emoji, out of a search, and Tab then reaches the category's first", async () => {
     const { user } = showPicker();
     const categories = screen.getByRole("toolbar", { name: "Categories" });
@@ -228,7 +264,9 @@ describe("Emoji button", () => {
     const sheet = await screen.findByRole("dialog", { name: "Emoji" });
     await waitFor(() => expect(within(sheet).getByLabelText("Search emoji")).toBeInTheDocument());
     expect(sheet).toHaveFocus();
-    expect(sheet).toHaveClass("bottom-0", "w-full", "px-2");
+    // It sits on the on-screen keyboard, which iOS lays over the page, as tall as the room above it allows.
+    expect(sheet).toHaveClass("bottom-[var(--keyboard-inset,0px)]", "w-full", "px-2");
+    expect(grid().parentElement).toHaveClass("h-[min(22rem,calc(100dvh-var(--keyboard-inset,0px)-4rem))]");
     expect(grid().querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns).toBe("repeat(6, 1fr)");
     await user.click(emoji("🎉"));
     expect(onPick).toHaveBeenCalledExactlyOnceWith("🎉");

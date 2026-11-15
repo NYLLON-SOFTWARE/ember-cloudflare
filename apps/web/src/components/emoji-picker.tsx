@@ -2,6 +2,7 @@ import { memo, useId, useMemo, useRef, useState, type CSSProperties, type Keyboa
 import { flushSync } from "react-dom";
 import { REACTIONS } from "@ember/protocol";
 import { EMOJI_CATEGORIES, type PickerEmoji } from "@ember/protocol/emoji";
+import { useFittedColumns } from "@/components/emoji-columns";
 import { Search } from "@/components/icons/iconoir";
 import { cn } from "@/lib/utils";
 
@@ -88,6 +89,8 @@ export interface EmojiPickerProps {
   onClose?: () => void;
   /** How many emoji a row holds, each at least 36px wide, or 44px on touch screens. */
   columns?: number;
+  /** Whether a row holds as many 44px emoji as fit across it instead, `columns` until it's measured, as in a sheet. */
+  fit?: boolean;
   /** Whether the search field takes focus as the picker shows, which raises a phone's keyboard. */
   autoFocus?: boolean;
   /** Its size, 22rem tall unless this says otherwise. */
@@ -95,10 +98,11 @@ export interface EmojiPickerProps {
 }
 
 /** The emoji to search, or browse by category, and pick from, by pointer or keyboard. */
-export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, className }: EmojiPickerProps) {
+export function EmojiPicker({ onPick, onClose, columns: asked = 8, fit = false, autoFocus = true, className }: EmojiPickerProps) {
   const id = useId();
   const searchBox = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
+  const columns = useFittedColumns(grid, asked, fit);
   const [search, setSearch] = useState("");
   const [frequent, setFrequent] = useState(savedFrequent);
   // The emoji the keyboard last moved to, which Tab reaches; until it moves, the first.

@@ -167,12 +167,26 @@ function hrefOf(href: string | undefined): string {
 /**
  * A forward's two parts, as Forward posts one (chat-room.ts): the forwarder's note, which is theirs to edit,
  * and the quote of what it forwards, with its cite, which ends it and which the room keeps up to date. A
- * message that ends with a quote it was written with splits the same way. Null for any other message.
+ * message that ends with a quote it was written with splits the same way. The note can hold quotes of its
+ * own, so the quote is the last one, whose cite ends the message. Null for any other message.
  */
 export function forwardParts(body: string): { note: string; quote: string } | null {
-  const quoteAt = body.indexOf("<blockquote");
-  if (quoteAt === -1 || body.lastIndexOf("<cite") < quoteAt || !body.endsWith("</cite>")) return null;
+  const citeAt = body.lastIndexOf("<cite");
+  if (citeAt === -1 || !body.endsWith("</cite>") || !body.slice(0, citeAt).endsWith("</blockquote>")) return null;
+  const quoteAt = quoteOpening(body, citeAt);
+  if (quoteAt === -1) return null;
   return { note: body.slice(0, quoteAt), quote: body.slice(quoteAt) };
+}
+
+/** Where the quote that closes just before `end` in `markup` opens, past the quotes it holds, or -1 where none does. */
+function quoteOpening(markup: string, end: number): number {
+  const tags = [...markup.slice(0, end).matchAll(/<(\/?)blockquote\b/g)];
+  let depth = 0;
+  for (let at = tags.length - 1; at >= 0; at--) {
+    depth += tags[at]![1] ? 1 : -1;
+    if (depth === 0) return tags[at]!.index;
+  }
+  return -1;
 }
 
 /** Whether markup has nothing in it to read: no text and no mention. */

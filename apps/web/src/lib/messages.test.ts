@@ -152,6 +152,14 @@ describe("Edit a forward", () => {
     expect(forwardParts(`${quote}<p>Agreed</p>`)).toBeNull();
   });
 
+  it("keeps the note's own quotes in the note, splitting at the quote whose cite ends the forward", () => {
+    const noteQuote = "<blockquote><p>Their words</p></blockquote>";
+    expect(forwardParts(`<p>See this</p>${noteQuote}${quote}`)).toEqual({ note: `<p>See this</p>${noteQuote}`, quote });
+    expect(forwardParts(`${noteQuote}${quote}`)).toEqual({ note: noteQuote, quote });
+    expect(hasEditableText(message(`${noteQuote}${quote}`))).toBe(true);
+    expect(editedBody(message(`<p>See this</p>${noteQuote}${quote}`), `<p>See this now</p>${noteQuote}`)).toBe(`<p>See this now</p>${noteQuote}${quote}`);
+  });
+
   it("edits a forward's note, and offers nothing to edit of a forward without one, a file or cards", () => {
     expect(hasEditableText(message("<p>Plain</p>"))).toBe(true);
     expect(hasEditableText(message(`<p>See this</p>${quote}`))).toBe(true);

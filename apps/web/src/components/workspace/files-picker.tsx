@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { reachesMore, type Message, type Room, type RoomId, type ShareWidening, type StoredFile, type UserId } from "@ember/protocol";
 import { Lock, Page, Search, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -37,6 +37,19 @@ export function sharedFiles(messages: Message[], rooms: Room[], meId: UserId, na
   });
 }
 
+/** The files a search for `query` has found so far, newest first, and the cursor of its next page, or null after its last. */
+interface Listed {
+  query: string;
+  files: SharedFile[];
+  next: number | null;
+}
+
+/** `listed` with the files of its next page after its own, but those it lists already. */
+function withNextPage(listed: Listed, files: SharedFile[], next: number | null): Listed {
+  const shown = new Set(listed.files.map(({ file }) => file.id));
+  return { ...listed, files: [...listed.files, ...files.filter(({ file }) => !shown.has(file.id))], next };
+}
+
 interface Props {
   meId: UserId;
   /** The room the file's picked for, and how the warning names it. */
@@ -51,13 +64,17 @@ interface Props {
 
 /**
  * Files in Ember: the files shared in the rooms you're in, newest first, which typing narrows to those
- * whose names have the words typed, as a search for files finds them. Picking one answers it, to send as
- * an upload goes, with its card and preview.
+ * whose names have the words typed, as a search for files finds them, with older ones loading as the list
+ * is scrolled to its end. Picking one answers it, to send as an upload goes, with its card and preview.
  */
 export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus }: Props) {
   const nameOf = useNameOf();
   const [query, setQuery] = useState("");
-  const [files, setFiles] = useState<SharedFile[] | null>(null);
+  const [listed, setListed] = useState<Listed | null>(null);
+  const files = listed?.files ?? null;
+  // The list whose next page is on its way, so the end coming into view again doesn't ask twice.
+  const loadingMore = useRef<Listed | null>(null);
+  const end = useRef<HTMLLIElement>(null);
   const [failed, setFailed] = useState(false);
   const [unchecked, setUnchecked] = useState(false);
   // A file that would reach people who can't see where it was shared, while the warning asks about it.
@@ -94,9 +111,9 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
     const timer = setTimeout(
       () =>
         void fetchSearch({ q: query, hasFile: true }).then(
-          ({ matches, rooms }) => {
+          ({ matches, rooms, next }) => {
             if (!current) return;
-            setFiles(sharedFiles(matches.map(({ message }) => message), rooms, meId, nameOf));
+            setListed({ query, files: sharedFiles(matches.map(({ message }) => message), rooms, meId, nameOf), next });
             setFailed(false);
           },
           () => current && setFailed(true),
@@ -108,6 +125,32 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
       clearTimeout(timer);
     };
   }, [query, meId, nameOf]);
+
+  // The next page joins the list it's for, unless another search has listed files meanwhile. One that fails
+  // leaves the list as it is, to ask again as its end next comes into view.
+  const loadMore = useEffectEvent(() => {
+    const shown = listed;
+    if (!shown || shown.next === null || loadingMore.current === shown) return;
+    loadingMore.current = shown;
+    fetchSearch({ q: shown.query, hasFile: true }, "newest", shown.next).then(
+      ({ matches, rooms, next }) => {
+        const more = sharedFiles(matches.map(({ message }) => message), rooms, meId, nameOf);
+        setListed((listed) => (listed === shown ? withNextPage(shown, more, next) : listed));
+      },
+      () => {
+        if (loadingMore.current === shown) loadingMore.current = null;
+      },
+    );
+  });
+
+  // Older files load as the end of the list comes into view.
+  useEffect(() => {
+    const element = end.current;
+    if (!element || listed?.next == null) return;
+    const observer = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadMore());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [listed]);
 
   return (
     <Dialog open onOpenChange={(open) => open || onClose()}>
@@ -152,7 +195,7 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
           <p role="status" className="py-3 text-sm text-muted-foreground">
             Listing files…
           </p>
-        ) : files.length === 0 ? (
+        ) : files.length === 0 && listed?.next == null ? (
           <p role="status" className="py-3 text-sm text-muted-foreground">
             {query ? "No files match." : "No files have been shared yet."}
           </p>
@@ -198,6 +241,7 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
                 </button>
               </li>
             ))}
+            {listed?.next != null && <li ref={end} aria-hidden="true" className="h-px" />}
           </ul>
         )}
         {unchecked && (
