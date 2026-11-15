@@ -117,7 +117,7 @@ describe("Room details on a phone", () => {
     const sheet = details();
     expect(within(sheet).getByRole("button", { name: "Messages" })).toHaveAttribute("aria-current", "true");
     expect(within(sheet).getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "false");
-    expect(within(sheet).getByRole("button", { name: "Notifications" })).toHaveAccessibleDescription("@ mentions");
+    expect(within(sheet).getByRole("button", { name: "Notifications" })).toHaveAccessibleDescription("Mentions");
     expect(within(sheet).getByRole("button", { name: "Members" })).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: "Search in conversation" })).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/rooms/closeds/backend/edit");
@@ -130,7 +130,13 @@ describe("Room details on a phone", () => {
   it("picks your level in the room from a sheet of its own, whether or not this phone can have notifications", async () => {
     const answered = vi.fn();
     const fetched = vi.mocked(fetch);
-    fetched.mockImplementation(async (input) => (String(input).endsWith("/involvement") ? Response.json({ involvement: "everything" }) : Response.json({ room: backend, people: [], canAdminister: false })));
+    fetched.mockImplementation(async (input) =>
+      String(input).endsWith("/involvement")
+        ? Response.json({ involvement: "everything" })
+        : String(input) === "/api/users/me/notifications"
+          ? Response.json({ level: "mentions", pausedUntil: null, chosen: [] })
+          : Response.json({ room: backend, people: [], canAdminister: false }),
+    );
     render(
       <RoomTabsContext value={tabsOf()}>
         <MobileRoomHeader
@@ -154,8 +160,11 @@ describe("Room details on a phone", () => {
     expect(within(details()).queryByRole("button", { name: "Enable notifications" })).not.toBeInTheDocument();
     await userEvent.click(within(details()).getByRole("button", { name: "Notifications" }));
     const levels = within(await screen.findByRole("dialog", { name: "Notifications" })).getByRole("radiogroup", { name: "Notifications" });
-    expect(within(levels).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["All messages", "@ mentions", "Off", "Off and hidden"]);
-    expect(within(levels).getByRole("radio", { name: "@ mentions" })).toBeChecked();
+    // Default first, which the room follows until you pick, in the words Preferences › Notifications uses (D-R32-6).
+    await within(levels).findByRole("radio", { name: "Default (Mentions)" });
+    expect(within(levels).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Default (Mentions)", "All messages", "Mentions", "Nothing", "Hidden"]);
+    expect(within(levels).getByRole("radio", { name: "Default (Mentions)" })).toBeChecked();
+    expect(within(levels).getByRole("radio", { name: "Mentions" })).not.toBeChecked();
     await userEvent.click(within(levels).getByRole("radio", { name: "All messages" }));
     expect(fetched).toHaveBeenCalledWith("/api/rooms/backend/involvement", expect.objectContaining({ method: "PUT", body: JSON.stringify({ involvement: "everything" }) }));
     expect(answered).toHaveBeenCalledWith({ type: "involved", roomId: "backend", involvement: "everything" });

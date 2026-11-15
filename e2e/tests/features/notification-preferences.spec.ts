@@ -25,11 +25,18 @@ test.describe("Preferences › Notifications", () => {
     await expect(ada.page.getByRole("status").filter({ hasText: "Paused until" })).toBeVisible();
   });
 
-  test("shows full screen on a phone", async ({ members }) => {
-    const ada = await members.signIn(unique("Ada"), { context: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } });
+  test("shows full screen on a phone, each row its level's picker, leaving room names their width at 320px", async ({ members, rooms }) => {
+    const ada = await members.signIn(unique("Ada"), { context: { viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true } });
     await ada.page.goto("/users/me/notifications");
     await expect(ada.page.getByRole("heading", { level: 1, name: "Notifications" })).toBeVisible();
     await expect(ada.page.getByRole("group", { name: "Notify me about" })).toBeVisible();
+    const picker = ada.page.getByRole("combobox", { name: `Notifications for ${rooms.general.name}` });
+    const row = ada.page.locator("li").filter({ has: picker });
+    const [pickerBox, rowBox] = [await picker.boundingBox(), await row.boundingBox()];
+    // The picker covers the whole row, and the level at its end leaves the name most of it.
+    // (all but the row's 1px rule under it)
+    expect({ ...pickerBox!, height: pickerBox!.height + 1 }).toEqual(rowBox);
+    expect((await row.getByText(rooms.general.name, { exact: true }).boundingBox())!.width).toBeGreaterThan(150);
     await ada.page.screenshot({ path: test.info().outputPath("notifications-phone.png") });
   });
 });

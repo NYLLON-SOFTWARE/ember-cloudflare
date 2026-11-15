@@ -96,7 +96,7 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
 }
 
 /**
- * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
+ * Your profile: a link to your notification preferences, then how to install Ember, for the browsers that get steps, then your avatar, which a photo
  * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
  * everywhere.", and Remove avatar takes away, then your name, email address, a new password, unless
  * Memberful signs you in without one, your current password while you have one, which changing your
@@ -104,7 +104,7 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
  * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
- * how long it answers you, then a link to your notification preferences, then a sign-in
+ * how long it answers you, then a sign-in
  * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
  * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
  * once, through the workspace socket, as they reach the rail.
@@ -275,6 +275,14 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
     <SettingsPage back={back} links={logOut}>
       <Panel aria-busy={fields === null} className="flex flex-col gap-x-[1ch] gap-y-4">
         <PageHeading title="Your profile">Manage how you appear to the people in your workspace.</PageHeading>
+        {/* Preferences › Notifications, first, where it's found: the default, each room's level, and pausing them. */}
+        <PageLink
+          href={NOTIFICATION_PREFERENCES_PATH}
+          className="flex min-h-12 items-center gap-3 rounded-[10px] border bg-surface px-[2ch] py-3 font-semibold text-foreground no-underline hover:bg-hover"
+        >
+          <span className="min-w-0 flex-1">Notifications</span>
+          <NavArrowRight className="size-5 text-muted-foreground" />
+        </PageLink>
         <InstallInstructions platform={platform} />
         <PicturePicker
           id="user_avatar"
@@ -386,14 +394,6 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {apps.length > 0 && <YourApps apps={apps} onChanged={setApps} onFailed={onFailed} />}
         {outsideAi && <YourOutsideAi connections={outsideAi} onChanged={setOutsideAi} onFailed={onFailed} />}
-        {/* Preferences › Notifications: the default, each room's level, and pausing them. */}
-        <PageLink
-          href={NOTIFICATION_PREFERENCES_PATH}
-          className="my-4 flex items-center gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 font-semibold text-foreground no-underline hover:bg-hover"
-        >
-          <span className="min-w-0 flex-1">Notifications</span>
-          <NavArrowRight className="size-5 text-muted-foreground" />
-        </PageLink>
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>
     </SettingsPage>

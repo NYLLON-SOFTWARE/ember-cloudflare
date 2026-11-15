@@ -1,5 +1,5 @@
 import type { Me, NotificationSettings, SidebarRoom } from "@ember/protocol";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
@@ -48,6 +48,78 @@ const levelOf = (name: string) => screen.getByRole("combobox", { name: `Notifica
 beforeEach(() => serve({ level: "mentions", pausedUntil: null, chosen: [] }));
 
 describe("Notifications page", () => {
+  it("goes back to your profile from its header, on a desktop too (D-R32-7)", async () => {
+    showPage();
+    await screen.findByRole("group", { name: "Notify me about" });
+    expect(screen.getByRole("link", { name: "Back to your profile" })).toHaveAttribute("href", "/users/me/profile");
+  });
+
+  it("gives each default's row a fingertip's 48px and 16px type on a phone (E-R32-2)", async () => {
+    showPage();
+    const level = await screen.findByRole("group", { name: "Notify me about" });
+    for (const radio of within(level).getAllByRole("radio")) {
+      expect(radio.closest("label")).toHaveClass("min-h-11", "max-md:min-h-12", "max-md:text-base");
+      expect(radio).toHaveClass("max-md:size-5");
+    }
+  });
+
+  it("asks again as the tab shows or takes focus, for what another tab changed (E-R32-1)", async () => {
+    showPage();
+    expect(await screen.findByRole("combobox", { name: "Notifications for Design" })).toHaveValue("default");
+    // Another tab picked a level for Design, and made nothing the default.
+    serve({ level: "nothing", pausedUntil: null, chosen: [design.id] });
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    await vi.waitFor(() => expect(within(screen.getByRole("group", { name: "Notify me about" })).getByRole("radio", { name: "Nothing" })).toBeChecked());
+    expect(levelOf("Design")).toHaveValue("mentions");
+
+    serve({ level: "mentions", pausedUntil: null, chosen: [] });
+    act(() => void window.dispatchEvent(new Event("focus")));
+    await vi.waitFor(() => expect(levelOf("Design")).toHaveValue("default"));
+  });
+
+  it("makes each whole row its level's picker, saying the level at its end, muted while it follows the default (R32-2, R32-3)", async () => {
+    serve({ level: "mentions", pausedUntil: null, chosen: [ops.id] });
+    showPage();
+    const design = await screen.findByRole("combobox", { name: "Notifications for Design" });
+    const row = design.closest("li")!;
+    expect(design).toHaveClass("absolute", "inset-0", "opacity-0");
+    // Its level alone, not "Default (Mentions)", which stays in the picker.
+    const shown = [...row.children].filter((child) => child.tagName !== "SELECT").map((child) => child.textContent).join("");
+    expect(shown).toBe("#DesignMentions");
+    expect(within(row).getByText("Mentions", { selector: "span" })).toHaveClass("text-muted-foreground");
+    expect(within(levelOf("Ops").closest("li")!).getByText("Nothing", { selector: "span" })).toHaveClass("text-foreground");
+  });
+
+  it("lists sub-rooms by the name they're shown by, their parent's first (D-R32-3)", async () => {
+    const sub: SidebarRoom = { id: "sub", name: "Alpha", kind: "open", icon: null, unread: false, involvement: "mentions", parent: { id: "zoo", name: "Zoo" } };
+    const zoo: SidebarRoom = { id: "zoo", name: "Zoo", kind: "open", icon: null, unread: false, involvement: "mentions" };
+    showPage([sub, zoo, design]);
+    await screen.findByRole("combobox", { name: "Notifications for Design" });
+    expect(screen.getAllByRole("combobox").map((select) => select.getAttribute("aria-label"))).toEqual(["Notifications for Design", "Notifications for Zoo", "Notifications for Zoo – Alpha"]);
+  });
+
+  it("says when no room or DM matches the search (R32-6)", async () => {
+    const { user } = showPage();
+    await user.type(await screen.findByRole("searchbox", { name: "Find a room or DM" }), "zzz");
+    expect(screen.getByText("No rooms or DMs match")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("puts Pause at the end of its row, and while paused, until when and Resume in that row (R32-5)", async () => {
+    showPage();
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    expect(pause.closest("section")).toHaveTextContent(/^Pause notificationsPause$/);
+  });
+
+  it("says notifications are back once a pause ends, without asking again (D-R32-5)", async () => {
+    serve({ level: "mentions", pausedUntil: Date.now() + 300, chosen: [] });
+    showPage();
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Paused until/);
+    expect(await screen.findByRole("button", { name: "Pause" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("says what you're notified about, and changes it", async () => {
     const { user } = showPage();
     const level = await screen.findByRole("group", { name: "Notify me about" });
@@ -128,7 +200,7 @@ describe("Notifications page", () => {
     serve({ level: "mentions", pausedUntil: null, chosen: [ops.id, hidden.id] });
     await user.selectOptions(levelOf("Design"), "everything");
     await user.click(screen.getByRole("button", { name: "Reset all" }));
-    const dialog = screen.getByRole("alertdialog", { name: "Reset every room to the default?" });
+    const dialog = screen.getByRole("alertdialog", { name: "Reset every room and DM to the default?" });
     await user.click(within(dialog).getByRole("button", { name: "Reset all" }));
     expect(sent().at(-1)).toEqual(["POST", "/api/users/me/notifications/reset", undefined]);
     expect(await screen.findByRole("combobox", { name: "Notifications for Ops" })).toHaveValue("default");

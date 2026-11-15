@@ -1,11 +1,13 @@
-import { useContext, useRef, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
-import type { Involvement, Room } from "@ember/protocol";
+import { useContext, useEffect, useRef, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
+import { startingInvolvement, type Involvement, type NotificationSettings, type Room } from "@ember/protocol";
 import type { RoomTab } from "@ember/protocol/library";
 import { ChatLines, CheckCircleSolid, Group, Link, MultiplePages, Plus, Search, Settings, User as UserIcon, type IconoirIconProps } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { usePush } from "@/hooks/use-push";
 import { openOverlay, personPath, roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
-import { setInvolvement } from "@/lib/api";
+import { useMounted } from "@/hooks/use-mounted";
+import { fetchNotificationSettings, isSignedOut, setInvolvement } from "@/lib/api";
+import { LEVEL_NAMES } from "@/lib/involvement";
 import { pushAllowed } from "@/lib/push";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "../workspace/favorite-button";
@@ -260,14 +262,6 @@ function CustomTabRow({ tab, selected, onShow, onOpened }: { tab: RoomTab; selec
   );
 }
 
-/** Each level's name in the details' Notifications row and its sheet. */
-const LEVEL_NAMES: Record<Involvement, string> = {
-  everything: "All messages",
-  mentions: "@ mentions",
-  nothing: "Off",
-  invisible: "Off and hidden",
-};
-
 /** The levels a room offers, as Slack lists them, all first, and a DM's, which has no mentions to single out nor a sidebar to hide from. */
 const ROOM_LEVELS: Involvement[] = ["everything", "mentions", "nothing", "invisible"];
 const DIRECT_LEVELS: Involvement[] = ["everything", "nothing"];
@@ -281,12 +275,27 @@ interface LevelSheetProps {
   onFailed: RoomHeaderProps["onFailed"];
 }
 
-/** Your level in a room, to pick one of, the one it is ticked; picking one saves it and closes the sheet. */
+/**
+ * Your level in a room, to pick one of, the one it is ticked, first Default, which follows what you're
+ * notified about (Preferences › Notifications), once it's known as the sheet opens; picking one saves it
+ * and closes the sheet.
+ */
 function LevelSheet({ open, onOpenChange, room, involvement, askForRoom, onFailed }: LevelSheetProps) {
   const [saving, setSaving] = useState(false);
-  const pick = async (level: Involvement) => {
+  // What you're notified about, and whether this room follows it, asked for as the sheet opens.
+  const [settings, setSettings] = useState<NotificationSettings | null>(null);
+  const mounted = useMounted();
+  useEffect(() => {
+    if (!open) return;
+    fetchNotificationSettings().then(
+      (loaded) => mounted.current && setSettings(loaded),
+      (error: unknown) => (mounted.current || isSignedOut(error)) && onFailed(error),
+    );
+  }, [open, mounted, onFailed]);
+  const follows = settings !== null && !settings.chosen.includes(room.id);
+  const pick = async (level: Involvement | "default") => {
     if (saving) return;
-    if (level === involvement) return onOpenChange(false);
+    if (level === "default" ? follows : level === involvement && !follows) return onOpenChange(false);
     setSaving(true);
     const answered = askForRoom();
     try {
@@ -298,29 +307,31 @@ function LevelSheet({ open, onOpenChange, room, involvement, askForRoom, onFaile
       setSaving(false);
     }
   };
+  const row = (level: Involvement | "default", shown: Involvement, name: string, checked: boolean) => {
+    const Icon = BELLS[shown];
+    return (
+      <button
+        key={level}
+        type="button"
+        role="radio"
+        aria-checked={checked}
+        aria-disabled={saving || undefined}
+        onClick={() => void pick(level)}
+        className={cn(ROW, "aria-disabled:opacity-50")}
+      >
+        <span className={ICON}>
+          <Icon />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        {checked && <CheckCircleSolid className="size-5 shrink-0" />}
+      </button>
+    );
+  };
   return (
     <BottomSheet open={open} onOpenChange={onOpenChange} title="Notifications">
-      <div role="radiogroup" aria-label="Notifications" aria-busy={saving || undefined} className="contents">
-        {(room.kind === "direct" ? DIRECT_LEVELS : ROOM_LEVELS).map((level) => {
-          const Icon = BELLS[level];
-          return (
-            <button
-              key={level}
-              type="button"
-              role="radio"
-              aria-checked={level === involvement}
-              aria-disabled={saving || undefined}
-              onClick={() => void pick(level)}
-              className={cn(ROW, "aria-disabled:opacity-50")}
-            >
-              <span className={ICON}>
-                <Icon />
-              </span>
-              <span className="min-w-0 flex-1 truncate">{LEVEL_NAMES[level]}</span>
-              {level === involvement && <CheckCircleSolid className="size-5 shrink-0" />}
-            </button>
-          );
-        })}
+      <div role="radiogroup" aria-label="Notifications" aria-busy={saving || settings === null || undefined} className="contents">
+        {settings && row("default", startingInvolvement(room, settings.level), `Default (${LEVEL_NAMES[startingInvolvement(room, settings.level)]})`, follows)}
+        {(room.kind === "direct" ? DIRECT_LEVELS : ROOM_LEVELS).map((level) => row(level, level, LEVEL_NAMES[level], level === involvement && !follows))}
       </div>
     </BottomSheet>
   );

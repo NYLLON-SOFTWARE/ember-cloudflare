@@ -410,14 +410,13 @@ describe("Private sign-in link", () => {
 });
 
 describe("Notifications on your profile", () => {
-  it("links to your notification preferences between the form and your sign-in link", async () => {
+  it("links to your notification preferences first, under the page's heading, above the form (R32-1)", async () => {
     showPage();
     await loaded();
     const notifications = screen.getByRole("link", { name: "Notifications" });
     expect(notifications).toHaveAttribute("href", "/users/me/notifications");
-    const signInLink = screen.getByRole("textbox", { name: "Use this link to login automatically on another device" });
-    expect(saveButton().compareDocumentPosition(notifications)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(notifications.compareDocumentPosition(signInLink)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByRole("heading", { level: 1, name: "Your profile" }).compareDocumentPosition(notifications)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(notifications.compareDocumentPosition(screen.getByLabelText("Name"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });
 
@@ -431,7 +430,7 @@ describe("Connect Memberful", () => {
       .mock.calls.filter(([input, init]) => String(input) === MEMBERFUL_CONNECTIONS_PATH && init?.method === "DELETE")
       .map(([, init]) => JSON.parse(String(init?.body)) as MemberfulDisconnection);
 
-  it("has a Memberful section between the form and Notifications while members sign in with Memberful", async () => {
+  it("has a Memberful section after the form while members sign in with Memberful", async () => {
     serve({ loaded: () => Response.json({ profile: { ...profile, memberful: NOT_CONNECTED }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
     showPage();
     await loaded();
@@ -439,7 +438,6 @@ describe("Connect Memberful", () => {
     // Its own password field, as you have a password.
     expect(within(memberful()!).getByLabelText("Password")).toBeInTheDocument();
     expect(saveButton().compareDocumentPosition(memberful()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(memberful()!.compareDocumentPosition(screen.getByRole("link", { name: "Notifications" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(passwordHelp()).toHaveTextContent("Leave blank to keep your current password.");
     expect(passwordHelp()).not.toHaveTextContent("disconnects");
   });
@@ -596,7 +594,7 @@ describe("Ember AI on your profile", () => {
   const level = (dialName: string, name: string) => within(dial(dialName)).getByRole("radio", { name });
   const withLevels = () => serve({ loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
 
-  it("has your levels of @ember's dials while Ember AI is on, between the form and Notifications, none above the most allowed", async () => {
+  it("has your levels of @ember's dials while Ember AI is on, after the form, none above the most allowed", async () => {
     withLevels();
     showPage();
     await loaded();
@@ -609,7 +607,6 @@ describe("Ember AI on your profile", () => {
     expect(dial("Answer length")).toHaveAccessibleDescription("About 400 words.");
     expect(level("Answer length", "Long")).toBeEnabled();
     expect(saveButton().compareDocumentPosition(section()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(section()!.compareDocumentPosition(screen.getByRole("link", { name: "Notifications" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("saves a level as soon as it's chosen, showing it meanwhile", async () => {
