@@ -3,7 +3,6 @@ import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, NAVIGATION_SLOTS, PASSWORD_RESET_P
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
 import { FlashProvider } from "@/components/flash";
 import { SignedOutPage } from "@/components/signed-out-page";
-import { OutsideConnectPage } from "@/components/outside-connect-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { TransferPage } from "@/components/transfer-page";
 import { Workspace, loadPageAhead } from "@/components/workspace/workspace";
@@ -176,7 +175,7 @@ export function App() {
     if (workspace.setup === "pending") return <SignedOutPage show={({ SetupPage }) => <SetupPage placeholders={workspace.setupPlaceholders} access={workspace.setupAccess} onSetUp={setUp} />} />;
     if (atTransfer) return <TransferPage />;
     // An AI app's request to connect is answered on a page of its own, by someone signed in: anyone else signs in first, and comes back to it.
-    if (atOutsideConnect && me !== null) return <OutsideConnectPage me={me} workspace={workspace} />;
+    if (atOutsideConnect && me !== null) return <SignedOutPage show={({ OutsideConnectPage }) => <OutsideConnectPage me={me} workspace={workspace} />} />;
     // Someone else's workspace starts afresh, with their own rooms and sockets.
     if (showsWorkspace)
       return (

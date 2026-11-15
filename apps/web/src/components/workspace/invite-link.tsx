@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { RefreshDouble, UserPlus } from "@/components/icons/iconoir";
+import { RefreshDouble, UserPlus } from "@/components/icons/iconoir-more";
 import { JOIN_LINK, joinUrl } from "./join-link";
 import { LinkButtons, ROUND_BUTTON, type LinkSharing } from "./link-buttons";
 
