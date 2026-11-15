@@ -211,7 +211,7 @@ describe("Custom emoji page", () => {
     expect(fetched).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Remove :shipit:" }));
-    await waitFor(() => expect(onRemoved).toHaveBeenCalledWith("shipit"));
+    await waitFor(() => expect(onRemoved).toHaveBeenCalledWith("shipit", shipit.key));
     expect(fetched).toHaveBeenCalledWith("/api/emoji/shipit", expect.objectContaining({ method: "DELETE" }));
     expect(await screen.findByText(":shipit: removed")).toBeInTheDocument();
   });
@@ -227,7 +227,7 @@ describe("Custom emoji page", () => {
     const fetched = serve({ removed: () => Response.json({ error: "No custom emoji has that name" }, { status: 404 }) });
     const { user, onRemoved, onFailed } = show(grace, shipit);
     await user.click(screen.getByRole("button", { name: "Remove :shipit:" }));
-    await waitFor(() => expect(onRemoved).toHaveBeenCalledWith("shipit"));
+    await waitFor(() => expect(onRemoved).toHaveBeenCalledWith("shipit", shipit.key));
     expect(onFailed).not.toHaveBeenCalled();
 
     fetched.mockImplementation(async () => Response.json({ error: "Only administrators can remove an emoji someone else added" }, { status: 403 }));

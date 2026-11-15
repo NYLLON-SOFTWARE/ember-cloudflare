@@ -5,13 +5,17 @@ import { NO_CUSTOM_EMOJI, type CustomEmojiByName } from "./use-custom-emoji";
 import { oneAtATime } from "./use-sidebar";
 
 /** What happened to an emoji while a load was on its way, which may have listed them before it did. */
-type Change = { added: CustomEmoji } | { removed: string };
+type Change = { added: CustomEmoji } | { removed: string; key?: string };
+
+/** Whether `emoji` is the one `change` removes: the one of its name, or of its picture too, if it says. */
+const removes = (change: { removed: string; key?: string }, emoji: CustomEmoji | undefined): emoji is CustomEmoji =>
+  emoji !== undefined && (change.key === undefined || change.key === emoji.key);
 
 function withChanges(emoji: CustomEmojiByName, changes: Change[]): CustomEmojiByName {
   const next = new Map(emoji);
   for (const change of changes) {
     if ("added" in change) next.set(change.added.name, change.added);
-    else next.delete(change.removed);
+    else if (removes(change, next.get(change.removed))) next.delete(change.removed);
   }
   return next;
 }
@@ -23,8 +27,11 @@ export interface CustomEmojiList {
   reload: () => Promise<void>;
   /** Lists one, as the socket or adding it here says it was added. */
   add: (emoji: CustomEmoji) => void;
-  /** Lists one no longer, as the socket or removing it here says. */
-  remove: (name: string) => void;
+  /**
+   * Lists one no longer, as the socket or removing it here says. Removing it here names its picture too,
+   * so an answer that comes after someone's added another of its name leaves that one.
+   */
+  remove: (name: string, key?: string) => void;
 }
 
 /**
@@ -45,7 +52,7 @@ export function useCustomEmojiList(): CustomEmojiList {
     const change = (change: Change) => {
       if ("added" in change && removedKeys.has(change.added.key)) return;
       const removed = "removed" in change ? known.get(change.removed) : undefined;
-      if (removed) removedKeys.add(removed.key);
+      if ("removed" in change && removes(change, removed)) removedKeys.add(removed.key);
       changedSince?.push(change);
       set(withChanges(known, [change]));
     };
@@ -58,7 +65,7 @@ export function useCustomEmojiList(): CustomEmojiList {
         changedSince = null;
       }
     });
-    return { reload, add: (added: CustomEmoji) => change({ added }), remove: (removed: string) => change({ removed }) };
+    return { reload, add: (added: CustomEmoji) => change({ added }), remove: (removed: string, key?: string) => change({ removed, key }) };
   });
   return { emoji, ...list };
 }

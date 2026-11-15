@@ -12,6 +12,7 @@ import {
   type DirectoryUser,
   type MemberfulDisconnection,
   type MemberfulStatus,
+  type Me,
   type Platform,
   type Profile,
   type ProfileAnswer,
@@ -112,14 +113,14 @@ function serve({
 /** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
 function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
   const [onSignOut, onFailed, answered, onSkinToneChanged] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
-  const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
+  const page = (listed: SidebarRoom[] | null, people: People = new Map(), me: Me = ada) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
         <PushContext value={{ ...PUSH_ON, platform }}>
           <FlashProvider workspace>
             <Sheet>
               <ProfilePage
-                me={ada}
+                me={me}
                 rooms={listed}
                 askForRoom={() => answered}
                 onSkinToneChanged={onSkinToneChanged}
@@ -141,6 +142,7 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
     user: userEvent.setup(),
     showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
     showPeople: (people: People) => rerender(page(rooms, people)),
+    showMe: (me: Me) => rerender(page(rooms, new Map(), me)),
   };
 }
 
@@ -662,6 +664,24 @@ describe("Skin tone on your profile", () => {
     expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
     answers[1]!();
     await waitFor(() => expect(onSkinToneChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps a tone another tab chose while one saves here, but not this tab's own heard back", async () => {
+    const answers: Array<() => void> = [];
+    serve({ toned: () => new Promise<Response>((resolve) => answers.push(() => resolve(Response.json({ skinTone: 1 })))) });
+    const { user, onSkinToneChanged, showMe } = showPage();
+    await user.click(await screen.findByRole("radio", { name: "Light" }));
+    // The socket tells of this tab's own tone, then of Dark, chosen in another tab, before the answer comes.
+    showMe({ ...ada, skinTone: 1 });
+    showMe({ ...ada, skinTone: 5 });
+    answers[0]!();
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked());
+    expect(onSkinToneChanged).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("radio", { name: "Light" }));
+    showMe({ ...ada, skinTone: 1 });
+    answers[1]!();
+    await waitFor(() => expect(onSkinToneChanged).toHaveBeenCalledWith(1));
   });
 
   it("sends no tone chosen meanwhile once the profile's gone, as when someone else signs in in another tab", async () => {

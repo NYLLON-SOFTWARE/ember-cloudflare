@@ -42,8 +42,8 @@ interface Props {
   me: Me;
   /** Lists an emoji added here at once, ahead of the workspace socket saying so. */
   onAdded: (emoji: CustomEmoji) => void;
-  /** And lists one removed here no longer. */
-  onRemoved: (name: string) => void;
+  /** And lists one removed here no longer, by its name and picture. */
+  onRemoved: (name: string, key: string) => void;
   /** Says why adding or removing failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -229,7 +229,7 @@ function Preview({ src }: { src: string }) {
  * The workspace's emoji, by name: each one's picture, its code, who added it and when, and Remove for
  * those you may remove. Once there are a few, a field searches them by name.
  */
-function EmojiList({ emoji, me, onRemoved, onFailed }: { emoji: CustomEmoji[]; me: Me; onRemoved: (name: string) => void; onFailed: (error: unknown) => void }) {
+function EmojiList({ emoji, me, onRemoved, onFailed }: { emoji: CustomEmoji[]; me: Me; onRemoved: (name: string, key: string) => void; onFailed: (error: unknown) => void }) {
   const id = useId();
   const [search, setSearch] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
@@ -239,12 +239,12 @@ function EmojiList({ emoji, me, onRemoved, onFailed }: { emoji: CustomEmoji[]; m
   const sorted = useMemo(() => emoji.toSorted((a, b) => a.name.localeCompare(b.name)), [emoji]);
   const found = search === "" ? sorted : sorted.filter(({ name }) => name.includes(search.toLowerCase()));
 
-  const remove = ({ name }: CustomEmoji) => {
+  const remove = ({ name, key }: CustomEmoji) => {
     if (removing || !confirm(confirmRemoval(name))) return;
     setRemoving(name);
     removeCustomEmoji(name).then(
       () => {
-        onRemoved(name);
+        onRemoved(name, key);
         if (!mounted.current) return;
         setRemoving(null);
         flash("notice", `${emojiCode(name)} removed`);
@@ -253,7 +253,7 @@ function EmojiList({ emoji, me, onRemoved, onFailed }: { emoji: CustomEmoji[]; m
         if (!mounted.current && !isSignedOut(error)) return;
         setRemoving(null);
         // Someone else removed it first, which is what was asked for.
-        if (error instanceof ApiError && error.status === 404) return onRemoved(name);
+        if (error instanceof ApiError && error.status === 404) return onRemoved(name, key);
         onFailed(error);
       },
     );

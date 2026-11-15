@@ -7,7 +7,7 @@ import { SKIN_TONES, withSkinTone } from "@/lib/skin-tone";
 // The Skin tone section of your profile: the tone of the people and hands you type by their :codes and
 // add as quick reactions, as Slack's default skin tone is, for your account, so every browser of yours
 // has it. A choice saves at once, and shows as it was again if it isn't saved. Arrowing through the
-// tones saves the last of those chosen while one saves. Boxed as the Ember AI section is.
+// tones saves the last of those chosen while one saves, and a tone another tab chose meanwhile stays. Boxed as the Ember AI section is.
 
 /** The hand each tone shows on, as Slack's skin tone picker shows them. */
 const HAND = "✋";
@@ -34,9 +34,13 @@ export function SkinToneSetting({ skinTone, onChanged, onFailed }: Props) {
   // Read as each answer comes, so it goes to whoever's signed in then.
   const saved = useEffectEvent(onChanged);
   const failed = useEffectEvent(onFailed);
+  const heard = useEffectEvent(() => skinTone);
 
   const save = (tone: SkinTone) => {
     saving.current = true;
+    // A tone heard from another tab while this one saves was chosen after it, unless it's this one's own.
+    const before = heard();
+    const choseSince = (answer: SkinTone) => heard() !== before && heard() !== answer;
     const next = () => {
       saving.current = false;
       const chosen = mounted.current ? waiting.current : null;
@@ -47,7 +51,7 @@ export function SkinToneSetting({ skinTone, onChanged, onFailed }: Props) {
     changeSkinTone(tone).then(
       (answer) => {
         if (!next() || !mounted.current) return;
-        saved(answer);
+        if (!choseSince(answer)) saved(answer);
         setChoosing(null);
       },
       (error: unknown) => {

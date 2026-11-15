@@ -62,7 +62,19 @@ const CLOSED_CODE = /(?:^|[\s([{]):([a-z0-9_+-]+):$/i;
 /** Slack's code for a skin tone, after an emoji, just closed: :skin-tone-2: is the lightest, and :skin-tone-6: the darkest. */
 const SKIN_TONE_CODE = /:skin-tone-([2-6]):$/i;
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+/**
+ * Pictographs joined by zero-width joiners, each perhaps in a tone or with its variation selector, at
+ * the end of the text: the emoji that ends it, where there's no `Intl.Segmenter` to find its last
+ * grapheme, as in the Firefox before 125 that the worker still lets in.
+ */
+const TRAILING_EMOJI = /\p{Extended_Pictographic}[\u{1F3FB}-\u{1F3FF}\uFE0F]*(?:\u200D\p{Extended_Pictographic}[\u{1F3FB}-\u{1F3FF}\uFE0F]*)*$/u;
+
+const graphemes = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+
+/** The grapheme that ends `text`, or without a segmenter, the emoji that does. */
+export function lastGrapheme(text: string, segmenter: Intl.Segmenter | null = graphemes): string | undefined {
+  return segmenter ? [...segmenter.segment(text)].at(-1)?.segment : TRAILING_EMOJI.exec(text)?.[0];
+}
 
 let loading: Promise<EmojiIndex> | null = null;
 let loaded: EmojiIndex | null = null;
@@ -125,7 +137,7 @@ export function closedCode(index: EmojiIndex, textBeforeCursor: string, skinTone
 
 /** The emoji that ends `before`, if it comes in tones, in `skinTone`, replacing it and `toneCode` after it. */
 function toneChanged(index: EmojiIndex, before: string, toneCode: string, skinTone: SkinTone) {
-  const last = [...graphemes.segment(before)].at(-1)?.segment;
+  const last = lastGrapheme(before);
   const base = last && index.toned.get(bare(last));
   return base ? { typed: last + toneCode, emoji: withSkinTone(base, skinTone), base } : null;
 }

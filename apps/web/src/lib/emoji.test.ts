@@ -1,7 +1,7 @@
 import { REACTIONS } from "@ember/protocol";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import rows from "./emoji-data.json";
-import { closedCode, FAVORED, indexOf, loadEmoji, MAX_MATCHES, recentEmoji, rememberEmoji, searchEmoji, typedCode, withCustomEmoji } from "./emoji";
+import { closedCode, FAVORED, indexOf, lastGrapheme, loadEmoji, MAX_MATCHES, recentEmoji, rememberEmoji, searchEmoji, typedCode, withCustomEmoji } from "./emoji";
 
 const index = indexOf(rows as Parameters<typeof indexOf>[0]);
 const found = (query: string, recent?: string[]) => searchEmoji(index, query, recent).map(({ emoji, code }) => `${emoji}${code}`);
@@ -122,6 +122,14 @@ describe("Emoji in your skin tone", () => {
     expect(closedCode(index, "🎉:skin-tone-3:")).toBeNull();
     expect(closedCode(index, ":skin-tone-3:")).toBeNull();
     expect(closedCode(index, "👋:skin-tone-1:")).toBeNull();
+  });
+
+  it("finds the emoji a tone's code follows in a browser without Intl.Segmenter", () => {
+    for (const emoji of ["👋", "👍🏻", "✌️", "🧑‍🚀", "🏃🏽‍♀️", "🫱🏻‍🫲🏿"]) {
+      expect(lastGrapheme(`Hi ${emoji}`, null)).toBe(emoji);
+      expect(lastGrapheme(`Hi ${emoji}`)).toBe(emoji);
+    }
+    expect(lastGrapheme("Hi", null)).toBeUndefined();
   });
 });
 

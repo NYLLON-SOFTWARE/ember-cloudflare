@@ -78,6 +78,22 @@ describe("The workspace's custom emoji", () => {
     expect(result.current.emoji.get("shipit")?.key).toBe("key-shipit-again");
   });
 
+  it("keep another of an emoji's name when removing it here is answered after it was added", async () => {
+    serve(listing(shipit));
+    const { result } = renderHook(() => useCustomEmojiList());
+    await act(() => result.current.reload());
+
+    // The socket says it was removed, then that someone added another :shipit:, before the page hears its own answer.
+    const again = { ...shipit, key: "key-shipit-again" };
+    act(() => result.current.remove("shipit"));
+    act(() => result.current.add(again));
+    act(() => result.current.remove("shipit", shipit.key));
+    expect(result.current.emoji.get("shipit")).toEqual(again);
+
+    act(() => result.current.remove("shipit", again.key));
+    expect(result.current.emoji.size).toBe(0);
+  });
+
   it("stay as they were when a load fails", async () => {
     serve(listing(shipit), () => Response.json({ error: "Not signed in" }, { status: 401 }));
     const { result } = renderHook(() => useCustomEmojiList());
