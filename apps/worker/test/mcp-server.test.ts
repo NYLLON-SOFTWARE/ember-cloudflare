@@ -75,6 +75,15 @@ async function postReply(client: Socket, body: string, parentId: string): Promis
   }
 }
 
+/** Deletes the parent `messageId`, whose thread has replies, waiting for the change that keeps it as a tombstone. */
+async function deleteParent(client: Socket, messageId: string): Promise<void> {
+  client.send({ type: "message.delete", messageId });
+  for (;;) {
+    const { message } = await client.next("message.updated");
+    if (message.id === messageId) return;
+  }
+}
+
 describe("Personal access tokens", () => {
   it("are made with a name, shown once, listed without their secret, and used", async () => {
     const ada = await signIn("Ada");
@@ -162,6 +171,21 @@ describe("The MCP server", () => {
     expect(tool.error!.code).toBe(-32601);
   });
 
+  it("takes a zero-input tool's call without arguments, which the protocol leaves out, and refuses what isn't an object", async () => {
+    const { token } = await tokenOf(await signIn("Grace"));
+    for (const name of ["list_rooms", "get_people"]) {
+      const response = await mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name } });
+      expect(response.status, name).toBe(200);
+      const answer = (await response.json()) as { error?: { code: number }; result?: { content: unknown[] } };
+      expect(answer.error, name).toBeUndefined();
+      expect(answer.result?.content, name).toBeDefined();
+    }
+    for (const wrong of ["nope", [], 3]) {
+      const refused = await mcp(token, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_rooms", arguments: wrong } });
+      expect(((await refused.json()) as { error: { code: number } }).error.code, JSON.stringify(wrong)).toBe(-32602);
+    }
+  });
+
   it("refuses a call that isn't JSON-RPC 2.0, or whose id isn't a string or a number", async () => {
     const { token } = await tokenOf(await signIn("Ada"));
     for (const malformed of [
@@ -238,6 +262,29 @@ describe("The MCP server", () => {
     expect(paged.hasNewer).toBe(false);
   });
 
+  it("says where a page of nothing but deleted parents kept for their threads goes on from", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await freshRoom("tombstones");
+    const client = await connect(room, ada);
+    const oldest = await post(client, "oldest message");
+    const parent = await post(client, "a question");
+    await postReply(client, "an answer", parent.id);
+    const newer = await post(client, "newest message");
+    await deleteParent(client, parent.id);
+    const { token } = await tokenOf(grace);
+
+    // The page before the newest is the deleted parent alone: nothing to read, though the room keeps
+    // it for its thread's replies and pages from it, as the bot API's Link does (src/bots/api.ts).
+    const stranded = dataOf(await toolOf(token, "get_room_history", { room_id: room, before: newer.id, limit: 1 }));
+    expect(stranded.messages).toEqual([]);
+    expect(stranded.hasMore).toBe(true);
+    expect(stranded.before).toBe(parent.id);
+    const paged = dataOf(await toolOf(token, "get_room_history", { room_id: room, before: parent.id, limit: 1 }));
+    expect((paged.messages as Array<{ id: string }>).map(({ id }) => id)).toEqual([oldest.id]);
+    expect(paged.hasMore).toBe(false);
+  });
+
   it("reads a thread a message has, parent first", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
@@ -254,6 +301,24 @@ describe("The MCP server", () => {
     // A reply has no thread of its own.
     const replyThread = await toolOf(token, "get_thread", { room_id: room, message_id: reply.id });
     expect(said(replyThread as never)).toBe("Room not found or inaccessible");
+  });
+
+  it("reads a thread whose parent is deleted, its replies with it and the parent null", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await freshRoom("deleted-parent");
+    const client = await connect(room, ada);
+    const parent = await post(client, "a question withdrawn");
+    const reply = await postReply(client, "an answer that stays", parent.id);
+    await deleteParent(client, parent.id);
+    const { token } = await tokenOf(grace);
+    // The parent is a tombstone kept for its replies, which the bot API's thread leaves out too
+    // (src/bots/api.ts); the answers stay there to be read.
+    const thread = dataOf(await toolOf(token, "get_thread", { room_id: room, message_id: parent.id }));
+    expect(thread.parent).toBe(null);
+    expect((thread.replies as Array<{ id: string; plain_text: string }>).map(({ id, plain_text }) => ({ id, plain_text }))).toEqual([
+      { id: reply.id, plain_text: "an answer that stays" },
+    ]);
   });
 
   it("refuses the history, thread and posting of a room its person isn't in, saying only that it can't be found", async () => {

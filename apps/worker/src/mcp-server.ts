@@ -169,9 +169,12 @@ async function answered(id: unknown, method: string, params: unknown, user: User
       if (!(name in SCOPES_OF_TOOL)) return errorOf(id, METHOD_NOT_FOUND, `There is no tool called ${JSON.stringify(name || args.name)}`);
       const scope = SCOPES_OF_TOOL[name]!;
       if (!scopes.has(scope)) return errorOf(id, SCOPE_REFUSED, `The token doesn't allow this. It would take ${scope}, which it doesn't carry.`);
-      if (typeof args.arguments !== "object" || args.arguments === null) return errorOf(id, INVALID_PARAMS, "Expected arguments as an object");
+      // A call's arguments are optional, which a zero-input tool's schema has none of required, so a
+      // client may leave them out; what is supplied still has to be an object.
+      if (args.arguments !== undefined && (typeof args.arguments !== "object" || args.arguments === null || Array.isArray(args.arguments)))
+        return errorOf(id, INVALID_PARAMS, "Expected arguments as an object");
       try {
-        return await called(id, name, args.arguments as Record<string, unknown>, user, env, request);
+        return await called(id, name, (args.arguments ?? {}) as Record<string, unknown>, user, env, request);
       } catch (error) {
         console.error(`MCP tool ${name} failed:`, error);
         return errorOf(id, INTERNAL_ERROR, "Something went wrong");
@@ -202,7 +205,7 @@ const SCHEMAS: Record<string, { description: string; inputSchema: { type: "objec
   },
   get_room_history: {
     description:
-      "A page of a room's messages, oldest first: the newest, or the ones before the message `before` names, or after the one `after` names. `hasMore` says whether older ones are left, `hasNewer` whether newer are.",
+      "A page of a room's messages, oldest first: the newest, or the ones before the message `before` names, or after the one `after` names. `hasMore` says whether older ones are left, `hasNewer` whether newer are, and `before` and `after` name the message to ask for the next page with.",
     inputSchema: {
       type: "object",
       properties: {
@@ -228,7 +231,8 @@ const SCHEMAS: Record<string, { description: string; inputSchema: { type: "objec
     },
   },
   get_thread: {
-    description: "A message's thread: the message, then its newest replies, oldest first. A reply has no thread of its own.",
+    description:
+      "A message's thread: the message, then its newest replies, oldest first. The message is null when it's been deleted while its replies are left, which it keeps its place for. A reply has no thread of its own.",
     inputSchema: {
       type: "object",
       properties: {
@@ -338,10 +342,17 @@ async function historyAnswer(id: unknown, args: Record<string, unknown>, user: U
   const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, { before, after }, limitOf(args.limit, HISTORY_LIMIT) ?? undefined);
   if (page === null) return refusedRoom(id);
   const origin = originFor(request, access.customDomain);
+  // Where the next page starts, from the room's page before a deleted message kept for its replies is
+  // taken out of it, as the bot API's Link is (src/bots/api.ts): the room still counts such a message
+  // and pages from it, so a page of nothing else still names where to ask from.
+  const oldest = page.messages[0];
+  const newest = page.messages.at(-1);
   return resultOf(id, {
     messages: page.messages.filter(({ deleted }) => !deleted).map((message) => shownOf(message, origin)),
     hasMore: page.hasMore,
     hasNewer: page.hasNewer,
+    ...(page.hasMore && oldest !== undefined && { before: oldest.id }),
+    ...(page.hasNewer && newest !== undefined && { after: newest.id }),
   });
 }
 
@@ -381,10 +392,13 @@ async function threadAnswer(id: unknown, args: Record<string, unknown>, user: Us
   const access = await roomAccessIn(env, user, roomId, request);
   if (access === null) return refusedRoom(id);
   const thread = await env.CHAT_ROOM.getByName(roomId).botThread(roomId, messageId);
-  if (thread === null || thread[0]!.deleted) return refusedRoom(id);
+  if (thread === null) return refusedRoom(id);
+  // A parent deleted while its replies are left is a tombstone with nothing to read, which the bot
+  // API's thread leaves out too (src/bots/api.ts), though its replies stay there to be read.
+  const parent = thread[0]!;
   const origin = originFor(request, access.customDomain);
   return resultOf(id, {
-    parent: shownOf(thread[0]!, origin),
+    parent: parent.deleted ? null : shownOf(parent, origin),
     replies: thread.slice(1).filter(({ deleted }) => !deleted).map((message) => shownOf(message, origin)),
   });
 }
