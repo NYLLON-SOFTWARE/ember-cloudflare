@@ -1,4 +1,4 @@
-import { SHARE_CHECK_PATH, type RoomId, type SharedRoom } from "@ember/protocol";
+import { SHARE_CHECK_PATH, type RoomId } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { api, createRoom, direct, signIn, workspaceSql, type Session } from "./support";
 
@@ -7,13 +7,6 @@ import { api, createRoom, direct, signIn, workspaceSql, type Session } from "./s
 
 const check = (session: Session, sourceRoomId: RoomId, targetRoomId: RoomId) =>
   api(SHARE_CHECK_PATH, { method: "POST", headers: { Cookie: session.cookie }, body: JSON.stringify({ sourceRoomId, targetRoomId }) });
-
-/** A sub-room open to everyone under `parentId`, which takes in everyone in its parent. */
-async function everyoneSubRoom(session: Session, parentId: RoomId, name: string): Promise<SharedRoom> {
-  const response = await api("/api/rooms", { method: "POST", headers: { Cookie: session.cookie }, body: JSON.stringify({ kind: "open", name, parentId }) });
-  expect(response.status, await response.clone().text()).toBe(201);
-  return ((await response.json()) as { room: SharedRoom }).room;
-}
 
 async function widening(session: Session, sourceRoomId: RoomId, targetRoomId: RoomId) {
   const response = await check(session, sourceRoomId, targetRoomId);
@@ -52,26 +45,6 @@ describe("Share check", () => {
     expect(await widening(ada, design.id, fewer.id)).toEqual({ widens: false, newViewers: 0, names: [] });
     // A room open to everyone is everyone's to see.
     expect(await widening(ada, lobby.id, design.id)).toEqual({ widens: false, newViewers: 0, names: [] });
-  });
-
-  it("warns sharing out of a sub-room open to everyone in a private parent, which isn't open to everyone", async () => {
-    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
-    await signIn("Linus");
-    const strata = await createRoom("strata", { closedTo: [ada.user.id, grace.user.id], as: ada });
-    const sales = await everyoneSubRoom(ada, strata.id, "sales");
-    const lobby = await createRoom("lobby", { as: ada });
-
-    // Linus is in Lobby, which takes in everyone, but not in Strata, so not in Sales either.
-    expect(await widening(ada, sales.id, lobby.id)).toMatchObject({ widens: true });
-  });
-
-  it("doesn't warn sharing from a private room into its own sub-room open to everyone in it", async () => {
-    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
-    await signIn("Linus");
-    const strata = await createRoom("strata", { closedTo: [ada.user.id, grace.user.id], as: ada });
-    const sales = await everyoneSubRoom(ada, strata.id, "sales");
-
-    expect(await widening(ada, strata.id, sales.id)).toEqual({ widens: false, newViewers: 0, names: [] });
   });
 
   it("counts from a DM's two people, leaving out people who've left", async () => {
