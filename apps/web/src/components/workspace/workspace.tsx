@@ -280,7 +280,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const directory = useDirectory();
   // Reminders of theirs, which the workspace socket tells this tab about as each one comes due or is
   // dismissed in another tab. Declared before the sidebar, whose socket hands it both.
-  const { reminders, cameDue, cameGone, dismiss: dismissReminder } = useReminders();
+  const { reminders, cameDue, cameGone, dismiss: dismissReminder, load: reloadReminders } = useReminders();
   // When your push notifications are hushed until, which the workspace socket's welcome brings, Do not
   // disturb on your profile saves, and the socket tells your other tabs of, and the rail shows by the
   // crescent on your avatar. How many hushes have been heard counts as each change is applied, so a

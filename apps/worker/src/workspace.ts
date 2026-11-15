@@ -826,6 +826,9 @@ const reminderOf = ({ id, roomId, messageId, parentId, creatorId, creatorName, e
   remindAt: new Date(remindAt).toISOString(),
 });
 
+/** The subscriptions a reminder's pushes have reached, as the JSON list its row keeps. */
+const deliveredIn = (delivered: string | null): number[] => (delivered === null ? [] : (JSON.parse(delivered) as number[]));
+
 /** Whether someone or a bot named `name` takes @ember's name by being renamed `rename`, which they can't, unless it was theirs already (`isReservedName`). */
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
 
@@ -3299,11 +3302,13 @@ export class Workspace extends DurableObject<Env> {
    * the notice is the telling. Its pushes go to their browsers the same run when they fit, and a run
    * that doesn't get them out tries again on the runs after, for a day past the reminder's time
    * (`REMINDER_PUSH_GRACE_MS`), until they've gone out or the day is past and they're given up on —
-   * the notice has reached their tabs all along. What the reminders spend, their queries as much as
-   * their pushes, since both are requests on D1, comes out of `requests`, and a reminder whose pushes
-   * don't fit leaves them, told or not, for the next run. Each is read again before it's told, since a
-   * push can wait long enough that the person dismisses the next reminder meanwhile. Answers how many
-   * it told.
+   * the notice has reached their tabs all along. A try whose pushes fail is kept with the browsers it
+   * reached, which puts trying the rest off for a while (`REMINDER_PUSH_RETRY_MS`), and a browser a
+   * try has reached is sent no reminder twice: the tries after send only the rest. What the reminders
+   * spend, their queries as much as their pushes, since both are requests on D1, comes out of
+   * `requests`, and a reminder whose pushes don't fit leaves them, told or not, for the next run. Each
+   * is read again before it's told, since a push can wait long enough that the person dismisses the
+   * next reminder meanwhile. Answers how many it told.
    */
   private async deliverReminders(limit: number, requests: number): Promise<number> {
     // The read of what's due and one reminder's own, at the least, before anything is worth asking.
@@ -3319,7 +3324,8 @@ export class Workspace extends DurableObject<Env> {
       const reminder = await this.store.reminder(id);
       left--;
       if (reminder === null) continue;
-      const deliveries = await this.store.pushDeliveriesFor(userId, guestSignIn(this.env));
+      const reached = deliveredIn(reminder.delivered);
+      const deliveries = (await this.store.pushDeliveriesFor(userId, guestSignIn(this.env))).filter(({ subscriptionId }) => !reached.includes(subscriptionId));
       left--;
       if (untold) {
         // Marked told before it's said, so two runs can't both say it.
@@ -3328,19 +3334,27 @@ export class Workspace extends DurableObject<Env> {
         this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
         told++;
       }
-      // Each push is asked after and sent, two requests, and settling them takes one more.
+      // Each push is asked after and sent, two requests, and settling the pushes — or keeping that
+      // they failed — takes one more.
       if (deliveries.length * 2 + 1 > left) break;
-      const { gone, failed } =
-        deliveries.length > 0 ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id)) : { gone: [], failed: 0 };
+      const { gone, delivered, failed } =
+        deliveries.length > 0
+          ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id))
+          : { gone: [], delivered: [], failed: 0 };
       left -= deliveries.length * 2;
       if (gone.length > 0) {
         await this.store.forgetPushSubscriptions(gone);
         left--;
       }
-      // A push that failed otherwise may still reach its browser, so the pushes wait to be tried
-      // again, unless their day past its time is spent and they're given up on.
+      // A push that failed otherwise may still reach its browser, so the rest wait to be tried again,
+      // the browsers this try reached kept aside, unless their day past its time is spent and they're
+      // given up on.
+      const heard = JSON.stringify([...reached, ...delivered, ...gone]);
       if (failed === 0 || reminder.remindAt <= now - REMINDER_PUSH_GRACE_MS) {
-        await this.store.markReminderPushed(id, Date.now());
+        await this.store.markReminderPushed(id, Date.now(), heard);
+        left--;
+      } else {
+        await this.store.markReminderPushTried(id, Date.now(), heard);
         left--;
       }
     }

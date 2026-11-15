@@ -97,7 +97,6 @@ export function useSidebar(
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
   onReminderDue: (reminder: Reminder) => void = () => {},
-  onReminderDue: (reminder: Reminder) => void = () => {},
   onReminderGone: (id: string) => void = () => {},
   reloadReminders: () => void = () => {},
   onDndChanged: (dndUntil: string | null, read?: boolean) => void = () => {},

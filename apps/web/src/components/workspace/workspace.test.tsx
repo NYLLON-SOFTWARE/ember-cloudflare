@@ -1030,7 +1030,7 @@ describe("Do not disturb", () => {
     serve({
       "GET /api/users/me/profile": () =>
         Response.json({
-          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, memberful: { membersOnly: false, connected: null } },
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, fields: [], apps: [], outsideAi: null, memberful: { membersOnly: false, connected: null } },
         }),
       "PUT /api/users/me/dnd": () => Response.json({ dndUntil: HUSHED }),
     });
@@ -1056,7 +1056,7 @@ describe("Do not disturb", () => {
     act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
     expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
     // The page's answer read before that, and doesn't take the hush back off.
-    await act(async () => answer(Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: null } })));
+    await act(async () => answer(Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: null, fields: [], apps: [], outsideAi: null } })));
     expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
   });
 
@@ -1081,7 +1081,7 @@ describe("Do not disturb", () => {
     serve({
       "GET /api/users/me/profile": () =>
         Response.json({
-          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, memberful: { membersOnly: false, connected: null } },
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, fields: [], apps: [], outsideAi: null, memberful: { membersOnly: false, connected: null } },
         }),
       "PUT /api/users/me/dnd": () => new Promise((resolve) => (answer = resolve)),
     });
@@ -1381,7 +1381,7 @@ describe("Search box", () => {
 
 describe("Edit your profile", () => {
   it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null, fields: [] } }) });
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
     await user.click(screen.getByRole("link", { name: "Your profile" }));
@@ -1396,7 +1396,7 @@ describe("Edit your profile", () => {
 
   it("drops the rail's crescent the moment your hush lapses, without a reload", async () => {
     const hushedUntil = new Date(Date.now() + 300).toISOString();
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: hushedUntil } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: hushedUntil, fields: [], apps: [], outsideAi: null } }) });
     showWorkspace("/users/me/profile");
     const avatar = screen.getByRole("link", { name: "Your profile" });
     await waitFor(() => expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed"));
@@ -1405,7 +1405,7 @@ describe("Edit your profile", () => {
   });
 
   it("logs out from your profile", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null, fields: [] } }) });
     const { onSignOut, user } = showWorkspace("/users/me/profile");
     await user.click(screen.getByRole("button", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
@@ -1417,7 +1417,7 @@ describe("Connect Memberful", () => {
 
   it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
     const memberful = { membersOnly: true, connected: { name: "Ada Lovelace", emailAddress: "ada@example.com" } };
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [], outsideAi: null, fields: [] } }) });
     const { unmount } = showWorkspace("/users/me/profile?memberful=connected#top");
     expect(await screen.findByRole("alert")).toHaveTextContent("Your Memberful account is connected.");
     expect(address()).toBe("/users/me/profile#top");

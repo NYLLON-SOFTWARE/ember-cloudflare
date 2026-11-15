@@ -66,6 +66,7 @@ import dnd from "../migrations/0065_dnd.sql";
 import profileFields from "../migrations/0066_profile_fields.sql";
 import reminders from "../migrations/0067_reminders.sql";
 import reminderPushes from "../migrations/0074_reminder_pushes.sql";
+import reminderPushRetries from "../migrations/0068_reminder_push_retries.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -157,6 +158,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0065_dnd.sql", scope: "workspace", sql: dnd },
   { name: "0066_profile_fields.sql", scope: "workspace", sql: profileFields },
   { name: "0067_reminders.sql", scope: "workspace", sql: reminders },
+  { name: "0068_reminder_push_retries.sql", scope: "workspace", sql: reminderPushRetries },
   { name: "0074_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
 ];
 
@@ -183,6 +185,31 @@ export function migrate(storage: DurableObjectStorage, scope: Scope): void {
     name TEXT UNIQUE,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`);
+  // The fork's deploys numbered these files before upstream took the slots they sat in, so a storage
+  // that ran one under its old name keeps the tables it made and the record moves with them: renamed
+  // before the check below, it applies no migration twice.
+  for (const [was, now] of [
+    ["0057_pins.sql", "0063_pins.sql"],
+    ["0058_user_groups.sql", "0064_user_groups.sql"],
+    ["0059_dnd.sql", "0065_dnd.sql"],
+    ["0060_profile_fields.sql", "0066_profile_fields.sql"],
+    ["0061_reminders.sql", "0067_reminders.sql"],
+    ["0062_statuses.sql", "0069_statuses.sql"],
+    ["0063_saves.sql", "0070_saves.sql"],
+    ["0064_guests.sql", "0071_guests.sql"],
+    ["0065_commands.sql", "0072_commands.sql"],
+    ["0066_tokens.sql", "0073_tokens.sql"],
+    ["0073_reminder_push_retries.sql", "0068_reminder_push_retries.sql"],
+    ["0062_reminder_pushes.sql", "0074_reminder_pushes.sql"],
+    ["0072_reminder_pushes.sql", "0074_reminder_pushes.sql"],
+  ] as const) {
+    storage.sql.exec(
+      "UPDATE d1_migrations SET name = ? WHERE name = ? AND NOT EXISTS (SELECT 1 FROM (SELECT name FROM d1_migrations WHERE name = ?) AS there)",
+      now,
+      was,
+      now,
+    );
+  }
   const applied = new Set(storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations").toArray().map((row) => row.name));
   for (const migration of scope === "search" ? SEARCH_MIGRATIONS : MIGRATIONS) {
     if (migration.scope !== scope || applied.has(migration.name)) continue;
