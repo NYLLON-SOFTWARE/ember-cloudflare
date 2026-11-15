@@ -277,7 +277,8 @@ function RoomLevels({ me, rooms, settings, onChosen, onResetAll, askForRoom, onF
                 key={room.id}
                 className="relative flex min-h-12 items-center gap-3 border-b px-1 last:border-b-0 hover:bg-hover has-[select:focus-visible]:outline-2 has-[select:focus-visible]:outline-foreground"
               >
-                <span aria-hidden="true" className="flex shrink-0 text-muted-foreground">
+                {/* An 18px slot, as the sidebar's rows have, so a narrow # starts its name where an icon's does. */}
+                <span aria-hidden="true" className="flex w-[18px] shrink-0 justify-center text-center text-muted-foreground">
                   <RoomMark room={room} size={18} />
                 </span>
                 <span className={cn("min-w-0 flex-1 truncate text-[15px] max-md:text-base", room.involvement === "invisible" && "text-muted-foreground")}>{name}</span>

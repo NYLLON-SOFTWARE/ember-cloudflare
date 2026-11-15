@@ -91,6 +91,12 @@ describe("Notifications page", () => {
     expect(within(levelOf("Ops").closest("li")!).getByText("Nothing", { selector: "span" })).toHaveClass("text-foreground");
   });
 
+  it("gives every row's mark the same 18px slot, so the names line up whatever the mark (R32-7)", async () => {
+    showPage();
+    await screen.findByRole("combobox", { name: "Notifications for Design" });
+    for (const select of screen.getAllByRole("combobox")) expect(select.closest("li")!.firstElementChild).toHaveClass("w-[18px]", "justify-center");
+  });
+
   it("lists sub-rooms by the name they're shown by, their parent's first (D-R32-3)", async () => {
     const sub: SidebarRoom = { id: "sub", name: "Alpha", kind: "open", icon: null, unread: false, involvement: "mentions", parent: { id: "zoo", name: "Zoo" } };
     const zoo: SidebarRoom = { id: "zoo", name: "Zoo", kind: "open", icon: null, unread: false, involvement: "mentions" };
