@@ -744,6 +744,24 @@ describe("AI agents", () => {
       expect(await roomsOf((await made(administrator, { name: "Juniper", rooms: [child.id] })).id)).toEqual([]);
     });
 
+    it("keeps it out of the open sub-rooms of a room picked, as the room is changed and as one is made under it", async () => {
+      const administrator = await setUp();
+      const parent = await createRoom("Support", { as: administrator });
+      const subRoom = async (name: string) => {
+        const response = await api("/api/rooms", { method: "POST", headers: as(administrator), body: JSON.stringify({ kind: "open", name, parentId: parent.id }) });
+        expect(response.status, await response.clone().text()).toBe(201);
+        return ((await response.json()) as { room: SharedRoom }).room;
+      };
+      await subRoom("Billing");
+      const recap = await made(administrator, { rooms: [parent.id] });
+      const everyOpenRoom = await made(administrator, { name: "Juniper" });
+
+      await changeRoom(administrator, parent.id, { name: "Help" });
+      const refunds = await subRoom("Refunds");
+      expect(await roomsOf(recap.id)).toEqual([parent.id]);
+      expect(await roomsOf(everyOpenRoom.id)).toContain(refunds.id);
+    });
+
     it("saves nothing once the agent was changed while its new model answered", async () => {
       const administrator = await setUp();
       const recap = await made(administrator);

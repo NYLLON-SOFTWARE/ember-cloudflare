@@ -2548,21 +2548,27 @@ const LEAVE_SUB_ROOMS_OUTSIDE_PARENT = `DELETE FROM memberships WHERE user_id = 
 const [QUEUE_OUTSIDERS_REVOCATIONS, OUTSIDERS_LEAVE] = outsidersOut("id = ?1");
 const [QUEUE_SUB_ROOM_OUTSIDERS_REVOCATIONS, SUB_ROOM_OUTSIDERS_LEAVE] = outsidersOut("parent_id = ?1");
 
+/** Whether the user `table` names isn't an agent kept to the open rooms an administrator picked, which no room change puts anywhere. */
+const unpickedAgent = (table: string) => `NOT EXISTS (SELECT 1 FROM agents WHERE agents.user_id = ${table}.id AND agents.every_open_room = 0)`;
+
 /**
  * Puts everyone active in room ?1 in its sub-rooms open to "Everyone", as of ?2, keeping the memberships
- * they have, and answers whom it put where.
+ * they have, and answers whom it put where. Agents kept to the rooms picked stay out.
  */
 const GRANT_OPEN_SUB_ROOMS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT rooms.id, memberships.user_id, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
     JOIN users ON users.id = memberships.user_id
-  WHERE rooms.parent_id = ?1 AND rooms.kind = 'open' AND users.status = ${ACTIVE}
+  WHERE rooms.parent_id = ?1 AND rooms.kind = 'open' AND users.status = ${ACTIVE} AND ${unpickedAgent("users")}
   ON CONFLICT DO NOTHING RETURNING room_id, user_id`;
 
-/** Puts everyone active in sub-room ?1's parent in it, as of ?2, keeping the memberships they have, and answers whom it put in. */
+/**
+ * Puts everyone active in sub-room ?1's parent in it, as of ?2, keeping the memberships they have, and
+ * answers whom it put in. Agents kept to the rooms picked stay out.
+ */
 const GRANT_SUB_ROOM_TO_PARENT_PEOPLE = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT rooms.id, memberships.user_id, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
     JOIN users ON users.id = memberships.user_id
-  WHERE rooms.id = ?1 AND users.status = ${ACTIVE}
+  WHERE rooms.id = ?1 AND users.status = ${ACTIVE} AND ${unpickedAgent("users")}
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /** Puts the people a JSON list ?3 names who are in sub-room ?1's parent in it, as of ?2, and answers whom it put in. */
