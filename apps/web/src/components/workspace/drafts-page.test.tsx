@@ -43,7 +43,7 @@ function showPage(tab: "drafts" | "scheduled" | "sent") {
 /** A room, as its composer hears of it, telling of the messages `messages` you've scheduled there. */
 function RoomScheduling({ roomId, messages }: { roomId: string; messages: ScheduledMessage[] }) {
   const frames: RoomFrames = { send: () => true, listen: (hear) => (hear({ type: "scheduled", messages }), () => {}) };
-  useScheduled(roomId, frames);
+  useScheduled(ada.id, roomId, frames);
   return null;
 }
 

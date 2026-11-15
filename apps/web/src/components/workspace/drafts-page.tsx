@@ -220,7 +220,7 @@ interface Deleted {
 function Scheduled({ userId, names, onFailed }: { userId: string; names: SearchNames; onFailed: (error: unknown) => void }) {
   const [listed, setListed] = useState<ListedScheduledMessage[] | null>(null);
   // What the rooms open here say of your scheduled messages, which changes as you schedule, send or delete one.
-  const heard = useAllScheduled();
+  const heard = useAllScheduled(userId);
   // Bumped once a change made here has gone, which the list trails as it does a room's.
   const [changed, setChanged] = useState(0);
   const [changing, setChanging] = useState<ReadonlySet<string>>(new Set());

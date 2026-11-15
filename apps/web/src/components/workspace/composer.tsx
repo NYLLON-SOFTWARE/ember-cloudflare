@@ -424,7 +424,7 @@ export function Composer({
   const previewLink = useLinkPreviews();
   const picked = usePickedFiles();
   const [scheduleRefusal, setScheduleRefusal] = useState<string | null>(null);
-  const scheduled = useScheduled(roomId, frames);
+  const scheduled = useScheduled(userId, roomId, frames);
   // What the room wouldn't schedule comes back to be changed, after anything written since, saying why.
   const scheduleKept = useKeptSchedules(userId, roomId, threadId, frames, (body, why) => {
     setScheduleRefusal(why);
