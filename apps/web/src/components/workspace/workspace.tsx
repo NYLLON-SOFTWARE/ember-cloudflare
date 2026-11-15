@@ -9,6 +9,7 @@ import { useAccount } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -31,7 +32,7 @@ import { NewDirectDialog } from "./new-direct-dialog";
 import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
-import { RoomView, type RoomViewHandle } from "./room-view";
+import { RoomView, THREAD_COVERS_ROOM, type RoomViewHandle } from "./room-view";
 import { SavedPanel } from "./saved-panel";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
@@ -571,6 +572,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // goes home to the last room visited for it from a page of community settings. Opening it asks for
   // the list again, which a failed ask never brought, but never asks a room for anything, so it marks
   // nothing read.
+  const coversRoom = useMediaQuery(THREAD_COVERS_ROOM);
+  // Below 1180px wide the pane covers the room, which then counts as hidden, and leaves nothing of
+  // itself to reach behind it, as a thread covering the room does.
+  const savedCovered = savedOpen && room !== null && coversRoom;
   const saved = {
     on: savedOpen,
     count: saver.saves?.length ?? 0,
@@ -774,6 +779,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               // As the list has it, or as it starts once the room has gone from the list.
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
               newSince={opened.roomId === room.id ? opened.newSince : null}
+              savedCovered={savedCovered}
               askForRoom={askForRoom}
               onSessionChanged={onSessionChanged}
               onFailed={failed}

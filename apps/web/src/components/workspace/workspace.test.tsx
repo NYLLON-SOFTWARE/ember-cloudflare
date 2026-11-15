@@ -925,10 +925,163 @@ describe("Rail", () => {
   });
 });
 
+<<<<<<< HEAD
+=======
+describe("Do not disturb", () => {
+  const HUSHED = new Date(Date.now() + 60 * 60_000).toISOString();
+  const profileLink = () => screen.getByRole("link", { name: "Your profile" });
+
+  it("lays the crescent on your avatar when you reload straight into a room with your hush on", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = HUSHED;
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // The welcome brought the hush, which the rail shows by the crescent on your avatar.
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+  });
+
+  it("drops the crescent of a hush ending further out than a timer may wait, once its time has come", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = new Date(Date.now() + 40 * 24 * 60 * 60_000).toISOString();
+    showWorkspace("/rooms/random");
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Under the test's own timers, the welcome says the hush again, 50 days out, which arms its lapse anew.
+    vi.useFakeTimers();
+    try {
+      const later = new Date(Date.now() + 50 * 24 * 60 * 60_000).toISOString();
+      act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: later }) }));
+      const avatar = profileLink();
+      // The timer fires at the most a delay may be, about 24.8 days out, and arms again, the crescent staying.
+      act(() => vi.advanceTimersByTime(2_147_483_647));
+      expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed");
+      // Its time has come, and the crescent goes without a reload.
+      act(() => vi.advanceTimersByTime(2_147_483_647 + 24 * 60 * 60_000));
+      expect(avatar).toHaveAttribute("title", "Ada");
+      expect(avatar.querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lays the crescent on and takes it off as the socket says a tab of yours hushed and unhushed", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps a hush saved here when a welcome brings what it read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, fields: [], apps: [], outsideAi: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => Response.json({ dndUntil: HUSHED }),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // A welcome that read before the save, arriving after its answer, doesn't undo it.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: null }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The next welcome, which read after it, is heard again.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: HUSHED }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("keeps a hush heard while the profile was loading over what the page's answer read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({ "GET /api/users/me/profile": () => new Promise((resolve) => (answer = resolve)) });
+    showWorkspace("/users/me/profile");
+    // Another tab hushes while the page's profile is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The page's answer read before that, and doesn't take the hush back off.
+    await act(async () => answer(Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: null, fields: [], apps: [], outsideAi: null } })));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("shows the hush as a connection's welcome brings it back, over what the one before it heard", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // A tab of yours hushes, which the rail shows, and the connection drops before another lifts the
+    // hush, which this tab misses.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    act(() => WorkspaceSocket.last!.onclose?.({ code: 1006 }));
+    // The connection comes back, and its welcome reads over what the last one heard: the hush is lifted.
+    WorkspaceSocket.dndUntil = null;
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada"), { timeout: 4000 });
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps the hush the socket brought while a save was on its way over what the save's answer says", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, fields: [], apps: [], outsideAi: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => new Promise((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Another tab lifts the hush while this save is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    // The save's answer read before that, and doesn't hush the rail again.
+    await act(async () => answer(Response.json({ dndUntil: HUSHED })));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(hush).not.toBeDisabled();
+  });
+});
+>>>>>>> 6b0903f6 (Leave the room the Saved pane covers out of sight and out of reach)
 describe("Saved pane", () => {
+  const grace = { id: "u2", name: "Grace" };
+  const said: Message = { id: "m1", clientMessageId: "m1", roomId: "general", creator: grace, body: "For later", plainText: "For later", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
+  /** A room's socket, which keeps what it's sent, and which the test lets in. */
+  class RoomSocket {
+    static readonly OPEN = 1;
+    static last: RoomSocket | null = null;
+    readyState = 0;
+    sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(readonly url: string) {
+      if (url.includes("/api/rooms/")) RoomSocket.last = this;
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {}
+    letIn(page: Partial<TimelinePage> = {}) {
+      act(() => {
+        this.readyState = RoomSocket.OPEN;
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, ...page }) });
+      });
+    }
+  }
+  /** Where the pane covers the room instead of sitting beside it. */
+  const coversRoom = () =>
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));
+
   it("opens beside the room, and closes when a Jump is followed, which covers the message below 1180px wide", async () => {
-    const grace = { id: "u2", name: "Grace" };
-    const said: Message = { id: "m1", clientMessageId: "m1", roomId: "general", creator: grace, body: "For later", plainText: "For later", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
     serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
@@ -938,6 +1091,43 @@ describe("Saved pane", () => {
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
     expect(location.pathname).toBe("/rooms/general/@m1");
   });
+
+  it("takes focus when it opens, and leaves nothing of the room to reach behind it where it covers it", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/rooms/general");
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).not.toHaveAttribute("inert");
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(within(pane).getByRole("button", { name: "Close saved messages" })).toHaveFocus();
+    const composer = screen.getByRole("textbox", { name: "Write a message" });
+    expect(composer.closest("[inert]")).not.toBeNull();
+    // Closing it gives the room back.
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
+    expect(composer.closest("[inert]")).toBeNull();
+  });
+
+  it("opens the room it goes on to without reading it while the pane covers it, and reads it once it closes", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/account/edit");
+    expect(await communitySettings()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(location.pathname).toBe("/rooms/general");
+    const room = RoomSocket.last!;
+    // The pane covers the room, which opens as a hidden tab's would: reading nothing, counting as away.
+    expect(room.url).toContain("visible=0");
+    room.letIn();
+    expect(room.sent).toEqual([]);
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "presence.visible", visible: true }));
+    expect(room.sent).not.toContainEqual({ type: "presence.visible", visible: false });
+  });
+
 });
 
 describe("New releases", () => {

@@ -18,8 +18,8 @@ import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
 import { ThreadPanel } from "./thread-panel";
 
-/** Where a thread covers its room, rather than showing beside it: below 1180px wide. */
-const THREAD_COVERS_ROOM = "(width < 73.75rem)";
+/** Where a thread or the Saved pane covers its room, rather than showing beside it: below 1180px wide. */
+export const THREAD_COVERS_ROOM = "(width < 73.75rem)";
 
 interface Props {
   room: Room;
@@ -44,6 +44,8 @@ interface Props {
   involvement: Involvement;
   /** When the room was marked unread as of when it was opened, which the timeline draws a New line at, or null. */
   newSince?: string | null;
+  /** Whether the Saved pane covers the room, which leaves it nothing to reach and keeps it from counting as seen. */
+  savedCovered?: boolean;
   /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
@@ -59,8 +61,10 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
-  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
+export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, savedCovered = false, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
+  // Saved open where it covers the room keeps it from counting as seen, so what's said there goes
+  // unread until the pane closes, as much as it would in a hidden tab.
+  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId, !savedCovered);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
@@ -94,8 +98,9 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   const composer = useRef<ComposerHandle>(null);
   const { editing, editors } = useMessageEditors(composer);
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
-  // A thread that covers the room leaves nothing of it to reach until it's closed.
-  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined;
+  // A thread that covers the room leaves nothing of it to reach until it's closed, and so does the
+  // Saved pane, where it covers the room rather than sitting beside it.
+  const covered = (useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined) || savedCovered;
 
   // Up Arrow edits your newest message, unless it's still on its way, or the timeline is reading older
   // history and may not hold it.
