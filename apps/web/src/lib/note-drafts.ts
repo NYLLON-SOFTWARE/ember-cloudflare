@@ -9,7 +9,7 @@ const draftPrefixOf = (userId: UserId) => `todo-draft-${userId}`;
 
 /** A draft: its text and files, and the note as of when it was started, which it's a change to. */
 export interface Draft {
-  /** Its text, or "" for the note's own. */
+  /** Its text, all of it: "" when it was cleared, with files left. */
   html: string;
   files: NoteFile[];
   /** What the note it was written over held, as `baseOf` has it. */
@@ -57,7 +57,7 @@ export function keepDraft(key: string, draft: Draft | null): void {
 /** A note's text and files to start from: its draft, if it was written over the note as it is now, or else the note's own. */
 export function startingDraft(key: string, item: SavedItem | undefined): { html: string; files: NoteFile[] } {
   const draft = readDraft(key);
-  if (draft && draft.base === baseOf(item)) return { html: draft.html || (item?.body ?? ""), files: draft.files };
+  if (draft && draft.base === baseOf(item)) return { html: draft.html, files: draft.files };
   // Changed since, here or elsewhere: what's saved now wins over an older draft.
   if (draft) keepDraft(key, null);
   return { html: item?.body ?? "", files: item?.files ?? [] };

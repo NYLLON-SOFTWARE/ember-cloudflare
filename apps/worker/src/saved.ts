@@ -49,6 +49,7 @@ const FILE_NOT_FOUND = "That file isn't one of yours";
 const EMPTY_NOTE = "Write something or add a file";
 const TOO_MANY_WAITING = "Add the files you've sent to a to-do, or wait a day, before sending more.";
 const FILES_CHANGED = "That to-do's files have changed since you opened it";
+const NOT_A_NOTE = "Only a to-do of your own has its own text and files";
 
 const isList = (value: string | null): value is SavedList => SAVED_LISTS.includes(value as SavedList);
 
@@ -184,8 +185,13 @@ async function takeFiles(env: Env, credentials: Credentials, userId: UserId, ids
     await space.releaseNoteUploads(credentials, taken ?? []);
     return null;
   }
-  const kept = await put(files);
-  if (!kept) await space.releaseNoteUploads(credentials, ids);
+  // They wait again unless the note is kept, however keeping it fails.
+  let kept = false;
+  try {
+    kept = await put(files);
+  } finally {
+    if (!kept) await space.releaseNoteUploads(credentials, ids);
+  }
   return kept;
 }
 
@@ -292,6 +298,8 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
     const before = await space.savedItem(credentials!, id);
     if (!before || before === "missing") return problem(before ? 404 : 401, before ? ITEM_NOT_FOUND : NOT_SIGNED_IN);
     if (reminding && before.list !== "todo") return problem(422, REMINDER_NOT_IN_SAVED);
+    // A message or file keeps what its room has; files claimed for one would wait for nothing.
+    if (rewriting && before.kind !== "note") return problem(422, NOT_A_NOTE);
     const fileIds = asked.fileIds ?? before.files.map(({ key }) => key);
     // A note keeps some text or a file.
     if (rewriting && before.kind === "note" && (change.note?.body ?? before.body ?? "") === "" && fileIds.length === 0) return problem(422, EMPTY_NOTE);
@@ -309,8 +317,13 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
     await space.releaseNoteUploads(credentials!, claimed ?? []);
     return problem(422, FILE_NOT_FOUND);
   }
-  const changed = await space.changeSavedItem(credentials!, id, change);
-  if (typeof changed !== "object" || changed === null) await space.releaseNoteUploads(credentials!, added);
+  let changed: Awaited<ReturnType<typeof space.changeSavedItem>> = null;
+  try {
+    changed = await space.changeSavedItem(credentials!, id, change);
+  } finally {
+    // The files it took wait again unless the note carries them now, however the change fails.
+    if (typeof changed !== "object" || changed === null) await space.releaseNoteUploads(credentials!, added);
+  }
   if (!changed) return problem(401, NOT_SIGNED_IN);
   if (changed === "missing") return problem(404, ITEM_NOT_FOUND);
   if (changed === "full") return problem(422, SAVED_LIST_FULL);

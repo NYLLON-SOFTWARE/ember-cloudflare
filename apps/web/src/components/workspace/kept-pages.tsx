@@ -96,6 +96,8 @@ interface Props {
   renderRoom?: (place: KeptPlace, panes: RoomPanes) => ReactNode;
   /** Called with which panes are open, and what closes the deepest, for a phone's back stack. */
   onPaneStack?: (stack: PaneStack) => void;
+  /** Called with the room of the item open, which Cmd+F searches and the huddle key huddles in, or null with none. */
+  onRoomShown?: (roomId: RoomId | null) => void;
 }
 
 /**
@@ -177,7 +179,7 @@ export function SavedPage(props: Omit<Props, "list">) {
   return <KeptPage list="saved" {...props} />;
 }
 
-function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }: Props) {
+function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack, onRoomShown }: Props) {
   const names = NAMES[list];
   useTitle(names.title);
   const mounted = useMounted();
@@ -257,6 +259,11 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const roomsById = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
   const shown = useMemo(() => (items ? sorted(items.filter((item) => shows(filter, item)), sort) : []), [items, filter, sort]);
   const selected = itemId === undefined ? null : (items?.find((item) => item.id === itemId) ?? null);
+  const shownRoomId = selected && !selected.unavailable ? (selected.roomId ?? null) : null;
+  useEffect(() => {
+    onRoomShown?.(shownRoomId);
+    return () => onRoomShown?.(null);
+  }, [shownRoomId, onRoomShown]);
 
   const failed = (error: unknown) => mounted.current && onFailed(error);
   /** Takes `item` as it is now, in this list or out of it. */

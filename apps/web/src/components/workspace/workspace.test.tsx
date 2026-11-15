@@ -1275,6 +1275,15 @@ describe("Search box", () => {
     expect(boxTokens()).toEqual(["in:random"]);
   });
 
+  it("opens on Ctrl+F in the room of the to-do open", async () => {
+    const todo = { id: "t1", list: "todo", kind: "message", roomId: "random", messageId: "m1", message: null, completedAt: null, remindAt: null, createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z" };
+    serve({ "GET /api/searches?q=": () => Response.json(nothing), "GET /api/saved?list=todo": () => Response.json({ items: [todo] }) });
+    const { user } = showWorkspace("/todos/t1");
+    await screen.findByText("This message was deleted");
+    await user.keyboard("{Control>}f{/Control}");
+    expect(boxTokens()).toEqual(["in:random"]);
+  });
+
   it("opens on Ctrl+F in the room shown, and with the search the results page shows, leaving the key to the browser in a dialog", async () => {
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();

@@ -38,9 +38,14 @@ describe("A to-do's draft", () => {
     expect(startingDraft(key, note({ files: [] })).html).toBe("<p>Call Grace</p>");
   });
 
-  it("keeps files attached and not saved, with the note's own text when that wasn't changed", () => {
-    keepDraft(key, { html: "", files: [file("a"), file("b")], base: baseOf(note()) });
+  it("keeps files attached and not saved, with the text as it was", () => {
+    keepDraft(key, { html: "<p>Call Grace</p>", files: [file("a"), file("b")], base: baseOf(note()) });
     expect(startingDraft(key, note())).toEqual({ html: "<p>Call Grace</p>", files: [file("a"), file("b")] });
+  });
+
+  it("keeps text cleared from a note that has files cleared", () => {
+    keepDraft(key, { html: "", files: [file("a")], base: baseOf(note()) });
+    expect(startingDraft(key, note())).toEqual({ html: "", files: [file("a")] });
   });
 
   it("goes to a new to-do when its note is cleared elsewhere, with the files added since but not the note's", () => {

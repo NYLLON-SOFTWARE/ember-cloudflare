@@ -2,6 +2,7 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { FILE_NAME_NOT_KEPT, MAX_NOTE_FILE_SIZE, MAX_SAVED_ITEMS, NOTE_FILES_PATH, REMINDER_NOT_AHEAD, REMINDER_NOT_IN_SAVED, SAVED_LIST_FULL, type NoteFile, type SavedItem, type SavedItems, type SavedList, type SavedMark, type SavedMarks, type WorkspaceServerFrame, type ActivityPage } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
+import { SavedStore } from "../src/saved-store";
 import { api, connect, createRoom, freshDeploy, freshRoom, openWorkspaceSocket, post, pushBrowser, signIn, startUpload, upload, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
 
 const as = (session: Session) => ({ headers: { Cookie: session.cookie } });
@@ -377,6 +378,43 @@ describe("To-dos of your own", () => {
     expect(files).toHaveLength(1);
     expect((await api(files![0]!.url)).status).toBe(200);
     expect((await api((files![0]!.id === a.id ? b : a).url)).status).toBe(404);
+  });
+
+  it("gives a saved message no text or files of its own, taking none of your files for it", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("Design");
+    const message = await said(room, ada, "Good read");
+    const item = await kept(ada, { list: "saved", roomId: room, messageId: message.id });
+    const file = (await (await sendNoteFile(ada, "big.bin", "x")).json()) as NoteFile;
+
+    for (const asked of [{ fileIds: [file.id] }, { body: "<p>Mine now</p>" }]) {
+      const response = await change(ada, item.id, asked);
+      expect(response.status, JSON.stringify(asked)).toBe(422);
+      expect(await response.json()).toEqual({ error: "Only a to-do of your own has its own text and files" });
+    }
+    // The file still waits for a note, counted and cleaned up as any.
+    expect(await workspaceSql("SELECT key FROM note_uploads")).toEqual([{ key: file.id }]);
+    expect((await listOf(ada, "saved"))[0]).toMatchObject({ id: item.id, kind: "message" });
+  });
+
+  it("puts a note's files back to wait when keeping or changing it fails, so they can be sent again", async () => {
+    const ada = await signIn("Ada");
+    const file = (await (await sendNoteFile(ada, "list.txt", "milk")).json()) as NoteFile;
+    // Writing fails once, as a storage error would.
+    const failOnce = (method: "keepNote" | "change") =>
+      vi.spyOn(SavedStore.prototype, method).mockImplementationOnce(async () => {
+        throw new Error("Storage reset");
+      });
+
+    failOnce("keepNote");
+    expect((await keep(ada, { list: "todo", body: "", fileIds: [file.id] }).catch(() => null))?.status ?? 500).toBe(500);
+    expect(await workspaceSql("SELECT key FROM note_uploads")).toEqual([{ key: file.id }]);
+    const note = await kept(ada, { list: "todo", body: "<p>Groceries</p>" });
+
+    failOnce("change");
+    expect((await change(ada, note.id, { fileIds: [file.id] }).catch(() => null))?.status ?? 500).toBe(500);
+    expect(await workspaceSql("SELECT key FROM note_uploads")).toEqual([{ key: file.id }]);
+    expect((await changed(ada, note.id, { fileIds: [file.id] })).files?.map(({ id }) => id)).toEqual([file.id]);
   });
 
   it("changes nothing else of a note when the list it's to move to is full", async () => {

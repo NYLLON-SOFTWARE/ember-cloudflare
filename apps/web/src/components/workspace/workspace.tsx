@@ -601,9 +601,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
   const currentRoomId = room?.id ?? null;
-  // The conversation Activity has open in a pane, which Cmd+F searches and the huddle key huddles in, as
-  // they do the room shown.
-  const paneRoom = route.page === "activity" && route.roomId !== undefined ? (rooms?.find((r) => r.id === route.roomId) ?? null) : null;
+  const [keptRoomId, setKeptRoomId] = useState<RoomId | null>(null);
+  // The conversation Activity has open in a pane, or the room of the item To-dos or Saved has open, which
+  // Cmd+F searches and the huddle key huddles in, as they do the room shown.
+  const paneRoomId = route.page === "activity" ? route.roomId : route.page === "todos" || route.page === "saved" ? (keptRoomId ?? undefined) : undefined;
+  const paneRoom = paneRoomId !== undefined ? (rooms?.find((r) => r.id === paneRoomId) ?? null) : null;
   const unreadConversations = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length;
 
   // Someone's profile, open beside the room, Activity's conversation or the People page, as the address's `profile` says,
@@ -883,7 +885,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           />
         ));
       case "todos":
-        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} onPaneStack={phone ? paneHistory : undefined} />);
+        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} onPaneStack={phone ? paneHistory : undefined} onRoomShown={setKeptRoomId} />);
       case "saved":
         return rarePage(({ SavedPage }) => (
           <SavedPage
@@ -892,6 +894,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             rooms={rooms ?? NO_ROOMS}
             onFailed={failed}
             onPaneStack={phone ? paneHistory : undefined}
+            onRoomShown={setKeptRoomId}
             renderRoom={(place, panes) => roomPane(rooms ?? NO_ROOMS, place, `saved/${route.itemId}`, panes)}
           />
         ));
