@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ClientFrame, User } from "@ember/protocol";
 import { createFrame, takeBack, takeBackAll } from "@/lib/outbox";
-import { initialRoomState, isPending, isQueued, UNSENT_KEPT_MS, type PendingMessage, type RoomAction, type RoomState } from "@/lib/room-state";
-import { forgetInRoom, keepUnsent, keptInRoom, keptUnsent, onTakenElsewhere } from "@/lib/unsent-store";
+import { dequeued, initialRoomState, isPending, isQueued, UNSENT_KEPT_MS, type PendingMessage, type RoomAction, type RoomState } from "@/lib/room-state";
+import { forgetInRoom, keepNotSent, keepUnsent, keptInRoom, keptUnsent, onTakenElsewhere } from "@/lib/unsent-store";
 
 // What a view of a room's timeline, or of a thread, does with what's written but not yet in the room, as
 // Slack does: it waits through a connection's dropping, shown as sending, kept in this browser through a
@@ -11,13 +11,21 @@ import { forgetInRoom, keepUnsent, keptInRoom, keptUnsent, onTakenElsewhere } fr
 // or forget with Delete.
 
 /**
+ * `messages` as they come back to a view, those that have waited `UNSENT_KEPT_MS` without going shown as
+ * not sent, as they would have been had their view stayed open, rather than sent long after.
+ */
+function givenUpOn(messages: PendingMessage[], now = Date.now()): PendingMessage[] {
+  return messages.map((m) => (isQueued(m) && Date.parse(m.queuedAt ?? m.createdAt) <= now - UNSENT_KEPT_MS ? { ...dequeued(m), failed: true } : m));
+}
+
+/**
  * What this page left unsent in the timeline of room `roomId`, or the thread of its message `parentId`:
  * what the outbox kept as the view went, and what this browser kept through a reload, each once.
  */
 export function takeBackUnsent(roomId: string, me: User, parentId?: string): PendingMessage[] {
   const fromOutbox = takeBack(roomId, me, parentId);
   const taken = new Set(fromOutbox.map((m) => m.clientMessageId));
-  return [...fromOutbox, ...keptUnsent(roomId, me.id, parentId).filter((m) => !taken.has(m.clientMessageId))];
+  return givenUpOn([...fromOutbox, ...keptUnsent(roomId, me.id, parentId).filter((m) => !taken.has(m.clientMessageId))]);
 }
 
 /** Retry and Delete for a message shown as not sent, which Edit uses too, having written it in the composer. */
@@ -59,10 +67,10 @@ export function useUnsent(
   // If that tab is still open and sends it too, the room posts it once.
   const sendLeftElsewhere = useEffectEvent(() => {
     const here = new Set(latestMessages().map((m) => m.clientMessageId));
-    const left = keptUnsent(roomId, me.id, parentId).filter((m) => m.queued && !here.has(m.clientMessageId));
+    const left = givenUpOn(keptUnsent(roomId, me.id, parentId).filter((m) => m.queued && !here.has(m.clientMessageId)));
     if (left.length === 0) return;
     dispatch({ type: "kept", messages: left });
-    const sent = left.filter((m) => send(createFrame(m))).map((m) => m.clientMessageId);
+    const sent = left.filter((m) => isQueued(m) && send(createFrame(m))).map((m) => m.clientMessageId);
     if (sent.length > 0) dispatch({ type: "sent", clientMessageIds: sent });
   });
   useEffect(() => {
@@ -104,7 +112,10 @@ export function useUnsentInGoneRoom(roomId: string, me: User): { messages: Pendi
     for (const m of left) keepUnsent(roomId, me.id, m.parentId, [m]);
     const kept = keptInRoom(roomId, me.id);
     const ids = new Set(kept.map((m) => m.clientMessageId));
-    setMessages([...kept, ...left.filter((m) => !ids.has(m.clientMessageId))]);
+    // Not sent from now on, so that being let back in later doesn't send them without a Retry.
+    const unsent = [...kept, ...left.filter((m) => !ids.has(m.clientMessageId))].map((m): PendingMessage => (m.failed ? m : { ...dequeued(m), failed: true }));
+    keepNotSent(roomId, unsent);
+    setMessages(unsent);
   }, [roomId, me.id]);
   const forget = useCallback(
     (clientMessageId: string) => {

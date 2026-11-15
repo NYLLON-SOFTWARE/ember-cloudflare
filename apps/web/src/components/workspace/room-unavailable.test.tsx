@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import type { PendingMessage } from "@/lib/room-state";
-import { keepUnsent, keptInRoom } from "@/lib/unsent-store";
+import { keepUnsent, keptInRoom, keptUnsent } from "@/lib/unsent-store";
 import { RoomUnavailable } from "./room-unavailable";
 
 /** The pane, in the drawer's sheet that its bar's button opens, as the workspace has it. */
@@ -46,6 +46,14 @@ describe("A room that's gone", () => {
     await userEvent.click(within(first).getByRole("button", { name: "Delete" }));
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
     expect(keptInRoom(leads.id, ada.id).map((m) => m.plainText)).toEqual(["Second thought"]);
+  });
+
+  it("keeps what's listed as not sent, so being let back in later doesn't send it without a Retry", async () => {
+    keepUnsent(leads.id, ada.id, undefined, [unsent("Before I was removed")]);
+    show({ room: leads, roomId: leads.id, gone: "lost access", goTo: general, me: ada });
+    await screen.findByRole("list", { name: "Not sent" });
+    expect(keptUnsent(leads.id, ada.id)).toMatchObject([{ plainText: "Before I was removed", failed: true }]);
+    expect(keptUnsent(leads.id, ada.id)[0]).not.toHaveProperty("queued");
   });
 
   it("lists them for the address's room once the page no longer knows the room, as after a reload", async () => {

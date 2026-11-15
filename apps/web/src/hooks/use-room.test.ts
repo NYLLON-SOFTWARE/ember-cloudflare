@@ -273,6 +273,22 @@ describe("Catch up after a reconnect", () => {
     expect(keptUnsent("general", ada.id)).toEqual([]);
   });
 
+  it(`shows what waited ${UNSENT_KEPT_MS / 60_000} minutes through a reload as not sent, rather than sending it as the room's next view connects`, () => {
+    const first = joinGeneral();
+    socket().drop();
+    act(() => first.result.current.postMessage("Long ago"));
+    first.unmount();
+    takeBack("general", ada);
+    wait(UNSENT_KEPT_MS);
+
+    const { result } = joinGeneral();
+    expect(result.current.state.messages).toMatchObject([{ body: "Long ago", pending: true, failed: true }]);
+    expect(result.current.state.messages[0]).not.toHaveProperty("queued");
+    expect(socket().sentOfType("message.create")).toEqual([]);
+    // And so it stays, through the next reload.
+    expect(keptUnsent("general", ada.id)).toMatchObject([{ body: "Long ago", failed: true }]);
+  });
+
   it(`shows what's waited ${UNSENT_KEPT_MS / 60_000} minutes without the room as not sent, which Retry sends`, () => {
     const { result } = joinGeneral();
     socket().drop();
@@ -1476,6 +1492,17 @@ describe("Several tabs of the same room", () => {
     socket().open();
     socket().receive(welcome());
     expect(socket().sentOfType("message.create")).toEqual([]);
+  });
+
+  it(`shows what another tab left waiting ${UNSENT_KEPT_MS / 60_000} minutes ago as not sent, rather than sending it`, () => {
+    const { result } = joinGeneral();
+    socket().drop();
+    keptElsewhere("Stale");
+    wait(UNSENT_KEPT_MS);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toEqual([]);
+    expect(result.current.state.messages).toMatchObject([{ body: "Stale", pending: true, failed: true }]);
   });
 
   it("forgets what another tab has sent or deleted, rather than sending it again", () => {
