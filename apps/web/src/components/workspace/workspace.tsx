@@ -30,12 +30,14 @@ import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { NewDirectDialog } from "./new-direct-dialog";
+import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar } from "./sidebar";
+import { UpdatedNotice } from "./updated-notice";
 import { WelcomePage } from "./welcome-page";
 
 type RarePages = typeof import("./pages");
@@ -198,9 +200,9 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 
 /**
  * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
- * home to the last room visited, `/rooms` to the newest room, a room's address for its kind to the
- * room's own, and a DM's settings home, unless it's theirs. New direct message's goes home too, under
- * the dialog it opens, and a message's own address goes on to its permalink.
+ * home to the last room visited, `/rooms` to the room they were put in latest, a room's address for its
+ * kind to the room's own, and a DM's settings home, unless it's theirs. New direct message's goes home
+ * too, under the dialog it opens, and a message's own address goes on to its permalink.
  */
 function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
@@ -865,7 +867,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           </SheetContent>
 
           {page()}
-          <MovedNotice />
+          <Notices>
+            <MovedNotice />
+            <UpdatedNotice />
+          </Notices>
           {newDirect && (
             <NewDirectDialog
               opener={newDirect.opener}
