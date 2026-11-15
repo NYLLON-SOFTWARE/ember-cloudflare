@@ -191,7 +191,7 @@ test("Home's top bar is the workspace's name and your avatar, which opens the Yo
   await expect(top.getByRole("button")).toHaveText([""]);
   await top.getByRole("button", { name: "You" }).tap();
   const you = page.getByRole("dialog", { name: session.user.name });
-  await expect(you.getByRole("link")).toHaveText(["Your profile", "Workspace"]);
+  await expect(you.getByRole("link")).toHaveText(["Your profile", "Notifications", "Workspace"]);
   await expect(you.getByRole("group", { name: "Appearance" }).getByRole("radio")).toHaveCount(3);
   await screenIsFine();
   await you.getByRole("link", { name: "Your profile" }).tap();

@@ -24,10 +24,11 @@ const notificationsOn = { beforeOpen: (page: Page) => allowNotifications(page.co
 const roomRow = (page: Page, name: string) => roomRows(page).filter({ hasText: name });
 
 /** Opens your profile from the rail, where your rooms and DMs are listed with their bells. */
-async function openYourProfile(page: Page) {
+/** Preferences › Notifications, from your profile, as the rail's avatar opens it. */
+async function openNotifications(page: Page) {
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
-  await expect(page).toHaveURL(/\/users\/me\/profile$/);
-  return page.getByRole("list", { name: "Conversation notifications" });
+  await page.getByRole("link", { name: "Notifications", exact: true }).click();
+  await expect(page).toHaveURL(/\/users\/me\/notifications$/);
 }
 
 test.describe("Notification levels", () => {
@@ -186,35 +187,30 @@ test.describe("Turn on notifications", () => {
   });
 });
 
-test.describe("Levels on your profile", () => {
-  test("lists your rooms by name, then your DMs, each with its bell, and dims a room you hide there, leaving it out of the sidebar", async ({ members, request, rooms }) => {
+test.describe("Levels on Preferences › Notifications", () => {
+  test("lists your rooms by name, then your DMs, each with its level, and a room picked Hidden leaves the sidebar until it follows the default again", async ({ members, request, rooms }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"), { path: `/rooms/${rooms.random.id}` });
     await startDirect(request, ada, [grace]);
     await ada.send("Lunch?");
     await expect(roomRow(grace.page, "general")).toHaveAccessibleDescription(/^Unread/);
 
-    const list = await openYourProfile(grace.page);
-    await expect(list.getByRole("link")).toHaveText(["general", "random", ada.name]);
-    // Each bell's name is its label's text.
-    await expect(list.getByRole("checkbox")).toHaveText([MENTIONS, MENTIONS, EVERYTHING]);
-    // A rule between the rooms and the DMs.
-    expect(await list.evaluate((menu) => [...menu.children].map((child) => child.tagName))).toEqual(["LI", "LI", "HR", "LI"]);
-    await expect(list.getByRole("link", { name: "general", exact: true })).toHaveAttribute("href", `/rooms/${rooms.general.id}`);
+    await openNotifications(grace.page);
+    const pickers = grace.page.getByRole("combobox", { name: /^Notifications for / });
+    await expect(pickers).toHaveCount(3);
+    expect(await pickers.evaluateAll((pickers) => pickers.map((picker) => picker.getAttribute("aria-label")))).toEqual([
+      `Notifications for ${rooms.general.name}`,
+      `Notifications for ${rooms.random.name}`,
+      `Notifications for ${ada.name}`,
+    ]);
 
-    const general = list.getByRole("listitem").filter({ has: grace.page.getByRole("link", { name: "general", exact: true }) });
-    const bell = general.getByRole("checkbox");
-    for (const level of [EVERYTHING, NOTHING, INVISIBLE]) {
-      await bell.click();
-      await expect(bell).toHaveAccessibleName(level);
-    }
-    await expect(general).toHaveCSS("opacity", "0.5");
+    const general = grace.page.getByRole("combobox", { name: `Notifications for ${rooms.general.name}` });
+    await expect(general).toHaveValue("default");
+    await general.selectOption("invisible");
     await expect(roomRows(grace.page)).toHaveText(["#random"]);
 
     // Shown again, it's still marked unread from before it was hidden.
-    await bell.click();
-    await expect(bell).toHaveAccessibleName(MENTIONS);
-    await expect(general).toHaveCSS("opacity", "1");
+    await general.selectOption("default");
     await expect(roomRows(grace.page)).toHaveText(["#general", "#random"]);
     await expect(roomRow(grace.page, "general")).toHaveAccessibleDescription(/^Unread/);
   });

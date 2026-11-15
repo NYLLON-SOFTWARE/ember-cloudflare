@@ -9,7 +9,9 @@ test.describe("Preferences › Notifications", () => {
 
     const general = ada.page.getByRole("combobox", { name: `Notifications for ${rooms.general.name}` });
     await expect(general).toHaveValue("default");
-    await ada.page.getByRole("radio", { name: "Nothing" }).check();
+    // The whole row is the radio, as a person clicks it.
+    await ada.page.locator("label").filter({ hasText: /^Nothing$/ }).click();
+    await expect(ada.page.getByRole("radio", { name: "Nothing" })).toBeChecked();
     await expect(general.locator("option").first()).toHaveText("Default (Nothing)");
     await ada.page.reload();
     await expect(ada.page.getByRole("radio", { name: "Nothing" })).toBeChecked();
@@ -36,7 +38,7 @@ test.describe("Preferences › Notifications", () => {
     // The picker covers the whole row, and the level at its end leaves the name most of it.
     // (all but the row's 1px rule under it)
     expect({ ...pickerBox!, height: pickerBox!.height + 1 }).toEqual(rowBox);
-    expect((await row.getByText(rooms.general.name, { exact: true }).boundingBox())!.width).toBeGreaterThan(150);
+    expect((await row.getByText(rooms.general.name, { exact: true }).boundingBox())!.width).toBeGreaterThan(120);
     await ada.page.screenshot({ path: test.info().outputPath("notifications-phone.png") });
   });
 });

@@ -45,14 +45,15 @@ test.describe("Notification levels", () => {
     await openRoom(page, named);
     const details = await roomDetails(page, LONG_NAME);
     const notifications = details.getByRole("button", { name: "Notifications" });
-    await expect(notifications).toHaveAccessibleDescription("@ mentions");
+    await expect(notifications).toHaveAccessibleDescription("Mentions");
     // Nothing to turn on where the phone can't have them.
     await expect(details.getByRole("button", { name: "Enable notifications" })).toHaveCount(0);
     await notifications.tap();
 
     const levels = page.getByRole("dialog", { name: "Notifications" }).getByRole("radiogroup", { name: "Notifications" });
-    await expect(levels.getByRole("radio")).toHaveText(["All messages", "@ mentions", "Off", "Off and hidden"]);
-    await expect(levels.getByRole("radio", { name: "@ mentions" })).toBeChecked();
+    // Default first, which the room follows until a level's picked for it.
+    await expect(levels.getByRole("radio")).toHaveText(["Default (Mentions)", "All messages", "Mentions", "Nothing", "Hidden"]);
+    await expect(levels.getByRole("radio", { name: "Default (Mentions)" })).toBeChecked();
     await screenIsFine();
     await levels.getByRole("radio", { name: "All messages" }).tap();
     await expect(levels).toBeHidden();
@@ -87,8 +88,8 @@ test.describe("Turn on notifications", () => {
   });
 });
 
-test.describe("Levels on your profile", () => {
-  test("your conversation notifications fit the phone, with long names and a room you've hidden", async ({ page, room, session, screenIsFine }) => {
+test.describe("Levels on Preferences › Notifications", () => {
+  test("every room's and DM's level fits the phone, with long names and a room you've hidden", async ({ page, room, session, screenIsFine }) => {
     const rooms: SidebarRoom[] = [
       { ...room, kind: "open", icon: null, unread: false, involvement: "mentions" },
       { id: `${room.id}-hidden`, name: LONG_NAME, kind: "open", icon: null, unread: false, involvement: "invisible" },
@@ -104,10 +105,10 @@ test.describe("Levels on your profile", () => {
     await page.route("**/api/sidebar", (route) =>
       route.fulfill({ json: { rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions: [], huddles: {} } satisfies Sidebar }),
     );
-    await page.goto("/users/me/profile");
-    const list = page.getByRole("list", { name: "Conversation notifications" });
-    await expect(list.getByRole("checkbox")).toHaveText(["Notifying about @ mentions", "Notifications are off and room invisible in sidebar", "Notifying about all messages"]);
-    await list.scrollIntoViewIfNeeded();
+    await page.goto("/users/me/notifications");
+    const pickers = page.getByRole("combobox", { name: /^Notifications for / });
+    await expect(pickers).toHaveCount(3);
+    await pickers.last().scrollIntoViewIfNeeded();
     await screenIsFine();
   });
 });

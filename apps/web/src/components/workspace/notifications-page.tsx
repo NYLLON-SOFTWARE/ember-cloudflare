@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { NOTIFICATION_LEVELS, startingInvolvement, type Involvement, type Me, type NotificationLevel, type NotificationSettings, type RoomId, type SidebarRoom } from "@ember/protocol";
 import { NavArrowDown } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
@@ -64,12 +64,16 @@ export function NotificationsPage({ me, rooms, askForRoom, onFailed }: Props) {
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const mounted = useMounted();
   const phone = usePhoneLayout();
-  const load = useEffectEvent(() =>
-    fetchNotificationSettings().then(
-      (loaded) => mounted.current && setSettings(loaded),
+  // How many saves have started, so the settings asked for before one aren't shown over what it saves.
+  const saves = useRef(0);
+  const saving = () => void saves.current++;
+  const load = useEffectEvent(() => {
+    const asked = saves.current;
+    return fetchNotificationSettings().then(
+      (loaded) => mounted.current && saves.current === asked && setSettings(loaded),
       (error: unknown) => (mounted.current || isSignedOut(error)) && onFailed(error),
-    ),
-  );
+    );
+  });
   useEffect(() => {
     void load();
     const again = () => document.visibilityState === "visible" && void load();
@@ -81,9 +85,10 @@ export function NotificationsPage({ me, rooms, askForRoom, onFailed }: Props) {
     };
   }, []);
 
-  const save = async (saving: Promise<NotificationSettings>) => {
+  const save = async (change: () => Promise<NotificationSettings>) => {
+    saving();
     try {
-      const saved = await saving;
+      const saved = await change();
       if (mounted.current) setSettings(saved);
     } catch (error) {
       if (mounted.current || isSignedOut(error)) onFailed(error);
@@ -92,6 +97,7 @@ export function NotificationsPage({ me, rooms, askForRoom, onFailed }: Props) {
   // The level picked shows at once, and goes back to what it was if it couldn't be saved.
   const changeLevel = (level: NotificationLevel) => {
     const before = settings?.level;
+    saving();
     setSettings((shown) => shown && { ...shown, level });
     void changeNotifications({ level }).then(
       (saved) => mounted.current && setSettings(saved),
@@ -114,14 +120,15 @@ export function NotificationsPage({ me, rooms, askForRoom, onFailed }: Props) {
         {settings && (
           <div className="mx-auto flex max-w-[640px] flex-col gap-8 px-[22px] pt-6 pb-[max(24px,env(safe-area-inset-bottom))] max-md:px-4">
             <DefaultLevel level={settings.level} onChange={changeLevel} />
-            <Pause pausedUntil={settings.pausedUntil} onChange={(pausedUntil) => void save(changeNotifications({ pausedUntil }))} />
+            <Pause pausedUntil={settings.pausedUntil} onChange={(pausedUntil) => void save(() => changeNotifications({ pausedUntil }))} />
             {rooms && (
               <RoomLevels
                 me={me}
                 rooms={rooms}
                 settings={settings}
                 onChosen={(chosen) => setSettings((shown) => shown && { ...shown, chosen })}
-                onResetAll={() => void save(resetNotificationLevels())}
+                onResetAll={() => void save(resetNotificationLevels)}
+                onSaving={saving}
                 askForRoom={askForRoom}
                 onFailed={onFailed}
               />
@@ -133,14 +140,29 @@ export function NotificationsPage({ me, rooms, askForRoom, onFailed }: Props) {
   );
 }
 
-/** "Notify me about": one of the levels, as radio buttons, each row a fingertip's 48px on a phone, in 16px type. */
+/**
+ * "Notify me about": one of the levels, as radio buttons, each row a fingertip's 48px on a phone, in 16px
+ * type. The whole row is the radio, as the appearance choices are: the input itself is hidden, and a ring
+ * drawn beside it shows it checked and focused.
+ */
 function DefaultLevel({ level, onChange }: { level: NotificationLevel; onChange: (level: NotificationLevel) => void }) {
   return (
     <fieldset className="flex flex-col">
       <legend className="mb-2 text-base font-semibold">Notify me about</legend>
       {NOTIFICATION_LEVELS.map((choice) => (
-        <label key={choice} className="flex min-h-11 cursor-pointer items-center gap-3 text-[15px] max-md:min-h-12 max-md:text-base">
-          <input type="radio" name="notification-level" checked={level === choice} onChange={() => onChange(choice)} className="size-4 shrink-0 accent-foreground max-md:size-5" />
+        <label key={choice} className="relative flex min-h-11 cursor-pointer items-center gap-3 text-[15px] max-md:min-h-12 max-md:text-base">
+          <input
+            type="radio"
+            name="notification-level"
+            checked={level === choice}
+            onChange={() => onChange(choice)}
+            className="peer absolute size-px opacity-0 [clip-path:inset(50%)]"
+          />
+          <span
+            aria-hidden="true"
+            data-radio
+            className="size-4 shrink-0 rounded-full border-2 border-muted-foreground peer-checked:border-foreground peer-checked:bg-foreground peer-checked:shadow-[inset_0_0_0_3px_var(--background)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-foreground max-md:size-5"
+          />
           {NOTIFICATION_LEVEL_LABELS[choice]}
         </label>
       ))}
@@ -216,6 +238,8 @@ interface RoomLevelsProps {
   rooms: SidebarRoom[];
   settings: NotificationSettings;
   onChosen: (chosen: RoomId[]) => void;
+  /** As a room's level starts saving. */
+  onSaving: () => void;
   onResetAll: () => void;
   askForRoom: () => (answer: RoomAnswer) => void;
   onFailed: (error: unknown) => void;
@@ -227,7 +251,7 @@ interface RoomLevelsProps {
  * its level at its end, muted while it follows the default. A search narrows them by name, and Reset all,
  * once asked, has all but the rooms you've hidden follow it again.
  */
-function RoomLevels({ me, rooms, settings, onChosen, onResetAll, askForRoom, onFailed }: RoomLevelsProps) {
+function RoomLevels({ me, rooms, settings, onChosen, onSaving, onResetAll, askForRoom, onFailed }: RoomLevelsProps) {
   const nameOf = useNameOf();
   const [query, setQuery] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -243,6 +267,7 @@ function RoomLevels({ me, rooms, settings, onChosen, onResetAll, askForRoom, onF
   const resettable = rooms.some((room) => chosen.has(room.id) && room.involvement !== "invisible");
 
   const pick = async (room: SidebarRoom, involvement: Involvement | "default") => {
+    onSaving();
     const answered = askForRoom();
     try {
       const saved = await setInvolvement(room.id, involvement);
@@ -291,7 +316,7 @@ function RoomLevels({ me, rooms, settings, onChosen, onResetAll, askForRoom, onF
                   aria-label={`Notifications for ${name}`}
                   value={own ? room.involvement : "default"}
                   onChange={(event) => void pick(room, event.target.value as Involvement | "default")}
-                  className="absolute inset-0 size-full cursor-pointer opacity-0"
+                  className="absolute inset-0 size-full cursor-pointer text-base opacity-0"
                 >
                   <option value="default">Default ({LEVEL_NAMES[startingInvolvement(room, settings.level)]})</option>
                   {(room.kind === "direct" ? DIRECT_CHOICES : ROOM_CHOICES).map((choice) => (

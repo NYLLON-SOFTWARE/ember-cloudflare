@@ -59,7 +59,9 @@ describe("Notifications page", () => {
     const level = await screen.findByRole("group", { name: "Notify me about" });
     for (const radio of within(level).getAllByRole("radio")) {
       expect(radio.closest("label")).toHaveClass("min-h-11", "max-md:min-h-12", "max-md:text-base");
-      expect(radio).toHaveClass("max-md:size-5");
+      // The row is the radio's target, and the ring drawn beside it is 20px.
+      expect(radio).toHaveClass("absolute", "opacity-0");
+      expect(radio.closest("label")!.querySelector("[data-radio]")).toHaveClass("max-md:size-5");
     }
   });
 
@@ -76,6 +78,28 @@ describe("Notifications page", () => {
     serve({ level: "mentions", pausedUntil: null, chosen: [] });
     act(() => void window.dispatchEvent(new Event("focus")));
     await vi.waitFor(() => expect(levelOf("Design")).toHaveValue("default"));
+  });
+
+  it("doesn't put back what a slow refetch answers once something's been saved since it was asked for (E-R32-3)", async () => {
+    const { user } = showPage();
+    const level = await screen.findByRole("group", { name: "Notify me about" });
+    // The tab takes focus again, and its settings are slow to come.
+    let answer: (response: Response) => void = () => {};
+    const old: NotificationSettings = { level: "mentions", pausedUntil: null, chosen: [] };
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    act(() => void window.dispatchEvent(new Event("focus")));
+    // Meanwhile Nothing and a room's level are saved.
+    await user.click(within(level).getByRole("radio", { name: "Nothing" }));
+    await user.selectOptions(levelOf("Design"), "everything");
+    await act(async () => answer(Response.json(old)));
+    expect(within(level).getByRole("radio", { name: "Nothing" })).toBeChecked();
+    // Still picked for Design, not following the default again.
+    expect(levelOf("Design")).not.toHaveValue("default");
+  });
+
+  it("gives each row's picker 16px type, so a phone doesn't zoom in as it opens (E-R32-4)", async () => {
+    showPage();
+    expect(await screen.findByRole("combobox", { name: "Notifications for Design" })).toHaveClass("text-base");
   });
 
   it("makes each whole row its level's picker, saying the level at its end, muted while it follows the default (R32-2, R32-3)", async () => {
