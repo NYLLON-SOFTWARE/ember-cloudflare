@@ -399,41 +399,70 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 
   const changed = () => wrote(editor.current!.isBlank() ? null : editor.current!.value());
 
+  // One submit of the composer's at a time, that Enter and Send pressed while the commands are asked
+  // for don't start a second one over what's still written, one command run twice, or newer writing
+  // lost.
+  const submitting = useRef(false);
+
+  // Writes back what the room wouldn't run as a command, for it to be sent again, so long as nothing
+  // else has been written by then, as a message the room wouldn't take stays written where it was.
+  const giveBack = useEffectEvent((written: RichTextEditorHandle, markup: string) => {
+    if (!written.isBlank()) return;
+    written.replace(markup);
+    written.focus();
+  });
+
   // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
   // written unless it's blank, closes the toolbar and focuses the editor, on touch screens too. Before
   // the editor shows, as its code loads, only the files go. Also send to the room is unticked once
   // anything's gone, as Slack unticks it. What's written that begins with one of the workspace's
   // commands goes as an invocation, which the room answers, and not as a message — and what begins with
   // a slash waits for the commands to be had first, that a registered one isn't posted to the room while
-  // they're on their way. One that couldn't be had keeps what's written to be sent again.
+  // they're on their way. One that couldn't be had keeps what's written to be sent again, and what's
+  // written by the time they arrive is what goes, so writing that waited with it is kept.
   const submit = async () => {
-    if (disabled) return;
-    if (picked.files.length > 0) {
-      onSendFiles(picked.files.map(({ file }) => file), alsoSend);
-      picked.clear();
-      setAlsoSend(false);
+    if (disabled || submitting.current) return;
+    submitting.current = true;
+    try {
+      if (picked.files.length > 0) {
+        onSendFiles(picked.files.map(({ file }) => file), alsoSend);
+        picked.clear();
+        setAlsoSend(false);
+      }
+      const written = editor.current;
+      if (!written) return;
+      if (!written.isBlank()) {
+        const asWritten = () => writtenBody(written.value()).plainText;
+        const wantsCommands = onRunCommand !== undefined && commandFragmentOf(asWritten()) !== null && commands === null;
+        const had = wantsCommands ? await needCommands() : commands;
+        if (wantsCommands && !had) return;
+        // Emptied while the commands were on their way is nothing to send.
+        if (written.isBlank()) return;
+        const markup = written.value();
+        const invocation = had && onRunCommand ? commandInvocationOf(asWritten(), had) : null;
+        if (invocation && onRunCommand) {
+          // What the room wouldn't run, as when its queue is full or the bot refused it, comes back to
+          // be sent again.
+          onRunCommand(invocation.command.name, invocation.text)
+            .catch(() => false)
+            .then((went) => {
+              if (!went) giveBack(written, markup);
+            });
+        }
+        // One the room won't take, as when it's too long, stays to be cut down.
+        else if (!onSend(markup, alsoSend)) return;
+        // Everyone else stops showing you as typing when your message arrives.
+        wasBlank.current = true;
+        written.clear();
+        keepDraft(key, null);
+        setAlsoSend(false);
+      }
+      setToolbarOpen(false);
+      setToolbarForLink(false);
+      written.focus();
+    } finally {
+      submitting.current = false;
     }
-    const written = editor.current;
-    if (!written) return;
-    if (!written.isBlank()) {
-      const markup = written.value();
-      const plain = writtenBody(markup).plainText;
-      const wantsCommands = onRunCommand !== undefined && commandFragmentOf(plain) !== null && commands === null;
-      const had = wantsCommands ? await needCommands() : commands;
-      if (wantsCommands && !had) return;
-      const invocation = had && onRunCommand ? commandInvocationOf(plain, had) : null;
-      if (invocation && onRunCommand) onRunCommand(invocation.command.name, invocation.text);
-      // One the room won't take, as when it's too long, stays to be cut down.
-      else if (!onSend(markup, alsoSend)) return;
-      // Everyone else stops showing you as typing when your message arrives.
-      wasBlank.current = true;
-      written.clear();
-      keepDraft(key, null);
-      setAlsoSend(false);
-    }
-    setToolbarOpen(false);
-    setToolbarForLink(false);
-    written.focus();
   };
 
   // Completes the command picked from the menu, as the people to mention are completed: what's written

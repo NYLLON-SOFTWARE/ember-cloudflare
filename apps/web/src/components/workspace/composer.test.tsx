@@ -848,4 +848,112 @@ describe("Slash commands", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(input).toHaveValue("");
   });
+
+  it("runs what began with a slash once, though Enter is pressed again while the commands wait", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy production");
+    await user.keyboard("{Enter}");
+    // A second Enter while the first send waits for the commands starts nothing: one submit at a time,
+    // that the bot isn't told twice of what was typed once.
+    await user.keyboard("{Enter}");
+    expect(onRunCommand).not.toHaveBeenCalled();
+
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("sends what a send became while the commands waited, rather than what waited", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Enter}");
+    // Written over while the commands were on their way: what's written by then is what goes, as a
+    // message, and the slash that waited is gone with it.
+    await user.clear(input);
+    await user.type(input, "hello there");
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await vi.waitFor(() => expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>hello there</p>", false));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("completes what a send grew into while the commands waited", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Enter}");
+    await user.type(input, " production");
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("sends nothing of a send emptied while the commands waited", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Enter}");
+    await user.clear(input);
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await act(async () => {});
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written when the room wouldn't run the command, for it to be sent again", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    onRunCommand!.mockResolvedValueOnce(false);
+    await user.type(input, "/deploy production");
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(input).toHaveValue("/deploy production"));
+    // The room wouldn't take it, so it's given back, kept as the draft as well, to be sent again.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>/deploy production</p>");
+
+    // Sent again once the room would take it.
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledTimes(2));
+    expect(input).toHaveValue("");
+  });
+
+  it("leaves newer writing be when the room wouldn't run the command", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let refuse!: (went: boolean) => void;
+    onRunCommand!.mockImplementationOnce(async () => new Promise<boolean>((resolve) => (refuse = resolve)));
+    await user.type(input, "/deploy production");
+    await user.keyboard("{Enter}");
+    expect(input).toHaveValue("");
+    // Something else is written by the time the room refuses the command, which stays written.
+    await user.type(input, "never mind");
+    act(() => refuse(false));
+    await act(async () => {});
+    expect(input).toHaveValue("never mind");
+  });
 });
