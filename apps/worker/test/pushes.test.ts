@@ -470,11 +470,11 @@ describe("Who gets a push", () => {
       await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
         const store = (workspace as unknown as { store: WorkspaceStore }).store;
         const pushable = store.pushable.bind(store);
-        store.pushable = async (id) => {
+        store.pushable = async (id: number, now: number) => {
           store.pushable = pushable;
           asked = true;
           await released;
-          answers.push(await pushable(id));
+          answers.push(await pushable(id, now));
           return answers.at(-1)!;
         };
       });

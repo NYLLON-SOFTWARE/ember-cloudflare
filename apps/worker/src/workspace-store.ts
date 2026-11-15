@@ -1774,6 +1774,22 @@ const PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push
     AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = push_subscriptions.user_id AND dnd.until_at > ?2)
     AND (users.guest = 0 OR NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at <= ?2))`;
 
+/**
+ * When someone has hushed their push notifications (Do not disturb) until, in milliseconds since the
+ * epoch, or null while they haven't, or their hush has passed: a stale row is simply none.
+ */
+const DND_UNTIL = `SELECT until_at FROM dnd WHERE user_id = ?1 AND until_at > ?2`;
+
+/**
+ * Hushes someone's push notifications (Do not disturb) until `untilAt`, in milliseconds since the epoch.
+ * A hush they had is overwritten all the same, so it's stale rather than wrong.
+ */
+const SET_DND = `INSERT INTO dnd (user_id, until_at) VALUES (?1, ?2)
+  ON CONFLICT (user_id) DO UPDATE SET until_at = excluded.until_at RETURNING until_at`;
+
+/** Lifts the hush on someone's push notifications, taking their row away. */
+const CLEAR_DND = `DELETE FROM dnd WHERE user_id = ?`;
+
 /** A subscription a push goes to, and the count it sets the badge to. */
 interface DeliveryRow {
   id: number;
