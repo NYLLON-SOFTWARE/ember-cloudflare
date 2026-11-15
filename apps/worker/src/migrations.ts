@@ -67,8 +67,8 @@ import profileFields from "../migrations/0066_profile_fields.sql";
 import reminders from "../migrations/0067_reminders.sql";
 import reminderPushRetries from "../migrations/0068_reminder_push_retries.sql";
 import statuses from "../migrations/0069_statuses.sql";
-import reminderPushes from "../migrations/0074_reminder_pushes.sql";
 import saves from "../migrations/0070_saves.sql";
+import reminderPushes from "../migrations/0074_reminder_pushes.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -162,8 +162,8 @@ export const MIGRATIONS: Migration[] = [
   { name: "0067_reminders.sql", scope: "workspace", sql: reminders },
   { name: "0068_reminder_push_retries.sql", scope: "workspace", sql: reminderPushRetries },
   { name: "0069_statuses.sql", scope: "workspace", sql: statuses },
-  { name: "0074_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
   { name: "0070_saves.sql", scope: "workspace", sql: saves },
+  { name: "0074_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
 ];
 
 /**

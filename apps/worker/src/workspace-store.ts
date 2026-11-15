@@ -3975,6 +3975,9 @@ export class WorkspaceStore {
   /** Lifts the hush on someone's push notifications, taking their row away. */
   async clearDnd(userId: UserId): Promise<void> {
     await this.db.run(CLEAR_DND, userId);
+  }
+
+  /**
    * Saves the message `messageId` of room `roomId` for later for someone, answering the save, or null
    * once they have it saved already. The insert, its count and the trim that keeps no more than the
    * newest MAX_SAVES run as one batch, so two asks at once save it once.

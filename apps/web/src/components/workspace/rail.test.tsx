@@ -207,27 +207,27 @@ describe("Activity filter", () => {
 describe("Saved control", () => {
   it("toggles Saved and shows it pressed while the pane is open", async () => {
     const onToggle = vi.fn();
-    const { rerender } = render(railAt("home", activityOff, ada, () => {}, null, { on: false, count: 0, onToggle }));
+    const { rerender } = render(railAt("home", activityOff, ada, () => {}, null, null, { on: false, count: 0, onToggle }));
     const saved = screen.getByRole("button", { name: "Saved" });
     expect(saved).toHaveAttribute("title", "Show saved messages");
     expect(saved).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(saved);
     expect(onToggle).toHaveBeenCalledOnce();
 
-    rerender(railAt("home", activityOff, ada, () => {}, null, { on: true, count: 1, onToggle }));
+    rerender(railAt("home", activityOff, ada, () => {}, null, null, { on: true, count: 1, onToggle }));
     expect(saved).toHaveAttribute("aria-pressed", "true");
     expect(saved).toHaveClass("aria-pressed:bg-hover", "aria-pressed:text-foreground");
   });
 
   it("counts saved messages in a pill at its corner, hidden at none", () => {
-    const { rerender } = render(railAt("room", activityOff, ada, () => {}, null, { on: false, count: 2, onToggle: () => {} }));
+    const { rerender } = render(railAt("room", activityOff, ada, () => {}, null, null, { on: false, count: 2, onToggle: () => {} }));
     const saved = screen.getByRole("button", { name: "Saved" });
     expect(saved).toHaveAccessibleDescription("2 saved");
     const pill = within(saved).getByText("2");
     expect(pill).toHaveAttribute("aria-hidden", "true");
     expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
 
-    rerender(railAt("room", activityOff, ada, () => {}, null, { on: false, count: 0, onToggle: () => {} }));
+    rerender(railAt("room", activityOff, ada, () => {}, null, null, { on: false, count: 0, onToggle: () => {} }));
     expect(saved).not.toHaveAttribute("aria-description");
     expect(saved).toHaveTextContent(/^Saved$/);
   });

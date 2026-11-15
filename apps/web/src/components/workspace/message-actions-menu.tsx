@@ -545,6 +545,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               <button type="button" className={ITEM} onClick={pin}>
                 <Pin />
                 {pinned ? "Unpin" : "Pin to room"}
+              </button>
+            )}
             {/* What the workspace keeps of someone's saves knows whether this message is one of them, so the
                 item saves it for later, or forgets it again. Where nobody's saves are kept, it's nothing. */}
             {saver && (
