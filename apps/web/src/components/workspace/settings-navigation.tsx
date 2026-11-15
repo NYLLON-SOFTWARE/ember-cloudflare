@@ -1,9 +1,5 @@
 import { createContext, useLayoutEffect, useRef, type ComponentType } from "react";
-<<<<<<< HEAD
-import { BrainElectricity, Group, Hashtag, Headset, Internet, Palette, Settings, Sparks } from "@/components/icons/iconoir";
-=======
 import { BrainElectricity, Group, Hashtag, Headset, Internet, Palette, Settings, Sparks, User } from "@/components/icons/iconoir";
->>>>>>> f07c8fc5 (Profile fields on the pages, for the administrators who ask and the people who answer)
 import { PageLink } from "@/components/page-link";
 import { BOTS_PATH, CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH, type Route } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
