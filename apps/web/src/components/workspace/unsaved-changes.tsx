@@ -27,8 +27,15 @@ export const DIALOG = cn(
 /** What's laid over the page behind the dialog. */
 export const DIALOG_BACKDROP = "bg-dialog-backdrop backdrop-blur-[3px]";
 export const DIALOG_TITLE = "mb-2.5 text-[22px] leading-[1.25] font-bold";
-/** The button in the dialog's corner that closes it. */
-export const DIALOG_CLOSE = "absolute end-3 top-3 inline-flex cursor-pointer items-center justify-center rounded-[9px] px-[1.1em] py-[0.5em] touch:min-h-11 disabled:cursor-default";
+/**
+ * The button in the dialog's corner that closes it: square, 44px for fingers, and centred on the title's
+ * first line, which starts at the dialog's padding and is 27.5px tall, with its centre as far in from the
+ * side as the padding.
+ */
+export const DIALOG_CLOSE = cn(
+  "absolute end-3 top-[calc(1.75rem+13.75px)] inline-flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-[9px] disabled:cursor-default",
+  "upto-480px:top-[calc(1.5rem+13.75px)] touch:end-1.5 touch:size-11",
+);
 
 interface Props<T> {
   /** Whether the page holds changes that leaving would lose. */

@@ -27,6 +27,7 @@ import { replyQuote } from "@/lib/messages";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
+import { DeleteMessageDialog } from "./confirm-dialog";
 import { UNKNOWN_PERSON } from "./message-body";
 
 /** With a mouse, the bar overlaps its message. */
@@ -171,12 +172,19 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     onNewBoost();
   };
 
-  // Delete message asks first, as the editor's does. The composer takes focus as the message goes, or Message
-  // options does where the deletion can't be sent.
+  // Delete message asks first, in the app's own dialog. The composer takes focus as the message goes, or
+  // Message options does where the deletion can't be sent, or the dialog's cancelled.
+  const [deleting, setDeleting] = useState(false);
+  const confirmed = useRef(false);
   const deleteMessage = () => {
-    if (!confirm("Are you sure you want to delete this message?")) return;
     close();
-    if (!onDelete()) trigger.current?.focus({ preventScroll: true });
+    setDeleting(true);
+  };
+  // Once the dialog has closed, as focus can't leave it while it's open.
+  const closedDialog = () => {
+    const sent = confirmed.current && onDelete();
+    confirmed.current = false;
+    if (!sent) trigger.current?.focus({ preventScroll: true });
   };
 
   const focusFirstReaction = () => {
@@ -392,6 +400,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
           hidden={!open}
           onPointerEnter={() => clearTimeout(leaveTimer.current)}
           onPointerLeave={() => left()}
+          // A mouse's press on a button or link keeps focus where it is. Safari focuses no button it clicks,
+          // but the timeline around it, so focus leaving the bar would shut it before the click lands.
+          onMouseDown={(event) => {
+            if ((event.target as Element).closest("button, a")) event.preventDefault();
+          }}
           className="group/menu fixed z-30 grid w-max min-w-0 gap-[7px]"
         >
           <div
@@ -446,11 +459,18 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </ActionTooltip>
             )}
-            {/* As Campfire's `.message__edit-btn` shows (messages.css). */}
-            {editable && (
+            {/* Without a mouse, which More actions opens for, Edit and Delete message are the bar's. */}
+            {!overlapping && editable && !message.attachment && !message.cards && (
               <ActionTooltip label="Edit">
                 <button type="button" aria-label="Edit" className={ACTION} onClick={edit}>
                   <Edit />
+                </button>
+              </ActionTooltip>
+            )}
+            {!overlapping && editable && (
+              <ActionTooltip label="Delete message">
+                <button type="button" aria-label="Delete message" className={cn(ACTION, "text-negative")} onClick={deleteMessage}>
+                  <Trash />
                 </button>
               </ActionTooltip>
             )}
@@ -503,7 +523,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             {editable && (
               <>
                 <hr className="my-1 border-message-border" />
-                {/* The text of a file message, or of a bot's cards, can't be changed, so only the bar's Edit opens their editor. */}
+                {/* The text of a file message, or of a bot's cards, can't be changed. */}
                 {!message.attachment && !message.cards && (
                   <button type="button" className={ITEM} onClick={edit}>
                     <Edit />
@@ -518,6 +538,17 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             )}
           </div>
         </div>
+      )}
+      {deleting && (
+        <DeleteMessageDialog
+          message={message}
+          onDelete={() => {
+            confirmed.current = true;
+            setDeleting(false);
+          }}
+          onCancel={() => setDeleting(false)}
+          onClosed={closedDialog}
+        />
       )}
     </div>
   );

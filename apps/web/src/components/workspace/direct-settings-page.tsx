@@ -11,8 +11,8 @@ import { DeleteButton, isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
 import { AvatarLink } from "./user-avatar";
 
-/** What Delete Ping asks first, in the browser's own dialog. */
-export const CONFIRM_DELETE_DIRECT = "Are you sure you want to delete this ping and all messages in it? This can’t be undone.";
+/** What Delete DM asks first, the verb and the thing, as Slack's confirmations are titled. */
+export const CONFIRM_DELETE_DIRECT = "Delete DM";
 
 interface Props {
   room: DirectRoom;
@@ -29,7 +29,7 @@ interface Props {
 
 /**
  * DM settings: a card for each of the others in the DM, or for you in your DM with yourself, then Delete
- * Ping, which any of its members can press, and which goes home once the DM is deleted. Its members
+ * DM, which any of its members can press, and which goes home once the DM is deleted. Its members
  * never change, so there's nothing to save.
  */
 export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFailed }: Props) {
@@ -70,7 +70,7 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
             <MemberCard key={member.id} member={member} name={nameOf(member)} />
           ))}
         </section>
-        <DeleteButton label="Delete Ping" text="Ping" disabled={busy} onClick={remove} />
+        <DeleteButton label="Delete DM" text="Delete DM" disabled={busy} onClick={remove} />
       </Panel>
     </SettingsPage>
   );

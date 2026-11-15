@@ -1,10 +1,9 @@
 import { useContext } from "react";
 import type { Favorites, Involvement, Me, Room, User } from "@ember/protocol";
-import { ChatBubbleEmpty, MoreHoriz, Search } from "@/components/icons/iconoir";
+import { ChatBubbleEmpty, Lock, MoreHoriz, Search } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { useNameOf } from "@/hooks/use-directory";
 import { roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
 import type { RoomAnswer } from "@/lib/room-list";
 import type { ConnectionStatus } from "@/lib/room-state";
@@ -15,12 +14,12 @@ import { HuddleButton } from "./huddle-button";
 import { NotificationBell } from "./notification-bell";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { OpenSearchContext, opensSearch } from "./search-box";
-import { UserAvatar } from "./user-avatar";
-
-const MAX_FACES = 4;
+import { MembersButton } from "./room-members";
 
 interface Props {
   room: Room;
+  /** Whoever's reading it, whom its members list calls "(you)". */
+  me: Me;
   /** Its name as whoever's reading it reads it, which for a DM names the others in it. */
   name: string;
   present: User[];
@@ -41,13 +40,12 @@ interface Props {
 }
 
 /**
- * The room header: the room's name, its star, who's here, the huddle button once huddles are on, Search,
+ * The room header: the room's name, its star, how many are in it, which lists them, the huddle button once huddles are on, Search,
  * which opens the search box in the room, the bell, which turns notifications on until they're on and
  * is then your notification level's, and its settings. A DM's has a chat bubble in place of the room's
  * icon, and no star or huddle button, and a DM with an AI agent alone the agent badge after its name.
  */
-export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
-  const nameOf = useNameOf();
+export function RoomHeader({ room, me, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const isWithAgent = useIsWithAgent();
   const openSearch = useContext(OpenSearchContext);
   const direct = room.kind === "direct";
@@ -57,6 +55,9 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
         {direct ? (
           <ChatBubbleEmpty className="size-5 shrink-0" />
+        ) : room.kind === "closed" && room.icon === null ? (
+          // A private room without an icon of its own has a lock where an open one has `#`, as in the sidebar.
+          <Lock aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
         ) : (
           <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />
         )}
@@ -79,16 +80,9 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         )}
       </div>
 
-      {/* Up to 500px wide the faces would squeeze out the room's name, so there only screen readers hear
-          who's here. */}
-      <div className="ml-auto flex shrink-0 items-center gap-1.5 upto-500px:sr-only" title={present.map(nameOf).join(", ")}>
-        <span className="sr-only">{present.length} here now</span>
-        <div className="flex -space-x-1.5" aria-hidden="true">
-          {present.slice(0, MAX_FACES).map((user) => (
-            <UserAvatar key={user.id} user={user} className="size-7 ring-2 ring-background" />
-          ))}
-        </div>
-        {present.length > MAX_FACES && <span className="text-xs text-muted-foreground">+{present.length - MAX_FACES}</span>}
+      {/* How many are in the room, which opens who they are, as Slack's channel details do. */}
+      <div className="ml-auto flex shrink-0 items-center">
+        <MembersButton room={room} me={me} present={present} onFailed={onFailed} />
       </div>
 
       {/* The room's actions, 6px apart, and touching at 900px and below. */}
@@ -107,7 +101,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>svg]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MoreHoriz className="size-5" />
-          <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>
+          <span className="sr-only">Settings for this {direct ? "DM" : "room"}</span>
         </PageLink>
       </div>
     </PageHeader>

@@ -107,20 +107,27 @@ export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
     : [...rooms, { ...room, unread: false, involvement: startingInvolvement(room) }];
 }
 
-/** `listed`'s unread mark, and since when, when it's marked. */
-const markOf = ({ unread, unreadSince }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince"> => (unreadSince === undefined ? { unread } : { unread, unreadSince });
+/** `listed`'s unread mark, and since when, how many it counts and whether one mentions you, when it's marked. */
+const markOf = ({ unread, unreadSince, unreadCount, unreadMentioned }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince" | "unreadCount" | "unreadMentioned"> => ({
+  unread,
+  ...(unreadSince !== undefined && { unreadSince }),
+  ...(unreadCount !== undefined && { unreadCount }),
+  ...(unreadMentioned !== undefined && { unreadMentioned }),
+});
 
 /**
- * `room` marked unread as of `at`, or read when that's null. The server tells of a mark only as it makes
- * one, so a room marked already takes the new time: the read between them came in the same events as the
- * message after it, and the server told only of the mark they leave.
+ * `room` marked unread as of `at`, with `count` messages counted since, if the server counted any, or
+ * read when `at` is null, which leaves none counted, nor any mention. A mention, once told, stays until the
+ * room's read. The server tells of a mark as it makes one, so a room
+ * marked already takes the new time: the read between them came in the same events as the message after
+ * it, and the server told only of the mark they leave. It tells of a count as it changes, too.
  */
-function marked(room: SidebarRoom, at: string | null): SidebarRoom {
+function marked(room: SidebarRoom, at: string | null, count?: number, mentioned?: boolean): SidebarRoom {
   if (at === null) {
-    const { unreadSince: _, ...read } = room;
+    const { unreadSince: _, unreadCount: __, unreadMentioned: ___, ...read } = room;
     return { ...read, unread: false };
   }
-  return { ...room, unread: true, unreadSince: at };
+  return { ...room, unread: true, unreadSince: at, ...(count !== undefined && { unreadCount: count }), ...(mentioned && { unreadMentioned: true }) };
 }
 
 /** `listed`'s time last active, when it's a DM and that's later than `room`'s. */
@@ -148,7 +155,7 @@ function withHuddle(huddles: Sidebar["huddles"], roomId: RoomId, huddle: LiveHud
 export type RoomChange =
   | { type: "saved"; room: Room }
   | { type: "gone"; roomId: RoomId }
-  | { type: "marked"; roomId: RoomId; at: string | null }
+  | { type: "marked"; roomId: RoomId; at: string | null; count?: number; mentioned?: boolean }
   | { type: "active"; roomId: RoomId; at: string }
   | { type: "huddle"; roomId: RoomId; huddle: LiveHuddle | null }
   | { type: "involved"; roomId: RoomId; involvement: Involvement }
@@ -194,7 +201,7 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
       return { ...list, rooms: list.rooms.filter((room) => room.id !== change.roomId), favorites, huddles: withHuddle(list.huddles, change.roomId, null) };
     }
     case "marked":
-      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? marked(room, change.at) : room)) };
+      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? marked(room, change.at, change.count, change.mentioned) : room)) };
     case "active":
       return { ...list, rooms: withActivity(list.rooms, change.roomId, change.at) };
     case "huddle":

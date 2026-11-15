@@ -13,8 +13,13 @@ export const MAX_MESSAGES_LEEWAY = 20;
 export interface PendingMessage extends Message {
   pending: true;
   failed?: boolean;
-  /** Written without a connection, to send once the room lets one in again, unless the page goes offline first. */
+  /**
+   * Written without a connection, to send once the room lets one in again, as Slack sends what's written
+   * offline, unless it's waited `UNSENT_KEPT_MS`.
+   */
   queued?: boolean;
+  /** When it started waiting, if not when it was written, as Retry starts it again. */
+  queuedAt?: string;
   /** Which of the connections the room let this page in on, as `connections` counts them, it went over. */
   sentOver?: number;
   /** A file on its way to becoming a message of its own, which its card shows in the message's place. */
@@ -39,8 +44,11 @@ export interface Focus {
   messageId: string | null;
 }
 
-/** What a message that couldn't go says, as the room's own refusals do. */
-const NOT_SENT = "Not connected. Your message wasn't sent.";
+/**
+ * How long a message written without a connection waits for one before it shows as not sent, to send
+ * again with Retry: as long as Slack keeps trying, near enough, rather than a few seconds' blip.
+ */
+export const UNSENT_KEPT_MS = 5 * 60_000;
 
 export interface RoomState {
   status: ConnectionStatus;
@@ -119,6 +127,14 @@ export type RoomAction =
   | { type: "expire-typing"; before: number }
   /** Says why something written didn't go, as the room says why it refused something. */
   | { type: "warn"; message: string }
+  /** Shows the messages that have waited for a connection since before `before` as not sent. */
+  | { type: "give-up"; before: string }
+  /** Sends a message shown as not sent again, as Retry does, once the room lets a connection in. */
+  | { type: "retry"; clientMessageId: string }
+  /** Forgets a message shown as not sent, as Delete does, or as Edit does, which writes it in the composer again. */
+  | { type: "discard"; clientMessageId: string }
+  /** Forgets messages another tab has sent, or deleted, which it took out of what this browser keeps. */
+  | { type: "taken-elsewhere"; clientMessageIds: string[] }
   | { type: "dismiss-notice" };
 
 export const initialRoomState: RoomState = {
@@ -254,16 +270,13 @@ function received(state: RoomState, message: Message): RoomState {
 
 export const isQueued = (m: Message | PendingMessage): m is PendingMessage => isPending(m) && m.queued === true;
 
-export const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
+export const dequeued = ({ queued: _, queuedAt: __, ...message }: PendingMessage): PendingMessage => message;
+
+const withoutFailure = ({ failed: _, sentOver: __, ...message }: PendingMessage): PendingMessage => message;
 
 /** The messages waiting for a connection, shown as not sent. */
 export const notSent = <M extends Message>(messages: M[]): Array<M | PendingMessage> => messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
 
-/** Offline, the messages waiting for a connection show as not sent, and say so. */
-function unsent(state: RoomState): RoomState {
-  if (!state.offline || !state.messages.some(isQueued)) return state;
-  return { ...state, messages: notSent(state.messages), notice: NOT_SENT };
-}
 
 function withoutTyping(typing: RoomState["typing"], userId: string) {
   if (!(userId in typing)) return typing;
@@ -342,15 +355,16 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       return action.status === "gone"
         ? { ...state, status: action.status, offline: false, present: [], typing: {}, messages: notSent(state.messages) }
         : { ...state, status: action.status };
+    // What's waiting for a connection keeps waiting, to go once the room lets one in.
     case "offline":
-      return action.offline ? unsent({ ...state, offline: true }) : { ...state, offline: false };
+      return { ...state, offline: action.offline };
     case "pending": {
       // Sending goes to the end of the timeline, as Campfire's insertPendingMessage scrolls there, once
       // the newest page has come, which useRoom asks for first when the timeline doesn't hold it.
       const focus = state.hasNewer || state.loadingPage ? state.focus : { messageId: null };
       // A file goes over HTTP, and one written while the room was away over no connection yet.
       const message = action.message.queued || action.message.upload ? action.message : { ...action.message, sentOver: state.connections };
-      return unsent({ ...state, messages: [...state.messages, message], focus });
+      return { ...state, messages: [...state.messages, message], focus };
     }
     // After the timeline, as what waits for the room is, leaving it where it is. What went, went over the
     // outbox's socket or an earlier view's, none of this one's. A view opened twice over, as React opens it
@@ -358,6 +372,22 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
     case "kept": {
       const kept = action.messages.flatMap(({ sentOver: _, ...k }) => (state.messages.some((m) => isPending(m) && m.clientMessageId === k.clientMessageId) ? [] : [k]));
       return kept.length === 0 ? state : { ...state, messages: [...state.messages, ...kept] };
+    }
+    case "give-up": {
+      const waitedTooLong = (m: Message | PendingMessage) => isQueued(m) && (m.queuedAt ?? m.createdAt) < action.before;
+      if (!state.messages.some(waitedTooLong)) return state;
+      return { ...state, messages: state.messages.map((m) => (waitedTooLong(m) ? { ...dequeued(m as PendingMessage), failed: true } : m)) };
+    }
+    case "retry":
+      return {
+        ...state,
+        messages: state.messages.map((m) => (isPending(m) && m.failed && m.clientMessageId === action.clientMessageId ? { ...withoutFailure(m), queued: true, queuedAt: new Date().toISOString() } : m)),
+      };
+    case "discard":
+      return { ...state, messages: state.messages.filter((m) => !(isPending(m) && m.failed && m.clientMessageId === action.clientMessageId)) };
+    case "taken-elsewhere": {
+      const taken = (m: Message | PendingMessage) => isPending(m) && !m.upload && action.clientMessageIds.includes(m.clientMessageId);
+      return state.messages.some(taken) ? { ...state, messages: state.messages.filter((m) => !taken(m)) } : state;
     }
     case "sent": {
       const sent = (m: Message | PendingMessage): m is PendingMessage => isQueued(m) && action.clientMessageIds.includes(m.clientMessageId);
@@ -480,6 +510,12 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     // A thread's, which its own state keeps, and a click's answer, which its button waits for.
     case "thread.opened":
     case "thread.history":
+    // The composer keeps what you've scheduled (scheduled.ts).
+    case "scheduled":
+    // A canvas's, which its editor keeps (canvas-live.ts).
+    case "canvas.state":
+    case "canvas.steps":
+    case "canvas.refused":
     case "card.clicked":
     case "pong":
       return state;
