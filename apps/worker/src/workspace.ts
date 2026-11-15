@@ -3010,17 +3010,14 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Tells the workspace sockets of everyone a person's listing may reach of `user.updated`, as the
-   * people directory lists them: everyone, but the guests of one room whose stay holds and whose room
-   * doesn't hold them too, since what happens outside their room is none of a guest's to hear, names of
-   * people included. One of the guests themselves is heard of by their room's people alone.
+   * people directory lists them to everyone but the guests of one room it holds nothing for: asked
+   * as each announcing runs, a stay that has passed holds its guest from everyone, and a live one
+   * holds them to their room's people, since what happens outside their room is none of a guest's to
+   * hear, names of people included. One of the guests themselves is heard of the same way, their
+   * stay naming the room whose people they are.
    */
   private async announce(listed: DirectoryUser): Promise<void> {
     const frame: WorkspaceServerFrame = { type: "user.updated", user: listed };
-    const stay = await this.store.guestStayOf(listed.id);
-    if (stay) {
-      this.tell(await this.store.roomMemberIds(stay.roomId), frame);
-      return;
-    }
     const beyond = await this.store.stayGuestsBeyond(listed.id, Date.now());
     if (beyond.length === 0) return this.broadcast(frame);
     const held = new Set(beyond);

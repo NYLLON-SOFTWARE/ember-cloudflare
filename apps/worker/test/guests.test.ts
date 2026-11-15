@@ -323,6 +323,33 @@ describe("One room, and nothing else", () => {
     expect(await opened(made.id, guest)).toBe(CloseCode.NotFound);
   });
 
+  it("comes back into their room once its settings have them again, and into no other", async () => {
+    const tab = await openWorkspaceSocket(guest);
+
+    // Taking them out of their room ends their way in.
+    const out = await api(`/api/rooms/${room}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [host.user.id] }) });
+    expect(out.status, await out.clone().text()).toBe(200);
+    expect(await tab.next()).toMatchObject({ type: "room.gone", roomId: room });
+    expect(await opened(room, guest)).toBe(CloseCode.NotFound);
+    expect((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<unknown>).toEqual([]);
+
+    // Their stay outlives the membership, so having them among its people once more puts them back
+    // in, which is what saving the room again after taking them out does.
+    const back = await api(`/api/rooms/${room}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [host.user.id, guest.user.id] }) });
+    expect(back.status, await back.clone().text()).toBe(200);
+    expect(await tab.next()).toMatchObject({ type: "room.saved", room: { id: room } });
+    expect(await opened(room, guest)).toBe("welcome");
+    expect((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>).toEqual([{ room_id: room }]);
+    expect((await sidebarOf(guest)).rooms.map(({ id }) => id)).toEqual([room]);
+
+    // A room of another's is still none of theirs to be saved into, whose stay holds them out of it.
+    const elsewhere = await createRoom("Elsewhere", { closedTo: [host.user.id] });
+    const sneaked = await api(`/api/rooms/${elsewhere.id}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [host.user.id, guest.user.id] }) });
+    expect(sneaked.status, await sneaked.clone().text()).toBe(200);
+    expect((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>).toEqual([{ room_id: room }]);
+    expect(await opened(elsewhere.id, guest)).toBe(CloseCode.NotFound);
+  });
+
   it("gains no open room from being unbanned, whose stay keeps them to their own", async () => {
     expect(await opened(room, guest)).toBe("welcome");
     const banned = await api(`/api/users/${guest.user.id}/ban`, { method: "POST", headers: { Cookie: host.cookie } });
@@ -497,6 +524,62 @@ describe("What a guest hears of people", () => {
     const hostRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ name: "Ada King" }) });
     expect(hostRenamed.status).toBe(200);
     expect(await tab.next()).toMatchObject({ type: "user.updated", user: { name: "Ada King" } });
+  });
+
+  it("hears of a guest of another room, whom the directory lists to everyone, while a guest of no room of theirs hears nothing of them", async () => {
+    const host = await setUp();
+    const mine = await createRoom("Designers", { closedTo: [host.user.id] }).then((created) => created.id);
+    const elsewhere = await createRoom("Lounge", { closedTo: [host.user.id] }).then((created) => created.id);
+    const nia = await addGuest(host, elsewhere, "Nia");
+    await addGuest(host, mine, "Pat");
+    const member = await signIn("Grace");
+    const membersTab = await openWorkspaceSocket(member);
+    const patsTab = await openWorkspaceSocket(await guestSession("Pat"));
+
+    // Nia is in the directory everyone reads, so her rename reaches the member outside her room,
+    // whose list would keep her stale without it, and Pat, a guest of no room of hers, hears nothing.
+    const niaSession = await guestSession("Nia");
+    const renamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: niaSession.cookie }, body: JSON.stringify({ name: "Nia Doe" }) });
+    expect(renamed.status, await renamed.clone().text()).toBe(200);
+    expect(await membersTab.next()).toMatchObject({ type: "user.updated", user: { id: nia.userId, name: "Nia Doe" } });
+    expect(await patsTab.quiet()).toBe(true);
+
+    // Her stay ending now reaches the member too, who would otherwise list her as active until a
+    // reload, and Pat still hears nothing of her.
+    const ended = await api(`/api/rooms/${elsewhere}/guests/${nia.userId}`, { method: "DELETE", headers: { Cookie: host.cookie } });
+    expect(ended.status, await ended.clone().text()).toBe(204);
+    expect(await membersTab.next()).toMatchObject({ type: "user.updated", user: { id: nia.userId, status: "deactivated" } });
+    expect(await patsTab.quiet()).toBe(true);
+  });
+});
+
+describe("What a guest hears once their stay has passed", () => {
+  it("hears nothing more of anyone, though their tab keeps reading, while whose stay holds hears of their room's people", async () => {
+    const host = await setUp();
+    const mine = await createRoom("Designers", { closedTo: [host.user.id] }).then((created) => created.id);
+    const pat = await addGuest(host, mine, "Pat");
+    await addGuest(host, mine, "Quinn");
+    const grace = await signIn("Grace");
+    const patsTab = await openWorkspaceSocket(await guestSession("Pat"));
+    const quinnsTab = await openWorkspaceSocket(await guestSession("Quinn"));
+
+    // Pat's stay passes without the alarm having run, whose deliveries would close their tab: what
+    // lands on it of people meanwhile is dropped, as their reads refuse it.
+    await expire(pat.userId);
+
+    // A member of no room of theirs is none of theirs to hear of: the frame that would have told them
+    // Grace's name is dropped on its way to their tab, whose stay has nothing left to see her by.
+    const graceRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: grace.cookie }, body: JSON.stringify({ name: "Grace Hopper" }) });
+    expect(graceRenamed.status, await graceRenamed.clone().text()).toBe(200);
+    expect(await patsTab.quiet()).toBe(true);
+    expect(await quinnsTab.quiet()).toBe(true);
+
+    // Whose stay holds hears of their room's people still: the host is Pat's and Quinn's, so Quinn
+    // takes the rename their stay lets them see, and Pat's lapsed one drops it.
+    const hostRenamed = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ name: "Ada King" }) });
+    expect(hostRenamed.status, await hostRenamed.clone().text()).toBe(200);
+    expect(await quinnsTab.next()).toMatchObject({ type: "user.updated", user: { id: host.user.id, name: "Ada King" } });
+    expect(await patsTab.quiet()).toBe(true);
   });
 });
 
