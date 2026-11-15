@@ -1,5 +1,5 @@
 import { FILE_TOO_LARGE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, sharedFilesPath, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type ShareWidening, type StoredFile, type Upload } from "@ember/protocol";
-import { previewOf } from "./previews";
+import { loadRarePages } from "@/components/workspace/rare-pages";
 
 // Uploading a file as a message of its own, as Campfire's FileUploader does, but in parts that R2 puts
 // back together, since a Worker takes at most 100 MB a request: the app starts the upload, sends its
@@ -103,7 +103,11 @@ export async function uploadFile(roomId: RoomId, file: File, clientMessageId: st
   });
   if (started.status !== 201) throw refused(started.status, await started.text().catch(() => ""));
   const { id, partSize, parts } = (await started.json()) as Upload;
-  const preview = previewOf(file);
+  // Drawn with the pages few visits need, which have loaded by now as a rule; without them, it goes with none.
+  const preview = loadRarePages().then(
+    ({ previewOf }) => previewOf(file),
+    () => null,
+  );
 
   let shown = 0;
   const progress = (sent: number) => {

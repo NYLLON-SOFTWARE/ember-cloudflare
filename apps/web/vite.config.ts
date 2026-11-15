@@ -48,6 +48,9 @@ function roomIcons(): Plugin {
  * the editor in a chunk of its own when the main chunk imports a module it doesn't use that those pages do, as
  * @ember/protocol's index did bots.ts until the bot pages imported it from @ember/protocol/bots.
  */
+/** How big the app's script may be, which every page loads before it can run. */
+const APP_SCRIPT_BUDGET_KB = 700;
+
 function oneAppScript(): Plugin {
   const app = path.resolve(import.meta.dirname, "index.html");
   return {
@@ -57,6 +60,13 @@ function oneAppScript(): Plugin {
       const script = Object.values(bundle).find((chunk) => chunk.type === "chunk" && chunk.facadeModuleId === app);
       const more = script?.type === "chunk" ? script.imports.filter((name) => bundle[name]?.name !== "rolldown-runtime") : [];
       if (more.length > 0) this.error(`The app's script imports ${more.join(", ")} besides Rolldown's runtime, so the page loads one more before the app can run (see oneAppScript).`);
+    },
+    // The app's script keeps under its budget, which the pages few visits need, loaded later, don't share; as
+    // written, after every plugin has had its say.
+    writeBundle(_, bundle) {
+      const script = Object.values(bundle).find((chunk) => chunk.type === "chunk" && chunk.facadeModuleId === app);
+      const size = script?.type === "chunk" ? new TextEncoder().encode(script.code).length / 1000 : 0;
+      if (size > APP_SCRIPT_BUDGET_KB) this.warn(`The app's script is ${size.toFixed(2)} kB, over its ${APP_SCRIPT_BUDGET_KB} kB budget: load more with the pages few visits need (components/workspace/pages.ts).`);
     },
   };
 }
@@ -92,10 +102,11 @@ export default defineConfig({
   build: {
     // Browsers without modulepreload still load everything; they just don't fetch it early.
     modulePreload: { polyfill: false },
-    // The app's script, about 650 kB with React DOM, and the editor's, about 600 kB of Lexxy, which loads
-    // with the first composer, are each one chunk on purpose (see oneAppScript), so only a chunk that grows
-    // past them is worth a warning.
-    chunkSizeWarningLimit: 700,
+    // The app's script, the pages few visits need and the editor's, about 600 kB of Lexxy, which loads with the
+    // first composer, are each one chunk on purpose (see oneAppScript), so only a chunk that grows past them is
+    // worth a warning. The app's script, which every page waits for, has its own budget (APP_SCRIPT_BUDGET_KB);
+    // the pages, loaded once the rooms have, grow as more of the app moves into them.
+    chunkSizeWarningLimit: 800,
   },
   server: {
     // `wrangler dev` serves the API, room sockets, web app manifest, QR codes, Turnstile's check page, avatars,

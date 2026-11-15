@@ -13,7 +13,7 @@ import { checkShare, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
 import { isEmberFile, nameNotKept, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
-import { forgetScheduled, keepScheduling, restoringOf, scheduleFrameOf, takeScheduling, type Restoring } from "@/lib/scheduled-actions";
+import { forgetScheduled, keepScheduling, restoringOf, scheduleFrameOf, takeScheduling, type Restoring } from "@/lib/scheduled-restoring";
 import { cn } from "@/lib/utils";
 import { COMPOSER_CARD, ICON_BUTTON } from "./composer-buttons";
 import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";

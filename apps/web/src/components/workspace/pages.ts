@@ -60,6 +60,8 @@ export { ActionSheet } from "../mobile/action-sheet";
 export { RoomDetailsSheet } from "../mobile/room-details-sheet";
 export { MessageSheets } from "../mobile/message-sheets";
 export { CustomReaction } from "./custom-reaction";
+// What draws an upload's preview (lib/uploads.ts), which waits for the pages.
+export { previewOf } from "@/lib/previews";
 export { LinkForm } from "./link-form";
 export { SettingsNavigation } from "./settings-links";
 export { AppearanceChoices } from "./appearance-choices";
