@@ -37,10 +37,10 @@ export interface ReconnectingSocketOptions {
   /** Once the page has been without a connection the server let in for `OFFLINE_AFTER_MS`, and once it has one again. */
   onOffline?: (offline: boolean) => void;
   /**
-   * A close this side didn't ask for, with its code and whether the socket had opened: true connects
-   * again after the usual wait, and false leaves the owner to `retry()` or `close()`.
+   * A close this side didn't ask for, with its code, whether the socket had opened and the close's
+   * reason: true connects again after the usual wait, and false leaves the owner to `retry()` or `close()`.
    */
-  onClose: (code: number, opened: boolean) => boolean;
+  onClose: (code: number, opened: boolean, reason: string) => boolean;
   /** The least and most the first try after a deploy waits, a quarter of a second to two unless given. */
   deploySpreadMs?: readonly [number, number];
 }
@@ -220,7 +220,7 @@ export function reconnectingSocket<Frame = ClientFrame>(options: ReconnectingSoc
       startOfflineClock();
       // A deploy's close carries none of the app's codes, which start at 4000.
       const deployed = openedAt !== undefined && Date.now() - openedAt > LONG_LIVED_MS && event.code < 4000;
-      if (!options.onClose(event.code, openedAt !== undefined)) return;
+      if (!options.onClose(event.code, openedAt !== undefined, event.reason)) return;
       reconnect(deployed ? afterDeploy() : backoff());
     };
     // One opened ahead may have opened, heard from the server, or closed already, which the owner hears

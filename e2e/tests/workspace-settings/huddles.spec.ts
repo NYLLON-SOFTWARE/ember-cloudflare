@@ -1,7 +1,7 @@
 import type { Me, WorkspaceSettings } from "@ember/protocol";
 import { APP_ID_UNKNOWN, APP_SECRET_UNKNOWN } from "@ember/protocol/huddles";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { administratorSession, cookieHeader, expect, newAddress, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress, type TestRoom } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, expect, newAddress, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress, type TestRoom } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT, SFU_APP } from "../../projects/workspace-settings";
 import { startFakeSfu, type FakeSfu } from "./fake-sfu";
 
@@ -95,10 +95,10 @@ test.describe("Set up huddles", () => {
     const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
     expect(saved.status(), await saved.text()).toBe(200);
     const huddles = await openHuddles(page);
-    page.once("dialog", (dialog) => void dialog.accept());
     const huddlesSwitch = huddles.getByRole("switch", { name: "Audio and video chat" });
     await expect(huddlesSwitch).toBeChecked();
     await huddlesSwitch.click();
+    await answerConfirm(page, "Turn off huddles", "Turn off");
     await expect(huddlesSwitch).not.toBeChecked();
     await expect(huddlesSwitch).toBeEnabled();
     await expect(huddles.getByRole("button", { name: "Change keys" })).toHaveCount(0);
@@ -221,7 +221,7 @@ test.describe("A huddle", () => {
     // Ada mutes from the bar, and unmutes with the keys, which the button she pressed doesn't take as a press.
     await adasBar.getByRole("button", { name: "Mute microphone" }).click();
     await expect(adasBar.getByRole("button", { name: "Unmute microphone" })).toBeFocused();
-    await page.keyboard.press("Control+Shift+Space");
+    await page.keyboard.press("ControlOrMeta+Shift+Space");
     await expect(adasBar.getByRole("button", { name: "Mute microphone" })).toBeVisible();
 
     // Grace leaves from her bar. The huddle goes on for Ada, who no longer hears her.
@@ -245,7 +245,7 @@ test.describe("A huddle", () => {
     await expect(grace.getByRole("button", { name: "Start huddle", exact: true })).toBeVisible();
     await expect(sidebarMark(grace, room)).toHaveCount(0);
     await expect(sidebarMark(page, room)).toHaveCount(0);
-    await page.keyboard.press("Control+Alt+Shift+H");
+    await page.keyboard.press("ControlOrMeta+Alt+Shift+H");
     await expect(starting).toBeVisible();
     await starting.getByRole("button", { name: "Cancel", exact: true }).last().click();
     await expect(starting).toBeHidden();

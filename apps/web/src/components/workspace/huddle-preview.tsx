@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { LiveHuddle, Me, SharedRoom } from "@ember/protocol";
 import { Field } from "@/components/field";
-import { Microphone, MicrophoneMute, Xmark } from "@/components/icons/iconoir";
+import { Xmark } from "@/components/icons/iconoir";
+import { Microphone, MicrophoneMute } from "@/components/icons/iconoir-more";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
@@ -10,7 +11,7 @@ import { closeMicrophone, listDevices, microphoneOf, NO_DEVICES, openMicrophone,
 import { inItNow } from "@/lib/huddle-people";
 import { cn } from "@/lib/utils";
 import { SELECT } from "./model-picker";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 import { UserAvatar } from "./user-avatar";
 
 /** What the preview says while the browser asks whether Ember may use a microphone. */

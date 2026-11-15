@@ -14,15 +14,15 @@ export const CLOSE_REASONS: Record<CloseCode | HuddleCloseCode, string> = {
 };
 
 /**
- * A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused.
+ * A socket that closes with `code`, and `reason` if it's given, as soon as it opens: a browser can't read why an upgrade was refused.
  * wrangler dev logs "Uncaught Error: Network connection lost." as each one finishes closing, even after
  * a clean close handshake: the runtime raises it once the close event has fired, where nothing here can
  * catch it, and the Worker's tests, which have no network between them and the Worker, never see it.
  */
-export function closedAtOnce(code: CloseCode | HuddleCloseCode): Response {
+export function closedAtOnce(code: CloseCode | HuddleCloseCode, reason = CLOSE_REASONS[code]): Response {
   const { 0: client, 1: server } = new WebSocketPair();
   server.accept();
-  server.close(code, CLOSE_REASONS[code]);
+  server.close(code, reason);
   return new Response(null, { status: 101, webSocket: client });
 }
 
@@ -32,11 +32,7 @@ export function closedAtOnce(code: CloseCode | HuddleCloseCode): Response {
  */
 export const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
 
-/**
- * The most bytes a frame from a client can take on a room's socket. The largest the app sends, a message
- * of `MAX_MESSAGE_HTML_LENGTH` characters, is under 601 KB however JSON escapes them.
- */
-export const MAX_ROOM_FRAME_SIZE = 1 << 20;
+export { MAX_ROOM_FRAME_SIZE } from "@ember/protocol";
 
 /** The most bytes a frame from a client can take on a workspace socket, which takes only pings. */
 export const MAX_WORKSPACE_FRAME_SIZE = 1 << 10;

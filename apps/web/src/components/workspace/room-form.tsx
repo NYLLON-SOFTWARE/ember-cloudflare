@@ -1,9 +1,12 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode, type Ref } from "react";
 import { MAX_ROOM_NAME_LENGTH, type RoomIconName, type User, type UserId } from "@ember/protocol";
+import { ParentPicker, type ParentField } from "./parent-picker";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { CheckCircle, Community } from "@/components/icons/iconoir";
+import { CheckCircle } from "@/components/icons/iconoir";
+import { Community } from "@/components/icons/iconoir-more";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { IconPicker } from "./icon-picker";
 import { ListRow, ListSeparator } from "./list-row";
@@ -25,8 +28,13 @@ interface Props<Person extends User> {
   /** The room's icon, or null for `#`, which only whoever can change the room sees, to pick another. */
   icon: RoomIconName | null;
   onIconChange: (icon: RoomIconName | null) => void;
-  /** The Everyone row, on for a room open to everyone, with a switch if `onFlip` is given; null for none. */
-  everyone: { on: boolean; onFlip?: () => void } | null;
+  /**
+   * The Everyone row, on for a room open to everyone, with a switch if `onFlip` is given, and named
+   * `label`, as a sub-room's is for its parent's people; null for none.
+   */
+  everyone: { on: boolean; onFlip?: () => void; label?: string } | null;
+  /** The room it goes under, which whoever can change the room picks, or nothing to offer none. */
+  parent?: ParentField;
   /** The people listed, by name, in groups a line divides, such as a private room's members and everyone else. */
   groups: Person[][];
   /** What follows someone's name: a check mark, a switch, or nothing. */
@@ -37,7 +45,8 @@ interface Props<Person extends User> {
   ref?: Ref<HTMLFormElement>;
 }
 
-export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, everyone, groups, mark, saving, onSave, ref }: Props<Person>) {
+export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, everyone, parent, groups, mark, saving, onSave, ref }: Props<Person>) {
+  const phone = usePhoneLayout();
   const save = (event: FormEvent) => {
     event.preventDefault();
     onSave();
@@ -50,7 +59,8 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
           <Input
             id="room_name"
             required
-            autoFocus
+            // Not on a phone, where focus brings up the keyboard over the page before anyone has asked to type.
+            autoFocus={!phone}
             maxLength={MAX_ROOM_NAME_LENGTH}
             placeholder="Name the room"
             value={name}
@@ -63,6 +73,8 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
       )}
 
       {canAdminister && <IconPicker icon={icon} onChange={onIconChange} disabled={saving} />}
+
+      {canAdminister && parent && <ParentPicker {...parent} disabled={saving} />}
 
       {/* Saving sends who the switches showed when Save was pressed, so they wait until it's done. */}
       <fieldset disabled={saving} className="my-4 min-w-0 rounded-[10px] border bg-surface px-[1ch]">
@@ -85,7 +97,7 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
     <menu className="m-0 flex max-h-[50vh] flex-col gap-x-[1ch] gap-y-4 overflow-y-auto px-[1ch] py-4">
       {everyone && (
         <>
-          <ListRow figure={<Community className="size-[4ch] shrink-0" />} name="Everyone">
+          <ListRow figure={<Community className="size-[4ch] shrink-0" />} name={everyone.label ?? "Everyone"}>
             {everyone.onFlip && (
               <Switch
                 checked={everyone.on}

@@ -128,6 +128,23 @@ describe("Who gets a push", () => {
     expect(labelsOf(pushes)).toEqual(["grace-phone", "grace-laptop", "lin"]);
   });
 
+  it("pushes nobody who's paused notifications until the time they come back, as Slack's Pause notifications does", async () => {
+    const room = await freshRoom("Paused");
+    const [ada, grace, lin] = await people("Ada", "Grace", "Lin");
+    for (const [session, label] of [[grace, "grace"], [lin, "lin"]] as const) {
+      await subscribe(session, label);
+      await involve(session, room, "everything");
+    }
+    const pause = (session: Session, pausedUntil: number | null) =>
+      api("/api/users/me/notifications", { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ pausedUntil }) });
+    expect((await pause(grace, Date.now() + 60 * 60 * 1000)).status).toBe(200);
+
+    expect(labelsOf(await pushesFor(room, [message(ada, "Lunch? @Grace", grace)]))).toEqual(["lin"]);
+    // Resumed: pushed again.
+    await pause(grace, null);
+    expect(labelsOf(await pushesFor(room, [message(ada, "Lunch, then?")]))).toEqual(["grace", "lin"]);
+  });
+
   it("pushes nobody a message mentions who isn't in its room", async () => {
     const [ada, grace, nina] = await people("Ada", "Grace", "Nina");
     const { id: room } = await createRoom("Board", { closedTo: [ada.user.id, grace.user.id], as: ada });
@@ -251,7 +268,7 @@ describe("Who gets a push", () => {
     await connect(room, "Ada");
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1, 1, "[]"));
+    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1, 1, "[]", 0));
     expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);

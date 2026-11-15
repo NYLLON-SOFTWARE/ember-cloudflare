@@ -47,7 +47,7 @@ test.describe("Link previews while writing", () => {
     await expect(ada.composer().locator("action-text-attachment")).toHaveCount(1);
     await ada.composer().press("Enter");
 
-    await (await ada.actions("Basecamp")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("Basecamp");
     await expect(ada.editor().locator("action-text-attachment .og-embed")).toContainText("Basecamp");
     await ada.editor().locator("p").first().click();
     await ada.page.keyboard.press("End");

@@ -1,47 +1,59 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { Menu } from "@/components/icons/iconoir";
 import { SheetTrigger } from "@/components/ui/sheet";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
-import { SettingsLayout, SettingsNavigation } from "./settings-navigation";
+import { BackButton } from "../mobile/back-button";
+import { RarePage } from "./rare-pages";
+import { SettingsLayout } from "./settings-navigation";
 
 /** Whether the drawer is open, which the header's button for it says in its name. */
 export const DrawerOpen = createContext(false);
 
 /**
- * The top bar, the navigation landmark "Page", holding what the page puts in it. At 900px and below it
- * starts with the button that opens the drawer, named for what it does next.
+ * The top bar, the navigation landmark "Page", holding what the page puts in it. At 900px and below,
+ * the phone layout, the tab bar takes the drawer's place, so it starts with what the page puts there,
+ * such as Back; the drawer's button, named for what it does next, is left for a layout with the drawer.
  *
  * On a page of community settings it spans the column of their links too, ends with "Community
  * settings", and the links follow it (`SettingsNavigation`), where the conversations would be: there the
  * drawer holds only the rail, so its button opens and closes the navigation. The links come after the
  * bar rather than after the page, so Tab reaches them in the order they're seen.
  */
-export function PageHeader({ children }: { children?: ReactNode }) {
+export function PageHeader({ children, back, className }: { children?: ReactNode; back?: string; className?: string }) {
   const drawerOpen = useContext(DrawerOpen);
   const settings = useContext(SettingsLayout);
   const drawer = settings ? "navigation" : "conversations";
+  const phone = usePhoneLayout();
   return (
     <>
       <nav
         aria-label="Page"
         className={cn(
-          "flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] narrow:pr-[max(18px,env(safe-area-inset-right))] narrow:pl-[18px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0 max-md:pr-[max(8px,env(safe-area-inset-right))] max-md:pl-[max(8px,env(safe-area-inset-left))]",
+          "flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] narrow:pr-[max(18px,env(safe-area-inset-right))] narrow:pl-[18px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0 max-md:pr-[max(16px,env(safe-area-inset-right))] max-md:pl-[max(16px,env(safe-area-inset-left))]",
           settings && "md:col-span-2",
+          className,
         )}
       >
         {/* Marked for New direct message to give focus back to once the drawer's gone, and drawn with
-            Iconoir's menu. */}
-        <SheetTrigger
-          data-ember-sidebar-toggle
-          aria-label={`${drawerOpen ? "Close" : "Open"} ${drawer}`}
-          className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex"
-        >
-          <Menu className="size-[22px]" />
-        </SheetTrigger>
+            Iconoir's menu. A phone has the tab bar instead. */}
+        {/* A page a phone opens over the tabs, such as Threads from Home's card, starts with Back to `back`. */}
+        {phone && back !== undefined && <BackButton fallback={back} />}
+        {!phone && (
+          <SheetTrigger
+            data-ember-sidebar-toggle
+            aria-label={`${drawerOpen ? "Close" : "Open"} ${drawer}`}
+            className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex"
+          >
+            <Menu className="size-[22px]" />
+          </SheetTrigger>
+        )}
         {children}
-        {settings && <h1 className="min-w-0 flex-1 text-[17px] leading-[1.4] font-[650] max-md:text-base">Community settings</h1>}
+        {/* A label, not a heading: each page of them has its own, the page's one h1. */}
+        {settings && <p className="min-w-0 flex-1 text-[17px] leading-[1.4] font-[650] max-md:text-base">Community settings</p>}
       </nav>
-      {settings && <SettingsNavigation {...settings} />}
+      {/* With the settings pages, which load with the pages few visits need. */}
+      {settings && <RarePage show={({ SettingsNavigation }) => <SettingsNavigation {...settings} />} loading={null} />}
     </>
   );
 }

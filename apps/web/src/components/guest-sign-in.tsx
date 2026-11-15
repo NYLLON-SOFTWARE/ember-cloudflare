@@ -5,7 +5,7 @@ import { AuthLogo } from "@/components/auth-page";
 import { ArrowRight, User as UserIcon } from "@/components/icons/iconoir";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { signInAsGuest } from "@/lib/api";
+import { signInAsGuest } from "@/lib/api-pages";
 
 /**
  * Signing in with just a name, as someone new, which the sign-in card offers when EMBER_GUEST_SIGN_IN

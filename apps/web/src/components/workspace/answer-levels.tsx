@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { modelName, type YourAssistant, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { useMounted } from "@/hooks/use-mounted";
-import { changeYourAssistant, isSignedOut } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { changeYourAssistant } from "@/lib/api-pages";
 import { LevelDials } from "./level-dials";
 import { NOTE, SELECT } from "./model-picker";
 

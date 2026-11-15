@@ -104,30 +104,28 @@ function serve({
   });
 }
 
-/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
-function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
-  const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
-  const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
+/** The profile, on `platform`; Ada's rooms, which it no longer lists, are left for the callers that pass them. */
+function showPage(shown = account, _rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
+  const [onSignOut, onFailed] = [vi.fn(), vi.fn()];
+  const page = (people: People = new Map()) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
         <PushContext value={{ ...PUSH_ON, platform }}>
           <FlashProvider workspace>
             <Sheet>
-              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
+              <ProfilePage me={ada} onSignOut={onSignOut} onFailed={onFailed} />
             </Sheet>
           </FlashProvider>
         </PushContext>
       </PeopleContext>
     </AccountContext>
   );
-  const { rerender } = render(page(rooms));
+  const { rerender } = render(page());
   return {
     onSignOut,
     onFailed,
-    answered,
     user: userEvent.setup(),
-    showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
-    showPeople: (people: People) => rerender(page(rooms, people)),
+    showPeople: (people: People) => rerender(page(people)),
   };
 }
 
@@ -411,33 +409,14 @@ describe("Private sign-in link", () => {
   });
 });
 
-describe("Levels on your profile", () => {
-  const design: SidebarRoom = { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" };
-  const notifications = () => screen.queryByRole("list", { name: "Conversation notifications" });
-
-  it("lists your level in each of your rooms between the form and your sign-in link, once your rooms have loaded", async () => {
-    const { showRooms } = showPage();
+describe("Notifications on your profile", () => {
+  it("links to your notification preferences first, under the page's heading, above the form (R32-1)", async () => {
+    showPage();
     await loaded();
-    expect(notifications()).toBeNull();
-
-    showRooms([design]);
-    expect(notifications()).toHaveTextContent("Design");
-    const signInLink = screen.getByRole("textbox", { name: "Use this link to login automatically on another device" });
-    expect(saveButton().compareDocumentPosition(notifications()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(notifications()!.compareDocumentPosition(signInLink)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  });
-
-  it("says why a bell couldn't save a level", async () => {
-    vi.mocked(fetch).mockImplementation(async (input, init) =>
-      String(input) === "/api/rooms/design/involvement"
-        ? Response.json({ error: "Something went wrong" }, { status: 500 })
-        : Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer),
-    );
-    const { answered, onFailed, user } = showPage(account, [design]);
-    await loaded();
-    await user.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
-    expect(onFailed).toHaveBeenCalledOnce();
-    expect(answered).not.toHaveBeenCalled();
+    const notifications = screen.getByRole("link", { name: "Notifications" });
+    expect(notifications).toHaveAttribute("href", "/users/me/notifications");
+    expect(screen.getByRole("heading", { level: 1, name: "Your profile" }).compareDocumentPosition(notifications)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(notifications.compareDocumentPosition(screen.getByLabelText("Name"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });
 
@@ -451,16 +430,14 @@ describe("Connect Memberful", () => {
       .mock.calls.filter(([input, init]) => String(input) === MEMBERFUL_CONNECTIONS_PATH && init?.method === "DELETE")
       .map(([, init]) => JSON.parse(String(init?.body)) as MemberfulDisconnection);
 
-  it("has a Memberful section between the form and your rooms' levels while members sign in with Memberful", async () => {
+  it("has a Memberful section after the form while members sign in with Memberful", async () => {
     serve({ loaded: () => Response.json({ profile: { ...profile, memberful: NOT_CONNECTED }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
-    const { showRooms } = showPage();
+    showPage();
     await loaded();
-    showRooms([{ id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" }]);
     expect(memberful()).toHaveTextContent("Connect your Memberful account to keep signing in as yourself.");
     // Its own password field, as you have a password.
     expect(within(memberful()!).getByLabelText("Password")).toBeInTheDocument();
     expect(saveButton().compareDocumentPosition(memberful()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(memberful()!.compareDocumentPosition(screen.getByRole("list", { name: "Conversation notifications" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(passwordHelp()).toHaveTextContent("Leave blank to keep your current password.");
     expect(passwordHelp()).not.toHaveTextContent("disconnects");
   });
@@ -617,11 +594,10 @@ describe("Ember AI on your profile", () => {
   const level = (dialName: string, name: string) => within(dial(dialName)).getByRole("radio", { name });
   const withLevels = () => serve({ loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
 
-  it("has your levels of @ember's dials while Ember AI is on, between the form and your rooms' levels, none above the most allowed", async () => {
+  it("has your levels of @ember's dials while Ember AI is on, after the form, none above the most allowed", async () => {
     withLevels();
-    const { showRooms } = showPage();
+    showPage();
     await loaded();
-    showRooms([{ id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" }]);
     expect(section()).toHaveTextContent("How much @ember thinks before it answers you, and how long its answers are, up to the most an administrator allows.");
     expect(level("Thinking", "Low")).toBeChecked();
     expect(dial("Thinking")).toHaveAccessibleDescription("Thinks a little first, up to about 4,000 tokens.");
@@ -631,7 +607,6 @@ describe("Ember AI on your profile", () => {
     expect(dial("Answer length")).toHaveAccessibleDescription("About 400 words.");
     expect(level("Answer length", "Long")).toBeEnabled();
     expect(saveButton().compareDocumentPosition(section()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(section()!.compareDocumentPosition(screen.getByRole("list", { name: "Conversation notifications" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("saves a level as soon as it's chosen, showing it meanwhile", async () => {

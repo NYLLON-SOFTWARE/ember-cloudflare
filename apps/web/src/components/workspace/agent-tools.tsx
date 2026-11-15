@@ -4,7 +4,8 @@ import { MAX_AGENT_TOOLS, type OfferedApp, type ToolPick } from "@ember/protocol
 import { PageLink } from "@/components/page-link";
 import { useMounted } from "@/hooks/use-mounted";
 import { NEW_APP_PATH } from "@/hooks/use-route";
-import { ApiError, fetchAgentTools, isSignedOut, pickAgentTools } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { fetchAgentTools, pickAgentTools } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { isOff } from "./agent-list";
 

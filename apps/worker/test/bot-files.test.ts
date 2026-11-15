@@ -288,6 +288,30 @@ describe("Bots post messages", () => {
   });
 });
 
+describe("Forwards of a bot's file", () => {
+  it("lose their copy once the bot gives its message another file, though it has the same name, type and size", async () => {
+    const { administrator, bot, general } = await withBot();
+    const id = await postedFile(bot.key, general, new File(["draft"], "notes.txt", { type: "text/plain" }));
+    const elsewhere = (await createRoom("Elsewhere", { as: administrator })).id;
+    const inElsewhere = await connect(elsewhere, administrator);
+    const sent = await api(`/api/rooms/${general}/messages/${id}/forwards`, {
+      method: "POST",
+      headers: { Cookie: administrator.cookie },
+      body: JSON.stringify({ to: elsewhere, clientMessageId: crypto.randomUUID() }),
+    });
+    expect(sent.status, await sent.clone().text()).toBe(201);
+    const forward = (await sent.json()) as { id: string; attachment?: { id: string } };
+    expect(forward.attachment).toBeDefined();
+
+    const replaced = await sendAs(bot.key, general, formWith(new File(["final"], "notes.txt", { type: "text/plain" })), { id });
+    expect(replaced.status, await replaced.clone().text()).toBe(200);
+    const { message } = await inElsewhere.next("message.updated");
+    expect(message.id).toBe(forward.id);
+    expect(message.attachment).toBeUndefined();
+    inElsewhere.close();
+  });
+});
+
 describe("Bots edit and delete their messages", () => {
   it("gives the bot's own message the file a form sends with PUT or PATCH, in place of the one it had, live, answering the message as the list has it", async () => {
     const { administrator, bot, general } = await withBot();

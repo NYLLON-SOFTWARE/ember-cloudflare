@@ -1,6 +1,7 @@
 import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { heardSaved, useSavedMark } from "@/lib/saved";
 import { RELOAD_AFTER_HIDDEN_MS, RELOAD_SPREAD_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
@@ -139,10 +140,21 @@ afterEach(() => {
 });
 
 describe("Live sidebar updates", () => {
+  it("forgets what one person keeps once someone else is signed in", async () => {
+    const hook = renderHook(({ me }) => useSidebar(me, () => {}), { initialProps: { me: ada } });
+    await settle();
+    act(() => heardSaved({ marks: [{ id: "s1", list: "saved", messageId: "m1" }], openTodos: 0, overdueTodos: 0, savedItems: 1 }));
+    const mark = renderHook(() => useSavedMark("m1"));
+    expect(mark.result.current).toBeDefined();
+    hook.rerender({ me: grace });
+    mark.rerender();
+    expect(mark.result.current).toBeUndefined();
+  });
+
   it("loads, and loads again each time the workspace socket connects, the first time included", async () => {
     const { result } = await showSidebar();
     expect(result.current.list).toEqual(unstarred([design]));
-    expect(socket().url).toBe("ws://localhost:3000/api/socket");
+    expect(new URL(socket().url).pathname).toBe("/api/socket");
 
     server.change(unstarred([design, general]));
     socket().connect();
@@ -255,7 +267,9 @@ describe("Live sidebar updates", () => {
     await settle();
     socket().receive({ type: "room.gone", roomId: design.id });
     expect(result.current.list?.rooms).toEqual([general]);
-    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id);
+    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id, false);
+    socket().receive({ type: "room.gone", roomId: general.id, lostAccess: true });
+    expect(onGone).toHaveBeenLastCalledWith(general.id, true);
   });
 
   it("lists a room as the server answers a change to it, unless the workspace socket has said what became of it since", async () => {
@@ -348,6 +362,15 @@ describe("Notification levels", () => {
     expect(result.current.list?.rooms).toEqual([{ ...design, involvement: "invisible" }]);
     socket().receive({ type: "room.involvement", roomId: design.id, involvement: "everything" });
     expect(result.current.list?.rooms).toEqual([{ ...design, involvement: "everything" }]);
+  });
+
+  it("changes many rooms' levels at once as the socket says what Ada's notified about changed", async () => {
+    server.change(unstarred([design, general]));
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.involvements", involvements: [{ roomId: design.id, involvement: "nothing" }, { roomId: general.id, involvement: "nothing" }] });
+    expect(result.current.list?.rooms.map((room) => room.involvement)).toEqual(["nothing", "nothing"]);
   });
 
   it("gives a room the level the server answers, unless the workspace socket has said what became of it since", async () => {
@@ -820,5 +843,18 @@ describe("Custom CSS", () => {
     await settle();
     socket().connect(grace);
     expect(onAccountChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("Activity", () => {
+  it("passes on what the workspace socket says of Ada's Activity, and asks it to load again each time the socket connects", async () => {
+    const heard = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, heard));
+    await settle();
+    socket().connect();
+    expect(heard).toHaveBeenCalledWith(null);
+    const marked: WorkspaceServerFrame = { type: "activity.marked", ids: [1], read: true };
+    socket().receive(marked);
+    expect(heard).toHaveBeenLastCalledWith(marked);
   });
 });

@@ -12,7 +12,7 @@ import { settle } from "../mobile/audits";
 const SAVED = path.resolve(import.meta.dirname, "../../../apps/web/public/screenshots");
 
 test.describe("Web app manifest", () => {
-  test("Ember on a phone: a room, the conversations drawer, and a room in dark mode", async ({ page, request, baseURL }, testInfo) => {
+  test("Ember on a phone: a room, Home's conversations, and a room in dark mode", async ({ page, request, baseURL }, testInfo) => {
     const maya = await createSession(request, "Maya Chen");
     const sam = await createSession(request, "Sam Rivera");
     const priya = await createSession(request, "Priya Patel");
@@ -80,8 +80,9 @@ test.describe("Web app manifest", () => {
     await openRoom(page, launch);
     await screenshot(page, testInfo, "chat.png");
 
-    await page.getByRole("button", { name: "Open conversations" }).tap();
-    await expect(page.getByRole("dialog", { name: "Conversations" })).toBeVisible();
+    // A phone's conversations are Home, which Back goes to from the room.
+    await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).tap();
+    await expect(page.getByRole("navigation", { name: "Tabs" }).getByRole("link", { name: "Home", exact: true })).toHaveAttribute("aria-current", "page");
     await screenshot(page, testInfo, "sidebar.png");
 
     await page.emulateMedia({ colorScheme: "dark" });

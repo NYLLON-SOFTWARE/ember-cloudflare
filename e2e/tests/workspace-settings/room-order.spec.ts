@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
@@ -42,10 +42,13 @@ test.describe("Shared room order", () => {
 
     const rows = list.getByRole("listitem");
     const row = (name: string) => rows.filter({ hasText: name });
+    /** A row's link to its room's settings, beside the link a parent's row has to a new sub-room, and before its sub-rooms'. */
+    const settingsLink = (row: Locator) => row.getByRole("link", { name: /^Settings for / }).first();
     /** The rooms the list shows, top to bottom, by the names of their links to their settings. */
-    const ordered = async () => (await rows.getByRole("link").evaluateAll((links) => links.map((link) => link.getAttribute("aria-label")!))).map((label) => label.replace("Settings for ", ""));
+    const ordered = async () =>
+      (await rows.getByRole("link", { name: /^Settings for / }).evaluateAll((links) => links.map((link) => link.getAttribute("aria-label")!))).map((label) => label.replace("Settings for ", ""));
     /** Expects the room named `name` to be the list's `index`th. */
-    const expectAt = (index: number, name: string) => expect(rows.nth(index).getByRole("link")).toHaveAccessibleName(`Settings for ${name}`);
+    const expectAt = (index: number, name: string) => expect(settingsLink(rows.nth(index))).toHaveAccessibleName(`Settings for ${name}`);
     const saveOrder = page.getByRole("button", { name: "Save order" });
     await expect(row(second)).toBeVisible();
     await expect(saveOrder).toBeDisabled();
@@ -91,12 +94,12 @@ test.describe("Shared room order", () => {
       const unsaved = page.getByRole("dialog", { name: "Unsaved Changes" });
       // The steps since the drop can take less than its guard, when the member's sidebar follows quickly.
       await expect.poll(() => page.evaluate(() => Date.now())).toBeGreaterThanOrEqual(dropped + CLICK_GUARD_MS);
-      await row(first).getByRole("link").click();
+      await settingsLink(row(first)).click();
       await expect(unsaved).toHaveAccessibleDescription("You’ve changed the room order. Save it before you leave, or discard it to keep things as they were.");
       await unsaved.getByRole("button", { name: "Keep editing" }).click();
       await expect(unsaved).toBeHidden();
       await expectAt(0, second);
-      await row(first).getByRole("link").click();
+      await settingsLink(row(first)).click();
       await unsaved.getByRole("button", { name: "Save" }).click();
       await expect(page).toHaveURL(/\/rooms\/opens\/[^/]+\/edit$/);
       await expect(sidebarRooms(member).first()).toHaveText(`#${second}`, REORDERED);

@@ -20,13 +20,14 @@ import {
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { RefreshDouble } from "@/components/icons/iconoir";
+import { RefreshDouble } from "@/components/icons/iconoir-more";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { agentSettingsPath, appSettingsPath, navigate } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, beginAppSignIn, beginNewAppSignIn, changeApp, connectApp, disconnectApp, fetchApp, fetchApps, isSignedOut, readAppTools } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { beginAppSignIn, beginNewAppSignIn, changeApp, connectApp, disconnectApp, fetchApp, fetchApps, readAppTools } from "@/lib/api-pages";
 import { dateTimeLabel } from "@/lib/messages";
 import { openPage } from "@/lib/page";
 import { cn } from "@/lib/utils";

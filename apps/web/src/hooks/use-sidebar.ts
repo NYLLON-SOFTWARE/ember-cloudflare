@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type ActivityFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
+import { forgetSaved, heardSaved, reloadSaved } from "@/lib/saved";
 import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
 
 /**
@@ -82,14 +83,17 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
  * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
- * gone as it leaves the list.
+ * gone as it leaves the list, and whether it's still there with this person no longer in it.
+ * `onActivity` hears what the socket says of the person's Activity, and null each time it connects, for
+ * Activity to load again.
  */
 export function useSidebar(
   me: Me,
   onSessionChanged: (me: Me | null) => void,
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
-  onGone: (roomId: RoomId) => void = () => {},
+  onGone: (roomId: RoomId, lostAccess: boolean) => void = () => {},
+  onActivity: (frame: ActivityFrame | null) => void = () => {},
 ) {
   const [{ list, askAgain }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -112,6 +116,8 @@ export function useSidebar(
       }
     });
   });
+  // What one person keeps isn't another's, nor left behind once they've gone.
+  useEffect(() => forgetSaved, [me.id]);
   // A list that doesn't come leaves the sidebar as it is, until it loads again.
   useEffect(() => {
     if (askAgain) void refresh().catch(() => {});
@@ -121,6 +127,7 @@ export function useSidebar(
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const gone = useEffectEvent(onGone);
+  const activity = useEffectEvent(onActivity);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Whether `user`, active now, is someone the directory lists as removed, banned or suspended, rather
   // than someone new, whom it doesn't list yet.
@@ -180,16 +187,20 @@ export function useSidebar(
           workspace.connected();
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
+          // Activity loads again too, with whatever came while the socket was away.
+          activity(null);
+          // What you keep may have changed while this was away.
+          void reloadSaved().catch(() => {});
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
           return change({ type: "saved", room: frame.room });
         case "room.gone":
           heardOf(frame.roomId);
-          gone(frame.roomId);
+          gone(frame.roomId, frame.lostAccess ?? false);
           return change({ type: "gone", roomId: frame.roomId });
         case "room.unread":
-          return change({ type: "marked", roomId: frame.roomId, at: frame.at });
+          return change({ type: "marked", roomId: frame.roomId, at: frame.at, count: frame.count, mentioned: frame.mentioned });
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, at: null });
         case "room.active":
@@ -209,6 +220,12 @@ export function useSidebar(
         case "room.involvement":
           heardOf(frame.roomId);
           return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
+        case "room.involvements":
+          for (const { roomId, involvement } of frame.involvements) {
+            heardOf(roomId);
+            change({ type: "involved", roomId, involvement });
+          }
+          return;
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
         case "invitation.dismissed":
@@ -218,6 +235,13 @@ export function useSidebar(
         case "account.updated":
           toldOf.account = true;
           return accountChanged(frame.account);
+        case "activity.added":
+        case "activity.marked":
+        case "activity.removed":
+        case "activity.updated":
+          return activity(frame);
+        case "saved.changed":
+          return heardSaved(frame);
       }
     };
 

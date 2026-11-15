@@ -120,6 +120,35 @@ export interface StoredFile {
   previewUrl?: string;
 }
 
+/** Where a file shared in another room is sent to `roomId` as a message of its own, copied rather than uploaded again. */
+export const sharedFilesPath = (roomId: RoomId) => `${uploadsPath(roomId)}/shared`;
+
+/**
+ * What the app sends to share a file posted in another room, as Files in Ember picks one: the room it was
+ * posted in, its id there, and the id the app gives the message it becomes, as for an upload.
+ */
+export interface SharedFile {
+  roomId: RoomId;
+  fileId: string;
+  clientMessageId: string;
+  /** The message in whose thread the file is a reply, which `alsoSend` sends to the room too. */
+  parentId?: string;
+  alsoSend?: boolean;
+}
+
+/** Parses an untrusted `SharedFile`, or returns why it's refused. */
+export function parseSharedFile(data: unknown): SharedFile | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const { roomId, fileId, clientMessageId, parentId, alsoSend } = data as Record<string, unknown>;
+  if (typeof roomId !== "string" || roomId.length === 0 || roomId.length > MAX_ID_LENGTH) return "A shared file needs the room it's in";
+  if (typeof fileId !== "string" || fileId.length === 0 || fileId.length > MAX_ID_LENGTH) return "A shared file needs its id";
+  if (typeof clientMessageId !== "string" || clientMessageId.length === 0 || clientMessageId.length > MAX_ID_LENGTH) return "A file needs an id for its message";
+  const shared = { roomId: roomId as RoomId, fileId, clientMessageId };
+  if (parentId === undefined) return shared;
+  if (typeof parentId !== "string" || parentId.length === 0 || parentId.length > MAX_ID_LENGTH) return "A reply's thread must be a message's id";
+  return { ...shared, parentId, alsoSend: alsoSend === true };
+}
+
 /** A UTF-16 surrogate without its pair, which no file name can hold. */
 const LONE_SURROGATE = /\p{Surrogate}/u;
 
@@ -129,12 +158,19 @@ export const FILE_NAME_NOT_KEPT = "That file's name can't be kept";
 /** Whether Ember can keep a file named `name`, once it has a name. */
 export const isKeepableFileName = (name: string) => name.length <= MAX_FILE_NAME_LENGTH && !LONE_SURROGATE.test(name);
 
+/** Why Ember keeps no file named `name`, as a room's upload or a to-do's file, or null when it can. */
+export function fileNameRefusal(name: string): string | null {
+  if (!name.trim()) return "A file needs a name";
+  return isKeepableFileName(name) ? null : FILE_NAME_NOT_KEPT;
+}
+
 /** Parses an untrusted `NewUpload`, or returns why it's refused: `FILE_TOO_LARGE` for a file too large. */
 export function parseNewUpload(data: unknown): NewUpload | string {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
   const { name, type, size, clientMessageId, parentId, alsoSend } = data as Record<string, unknown>;
-  if (typeof name !== "string" || !name.trim()) return "A file needs a name";
-  if (!isKeepableFileName(name)) return FILE_NAME_NOT_KEPT;
+  if (typeof name !== "string") return "A file needs a name";
+  const refusal = fileNameRefusal(name);
+  if (refusal) return refusal;
   if (typeof type !== "string" || type.length > MAX_FILE_TYPE_LENGTH) return "A file's type must be text";
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return "A file's size must be a number of bytes";
   if (size > MAX_FILE_SIZE) return FILE_TOO_LARGE;

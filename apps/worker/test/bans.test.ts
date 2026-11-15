@@ -1,6 +1,7 @@
 import {
   CloseCode,
   ROOM_PROTOCOL,
+  type ActivityPage,
   type ChangedPerson,
   type Directory,
   type DirectoryUser,
@@ -12,6 +13,7 @@ import {
   type Sidebar,
   type UserId,
 } from "@ember/protocol";
+import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { banProblem } from "../src/bans";
@@ -268,6 +270,22 @@ describe("Ban and unban people", () => {
 
     await ban(administrator, member.user.id);
     expect((await api("/api/session/transfers", { method: "POST", body: JSON.stringify({ transferId }) })).status).toBe(400);
+  });
+
+  it("takes the messages it deletes out of everyone's Activity", async () => {
+    const administrator = await setUp();
+    const member = await join(grace);
+    const linus = await signIn("Linus Torvalds");
+    const lobby = await freshRoom("lobby");
+    const graceInLobby = await connect(lobby, member);
+    await post(graceInLobby, `<action-text-attachment sgid="${mentionSgid(linus.user.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment> look`);
+    await delivered(lobby as RoomId);
+    const activityOf = async (session: Session) => ((await (await api("/api/activity", { headers: { Cookie: session.cookie } })).json()) as ActivityPage).items;
+    expect(await activityOf(linus)).toHaveLength(1);
+
+    expect((await ban(administrator, member.user.id)).status).toBe(200);
+    await purged();
+    await vi.waitFor(async () => expect(await activityOf(linus)).toEqual([]), { timeout: 5_000 });
   });
 
   it("deletes every message they wrote, in every room they could have written in, with its boosts, telling everyone there", async () => {

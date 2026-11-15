@@ -7,7 +7,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { useAccount } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";
-import { ApiError, isSignedOut, saveMemberfulKeys } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { saveMemberfulKeys } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { Actions } from "./assistant-setup";
 import { HIDDEN, Step } from "./huddles-steps";

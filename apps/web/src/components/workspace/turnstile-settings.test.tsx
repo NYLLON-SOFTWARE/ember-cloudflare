@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSettings } from "@ember/protocol";
 import { ApiError } from "@/lib/api";
+import { answerConfirm } from "@/test-confirm";
 import { CONFIRM_STOP_TURNSTILE, TurnstileSettings } from "./turnstile-settings";
 
 /** Answers turning Turnstile off as the server would, or as `stopped` says. */
@@ -73,14 +74,15 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
   it("takes the keys away once the administrator confirms turning its switch off", async () => {
     const answer = held(() => Response.json({ turnstile: null }));
     const fetch = serve(answer.answered);
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user, onStopped } = showCard("saved");
     await user.click(turnstileSwitch());
-    expect(sure).toHaveBeenCalledWith(CONFIRM_STOP_TURNSTILE);
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
     expect(turnstileSwitch()).toBeChecked();
 
     await user.click(turnstileSwitch());
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Turn off");
     expect(fetch).toHaveBeenCalledWith("/api/account/turnstile_keys", expect.objectContaining({ method: "DELETE" }));
     expect(turnstileSwitch()).not.toBeChecked();
     expect(turnstileSwitch()).toBeDisabled();
@@ -88,13 +90,14 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     await answer.answer();
     expect(onStopped).toHaveBeenCalledExactlyOnceWith(null);
     expect(turnstileSwitch()).toBeEnabled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("leaves turning it off that failed to the page's alerts, its switch back on", async () => {
     serve(() => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user, onStopped, onFailed } = showCard("saved");
     await user.click(turnstileSwitch());
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Turn off");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
     expect(onStopped).not.toHaveBeenCalled();
     expect(turnstileSwitch()).toBeChecked();

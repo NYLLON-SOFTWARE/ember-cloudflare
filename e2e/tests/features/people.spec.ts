@@ -29,7 +29,7 @@ test.describe("Someone's profile page", () => {
     await expect(page.getByRole("link", { name: "Edit my profile" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/");
 
-    await page.getByRole("button", { name: `Ping ${grace.name}` }).click();
+    await page.getByRole("button", { name: "Message" }).click();
     // The DM's name heads its top bar.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Direct message with ${grace.name}`);
     await ada.connected();
@@ -65,8 +65,8 @@ test.describe("Someone's profile page", () => {
   });
 });
 
-test.describe("Avatars open people's pages", () => {
-  test("a message's avatar, its reactions' and its mentions' open each person's page, titled with their name and bio", async ({ members, participant, request }) => {
+test.describe("Avatars open people's profiles", () => {
+  test("a message's avatar and name, its reactions' and its mentions' open each person's profile beside the room, titled with their name and bio", async ({ members, participant, request }) => {
     const tag = crypto.randomUUID().slice(0, 8);
     const grace = await participant(`Grace ${tag}`);
     const linus = await participant(`Linus ${tag}`);
@@ -88,21 +88,35 @@ test.describe("Avatars open people's pages", () => {
     await expect(ada.composer().getByRole("link")).toHaveCount(0);
     await ada.composer().press("Enter");
 
+    // Each opens their profile beside the room, in place of anyone else's, the room's address saying whose it is.
+    const roomAddress = page.url();
+    const profile = page.getByRole("complementary", { name: "Profile" });
+    const profileOf = async (person: typeof grace) => {
+      await expect(profile.getByRole("heading", { level: 2, name: person.session.user.name, exact: true })).toBeVisible();
+      await expect(page).toHaveURL(`${roomAddress}?profile=${person.session.user.id}`);
+    };
     const question = ada.message("Ask me anything");
     await question.getByRole("link", { name: graceTitle }).click();
-    await expect(page).toHaveURL(new RegExp(`/users/${grace.session.user.id}$`));
-    await expect(heading(page)).toHaveText(`Grace ${tag}`);
+    await profileOf(grace);
+    await profile.getByRole("button", { name: "Close profile" }).click();
+    await expect(profile).toBeHidden();
+    await expect(page).toHaveURL(roomAddress);
 
-    await page.goBack();
-    await ada.connected();
+    await question.getByRole("heading", { level: 3 }).getByRole("link", { name: `Grace ${tag}`, exact: true }).click();
+    await profileOf(grace);
+
     const boost = question.getByRole("list", { name: "Reactions" }).getByRole("link", { name: `Linus ${tag} boosted 👍` });
     await expect(boost).toHaveAttribute("title", `Linus ${tag}`);
     await boost.click();
-    await expect(heading(page)).toHaveText(`Linus ${tag}`);
+    await profileOf(linus);
 
-    await page.goBack();
-    await ada.connected();
     await ada.message("Thanks").getByRole("paragraph").getByRole("link", { name: graceTitle }).click();
+    await profileOf(grace);
+
+    // Their page is a link away.
+    await profile.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "View full profile" }).click();
+    await expect(page).toHaveURL(new RegExp(`/users/${grace.session.user.id}$`));
     await expect(heading(page)).toHaveText(`Grace ${tag}`);
   });
 

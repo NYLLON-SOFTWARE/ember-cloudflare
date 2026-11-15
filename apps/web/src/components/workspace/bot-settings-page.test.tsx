@@ -7,7 +7,8 @@ import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
-import { BotSettingsPage, CONFIRM_DELETE_BOT, CONFIRM_NEW_KEY, NewBotPage } from "./bot-settings-page";
+import { answerConfirm } from "@/test-confirm";
+import { BotSettingsPage, NewBotPage } from "./bot-settings-page";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
@@ -342,27 +343,30 @@ describe("Add and edit a bot", () => {
 
 describe("Delete a bot", () => {
   it("deletes the bot once it's confirmed, then goes to the bots page", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user } = showSettings();
     await loaded();
     const remove = screen.getByRole("button", { name: "Delete this chat bot" });
     expect(remove).toHaveTextContent("Delete bot");
 
     await user.click(remove);
-    expect(confirm).toHaveBeenLastCalledWith(CONFIRM_DELETE_BOT);
+    expect(await screen.findByRole("alertdialog", { name: "Delete Build Bot" })).toHaveAccessibleDescription("This can’t be undone.");
+    await answerConfirm(user, "Delete Build Bot", "Cancel");
     expect(sent()).toEqual([]);
     await user.click(remove);
+    await answerConfirm(user, "Delete Build Bot", "Delete");
     await waitFor(() => expect(location.pathname).toBe("/account/bots"));
     expect(sent()).toEqual([[`DELETE /api/account/bots/${BOT.id}`, undefined]]);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("can't save, delete or rekey the bot while a deletion is on its way, and says why one failed", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let fail = () => {};
     serve({ sent: () => new Promise((resolve) => (fail = () => resolve(refused(500, "Something went wrong")))) });
     const { onFailed, user } = showSettings();
     await loaded();
     await user.click(screen.getByRole("button", { name: "Delete this chat bot" }));
+    await answerConfirm(user, "Delete Build Bot", "Delete");
     for (const name of ["Save changes", "Delete this chat bot", "Generate a new key"]) expect(screen.getByRole("button", { name })).toBeDisabled();
 
     fail();
@@ -374,18 +378,21 @@ describe("Delete a bot", () => {
 
 describe("Generate a new bot key", () => {
   it("gives the bot a new key once it's confirmed, then goes to the bots page", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user } = showSettings();
     await loaded();
     const newKey = screen.getByRole("button", { name: "Generate a new key" });
     expect(newKey).toHaveTextContent("Generate a new key");
 
     await user.click(newKey);
-    expect(confirm).toHaveBeenLastCalledWith(CONFIRM_NEW_KEY);
+    expect(await screen.findByRole("alertdialog", { name: "Generate a new key" })).toHaveAccessibleDescription("The bot’s current key will stop working.");
+    await answerConfirm(user, "Generate a new key", "Cancel");
     expect(sent()).toEqual([]);
     await user.click(newKey);
+    await answerConfirm(user, "Generate a new key", "Generate key");
     await waitFor(() => expect(location.pathname).toBe("/account/bots"));
     expect(sent()).toEqual([[`PUT /api/account/bots/${BOT.id}/key`, undefined]]);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
 

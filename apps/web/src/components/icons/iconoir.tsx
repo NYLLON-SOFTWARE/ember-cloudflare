@@ -1,48 +1,13 @@
-import type { SVGProps } from "react";
-import { cn } from "@/lib/utils";
+import { DOT, IconoirIcon, LINE, OUTLINE, ROUND_ENDS, type IconoirIconProps } from "./iconoir-base";
 
 // Iconoir's icons (iconoir.com), from the release pinned here: iconoir 7.12.1. The project's owner chose them for
 // every icon Ember draws but those people pick for rooms and the rail (room-icon.tsx) and the picture of Chrome's
 // View site information button in the setup help (campfire.tsx). iconoir/ holds their files from the package's
 // icons/regular/, and iconoir/solid/ those from its icons/solid/, byte for byte, and icons.test.tsx checks each
-// icon here against its file.
+// icon here against its file. Those only the pages few visits need draw are in iconoir-more.tsx, so the app's
+// script doesn't carry them.
 
-export type IconoirIconProps = SVGProps<SVGSVGElement>;
-
-/**
- * Iconoir's 24px grid and 1.5 stroke, named `iconoir-<name>` as Iconoir's stylesheet names its icons. An icon
- * is hidden from screen readers unless it has an `aria-label`, as the setup help's pictures of buttons do.
- */
-function IconoirIcon({ name, className, ...props }: IconoirIconProps & { name: string }) {
-  const named = props["aria-label"] !== undefined;
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      strokeWidth="1.5"
-      fill="none"
-      role={named ? "img" : undefined}
-      aria-hidden={named ? undefined : "true"}
-      focusable="false"
-      className={cn(`iconoir-${name}`, className)}
-      {...props}
-    />
-  );
-}
-
-/** How Iconoir draws a line: in the text's color, with round ends and corners. */
-const LINE = { stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round" } as const;
-
-/** A dot, which Iconoir fills as well as outlines. */
-const DOT = { fill: "currentColor", ...LINE } as const;
-
-/** A line with round ends whose corners Iconoir leaves sharp. */
-const ROUND_ENDS = { stroke: "currentColor", strokeLinecap: "round" } as const;
-
-/** An outline whose corners are curves already, so Iconoir gives it neither round ends nor round joins. */
-const OUTLINE = { stroke: "currentColor", strokeWidth: "1.5" } as const;
+export type { IconoirIconProps } from "./iconoir-base";
 
 export function ArrowDown(props: IconoirIconProps) {
   return (
@@ -157,6 +122,32 @@ export function BellOff(props: IconoirIconProps) {
   );
 }
 
+export function Bookmark(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="bookmark" {...props}>
+      <path
+        d="M5 21V5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L13.0815 17.1953C12.4227 16.7717 11.5773 16.7717 10.9185 17.1953L5 21Z"
+        {...LINE}
+      />
+    </IconoirIcon>
+  );
+}
+
+export function BookmarkSolid(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="bookmark-solid" strokeWidth={undefined} {...props}>
+      <path
+        d="M5 21V5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L13.0815 17.1953C12.4227 16.7717 11.5773 16.7717 10.9185 17.1953L5 21Z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </IconoirIcon>
+  );
+}
+
 export function Box(props: IconoirIconProps) {
   return (
     <IconoirIcon name="box" {...props}>
@@ -181,18 +172,6 @@ export function BrainElectricity(props: IconoirIconProps) {
       <path d="M12 4.5C12 3.11929 13.1193 2 14.5 2C15.8807 2 17 3.11929 17 4.5C17 4.88103 16.9148 5.24215 16.7623 5.56533" {...LINE} />
       <path d="M14 22C12.8954 22 12 21.1046 12 20" {...LINE} />
       <path d="M18.6667 16L17 19H21L19.3333 22" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function Camera(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="camera" {...props}>
-      <path
-        d="M2 19V9C2 7.89543 2.89543 7 4 7H4.5C5.12951 7 5.72229 6.70361 6.1 6.2L8.32 3.24C8.43331 3.08892 8.61115 3 8.8 3H15.2C15.3889 3 15.5667 3.08892 15.68 3.24L17.9 6.2C18.2777 6.70361 18.8705 7 19.5 7H20C21.1046 7 22 7.89543 22 9V19C22 20.1046 21.1046 21 20 21H4C2.89543 21 2 20.1046 2 19Z"
-        {...LINE}
-      />
-      <path d="M12 17C14.2091 17 16 15.2091 16 13C16 10.7909 14.2091 9 12 9C9.79086 9 8 10.7909 8 13C8 15.2091 9.79086 17 12 17Z" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -246,6 +225,14 @@ export function ChatPlusIn(props: IconoirIconProps) {
   );
 }
 
+export function Check(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="check" {...props}>
+      <path d="M5 13L9 17L19 7" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function CheckCircle(props: IconoirIconProps) {
   return (
     <IconoirIcon name="check-circle" {...props}>
@@ -255,28 +242,24 @@ export function CheckCircle(props: IconoirIconProps) {
   );
 }
 
-export function ClockRotateRight(props: IconoirIconProps) {
+export function CheckCircleSolid(props: IconoirIconProps) {
   return (
-    <IconoirIcon name="clock-rotate-right" {...props}>
-      <path d="M12 6L12 12L18 12" {...LINE} />
+    <IconoirIcon name="check-circle-solid" strokeWidth={undefined} {...props}>
       <path
-        d="M21.8883 10.5C21.1645 5.68874 17.013 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C16.1006 22 19.6248 19.5318 21.1679 16"
-        {...LINE}
+        d="M12 1.25C6.06294 1.25 1.25 6.06294 1.25 12C1.25 17.9371 6.06294 22.75 12 22.75C17.9371 22.75 22.75 17.9371 22.75 12C22.75 6.06294 17.9371 1.25 12 1.25ZM7.53044 11.9697C7.23755 11.6768 6.76268 11.6768 6.46978 11.9697C6.17689 12.2626 6.17689 12.7374 6.46978 13.0303L9.46978 16.0303C9.76268 16.3232 10.2376 16.3232 10.5304 16.0303L17.5304 9.03033C17.8233 8.73744 17.8233 8.26256 17.5304 7.96967C17.2375 7.67678 16.7627 7.67678 16.4698 7.96967L10.0001 14.4393L7.53044 11.9697Z"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        fill="currentColor"
       />
-      <path d="M17 16H21.4C21.7314 16 22 16.2686 22 16.6V21" {...LINE} />
     </IconoirIcon>
   );
 }
 
-export function Community(props: IconoirIconProps) {
+export function Clock(props: IconoirIconProps) {
   return (
-    <IconoirIcon name="community" {...props}>
-      <path d="M7 18V17C7 14.2386 9.23858 12 12 12V12C14.7614 12 17 14.2386 17 17V18" {...LINE} />
-      <path d="M1 18V17C1 15.3431 2.34315 14 4 14V14" {...LINE} />
-      <path d="M23 18V17C23 15.3431 21.6569 14 20 14V14" {...LINE} />
-      <path d="M12 12C13.6569 12 15 10.6569 15 9C15 7.34315 13.6569 6 12 6C10.3431 6 9 7.34315 9 9C9 10.6569 10.3431 12 12 12Z" {...LINE} />
-      <path d="M4 14C5.10457 14 6 13.1046 6 12C6 10.8954 5.10457 10 4 10C2.89543 10 2 10.8954 2 12C2 13.1046 2.89543 14 4 14Z" {...LINE} />
-      <path d="M20 14C21.1046 14 22 13.1046 22 12C22 10.8954 21.1046 10 20 10C18.8954 10 18 10.8954 18 12C18 13.1046 18.8954 14 20 14Z" {...LINE} />
+    <IconoirIcon name="clock" {...props}>
+      <path d="M12 6L12 12L18 12" {...LINE} />
+      <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -306,66 +289,11 @@ export function Copy(props: IconoirIconProps) {
   );
 }
 
-export function Crown(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="crown" {...props}>
-      <path d="M19.2 17L21 7L14.7 10L12 7L9.3 10L3 7L4.8 17H19.2Z" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function DotsGrid3x3(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="dots-grid-3x3" {...props}>
-      <path d="M5.5 6C5.77614 6 6 5.77614 6 5.5C6 5.22386 5.77614 5 5.5 5C5.22386 5 5 5.22386 5 5.5C5 5.77614 5.22386 6 5.5 6Z" {...DOT} />
-      <path
-        d="M5.5 12.5C5.77614 12.5 6 12.2761 6 12C6 11.7239 5.77614 11.5 5.5 11.5C5.22386 11.5 5 11.7239 5 12C5 12.2761 5.22386 12.5 5.5 12.5Z"
-        {...DOT}
-      />
-      <path d="M5.5 19C5.77614 19 6 18.7761 6 18.5C6 18.2239 5.77614 18 5.5 18C5.22386 18 5 18.2239 5 18.5C5 18.7761 5.22386 19 5.5 19Z" {...DOT} />
-      <path
-        d="M12 6C12.2761 6 12.5 5.77614 12.5 5.5C12.5 5.22386 12.2761 5 12 5C11.7239 5 11.5 5.22386 11.5 5.5C11.5 5.77614 11.7239 6 12 6Z"
-        {...DOT}
-      />
-      <path
-        d="M12 12.5C12.2761 12.5 12.5 12.2761 12.5 12C12.5 11.7239 12.2761 11.5 12 11.5C11.7239 11.5 11.5 11.7239 11.5 12C11.5 12.2761 11.7239 12.5 12 12.5Z"
-        {...DOT}
-      />
-      <path
-        d="M12 19C12.2761 19 12.5 18.7761 12.5 18.5C12.5 18.2239 12.2761 18 12 18C11.7239 18 11.5 18.2239 11.5 18.5C11.5 18.7761 11.7239 19 12 19Z"
-        {...DOT}
-      />
-      <path d="M18.5 6C18.7761 6 19 5.77614 19 5.5C19 5.22386 18.7761 5 18.5 5C18.2239 5 18 5.22386 18 5.5C18 5.77614 18.2239 6 18.5 6Z" {...DOT} />
-      <path
-        d="M18.5 12.5C18.7761 12.5 19 12.2761 19 12C19 11.7239 18.7761 11.5 18.5 11.5C18.2239 11.5 18 11.7239 18 12C18 12.2761 18.2239 12.5 18.5 12.5Z"
-        {...DOT}
-      />
-      <path
-        d="M18.5 19C18.7761 19 19 18.7761 19 18.5C19 18.2239 18.7761 18 18.5 18C18.2239 18 18 18.2239 18 18.5C18 18.7761 18.2239 19 18.5 19Z"
-        {...DOT}
-      />
-    </IconoirIcon>
-  );
-}
-
 export function Download(props: IconoirIconProps) {
   return (
     <IconoirIcon name="download" {...props}>
       <path d="M6 20L18 20" {...LINE} />
       <path d="M12 4V16M12 16L15.5 12.5M12 16L8.5 12.5" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function DownloadDataWindow(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="download-data-window" {...props}>
-      <path d="M14 21H4C2.89543 21 2 20.1046 2 19V5C2 3.89543 2.89543 3 4 3H20C21.1046 3 22 3.89543 22 5V14" {...ROUND_ENDS} />
-      <path d="M2 7L22 7" {...LINE} />
-      <path d="M5 5.01L5.01 4.99889" {...LINE} />
-      <path d="M8 5.01L8.01 4.99889" {...LINE} />
-      <path d="M11 5.01L11.01 4.99889" {...LINE} />
-      <path d="M19.5 16V22M19.5 22L17 19.5M19.5 22L22 19.5" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -404,11 +332,14 @@ export function Emoji(props: IconoirIconProps) {
   );
 }
 
-export function Eye(props: IconoirIconProps) {
+export function EmptyPage(props: IconoirIconProps) {
   return (
-    <IconoirIcon name="eye" {...props}>
-      <path d="M3 13C6.6 5 17.4 5 21 13" {...LINE} />
-      <path d="M12 17C10.3431 17 9 15.6569 9 14C9 12.3431 10.3431 11 12 11C13.6569 11 15 12.3431 15 14C15 15.6569 13.6569 17 12 17Z" {...LINE} />
+    <IconoirIcon name="empty-page" {...props}>
+      <path
+        d="M4 21.4V2.6C4 2.26863 4.26863 2 4.6 2H16.2515C16.4106 2 16.5632 2.06321 16.6757 2.17574L19.8243 5.32426C19.9368 5.43679 20 5.5894 20 5.74853V21.4C20 21.7314 19.7314 22 19.4 22H4.6C4.26863 22 4 21.7314 4 21.4Z"
+        {...LINE}
+      />
+      <path d="M16 2V5.4C16 5.73137 16.2686 6 16.6 6H20" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -424,31 +355,12 @@ export function EyeClosed(props: IconoirIconProps) {
   );
 }
 
-export function FilterList(props: IconoirIconProps) {
+export function Folder(props: IconoirIconProps) {
   return (
-    <IconoirIcon name="filter-list" {...props}>
-      <path d="M3 6H21" {...LINE} />
-      <path d="M7 12L17 12" {...LINE} />
-      <path d="M11 18L13 18" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function GridPlus(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="grid-plus" {...props}>
-      <path d="M13.9922 17H16.9922M19.9922 17H16.9922M16.9922 17V14M16.9922 17V20" {...LINE} />
+    <IconoirIcon name="folder" {...props}>
       <path
-        d="M4 9.4V4.6C4 4.26863 4.26863 4 4.6 4H9.4C9.73137 4 10 4.26863 10 4.6V9.4C10 9.73137 9.73137 10 9.4 10H4.6C4.26863 10 4 9.73137 4 9.4Z"
-        {...OUTLINE}
-      />
-      <path
-        d="M4 19.4V14.6C4 14.2686 4.26863 14 4.6 14H9.4C9.73137 14 10 14.2686 10 14.6V19.4C10 19.7314 9.73137 20 9.4 20H4.6C4.26863 20 4 19.7314 4 19.4Z"
-        {...OUTLINE}
-      />
-      <path
-        d="M14 9.4V4.6C14 4.26863 14.2686 4 14.6 4H19.4C19.7314 4 20 4.26863 20 4.6V9.4C20 9.73137 19.7314 10 19.4 10H14.6C14.2686 10 14 9.73137 14 9.4Z"
-        {...OUTLINE}
+        d="M2 11V4.6C2 4.26863 2.26863 4 2.6 4H8.77805C8.92127 4 9.05977 4.05124 9.16852 4.14445L12.3315 6.85555C12.4402 6.94876 12.5787 7 12.722 7H21.4C21.7314 7 22 7.26863 22 7.6V11M2 11V19.4C2 19.7314 2.26863 20 2.6 20H21.4C21.7314 20 22 19.7314 22 19.4V11M2 11H22"
+        {...LINE}
       />
     </IconoirIcon>
   );
@@ -563,30 +475,6 @@ export function Lock(props: IconoirIconProps) {
   );
 }
 
-export function LogOut(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="log-out" {...props}>
-      <path d="M12 12H19M19 12L16 15M19 12L16 9" {...LINE} />
-      <path
-        d="M19 6V5C19 3.89543 18.1046 3 17 3H7C5.89543 3 5 3.89543 5 5V19C5 20.1046 5.89543 21 7 21H17C18.1046 21 19 20.1046 19 19V18"
-        {...LINE}
-      />
-    </IconoirIcon>
-  );
-}
-
-export function Mail(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="mail" {...props}>
-      <path d="M7 9L12 12.5L17 9" {...LINE} />
-      <path
-        d="M2 17V7C2 5.89543 2.89543 5 4 5H20C21.1046 5 22 5.89543 22 7V17C22 18.1046 21.1046 19 20 19H4C2.89543 19 2 18.1046 2 17Z"
-        {...OUTLINE}
-      />
-    </IconoirIcon>
-  );
-}
-
 export function Menu(props: IconoirIconProps) {
   return (
     <IconoirIcon name="menu" {...props}>
@@ -606,27 +494,6 @@ export function MessageText(props: IconoirIconProps) {
         d="M3 20.2895V5C3 3.89543 3.89543 3 5 3H19C20.1046 3 21 3.89543 21 5V15C21 16.1046 20.1046 17 19 17H7.96125C7.35368 17 6.77906 17.2762 6.39951 17.7506L4.06852 20.6643C3.71421 21.1072 3 20.8567 3 20.2895Z"
         {...OUTLINE}
       />
-    </IconoirIcon>
-  );
-}
-
-export function Microphone(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="microphone" {...props}>
-      <rect x="9" y="2" width="6" height="12" rx="3" {...OUTLINE} />
-      <path d="M5 10V11C5 14.866 8.13401 18 12 18V18V18C15.866 18 19 14.866 19 11V10" {...LINE} />
-      <path d="M12 18V22M12 22H9M12 22H15" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function MicrophoneMute(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="microphone-mute" {...props}>
-      <path d="M3 3L21 21" {...LINE} />
-      <path d="M9 9V9C9 11.7614 11.2386 14 14 14V14M15 10.5V5C15 3.34315 13.6569 2 12 2V2C10.3431 2 9 3.34315 9 5V5.5" {...LINE} />
-      <path d="M5 10V11C5 14.866 8.13401 18 12 18V18V18C15.866 18 19 14.866 19 11V10" {...LINE} />
-      <path d="M12 18V22M12 22H9M12 22H15" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -658,25 +525,6 @@ export function MoreHoriz(props: IconoirIconProps) {
   );
 }
 
-export function MoreVert(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="more-vert" {...props}>
-      <path
-        d="M12 12.5C12.2761 12.5 12.5 12.2761 12.5 12C12.5 11.7239 12.2761 11.5 12 11.5C11.7239 11.5 11.5 11.7239 11.5 12C11.5 12.2761 11.7239 12.5 12 12.5Z"
-        {...DOT}
-      />
-      <path
-        d="M12 20.5C12.2761 20.5 12.5 20.2761 12.5 20C12.5 19.7239 12.2761 19.5 12 19.5C11.7239 19.5 11.5 19.7239 11.5 20C11.5 20.2761 11.7239 20.5 12 20.5Z"
-        {...DOT}
-      />
-      <path
-        d="M12 4.5C12.2761 4.5 12.5 4.27614 12.5 4C12.5 3.72386 12.2761 3.5 12 3.5C11.7239 3.5 11.5 3.72386 11.5 4C11.5 4.27614 11.7239 4.5 12 4.5Z"
-        {...DOT}
-      />
-    </IconoirIcon>
-  );
-}
-
 export function MultiBubble(props: IconoirIconProps) {
   return (
     <IconoirIcon name="multi-bubble" {...props}>
@@ -688,6 +536,22 @@ export function MultiBubble(props: IconoirIconProps) {
         d="M15.2824 17.8978C16.2587 17.7405 17.1758 17.4065 18 16.9297L21.6 17.6L20.9297 14C21.6104 12.8233 22 11.4571 22 10C22 5.58172 18.4183 2 14 2C9.97262 2 6.64032 4.97598 6.08221 8.84884"
         {...LINE}
       />
+    </IconoirIcon>
+  );
+}
+
+export function MultiplePages(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="multiple-pages" {...props}>
+      <path d="M7 18H10.5H14" {...LINE} />
+      <path d="M7 14H7.5H8" {...LINE} />
+      <path d="M7 10H8.5H10" {...LINE} />
+      <path d="M7 2L16.5 2L21 6.5V19" {...LINE} />
+      <path
+        d="M3 20.5V6.5C3 5.67157 3.67157 5 4.5 5H14.2515C14.4106 5 14.5632 5.06321 14.6757 5.17574L17.8243 8.32426C17.9368 8.43679 18 8.5894 18 8.74853V20.5C18 21.3284 17.3284 22 16.5 22H4.5C3.67157 22 3 21.3284 3 20.5Z"
+        {...LINE}
+      />
+      <path d="M14 5V8.4C14 8.73137 14.2686 9 14.6 9H18" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -723,6 +587,23 @@ export function Page(props: IconoirIconProps) {
   );
 }
 
+export function PageEdit(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="page-edit" {...props}>
+      <path
+        d="M20 12V5.74853C20 5.5894 19.9368 5.43679 19.8243 5.32426L16.6757 2.17574C16.5632 2.06321 16.4106 2 16.2515 2H4.6C4.26863 2 4 2.26863 4 2.6V21.4C4 21.7314 4.26863 22 4.6 22H11"
+        {...LINE}
+      />
+      <path d="M8 10H16M8 6H12M8 14H11" {...LINE} />
+      <path
+        d="M17.9541 16.9394L18.9541 15.9394C19.392 15.5015 20.102 15.5015 20.5399 15.9394V15.9394C20.9778 16.3773 20.9778 17.0873 20.5399 17.5252L19.5399 18.5252M17.9541 16.9394L14.963 19.9305C14.8131 20.0804 14.7147 20.2741 14.6821 20.4835L14.4394 22.0399L15.9957 21.7973C16.2052 21.7646 16.3988 21.6662 16.5487 21.5163L19.5399 18.5252M17.9541 16.9394L19.5399 18.5252"
+        {...LINE}
+      />
+      <path d="M16 2V5.4C16 5.73137 16.2686 6 16.6 6H20" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function Palette(props: IconoirIconProps) {
   return (
     <IconoirIcon name="palette" {...props}>
@@ -743,17 +624,6 @@ export function Plus(props: IconoirIconProps) {
   return (
     <IconoirIcon name="plus" {...props}>
       <path d="M6 12H12M18 12H12M12 12V6M12 12V18" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function Prohibition(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="prohibition" {...props}>
-      <path
-        d="M19.1414 5C17.3265 3.14864 14.7974 2 12 2C6.47715 2 2 6.47715 2 12C2 14.7255 3.09032 17.1962 4.85857 19M19.1414 5C20.9097 6.80375 22 9.27455 22 12C22 17.5228 17.5228 22 12 22C9.20261 22 6.67349 20.8514 4.85857 19M19.1414 5L4.85857 19"
-        {...LINE}
-      />
     </IconoirIcon>
   );
 }
@@ -807,17 +677,6 @@ export function QuoteMessage(props: IconoirIconProps) {
   );
 }
 
-export function RefreshDouble(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="refresh-double" {...props}>
-      <path d="M21.1679 8C19.6247 4.46819 16.1006 2 11.9999 2C6.81459 2 2.55104 5.94668 2.04932 11" {...LINE} />
-      <path d="M17 8H21.4C21.7314 8 22 7.73137 22 7.4V3" {...LINE} />
-      <path d="M2.88146 16C4.42458 19.5318 7.94874 22 12.0494 22C17.2347 22 21.4983 18.0533 22 13" {...LINE} />
-      <path d="M7.04932 16H2.64932C2.31795 16 2.04932 16.2686 2.04932 16.6V21" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
 export function Search(props: IconoirIconProps) {
   return (
     <IconoirIcon name="search" {...props}>
@@ -850,39 +709,6 @@ export function ShareAndroid(props: IconoirIconProps) {
       <path d="M6 15C7.65685 15 9 13.6569 9 12C9 10.3431 7.65685 9 6 9C4.34315 9 3 10.3431 3 12C3 13.6569 4.34315 15 6 15Z" {...LINE} />
       <path d="M15.5 6.5L8.5 10.5" {...OUTLINE} />
       <path d="M8.5 13.5L15.5 17.5" {...OUTLINE} />
-    </IconoirIcon>
-  );
-}
-
-export function ShareIos(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="share-ios" {...props}>
-      <path d="M20 13V19C20 20.1046 19.1046 21 18 21H6C4.89543 21 4 20.1046 4 19V13" {...LINE} />
-      <path d="M12 15V3M12 3L8.5 6.5M12 3L15.5 6.5" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function SmartphoneDevice(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="smartphone-device" {...props}>
-      <path d="M12 16.01L12.01 15.9989" {...LINE} />
-      <path
-        d="M7 19.4V4.6C7 4.26863 7.26863 4 7.6 4H16.4C16.7314 4 17 4.26863 17 4.6V19.4C17 19.7314 16.7314 20 16.4 20H7.6C7.26863 20 7 19.7314 7 19.4Z"
-        {...OUTLINE}
-      />
-    </IconoirIcon>
-  );
-}
-
-export function Sort(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="sort" {...props}>
-      <path d="M10 14H2" {...LINE} />
-      <path d="M8 10H2" {...LINE} />
-      <path d="M6 6H2" {...LINE} />
-      <path d="M12 18H2" {...LINE} />
-      <path d="M19 20V4M19 20L22 17M19 20L16 17M19 4L22 7M19 4L16 7" {...LINE} />
     </IconoirIcon>
   );
 }
@@ -946,15 +772,6 @@ export function SunLight(props: IconoirIconProps) {
   );
 }
 
-export function SwitchOff(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="switch-off" {...props}>
-      <path d="M7 13C7.55228 13 8 12.5523 8 12C8 11.4477 7.55228 11 7 11C6.44772 11 6 11.4477 6 12C6 12.5523 6.44772 13 7 13Z" {...DOT} />
-      <path d="M17 17H7C4.23858 17 2 14.7614 2 12C2 9.23858 4.23858 7 7 7H17C19.7614 7 22 9.23858 22 12C22 14.7614 19.7614 17 17 17Z" {...OUTLINE} />
-    </IconoirIcon>
-  );
-}
-
 export function TextSquare(props: IconoirIconProps) {
   return (
     <IconoirIcon name="text-square" {...props}>
@@ -997,16 +814,6 @@ export function User(props: IconoirIconProps) {
     <IconoirIcon name="user" {...props}>
       <path d="M5 20V19C5 15.134 8.13401 12 12 12V12C15.866 12 19 15.134 19 19V20" {...LINE} />
       <path d="M12 12C14.2091 12 16 10.2091 16 8C16 5.79086 14.2091 4 12 4C9.79086 4 8 5.79086 8 8C8 10.2091 9.79086 12 12 12Z" {...LINE} />
-    </IconoirIcon>
-  );
-}
-
-export function UserPlus(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="user-plus" {...props}>
-      <path d="M17 10H20M23 10H20M20 10V7M20 10V13" {...LINE} />
-      <path d="M1 20V19C1 15.134 4.13401 12 8 12V12C11.866 12 15 15.134 15 19V20" {...LINE} />
-      <path d="M8 12C10.2091 12 12 10.2091 12 8C12 5.79086 10.2091 4 8 4C5.79086 4 4 5.79086 4 8C4 10.2091 5.79086 12 8 12Z" {...LINE} />
     </IconoirIcon>
   );
 }
