@@ -6,20 +6,24 @@ import { ChatLines, EditPencil, Prohibition } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { leave, PROFILE_PATH, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { PhoneProfile } from "../mobile/profile";
+import { LocalTime } from "./profile-panel";
 import { AgentBadge, isAgent } from "./agent-badge";
+import { useConfirm } from "./confirm-dialog";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { UserAvatar } from "./user-avatar";
 
-/** What Ban and Remove ban ask first. */
-export const CONFIRM_BAN = "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.";
-export const CONFIRM_UNBAN = "Are you sure you want to remove the ban on this user?";
+/** What Ban and Remove ban ask first, of the person called `name`. */
+export const confirmBan = (name: string) => ({ title: `Ban ${name}`, body: "They’ll be signed out, their messages deleted and their IP addresses blocked." });
+export const confirmUnban = (name: string) => `Remove ban on ${name}`;
 
 interface Props {
   userId: UserId;
@@ -71,7 +75,9 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   // How many times a ban or its lifting has loaded the page again.
   const [reloads, setReloads] = useState(0);
   const back = useBackPath();
+  const phone = usePhoneLayout();
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   useTitle(person?.name ?? null);
 
   // Again once you become an administrator or stop being one, which decides whether it's told their
@@ -106,10 +112,14 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   // a load has said they changed while the answer was on its way, the answer may be older than that, so
   // it's left out, and the directory loads again unless it has what it says. A page that has gone
   // stopped hearing what the directory has, so then the directory loads again.
-  const toggleBan = () => {
+  const toggleBan = async () => {
     if (!person || banning) return;
     const banned = person.status === "banned";
-    if (!confirm(banned ? CONFIRM_UNBAN : CONFIRM_BAN)) return;
+    const ban = confirmBan(person.name);
+    const sure = await (banned
+      ? confirmFirst(confirmUnban(person.name), { confirm: "Remove ban" })
+      : confirmFirst(ban.title, { body: ban.body, confirm: "Ban", destructive: true }));
+    if (!sure) return;
     const asked = listedNow.current;
     setBanning(true);
     (banned ? unbanPerson : banPerson)(person.id)
@@ -136,81 +146,97 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
     </PageLink>
   );
 
+  const content = person && (
+    <div className="flex flex-col gap-x-[1ch] gap-y-4 wrap-anywhere">
+      {!phone && <Avatar person={person} />}
+      {isAgent(person) && <AgentBadge className="mx-auto" />}
+      {fetched?.agent && <AboutAgent name={person.name} agent={fetched.agent} meId={me.id} />}
+      {person.role === "bot" ? (
+        person.status === "active" ? (
+          // At the page's text size.
+          <button type="button" aria-disabled={starting || undefined} onClick={startDirect} className={cn(DIRECT_BUTTON, "bg-background")}>
+            <ChatLines className="size-[1.3em]" />
+            <span className="sr-only">Ping {person.name}</span>
+          </button>
+        ) : (
+          <NoLongerHere name={person.name} />
+        )
+      ) : person.status === "deactivated" || (person.status === "suspended" && !me.administrator) ? (
+        <div>
+          <h1 className="text-[23px] font-bold">{person.name}</h1>
+          <NoLongerHere name={person.name} />
+        </div>
+      ) : (
+        <>
+          {/* Campfire's `.gap` with a third of its block space between rows. */}
+          <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
+            <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
+            {/* A phone's profile says their time where they are under their name, as Slack's does; a wider
+                screen's profile pane says it. */}
+            {phone && person.timeZone && <LocalTime timeZone={person.timeZone} />}
+            {/* Campfire's link, left out for someone with no address. */}
+            {person.emailAddress !== undefined && (
+              <div>
+                {person.emailAddress && (
+                  <a href={`mailto:${person.emailAddress}`} className="text-link underline hover:not-active:brightness-130">
+                    {person.emailAddress}
+                  </a>
+                )}
+              </div>
+            )}
+            <div>{person.bio}</div>
+          </div>
+          {person.status === "active" && (
+            <>
+              <div className="mx-[1ch] mt-4 px-[2ch] max-md:mx-0 max-md:px-0">
+                {/* Named for what it does, since its icon is hidden. */}
+                <button
+                  type="button"
+                  aria-disabled={starting || undefined}
+                  onClick={startDirect}
+                  className={cn(DIRECT_BUTTON, "border-transparent bg-primary text-[17px] text-primary-foreground hover:not-active:brightness-70")}
+                >
+                  <ChatLines className="size-[1.3em]" />
+                  <span className="sr-only">Ping {person.name}</span>
+                  {/* Slack's Message, said on a phone. */}
+                  <span aria-hidden="true" className="hidden max-md:inline">
+                    Message
+                  </span>
+                </button>
+              </div>
+              {transferId && (
+                <>
+                  {/* Campfire's borderless `hr`, spacing the sign-in link from the button. */}
+                  <hr className="mt-4 mb-2 border-0" />
+                  <SignInLink transferId={transferId} mine={mine} />
+                </>
+              )}
+            </>
+          )}
+          {person.status === "suspended" && (
+            <div className="mt-4">{person.name}’s Memberful membership has lapsed, so they can’t sign in until it’s renewed.</div>
+          )}
+          {me.administrator && !mine && (
+            <div className="mt-4">
+              <BanButton person={person} busy={banning} onClick={toggleBan} />
+            </div>
+          )}
+        </>
+      )}
+      {confirmation}
+    </div>
+  );
+
+  if (phone)
+    return (
+      <PhoneProfile back={back} person={person} links={editProfile}>
+        {content}
+      </PhoneProfile>
+    );
   return (
     <SettingsPage back={back} links={editProfile}>
       <Panel aria-busy={person === null} className="text-center">
-        {person && (
-          <div className="flex flex-col gap-x-[1ch] gap-y-4 wrap-anywhere">
-            <Avatar person={person} />
-            {isAgent(person) && <AgentBadge className="mx-auto" />}
-            {fetched?.agent && <AboutAgent name={person.name} agent={fetched.agent} meId={me.id} />}
-            {person.role === "bot" ? (
-              person.status === "active" ? (
-                // At the page's text size.
-                <button type="button" aria-disabled={starting || undefined} onClick={startDirect} className={cn(DIRECT_BUTTON, "bg-background")}>
-                  <ChatLines className="size-[1.3em]" />
-                  <span className="sr-only">Ping {person.name}</span>
-                </button>
-              ) : (
-                <NoLongerHere name={person.name} />
-              )
-            ) : person.status === "deactivated" || (person.status === "suspended" && !me.administrator) ? (
-              <div>
-                <h1 className="text-[23px] font-bold">{person.name}</h1>
-                <NoLongerHere name={person.name} />
-              </div>
-            ) : (
-              <>
-                {/* Campfire's `.gap` with a third of its block space between rows. */}
-                <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
-                  <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
-                  {/* Campfire's link, left out for someone with no address. */}
-                  {person.emailAddress !== undefined && (
-                    <div>
-                      {person.emailAddress && (
-                        <a href={`mailto:${person.emailAddress}`} className="text-link underline hover:not-active:brightness-130">
-                          {person.emailAddress}
-                        </a>
-                      )}
-                    </div>
-                  )}
-                  <div>{person.bio}</div>
-                </div>
-                {person.status === "active" && (
-                  <>
-                    <div className="mx-[1ch] mt-4 px-[2ch] max-md:px-3">
-                      {/* Named for what it does, since its icon is hidden. */}
-                      <button
-                        type="button"
-                        aria-disabled={starting || undefined}
-                        onClick={startDirect}
-                        className={cn(DIRECT_BUTTON, "border-transparent bg-primary text-[17px] text-primary-foreground hover:not-active:brightness-70")}
-                      >
-                        <ChatLines className="size-[1.3em]" />
-                        <span className="sr-only">Ping {person.name}</span>
-                      </button>
-                    </div>
-                    {transferId && (
-                      <>
-                        {/* Campfire's borderless `hr`, spacing the sign-in link from the button. */}
-                        <hr className="mt-4 mb-2 border-0" />
-                        <SignInLink transferId={transferId} mine={mine} />
-                      </>
-                    )}
-                  </>
-                )}
-                {person.status === "suspended" && (
-                  <div className="mt-4">{person.name}’s Memberful membership has lapsed, so they can’t sign in until it’s renewed.</div>
-                )}
-                {me.administrator && !mine && (
-                  <div className="mt-4">
-                    <BanButton person={person} busy={banning} onClick={toggleBan} />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+        {content}
       </Panel>
     </SettingsPage>
   );

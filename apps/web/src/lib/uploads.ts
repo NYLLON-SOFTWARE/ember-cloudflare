@@ -1,4 +1,4 @@
-import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type Upload } from "@ember/protocol";
+import { FILE_TOO_LARGE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, sharedFilesPath, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type ShareWidening, type StoredFile, type Upload } from "@ember/protocol";
 import { previewOf } from "./previews";
 
 // Uploading a file as a message of its own, as Campfire's FileUploader does, but in parts that R2 puts
@@ -13,8 +13,17 @@ export const UPLOAD_FAILED = "Upload failed. Please attach the file and try agai
 /** What an upload says when the connection drops. */
 export const CONNECTION_LOST = "Connection lost. Please attach the file and try again.";
 
+/** What sharing a file from Files in Ember says when it's no longer there, or no longer yours to see. */
+export const SHARED_FILE_GONE = "That file is no longer in Ember.";
+
 /** Why the composer leaves out a file picked to send, before any of it goes. */
 export const tooLargeToAttach = (name: string) => `${name} is too large. Choose a file that’s 250 MB or smaller.`;
+
+/** Why a file whose name Ember can't keep isn't attached: too long for common file systems, or broken. */
+export const nameNotKept = (name: string) =>
+  name.length > MAX_FILE_NAME_LENGTH
+    ? `A file’s name is too long. Rename it to ${MAX_FILE_NAME_LENGTH} characters or fewer.`
+    : `${name} can’t be attached under that name. Rename it.`;
 
 /** Why an upload failed, as its card says it. */
 export class UploadError extends Error {}
@@ -111,5 +120,41 @@ export async function uploadFile(roomId: RoomId, file: File, clientMessageId: st
   const { status, text } = await sendPart(uploadPartPath(roomId, id, parts), file.slice(start), (bytes) => progress(start + bytes));
   if (status !== 201 && status !== 200) throw refused(status, text);
   progress(file.size);
+  return messageIn(text);
+}
+
+/** A file posted in a room, as Files in Ember picks it to share in another. */
+export interface EmberFile {
+  roomId: RoomId;
+  file: StoredFile;
+  /** Where it was, as the share warning names it, and who it was attached knowing would see it anew. */
+  source?: { label: string; direct: boolean; closed?: boolean };
+  accepted?: ShareWidening;
+}
+
+/** A file to send as a message of its own: one from the computer, or one already in Ember. */
+export type Sendable = File | EmberFile;
+
+export const isEmberFile = (sendable: Sendable): sendable is EmberFile => !(sendable instanceof Blob);
+
+/** A file to send's name and size, as its card shows them while it goes. */
+export const sendableFacts = (sendable: Sendable) => (isEmberFile(sendable) ? { name: sendable.file.name, size: sendable.file.byteSize } : { name: sendable.name, size: sendable.size });
+
+/**
+ * Shares `shared`, a file posted in another room, in `roomId` as the message `clientMessageId` names, or as
+ * a reply in `thread`, which the Worker copies rather than the browser sending it again, and answers the
+ * message the room posts it as. It fails with an UploadError saying why, as uploading does.
+ */
+export async function shareFile(roomId: RoomId, shared: EmberFile, clientMessageId: string, thread?: UploadThread): Promise<Message> {
+  const response = await fetch(sharedFilesPath(roomId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roomId: shared.roomId, fileId: shared.file.id, clientMessageId, ...thread }),
+  }).catch(() => {
+    throw new UploadError(CONNECTION_LOST);
+  });
+  const text = await response.text().catch(() => "");
+  if (response.status === 404 && reasonIn(text) === "File not found or inaccessible") throw new UploadError(SHARED_FILE_GONE);
+  if (response.status !== 201 && response.status !== 200) throw refused(response.status, text);
   return messageIn(text);
 }

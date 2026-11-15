@@ -2,7 +2,7 @@ import { MEMBERFUL_CALLBACK_PATH, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_
 import { MEMBERFUL_API_KEY_UNKNOWN, MEMBERFUL_CLIENT_UNKNOWN } from "@ember/protocol/memberful";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { administratorSession, cookieHeader, logOut, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, logOut, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { MEMBERFUL_KEYS, MEMBERFUL_SITE } from "../../projects/workspace-settings";
 import { sendWebhook, startFakeMemberful, type FakeMember, type FakeMemberful } from "./fake-memberful";
 
@@ -203,9 +203,9 @@ test.describe("Ways to join", () => {
     await expect(link).toBeEnabled();
     await expect(page.getByRole("textbox", { name: "Share to invite more people" })).toBeVisible();
 
-    page.once("dialog", (dialog) => void dialog.accept());
     const membersOnly = page.getByRole("switch", { name: "Members only", exact: true });
     await membersOnly.click();
+    await answerConfirm(page, "Turn on Members only", "Turn on");
     await expect(membersOnly).toBeChecked();
     await expect(link).toBeDisabled();
     await expect(page.getByRole("textbox", { name: "Share to invite more people" })).toHaveCount(0);

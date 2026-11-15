@@ -7,12 +7,13 @@ import { useTitle } from "@/hooks/use-title";
 import { deleteRoom, isSignedOut } from "@/lib/api";
 import { membersShown, roomName } from "@/lib/directs";
 import type { RoomAnswer } from "@/lib/room-list";
+import { useConfirm } from "./confirm-dialog";
 import { DeleteButton, isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
 import { AvatarLink } from "./user-avatar";
 
-/** What Delete Ping asks first, in the browser's own dialog. */
-export const CONFIRM_DELETE_DIRECT = "Are you sure you want to delete this ping and all messages in it? This can’t be undone.";
+/** What Delete DM asks first, the verb and the thing, as Slack's confirmations are titled. */
+export const CONFIRM_DELETE_DIRECT = "Delete DM";
 
 interface Props {
   room: DirectRoom;
@@ -29,18 +30,19 @@ interface Props {
 
 /**
  * DM settings: a card for each of the others in the DM, or for you in your DM with yourself, then Delete
- * Ping, which any of its members can press, and which goes home once the DM is deleted. Its members
+ * DM, which any of its members can press, and which goes home once the DM is deleted. Its members
  * never change, so there's nothing to save.
  */
 export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFailed }: Props) {
   const nameOf = useNameOf();
   const [busy, setBusy] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   const title = `Edit settings for ${roomName(room, me.id, nameOf)}`;
   useTitle(title);
 
-  const remove = () => {
-    if (!confirm(CONFIRM_DELETE_DIRECT)) return;
+  const remove = async () => {
+    if (!(await confirmFirst(CONFIRM_DELETE_DIRECT, { confirm: "Delete", destructive: true }))) return;
     setBusy(true);
     const answered = askForRoom();
     deleteRoom(room.id).then(
@@ -70,8 +72,9 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
             <MemberCard key={member.id} member={member} name={nameOf(member)} />
           ))}
         </section>
-        <DeleteButton label="Delete Ping" text="Ping" disabled={busy} onClick={remove} />
+        <DeleteButton label="Delete DM" text="Delete DM" disabled={busy} onClick={remove} />
       </Panel>
+      {confirmation}
     </SettingsPage>
   );
 }

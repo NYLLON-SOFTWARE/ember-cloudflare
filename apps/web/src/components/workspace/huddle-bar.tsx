@@ -1,5 +1,6 @@
 import type { Room, UserId } from "@ember/protocol";
-import { Headset, Microphone, MicrophoneMute } from "@/components/icons/iconoir";
+import { Headset } from "@/components/icons/iconoir";
+import { Microphone, MicrophoneMute } from "@/components/icons/iconoir-more";
 import { PageLink } from "@/components/page-link";
 import { useNameOf } from "@/hooks/use-directory";
 import { roomPath } from "@/hooks/use-route";

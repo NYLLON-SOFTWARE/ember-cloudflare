@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { Camera } from "@/components/icons/iconoir";
+import { Camera } from "@/components/icons/iconoir-more";
 import { cn } from "@/lib/utils";
 
 /** Remove: Campfire's `.btn.txt-small`, in muted text, 44px tall for fingers. */

@@ -1,4 +1,4 @@
-import { avatarSvg, type DirectoryUser, type Room, type User } from "@ember/protocol";
+import type { DirectoryUser, Me, Room, User } from "@ember/protocol";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
@@ -18,6 +18,8 @@ const general: Room = { id: "general", name: "general", kind: "open", icon: null
 const adaDirect: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada", name: "Ada" }, { id: "linus", name: "Linus" }], activeAt: "2026-10-15T12:00:00.000Z" };
 /** @ember, the AI assistant. */
 const ember: User = { id: "ember", name: "Ember" };
+/** Whoever's reading the header. */
+const linus: Me = { id: "linus", name: "Linus", administrator: false };
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -35,6 +37,7 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
         <Sheet onOpenChange={onOpenChange}>
           <RoomHeader
             room={general}
+            me={linus}
             name="general"
             present={[]}
             status="open"
@@ -53,44 +56,27 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
   );
 }
 
-describe("Who's here", () => {
-  it("shows up to four faces of the people here, and how many more", () => {
-    renderHeader({ present: people(6) });
-    expect(screen.getByText("6 here now")).toBeInTheDocument();
-    const faces = [...screen.getByTitle(/^Person 0, Person 1, .*Person 5$/).querySelectorAll("img")];
-    // Their initials, drawn as the Worker draws them while the directory doesn't list them.
-    expect(faces.map((face) => atob(face.getAttribute("src")!.split(",")[1]!))).toEqual(people(4).map((person) => avatarSvg(person.id, person.name)));
-    expect(screen.getByText("+2")).toBeInTheDocument();
+/** Ada, Grace and Linus's DM, as Linus reads it. */
+const groupDirect: Room = { ...adaDirect, id: "direct-2", members: [...adaDirect.members, { id: "grace", name: "Grace" }] };
+
+describe("Members", () => {
+  it("shows a person and how many are in a group DM in place of who's here, which never lists the reader alone", () => {
+    renderHeader({ room: groupDirect, name: "Ada and Grace", present: [{ id: "linus", name: "Linus" }] });
+    expect(screen.getByRole("button", { name: "View members, 3 members" })).toHaveTextContent("3");
+    expect(screen.queryByText(/here now/)).not.toBeInTheDocument();
+    expect(document.querySelector("nav img")).toBeNull();
   });
 
-  it("names them as the people directory lists them now, which follows a rename since the room heard them", () => {
-    const renamed = { id: "u1", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u1/avatar" } as const;
-    render(
-      <PeopleContext value={new Map([[renamed.id, renamed]])}>
-        <Sheet>
-          <RoomHeader
-            room={general}
-            name="general"
-            present={people(2)}
-            status="open"
-            offline={false}
-            favorite={false}
-            onStarred={vi.fn()}
-            involvement="mentions"
-            askForRoom={() => vi.fn()}
-            onSessionChanged={vi.fn()}
-            onFailed={vi.fn()}
-          />
-        </Sheet>
-      </PeopleContext>,
-    );
-    expect(screen.getByTitle("Person 0, Grace Hopper")).toBeInTheDocument();
-  });
+  it("has none in a DM with one person, whose avatar takes the chat bubble's place, dotted while they're here", () => {
+    const { unmount } = renderHeader({ room: adaDirect, name: "Ada" });
+    expect(screen.queryByRole("button", { name: /^View members/ })).not.toBeInTheDocument();
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.previousElementSibling?.querySelector("img")).toBeInTheDocument();
+    expect(heading.previousElementSibling?.querySelector(".bg-positive")).toBeNull();
+    unmount();
 
-  it("shows no overflow count for four or fewer", () => {
-    renderHeader({ present: people(2) });
-    expect(screen.getByText("2 here now")).toBeInTheDocument();
-    expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+    renderHeader({ room: adaDirect, name: "Ada", present: [{ id: "ada", name: "Ada" }] });
+    expect(screen.getByRole("heading", { level: 1 }).previousElementSibling?.querySelector(".bg-positive")).toBeInTheDocument();
   });
 });
 
@@ -100,31 +86,43 @@ describe("Room header", () => {
     expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/^#general/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("general");
   });
+
+  it("shows a lock before a private room's name in place of `#`, but its own icon when it has one", () => {
+    const secret = { id: "secret", name: "secret", kind: "closed" as const, icon: null };
+    const { rerender } = renderHeader({ room: secret, name: "secret" });
+    const page = screen.getByRole("navigation", { name: "Page" });
+    expect(page).toHaveTextContent(/^secret/);
+    expect(page.querySelector(".iconoir-lock")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 }).previousElementSibling).toHaveClass("iconoir-lock");
+    rerender(<></>);
+    renderHeader({ room: { ...secret, icon: "coffee" }, name: "secret" });
+    expect(screen.getByRole("navigation", { name: "Page" }).querySelector('[data-icon="coffee"]')).toBeInTheDocument();
+  });
 });
 
 describe("Star rooms", () => {
   it("has a star after the room's name, pressed while it's starred", () => {
     const { unmount } = renderHeader();
-    const star = screen.getByRole("button", { name: "Favorite room" });
+    const star = screen.getByRole("button", { name: "Star room" });
     expect(star).toHaveAttribute("aria-pressed", "false");
     expect(star.compareDocumentPosition(screen.getByRole("heading", { level: 1 })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     unmount();
 
     renderHeader({ favorite: true });
-    expect(screen.getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("has none in a DM, which can't be starred", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
-    expect(screen.queryByRole("button", { name: "Favorite room" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Star room" })).not.toBeInTheDocument();
   });
 });
 
 describe("Group DMs and DM names", () => {
-  it("shows a DM's name after a chat bubble, saying to screen readers whom it's with", () => {
-    renderHeader({ room: adaDirect, name: "Ada" });
+  it("shows a group DM's name after a chat bubble, saying to screen readers whom it's with", () => {
+    renderHeader({ room: groupDirect, name: "Ada and Grace" });
     const heading = screen.getByRole("heading", { level: 1 });
-    expect(heading).toHaveTextContent(/^Direct message with Ada$/);
+    expect(heading).toHaveTextContent(/^Direct message with Ada and Grace$/);
     expect(heading.previousElementSibling).toHaveClass("iconoir-chat-bubble-empty");
     expect(screen.getByRole("navigation", { name: "Page" })).not.toHaveTextContent("#");
   });
@@ -144,6 +142,7 @@ describe("Group DMs and DM names", () => {
         <Sheet>
           <RoomHeader
             room={{ ...adaDirect, members: [{ id: "ada", name: "Ada" }, { id: recap.id, name: recap.name }] }}
+            me={linus}
             name="Recap"
             present={[]}
             status="open"
@@ -171,9 +170,9 @@ describe("Group DMs and DM names", () => {
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
   });
 
-  it("links to a DM's settings at a DM's address, saying it's a Ping's", () => {
+  it("links to a DM's settings at a DM's address, saying it's a DM's", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
-    const settings = screen.getByRole("link", { name: "Settings for this Ping" });
+    const settings = screen.getByRole("link", { name: "Settings for this DM" });
     expect(settings).toHaveAttribute("title", "Conversation settings");
     expect(settings).toHaveAttribute("href", "/rooms/directs/direct-1/edit");
   });
@@ -278,7 +277,8 @@ describe("Notification levels", () => {
   });
 
   it("hands on the level its bell saves, says under the bell when it couldn't, and leaves a session that's ended to the workspace", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ involvement: "everything" }));
+    // The member count asks for the room's settings as the header shows, before the bell saves anything.
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({}, { status: 404 })).mockResolvedValueOnce(Response.json({ involvement: "everything" }));
     const [answered, onFailed] = [vi.fn(), vi.fn()];
     renderHeader({ askForRoom: () => answered, onFailed });
     const bell = screen.getByRole("checkbox", { name: "Notifying about @ mentions" });
@@ -309,6 +309,7 @@ describe("Huddles", () => {
         <Sheet>
           <RoomHeader
             room={room}
+            me={linus}
             name={name}
             present={[]}
             status="open"

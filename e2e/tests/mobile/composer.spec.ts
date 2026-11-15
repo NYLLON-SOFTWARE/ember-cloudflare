@@ -1,5 +1,5 @@
 import { editorField, openRoom, signInAs } from "../../fixtures";
-import { expect, openKeyboard, test } from "./fixtures";
+import { expect, hasPhoneLayout, openKeyboard, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -116,4 +116,51 @@ test("the people @ lists show above the text, fit the phone, each big enough to 
   const mention = page.getByRole("article").getByRole("link", { name: `Cy ${tag}` });
   await expect(mention).toBeVisible();
   await screenIsFine();
+});
+
+test("the pill's + is a 36px circle inset 5px all round, and Aa swaps the buttons for the tools without the box changing height", async ({ page, room, screenIsFine }) => {
+  test.skip(!hasPhoneLayout(page), "Wider than 900px the composer is the desktop's");
+  await openRoom(page, room);
+  const card = page.locator("[data-composer-card]");
+  const attach = page.getByRole("button", { name: "Attach" });
+  const pill = (await card.boundingBox())!;
+  const plus = (await attach.boundingBox())!;
+  expect(pill.height).toBe(46);
+  // Its 44px target sits 1px inside the pill's edge, and the circle 4px inside that.
+  expect([plus.x - pill.x, plus.y - pill.y, plus.width, plus.height]).toEqual([1, 1, 44, 44]);
+  expect(await attach.evaluate((button) => getComputedStyle(button, "::before").inset)).toBe("4px");
+
+  await editorField(page, "Write a message").tap();
+  const open = (await card.boundingBox())!.height;
+  await page.getByRole("button", { name: "Formatting" }).tap();
+  const tools = page.getByRole("toolbar", { name: "Formatting" });
+  await expect(tools).toBeVisible();
+  expect((await card.boundingBox())!.height).toBe(open);
+
+  // Every tool is in reach between × and Send, scrolling sideways where they don't all fit.
+  const send = (await page.getByRole("button", { name: "Send Message" }).boundingBox())!;
+  for (const tool of await tools.getByRole("button").all()) {
+    await tool.scrollIntoViewIfNeeded();
+    const box = (await tool.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(send.x + 1);
+  }
+  await screenIsFine();
+});
+
+test("closing Custom time leaves the composer open, with Send, rather than its pill", async ({ page, room }) => {
+  test.skip(!hasPhoneLayout(page), "Wider than 900px the composer is the desktop's");
+  await openRoom(page, room);
+  const composer = editorField(page, "Write a message");
+  await composer.tap();
+  await page.keyboard.type("Later, please");
+  const send = page.getByRole("button", { name: "Send Message" });
+  // A long press on Send opens Send later.
+  await send.dispatchEvent("contextmenu");
+  await page.getByRole("dialog", { name: "Send later" }).getByRole("button", { name: "Custom time" }).tap();
+  const custom = page.getByRole("dialog", { name: "Schedule message" });
+  await expect(custom.getByLabel("Time")).toBeVisible();
+  await custom.getByRole("button", { name: "Cancel" }).tap();
+  await expect(custom).toBeHidden();
+  await expect(composer).toBeFocused();
+  await expect(send).toBeVisible();
 });

@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { devices, type APIResponse, type Locator, type Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, drawnPicture, editorField, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, answerConfirm, drawnPicture, editorField, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { auditScreen } from "../mobile/audits";
 import { join } from "./fixtures";
 
@@ -168,11 +168,8 @@ test.describe("Generate a new bot key", () => {
     const before = await command.inputValue();
 
     await botNamed(page, name).getByRole("link", { name: `Edit ${name}` }).click();
-    page.once("dialog", (dialog) => {
-      expect(dialog.message()).toBe("Are you sure you want to change the bot key? All usage of this bot must be updated.");
-      void dialog.accept();
-    });
     await page.getByRole("button", { name: "Generate a new key" }).click();
+    await answerConfirm(page, "Generate a new key", "Generate key");
     await expect(page).toHaveURL(/\/account\/bots$/);
     await expect(command).toHaveValue(COMMAND);
     expect(await command.inputValue()).not.toBe(before);
@@ -188,11 +185,8 @@ test.describe("Delete a bot", () => {
     await expect(page).toHaveURL(/\/account\/bots\/[^/]+\/edit$/);
     const settings = new URL(page.url()).pathname;
 
-    page.once("dialog", (dialog) => {
-      expect(dialog.message()).toBe("Are you sure you want to permanently remove this bot from the account? This can’t be undone.");
-      void dialog.accept();
-    });
     await page.getByRole("button", { name: "Delete this chat bot" }).click();
+    await answerConfirm(page, `Delete ${name}`, "Delete");
     await expect(page).toHaveURL(/\/account\/bots$/);
     await expect(page.getByRole("heading", { level: 1, name: "Chat bots" })).toBeVisible();
     await expect(botNamed(page, name)).toHaveCount(0);
@@ -763,8 +757,8 @@ test.describe("A bot's profile", () => {
 
     await page.goto("/account/bots");
     await botNamed(page, name).getByRole("link", { name: `Edit ${name}` }).click();
-    page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Delete this chat bot" }).click();
+    await answerConfirm(page, `Delete ${name}`, "Delete");
     await expect(page).toHaveURL(/\/account\/bots$/);
 
     await page.goto(profile);

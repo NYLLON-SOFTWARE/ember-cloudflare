@@ -1,10 +1,11 @@
 import { createElement, useContext, type ComponentProps, type ReactNode } from "react";
-import { isAppPage, type User, type UserId } from "@ember/protocol";
+import { isAppPage, type RoomId, type User, type UserId } from "@ember/protocol";
 import type { DisplayElement, DisplayNode, DisplayPreview } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
 import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./code-block";
+import { QuoteCite, QuotingRoom } from "./quote-cite";
 import { markedRanges, matchesIn, SearchMarks, type Matches } from "./search-marks";
 import { AvatarLink, UserAvatar } from "./user-avatar";
 
@@ -26,6 +27,10 @@ interface Props {
   emoji?: boolean;
   /** What follows the text: in its last paragraph, when it ends with one. */
   trailing?: ReactNode;
+  /** The conversation the message is in, where a quote of one of its own messages cites it by "#". */
+  roomId?: RoomId;
+  /** A forwarded file, which shows in its quote, the last, in place of the file's name. */
+  quotedFile?: ReactNode;
   className?: string;
 }
 
@@ -33,14 +38,18 @@ interface Props {
  * A message's text, built from `displayBody`'s nodes rather than set as markup, with what a search's
  * results mark in it (`SearchMarks`) marked. `.message-content` in index.css styles it.
  */
-export function MessageBody({ nodes, mentions, emoji = false, trailing, className }: Props) {
+export function MessageBody({ nodes, mentions, emoji = false, trailing, roomId, quotedFile, className }: Props) {
   const marks = useContext(SearchMarks);
   const matches = marks && matchesIn(nodes, marks);
   const last = nodes.at(-1);
   const inLastParagraph = trailing !== undefined && last?.kind === "element" && last.name === "p";
-  const children = nodes.map((node, index) => nodeOf(node, mentions, inLastParagraph && index === nodes.length - 1 ? trailing : undefined, false, matches));
+  const fileQuote = quotedFile === undefined ? -1 : nodes.findLastIndex((node) => node.kind === "element" && node.name === "blockquote");
+  const children = nodes.map((node, index) =>
+    index === fileQuote ? createElement("blockquote", null, quotedFile) : nodeOf(node, mentions, inLastParagraph && index === nodes.length - 1 ? trailing : undefined, false, matches),
+  );
   if (trailing !== undefined && !inLastParagraph) children.push(trailing);
-  return createElement("div", { dir: "auto", className: cn("message-content", emoji && "text-[2.4em] leading-[1.4]", className) }, ...children);
+  const body = createElement("div", { dir: "auto", className: cn("message-content", emoji && "text-[2.4em] leading-[1.4]", className) }, ...children);
+  return roomId === undefined ? body : createElement(QuotingRoom.Provider, { value: roomId }, body);
 }
 
 /** `node` as React draws it, with `trailing` after its text, inside a link if `inLink`, and the `matches` in its text marked. */
@@ -48,6 +57,10 @@ function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLin
   if (node.kind === "text") return markedRanges(node.value, matches?.get(node));
   if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions, inLink });
   if (node.kind === "preview") return createElement(LinkPreview, { preview: node, mentions, inLink });
+  if (node.name === "cite" && !inLink) {
+    const props = Object.fromEntries(Object.entries(node.attrs).map(([name, value]) => [PROP_NAMES[name] ?? name, value]));
+    return createElement(QuoteCite, { cite: node, props, render: (child: DisplayNode) => nodeOf(child, mentions, undefined, false, matches) });
+  }
   const shown = TABLE_PARTS.has(node.name) ? node.children.filter((child) => child.kind !== "text" || child.value.trim() !== "") : node.children;
   const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a", matches));
   if (trailing !== undefined) children.push(" ", trailing);

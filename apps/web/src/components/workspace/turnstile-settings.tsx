@@ -3,6 +3,7 @@ import type { WorkspaceSettings } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
 import { forgetTurnstileKeys, isSignedOut } from "@/lib/api";
+import { useConfirm } from "./confirm-dialog";
 import { BUTTON } from "./email-settings";
 
 // The Turnstile card in Membership, for administrators: whether Cloudflare Turnstile checks that whoever
@@ -15,8 +16,7 @@ import { BUTTON } from "./email-settings";
 // given.
 
 /** What turning Turnstile off asks first, since the limits on each network stand in for its check then. */
-export const CONFIRM_STOP_TURNSTILE =
-  "Are you sure you want to turn off Turnstile? Ember will forget the widget's keys, and limits on each network will stand in for its check until Turnstile is set up again.";
+export const CONFIRM_STOP_TURNSTILE = { title: "Turn off Turnstile", body: "Ember will forget the widget’s keys, and limit each network instead." };
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -37,11 +37,12 @@ interface Props {
 export function TurnstileSettings({ turnstile, onSetUp, onStopped, onFailed }: Props) {
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   // The deployment's secrets keep it on, whatever the switch is moved to.
   const secret = turnstile === "secret";
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_TURNSTILE)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_TURNSTILE.title, { body: CONFIRM_STOP_TURNSTILE.body, confirm: "Turn off", destructive: true }))) return;
     setStopping(true);
     forgetTurnstileKeys().then(
       (turnstile) => {
@@ -86,6 +87,7 @@ export function TurnstileSettings({ turnstile, onSetUp, onStopped, onFailed }: P
           </button>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }

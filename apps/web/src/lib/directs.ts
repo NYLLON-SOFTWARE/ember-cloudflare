@@ -1,4 +1,4 @@
-import type { DirectoryUser, DirectRoom, Room, User, UserId } from "@ember/protocol";
+import { subRoomName, type DirectoryUser, type DirectRoom, type Room, type User, type UserId } from "@ember/protocol";
 
 /**
  * Names in a sentence, as Rails' `to_sentence` joins them for a DM's name: "Ada", "Ada and Grace", or
@@ -19,11 +19,11 @@ export function membersShown(room: DirectRoom, meId: UserId): User[] {
 
 /**
  * A room's name as the person `meId` reads it, as Campfire's `room_display_name` gives it: a shared
- * room's own, and a DM's others' names in a sentence, or their own in their DM with themselves. `nameOf`
+ * room's own, or "Strata – Sales" for a sub-room, and a DM's others' names in a sentence, or their own in their DM with themselves. `nameOf`
  * gives each person's name as it is now.
  */
 export function roomName(room: Room, meId: UserId, nameOf: (user: User) => string): string {
-  return room.kind === "direct" ? toSentence(membersShown(room, meId).map(nameOf)) : room.name;
+  return room.kind === "direct" ? toSentence(membersShown(room, meId).map(nameOf)) : subRoomName(room);
 }
 
 /** How many people New direct message lists at a time. */

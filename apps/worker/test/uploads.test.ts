@@ -669,6 +669,10 @@ describe("File links", () => {
     expect(served.headers.get("Content-Type")).toBe("application/pdf");
     expect(served.headers.get("Content-Disposition")).toBe(`inline; filename="report- Q3-Q4-.pdf"; filename*=UTF-8''report-%20Q3-Q4-.pdf`);
 
+    // Every control of the direction text runs in goes, not only the override, so a downloaded name shows as it is.
+    const bidi = await uploadFile(ada, room, "invoice\u202b\u2067\u200fgpj.exe", new TextEncoder().encode("%PDF-1.7\n"));
+    expect(bidi.name).toBe("invoice---gpj.exe");
+
     // A name a browser would take out of the address goes in it as "-".
     for (const name of [" . ", "..", "\0"]) {
       const file = await uploadFile(ada, room, name, new TextEncoder().encode("hi"));

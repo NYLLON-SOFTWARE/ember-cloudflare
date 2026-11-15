@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import { subRoomName, type ParentChoice, type RoomChanges, type RoomIconName, type RoomId, type RoomSettings, type User, type UserId } from "@ember/protocol";
 import { Button } from "@/components/ui/button";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
@@ -7,6 +7,9 @@ import { useTitle } from "@/hooks/use-title";
 import { LogOut, Trash } from "@/components/icons/iconoir";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut, leaveRoom } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
+import { leavingFor, peopleIn } from "@/lib/sub-rooms";
+import { useConfirm } from "./confirm-dialog";
+import { leavingLine, parentChoice } from "./parent-picker";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
@@ -15,15 +18,32 @@ import { UnsavedChanges } from "./unsaved-changes";
 /** Whether `error` says the room isn't there for this person. */
 export const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
-/** What Delete asks first, in the browser's own dialog. */
-export const CONFIRM_DELETE = "Are you sure you want to delete this room and all messages in it? This can’t be undone.";
+/** A room as its confirmations name it: an open one after a #, as Slack names a channel, and a private one alone. */
+export const roomLabel = ({ name, open }: { name: string; open: boolean }) => (open ? `#${name}` : name);
 
-/** What Leave asks first, in the browser's own dialog. */
-export const CONFIRM_LEAVE = "Are you sure you want to leave this room? Only someone in it who can change it can add you back.";
+/** What Delete asks first, of the room `room` names. */
+export const confirmDelete = (room: string) => ({ title: `Delete ${room}`, body: "Its messages go with it. This can’t be undone." });
+
+/** What Leave asks first, of the room `room` names. */
+export const confirmLeave = (room: string) => ({ title: `Leave ${room}`, body: "Only someone in it who can change it can add you back." });
 
 const membersOf = (settings: RoomSettings) => new Set(settings.people.flatMap((person) => (person.member ? [person.id] : [])));
 
 const sameMembers = (a: ReadonlySet<UserId>, b: ReadonlySet<UserId>) => a.size === b.size && [...a].every((id) => b.has(id));
+
+/** Why a room with sub-rooms can't be moved under another. */
+const HAS_SUB_ROOMS = "A room with sub-rooms can’t go under another room.";
+
+/**
+ * The rooms a room's settings offer as its parent: the ones the server offers, and the parent it has,
+ * should this person not be able to change that room, with its people unknown here, so that the form
+ * keeps it as it is.
+ */
+function parentChoices(settings: RoomSettings): ParentChoice[] {
+  const parent = settings.room.parent;
+  if (!parent || settings.parents.some((choice) => choice.id === parent.id)) return settings.parents;
+  return [{ id: parent.id, name: parent.name, icon: null, everyone: true, memberIds: [] }, ...settings.parents];
+}
 
 interface Props {
   roomId: RoomId;
@@ -54,6 +74,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<RoomIconName | null>(null);
+  const [parentId, setParentId] = useState<RoomId | null>(null);
   // Who the private form lets in, starting with the room's members.
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   // Saving or deleting, either of which keeps both buttons from being pressed until it answers.
@@ -63,7 +84,8 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const [opened, setOpened] = useState(access);
   const roomForm = useRef<HTMLFormElement>(null);
   const mounted = useMounted();
-  useTitle(settings && `Edit settings for ${settings.room.name}`);
+  const [confirmFirst, confirmation] = useConfirm();
+  useTitle(settings && `Edit settings for ${subRoomName(settings.room)}`);
 
   useEffect(() => {
     let stopped = false;
@@ -73,6 +95,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
         setSettings(settings);
         setName(settings.room.name);
         setIcon(settings.room.icon);
+        setParentId(settings.room.parent?.id ?? null);
         setChosen(membersOf(settings));
       },
       (error: unknown) => {
@@ -106,19 +129,33 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
    * this person, settling with whether it was. The form is then compared with what's saved.
    */
   const send = () => {
-    const changes: RoomChanges = access === "open" ? { name, icon: icon ?? "", kind: access } : { name, icon: icon ?? "", kind: access, memberIds: [...chosen] };
+    const moved = parentId !== (settings?.room.parent?.id ?? null) ? { parentId } : {};
+    const changes: RoomChanges =
+      access === "open" ? { name, icon: icon ?? "", kind: access, ...moved } : { name, icon: icon ?? "", kind: access, ...moved, memberIds: [...chosen] };
     const leaving = access === "closed" && !chosen.has(me.id);
     const answered = askForRoom();
     return changeRoom(roomId, changes).then((room) => {
       answered(leaving ? { type: "gone", roomId: room.id } : { type: "saved", room });
-      // An open room takes in everyone.
-      setSettings((settings) => settings && { ...settings, room, people: settings.people.map((person) => ({ ...person, member: access === "open" || chosen.has(person.id) })) });
+      // An open room takes in everyone it can: everyone in its parent, for a sub-room.
+      const inParent = new Set(peopleIn(settings?.people ?? [], parent).map((person) => person.id));
+      setSettings(
+        (settings) =>
+          settings && {
+            ...settings,
+            room,
+            people: settings.people.map((person) => ({ ...person, member: inParent.has(person.id) && (access === "open" || chosen.has(person.id)) })),
+          },
+      );
       setOpened(access);
       return leaving;
     });
   };
 
-  const save = () => {
+  const save = async () => {
+    if (leavingNames.length > 0 && parent) {
+      const title = `Move ${named} under ${roomLabel({ name: parent.name, open: parent.everyone })}`;
+      if (!(await confirmFirst(title, { body: leavingLine(parent.name, leavingNames), confirm: "Move", destructive: true }))) return;
+    }
     setBusy(true);
     send().then((left) => {
       if (!mounted.current) return;
@@ -128,9 +165,9 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     }, failed);
   };
 
-  /** Once `question` is confirmed, has `go` take the room from this person, then from the sidebar. */
-  const goOnceConfirmed = (question: string, go: (roomId: RoomId) => Promise<void>) => {
-    if (!confirm(question)) return;
+  /** Once `asked` is confirmed with `confirm`, has `go` take the room from this person, then from the sidebar. */
+  const goOnceConfirmed = async (asked: { title: string; body: string }, confirm: string, go: (roomId: RoomId) => Promise<void>) => {
+    if (!(await confirmFirst(asked.title, { body: asked.body, confirm, destructive: true }))) return;
     setBusy(true);
     const answered = askForRoom();
     go(roomId).then(() => {
@@ -141,20 +178,29 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   };
 
   const open = access === "open";
+  // The room as its confirmations name it, as it's saved.
+  const named = settings ? roomLabel({ name: settings.room.name, open: settings.room.kind === "open" }) : "";
+  const choices = settings ? parentChoices(settings) : [];
+  const parent = parentChoice(choices, parentId);
+  const people = settings ? peopleIn(settings.people, parent) : [];
+  // Who'd lose the room, not being in the parent it's moved under.
+  const moving = settings !== null && parentId !== (settings.room.parent?.id ?? null);
+  const leaving = moving ? leavingFor(open ? membersOf(settings) : chosen, parent) : [];
+  const leavingNames = settings ? leaving.map((id) => settings.people.find((person) => person.id === id)?.name ?? "someone") : [];
   const flip = () => navigate(roomSettingsPath(open ? "closed" : "open", roomId), { replace: true });
   // Whether the form differs from how it loaded or was last saved, the form its address names included.
   // Saving or deleting isn't guarded.
   const changed =
     !!settings?.canAdminister &&
     !busy &&
-    (name !== settings.room.name || icon !== settings.room.icon || access !== opened || (!open && !sameMembers(chosen, membersOf(settings))));
+    (name !== settings.room.name || icon !== settings.room.icon || moving || access !== opened || (!open && !sameMembers(chosen, membersOf(settings))));
   // The Everyone switch moves between the room's two forms, keeping the draft.
   const stays = useCallback((path: string) => path === roomSettingsPath("open", roomId) || path === roomSettingsPath("closed", roomId), [roomId]);
   return (
     // Go Back returns to Rooms and permissions.
     <SettingsPage back={workspaceSectionPath("channel-settings")}>
       <Panel aria-busy={settings === null}>
-        <PageHeading title="Room settings">Manage the room name, access, and members.</PageHeading>
+        <PageHeading title="Room settings" />
         {settings && (
           <RoomForm
             canAdminister={settings.canAdminister}
@@ -163,9 +209,20 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
             icon={icon}
             onIconChange={setIcon}
             // The private form has the Everyone row only for whoever can change the room.
-            everyone={settings.canAdminister ? { on: open, onFlip: flip } : open ? { on: true } : null}
-            // A private room lists its members first.
-            groups={open ? [settings.people] : [settings.people.filter((p) => p.member), settings.people.filter((p) => !p.member)]}
+            everyone={
+              settings.canAdminister || open
+                ? { on: open, ...(settings.canAdminister && { onFlip: flip }), ...(parent && { label: `Everyone in ${parent.name}` }) }
+                : null
+            }
+            parent={{
+              value: parentId,
+              choices,
+              onChange: setParentId,
+              ...(settings.subRooms > 0 && { locked: HAS_SUB_ROOMS }),
+              leaving: leavingNames,
+            }}
+            // A private room lists its members first. A sub-room lists only its parent's people.
+            groups={open ? [people] : [people.filter((p) => p.member), people.filter((p) => !p.member)]}
             mark={(person) =>
               settings.canAdminister &&
               (open ? (
@@ -182,7 +239,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       </Panel>
       {settings && !settings.canAdminister && settings.room.kind === "closed" && (
         <Panel>
-          <Button type="button" variant="outline" disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_LEAVE, leaveRoom)} className="max-w-full touch:h-11">
+          <Button type="button" variant="outline" disabled={busy} onClick={() => goOnceConfirmed(confirmLeave(settings.room.name), "Leave", leaveRoom)} className="max-w-full touch:h-11">
             <LogOut className="size-[1.3em] shrink-0" />
             <span className="truncate">Leave {settings.room.name}</span>
           </Button>
@@ -190,10 +247,11 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       )}
       {settings?.canAdminister && (
         <Panel>
-          <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_DELETE, deleteRoom)} />
+          <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={() => goOnceConfirmed(confirmDelete(named), "Delete", deleteRoom)} />
         </Panel>
       )}
       <UnsavedChanges changed={changed} stays={stays} onSave={send} form={roomForm} />
+      {confirmation}
     </SettingsPage>
   );
 }
@@ -203,7 +261,7 @@ export const NEGATIVE_BUTTON =
   "inline-flex min-h-9 max-w-full cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border border-transparent bg-negative-button px-[1.1em] py-[0.5em] text-start font-medium text-white touch:min-h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50";
 
 /**
- * A room's Delete, and a DM's Delete Ping: a negative button with a trash can.
+ * A room's Delete, and a DM's Delete DM: a negative button with a trash can.
  */
 export function DeleteButton({ label, text, disabled, onClick }: { label: string; text: string; disabled: boolean; onClick: () => void }) {
   return (

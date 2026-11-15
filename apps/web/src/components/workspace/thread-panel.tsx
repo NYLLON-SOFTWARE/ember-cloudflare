@@ -7,12 +7,15 @@ import { useMessageEditors } from "@/hooks/use-message-editors";
 import type { RoomFrames } from "@/hooks/use-room";
 import { roomPath, useVisit } from "@/hooks/use-route";
 import { useThread } from "@/hooks/use-thread";
+import { hasEditableText } from "@/lib/messages";
 import { isPending, type ConnectionStatus } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 import { MessageList } from "./message-list";
+import { BackButton } from "../mobile/back-button";
 import { RoomNotice } from "./room-notice";
+import { SideColumnSeparator } from "./side-column";
 
 const ignore = () => {};
 const noInvitation = async () => {};
@@ -30,11 +33,18 @@ interface Props {
   frames: RoomFrames;
   status: ConnectionStatus;
   offline: boolean;
-  /** Whether the room has gone for this person, whose thread then stays as it is. */
-  deleted: boolean;
+  /** Why the room has gone for this person, whose thread then stays as it is, or null while it hasn't. */
+  gone: RoomGone | null;
   /** What the room has to say while the thread covers it, as why it refused something done in the thread. */
   roomNotice: string | null;
   onDismissRoomNotice: () => void;
+  /**
+   * Where it goes: the column beside its room, which a separator sizes, as on a room's page, or a pane of
+   * a split layout, as Activity's, which places and sizes it itself.
+   */
+  placement?: "column" | "pane";
+  /** Closes it, in place of going to the room's page, as a pane does. */
+  onClose?: () => void;
 }
 
 /**
@@ -43,7 +53,7 @@ interface Props {
  * the room's right, below that it covers the room, and on phones the whole page, with Back in its header
  * in Close thread's place.
  */
-export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice }: Props) {
+export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, gone, roomNotice, onDismissRoomNotice, placement = "column", onClose }: Props) {
   const thread = useThread(room.id, frames, status, offline, me, parentId, replyId);
   const { parent, replies } = thread.state;
   // Replying tells nobody you're typing, so only @ember shows as typing here, as it answers in the thread.
@@ -51,7 +61,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
   const direct = room.kind === "direct";
   const composer = useRef<ComposerHandle>(null);
   const { editing, editors } = useMessageEditors(composer);
-  const actions = deleted ? null : thread.messageActions;
+  const actions = gone ? null : thread.messageActions;
 
   // Following a reply's permalink in the thread goes to it, or the thread's own link to its end, as a
   // room's permalinks do.
@@ -66,7 +76,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
 
   // Up Arrow edits your newest reply, as the room's composer edits your newest message.
   const editLastReply = () => {
-    const newest = replies.messages.findLast((message) => message.creator.id === me.id);
+    const newest = replies.messages.findLast((message) => message.creator.id === me.id && hasEditableText(message));
     if (newest && !isPending(newest)) editors.open(newest.id);
   };
 
@@ -75,19 +85,29 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
 
   return (
     <aside
-      data-thread
+      data-thread={placement === "column" || undefined}
+      data-side-column={placement === "column" || undefined}
       aria-label="Thread"
       className={cn(
+        "flex min-h-0 min-w-0 flex-col bg-background",
         // Placed in the room's column, or the page's on phones, over the room, and from 1180px wide in its own.
-        "absolute inset-0 z-10 col-start-3 row-span-2 row-start-1 flex min-h-0 min-w-0 flex-col bg-background max-md:col-start-1",
-        "pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)] min-[1180px]:relative min-[1180px]:col-start-4 min-[1180px]:border-l",
+        placement === "column"
+          ? "absolute inset-0 z-10 col-start-3 row-span-2 row-start-1 pr-[env(safe-area-inset-right)] max-md:col-start-1 max-md:pl-[env(safe-area-inset-left)] min-[1180px]:relative min-[1180px]:col-start-4 min-[1180px]:border-l"
+          : "h-full",
       )}
     >
+      {placement === "column" && <SideColumnSeparator label="Resize thread" />}
       <header className="flex min-h-header items-center gap-2.5 border-b py-2.5 pr-3.5 pl-5 max-md:min-h-[calc(56px+env(safe-area-inset-top))] max-md:gap-1.5 max-md:px-2 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0">
-        <PageLink href={back} aria-label={`Back to ${name}`} className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
-          <ArrowLeft className="size-[22px]" />
-        </PageLink>
-        <div className="flex min-w-0 items-center gap-2.5 max-md:flex-col max-md:items-start max-md:gap-0">
+        {/* On a phone, Back goes back the way the person came, wherever the thread was opened from, or up to its
+            room, or in panes closes the thread's, in Close thread's place. Back and the pill are the top bar's 44px capsules. */}
+        {onClose ? (
+          <button type="button" aria-label={`Back to ${name}`} onClick={onClose} className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
+            <ArrowLeft className="size-[22px]" />
+          </button>
+        ) : (
+          <BackButton fallback={back} label={`Back to ${name}`} className="hidden max-md:grid" />
+        )}
+        <div className="flex min-w-0 items-center gap-2.5 max-md:h-11 max-md:flex-col max-md:items-start max-md:justify-center max-md:gap-0 max-md:rounded-full max-md:border max-md:bg-surface max-md:px-4 max-md:py-1">
           <h2 className="shrink-0 text-[17px] leading-[1.4] font-[650] max-md:text-base max-md:leading-5">Thread</h2>
           {/* The room's name links to it, but on phones, as the line under Thread, too near the thread for a fingertip, it doesn't: Back does. */}
           <PageLink
@@ -100,14 +120,16 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
             <RoomLabel room={room} name={name} />
           </span>
         </div>
-        <PageLink
-          href={back}
-          title="Close thread"
-          aria-label="Close thread"
-          className="ml-auto grid size-9 shrink-0 place-items-center rounded-[10px] text-foreground hover:bg-hover touch:size-11 max-md:hidden"
-        >
-          <Xmark className="size-5" />
-        </PageLink>
+        {onClose ? (
+          // Phones have Back for it, as a room's thread does.
+          <button type="button" title="Close thread" aria-label="Close thread" onClick={onClose} className={cn(CLOSE_BUTTON, "max-md:hidden")}>
+            <Xmark className="size-5" />
+          </button>
+        ) : (
+          <PageLink href={back} title="Close thread" aria-label="Close thread" className={cn(CLOSE_BUTTON, "max-md:hidden")}>
+            <Xmark className="size-5" />
+          </PageLink>
+        )}
       </header>
       <RoomNotice notice={replies.notice} onDismiss={thread.dismissNotice} />
       <RoomNotice notice={roomNotice} onDismiss={onDismissRoomNotice} />
@@ -130,8 +152,8 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
         onDropFiles={(files) => composer.current?.addFiles(files)}
         thread={{ header: <ThreadParent parent={parent} me={me} editing={editing} actions={actions} editors={editors} place={place} />, place }}
       />
-      {deleted ? (
-        <RoomDeleted />
+      {gone ? (
+        <RoomGoneNotice gone={gone} />
       ) : (
         parent !== null && (
           <Composer
@@ -143,6 +165,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
             typing={typing}
             disabled={offline}
             threadId={parentId}
+            frames={frames}
             onSend={thread.postReply}
             onSendFiles={(files, alsoSend) => void thread.postFiles(files, alsoSend)}
             onTyping={ignore}
@@ -153,6 +176,8 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
     </aside>
   );
 }
+
+const CLOSE_BUTTON = "ml-auto grid size-9 shrink-0 place-items-center rounded-[10px] text-foreground hover:bg-hover touch:size-11";
 
 const ROOM_NAME = "inline-flex max-w-full min-w-0 items-center gap-[5px] text-sm leading-5 text-muted-foreground no-underline max-md:text-[13px] max-md:leading-[17px]";
 

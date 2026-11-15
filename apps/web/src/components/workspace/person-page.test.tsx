@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving, navigate } from "@/hooks/use-route";
-import { CONFIRM_BAN, CONFIRM_UNBAN, PersonPage } from "./person-page";
+import { answerConfirm } from "@/test-confirm";
+import { PersonPage } from "./person-page";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace: Person = { id: "u2", name: "Grace Hopper", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };
@@ -476,20 +477,24 @@ describe("Ban and unban people", () => {
         return Response.json({ user: banned });
       },
     );
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    const confirm = vi.spyOn(window, "confirm");
     const { onPersonChanged, onFailed, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
-    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_BAN);
+    expect(await screen.findByRole("alertdialog", { name: "Ban Grace Hopper" })).toHaveAccessibleDescription(
+      "They’ll be signed out, their messages deleted and their IP addresses blocked.",
+    );
+    await answerConfirm(user, "Ban Grace Hopper", "Cancel");
     expect(fetch).toHaveBeenCalledOnce();
 
-    sure.mockReturnValueOnce(true);
     await user.click(banButton()!);
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(banned));
     expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "POST" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     expect(fetch).toHaveBeenLastCalledWith("/api/users/u2", expect.anything());
     expect(onFailed).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("lifts a ban once you've said you're sure", async () => {
@@ -497,13 +502,14 @@ describe("Ban and unban people", () => {
       () => banned,
       () => Response.json({ user: active }),
     );
-    const sure = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { onPersonChanged, user } = showPage(grace, { me: administrator });
     await heading();
     await user.click(unbanButton()!);
-    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_UNBAN);
+    await answerConfirm(user, "Remove ban on Grace Hopper", "Remove ban");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(active));
     expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "DELETE" }));
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("waits for the answer before another click, and says why it failed", async () => {
@@ -512,14 +518,16 @@ describe("Ban and unban people", () => {
       () => grace,
       () => new Promise<Response>((resolve) => (fail = () => resolve(Response.json({ error: "They signed in from a private or internal IP address, which a ban can't block" }, { status: 422 })))),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { onPersonChanged, onFailed, user } = showPage(grace, { me: administrator });
     await heading();
     const button = banButton()!;
     await user.click(button);
-    expect(button).toHaveAttribute("aria-disabled", "true");
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
+    await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
     await user.click(button);
-    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
 
     await act(async () => fail());
     await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
@@ -534,10 +542,10 @@ describe("Ban and unban people", () => {
       () => grace,
       () => new Promise<Response>((resolve) => (answer = (user) => resolve(Response.json({ user })))),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onPersonChanged, reloadPeople, list, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     // The workspace socket says she's banned before the answer does, from this ban.
     list(new Map([[grace.id, banned]]));
     await act(async () => answer(banned));
@@ -548,6 +556,7 @@ describe("Ban and unban people", () => {
     // When it disagrees, as when another administrator banned her again once this lifted it, it can't
     // tell which is newer.
     await user.click(unbanButton()!);
+    await answerConfirm(user, "Remove ban on Grace Hopper", "Remove ban");
     list(new Map([[grace.id, { ...banned, avatarUrl: "/users/t2/avatar?v=4" }]]));
     await act(async () => answer(active));
     await waitFor(() => expect(reloadPeople).toHaveBeenCalledOnce());
@@ -561,10 +570,10 @@ describe("Ban and unban people", () => {
       () => grace,
       () => new Promise<Response>((resolve) => (answer = (user) => resolve(Response.json({ user })))),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onPersonChanged, reloadPeople, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     // Gone before the answer, as when you open another page, while the directory may since have heard
     // she was banned and then let back in.
     cleanup();

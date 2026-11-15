@@ -1,11 +1,13 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { DirectoryUser, PersonRole, UserId } from "@ember/protocol";
-import { Crown, EditPencil, Minus, Prohibition } from "@/components/icons/iconoir";
+import { EditPencil, Minus } from "@/components/icons/iconoir";
+import { Crown, Prohibition } from "@/components/icons/iconoir-more";
 import { PageLink } from "@/components/page-link";
 import type { People } from "@/hooks/use-directory";
 import { PROFILE_PATH } from "@/hooks/use-route";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 import { ListRow } from "./list-row";
 import { AvatarLink } from "./user-avatar";
 
@@ -18,7 +20,7 @@ import { AvatarLink } from "./user-avatar";
 // with Delete.
 
 /** What Delete asks before removing someone. */
-export const CONFIRM_REMOVE = "Are you sure you want to permanently remove this person from the account? This can’t be undone.";
+export const confirmRemove = (name: string) => ({ title: `Delete ${name}`, body: "This can’t be undone." });
 
 interface Props {
   people: People;
@@ -53,6 +55,7 @@ export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
   const [changing, setChanging] = useState<ReadonlyMap<UserId, PersonRole>>(new Map());
   // The people being removed, whose Delete waits for the server's answer.
   const [removing, setRemoving] = useState<ReadonlySet<UserId>>(new Set());
+  const [confirmFirst, confirmation] = useConfirm();
 
   const changeRole = (person: DirectoryUser, role: PersonRole) => {
     setChanging((changing) => new Map(changing).set(person.id, role));
@@ -65,8 +68,9 @@ export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
     );
   };
 
-  const remove = (person: DirectoryUser) => {
-    if (!onRemove || !confirm(CONFIRM_REMOVE)) return;
+  const remove = async (person: DirectoryUser) => {
+    const { title, body } = confirmRemove(person.name);
+    if (!onRemove || !(await confirmFirst(title, { body, confirm: "Delete", destructive: true }))) return;
     setRemoving((removing) => new Set(removing).add(person.id));
     void onRemove(person).finally(() =>
       setRemoving((removing) => {
@@ -105,19 +109,24 @@ export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
     { id: `${headingId}admins`, title: "Admins", people: administrators },
     { id: `${headingId}members`, title: "Members", people: members },
   ];
-  return groups.map(
-    ({ id, title, people }) =>
-      people.length > 0 && (
-        // A group, 24px below the one before it, its title over its people.
-        <section key={title} aria-labelledby={id} className="[&+&]:mt-6">
-          <h2 id={id} className="mb-3 text-base font-semibold">
-            {title}
-          </h2>
-          <menu aria-labelledby={id} className="m-0 flex flex-col gap-x-[1ch] gap-y-4 py-4">
-            {people.map(row)}
-          </menu>
-        </section>
-      ),
+  return (
+    <>
+      {groups.map(
+        ({ id, title, people }) =>
+          people.length > 0 && (
+            // A group, 24px below the one before it, its title over its people.
+            <section key={title} aria-labelledby={id} className="[&+&]:mt-6">
+              <h2 id={id} className="mb-3 text-base font-semibold">
+                {title}
+              </h2>
+              <menu aria-labelledby={id} className="m-0 flex flex-col gap-x-[1ch] gap-y-4 py-4">
+                {people.map(row)}
+              </menu>
+            </section>
+          ),
+      )}
+      {confirmation}
+    </>
   );
 }
 

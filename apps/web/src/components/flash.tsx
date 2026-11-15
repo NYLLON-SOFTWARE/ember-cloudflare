@@ -40,6 +40,9 @@ export function FlashProvider({ workspace = false, children }: { workspace?: boo
   );
 }
 
+/** Flashes messages over the page from inside a `FlashProvider`, or null outside one, as in a component's own tests. */
+export const useOptionalFlash = (): Flasher | null => useContext(FlashContext);
+
 /** Flashes messages over the page, from inside a `FlashProvider`. */
 export function useFlash(): Flasher {
   const flash = useContext(FlashContext);
