@@ -2133,6 +2133,13 @@ const text = (v: unknown, max: number): string | null => {
 /** The JSON object `raw` holds, or null if it holds anything else. */
 /** The most steps one `canvas.steps` frame carries: an editor sends what it has every tenth of a second or so. */
 export const MAX_CANVAS_STEPS = 500;
+
+/**
+ * The most bytes a frame from a client can take on a room's socket, its text counted in UTF-8: the room
+ * closes a socket that sends a larger one. The largest the app sends, a message of `MAX_MESSAGE_HTML_LENGTH`
+ * characters, is under 601 KB however JSON escapes them; a canvas's steps are sent in frames under it.
+ */
+export const MAX_ROOM_FRAME_SIZE = 1 << 20;
 /** How long the id an editor names itself by on a canvas can be. */
 export const MAX_CANVAS_CLIENT_ID_LENGTH = 64;
 

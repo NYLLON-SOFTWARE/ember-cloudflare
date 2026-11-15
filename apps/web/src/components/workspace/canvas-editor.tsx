@@ -29,7 +29,7 @@ const SAVE_AFTER_MS = 1000;
 /** How often an open canvas looks for others' saves. */
 const REFRESH_MS = 10_000;
 
-type Status = "saved" | "saving" | "unsaved" | "offline" | "too long" | "failed" | "unreadable";
+type Status = "saved" | "saving" | "unsaved" | "offline" | "too long" | "left out" | "failed" | "unreadable";
 
 // Saved, and saving soon, are how a canvas is as you write, so they say nothing.
 const STATUS_LABELS: Record<Status, string> = {
@@ -38,6 +38,7 @@ const STATUS_LABELS: Record<Status, string> = {
   unsaved: "",
   offline: "Offline",
   "too long": "Too long to save",
+  "left out": "That was too long to add to the canvas.",
   failed: "Couldn’t save. Retrying when you type.",
   unreadable: "This canvas holds something Ember can’t show, so it can’t be edited here.",
 };
@@ -99,6 +100,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
       if (message === CANVAS_GONE) gone(new ApiError(404, message));
       else setStatus(message === CANVAS_TOO_LONG ? "too long" : "failed");
     },
+    onTooLong: () => setStatus("left out"),
   });
   /** Stops writing a canvas that's been deleted, saying so, for the room to leave it. */
   const gone = useEffectEvent((error: ApiError) => {
@@ -207,8 +209,8 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
   const changed = useEffectEvent((notTyped: boolean) => {
     if (notTyped) return;
     setMerged(null);
-    // Written together, each change goes to the room as it's made.
-    if (live) return;
+    // Written together, each change goes to the room as it's made, and what was left out is said until then.
+    if (live) return void setStatus((status) => (status === "left out" ? "saved" : status));
     setStatus("unsaved");
     schedule();
   });
@@ -296,7 +298,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
                 Last edited by {nameOf(lastSaved.by)} · <time dateTime={lastSaved.at}>{dateTimeLabel(new Date(lastSaved.at))}</time>
               </span>
             )}
-            <span role="status" className={cn(status === "failed" || status === "too long" || status === "unreadable" ? "text-destructive" : undefined)}>
+            <span role="status" className={cn(status === "failed" || status === "too long" || status === "left out" || status === "unreadable" ? "text-destructive" : undefined)}>
               {STATUS_LABELS[together.offline && status === "saved" ? "offline" : status]}
             </span>
             {merged && (

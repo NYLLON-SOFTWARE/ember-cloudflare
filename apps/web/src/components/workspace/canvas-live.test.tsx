@@ -1,10 +1,10 @@
-import type { ClientFrame, Me, Room, ServerFrame, User } from "@ember/protocol";
+import { MAX_ROOM_FRAME_SIZE, type ClientFrame, type Me, type Room, type ServerFrame, type User } from "@ember/protocol";
 import { EMPTY_CANVAS, type Canvas, type OpenedTab } from "@ember/protocol/library";
 import type { Editor } from "@tiptap/core";
 import { getSchema } from "@tiptap/core";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { collab, sendableSteps } from "prosemirror-collab";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RoomFrames } from "@/hooks/use-room";
@@ -28,6 +28,8 @@ class Socket {
   open = true;
   /** How long a frame takes each way, in milliseconds. */
   latency = 0;
+  /** How often the room has closed it over a frame too big to read, as it does, the socket coming back soon after. */
+  closedTooBig = 0;
   constructor(
     readonly room: FakeRoom,
     readonly user: User,
@@ -42,6 +44,12 @@ class Socket {
   readonly frames: RoomFrames = {
     send: (frame: ClientFrame) => {
       if (!this.open) return false;
+      if (new TextEncoder().encode(JSON.stringify(frame)).byteLength > MAX_ROOM_FRAME_SIZE) {
+        this.closedTooBig++;
+        this.open = false;
+        setTimeout(() => this.reconnect(), 20);
+        return true;
+      }
       if (this.latency > 0) this.later(() => void this.room.handle(this, frame));
       else void this.room.handle(this, frame);
       return true;
@@ -240,6 +248,40 @@ describe("Writing a canvas together", () => {
     // Every key is kept, each person's in one run, however their steps crossed on the way.
     const typed = mayas!.getText().slice(mayas!.getText().indexOf("Bravo") + "Bravo".length);
     expect(typed).toMatch(/^(m{12}s{12}|s{12}m{12})$/);
+  });
+
+  it("leaves out a paste too big to send, saying so, rather than have the room close the socket over it again and again", async () => {
+    const { sockets, editors } = writeTogether();
+    await waitFor(() => expect(editors()).toHaveLength(2));
+    const [mayas, sams] = editors();
+    // About 1.2 MB, past the most the room reads in a frame.
+    typeAtEnd(mayas!, "x".repeat(1_200_000));
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(sockets[0].closedTooBig).toBe(0);
+    expect(mayas!.getText()).not.toContain("xxxx");
+    expect(screen.getAllByRole("status").map((status) => status.textContent)).toContain("That was too long to add to the canvas.");
+    // Writing goes on as before.
+    typeAtEnd(mayas!, "AFTER");
+    await waitFor(() => expect(sams!.getText()).toContain("AFTER"));
+    expect(sockets[0].closedTooBig).toBe(0);
+  });
+
+  it("sends steps that wait for the socket in frames the room reads, however much they add up to", async () => {
+    const { sockets, editors } = writeTogether();
+    await waitFor(() => expect(editors()).toHaveLength(2));
+    const [mayas, sams] = editors();
+    sockets[0].open = false;
+    // Pasted and taken out again, a dozen times: each step fits a frame, all of them together don't.
+    for (let paste = 0; paste < 12; paste++) {
+      const before = mayas!.state.doc.content.size;
+      typeAtEnd(mayas!, String(paste % 10).repeat(90_000));
+      act(() => void mayas!.commands.deleteRange({ from: before, to: mayas!.state.doc.content.size }));
+    }
+    typeAtEnd(mayas!, "SENT");
+    sockets[0].reconnect();
+    await waitFor(() => expect(sams!.getText()).toContain("SENT"), { timeout: 10_000 });
+    expect(sams!.getText()).toBe(mayas!.getText());
+    expect(sockets[0].closedTooBig).toBe(0);
   });
 
   it("keeps each run whole when someone else's key lands where keys here wait for the room (D6)", () => {

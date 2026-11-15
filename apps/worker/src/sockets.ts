@@ -32,11 +32,7 @@ export function closedAtOnce(code: CloseCode | HuddleCloseCode, reason = CLOSE_R
  */
 export const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
 
-/**
- * The most bytes a frame from a client can take on a room's socket. The largest the app sends, a message
- * of `MAX_MESSAGE_HTML_LENGTH` characters, is under 601 KB however JSON escapes them.
- */
-export const MAX_ROOM_FRAME_SIZE = 1 << 20;
+export { MAX_ROOM_FRAME_SIZE } from "@ember/protocol";
 
 /** The most bytes a frame from a client can take on a workspace socket, which takes only pings. */
 export const MAX_WORKSPACE_FRAME_SIZE = 1 << 10;

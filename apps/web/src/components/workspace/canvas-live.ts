@@ -1,9 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { MAX_CANVAS_STEPS, type User } from "@ember/protocol";
-import { CANVAS_GONE, type Canvas } from "@ember/protocol/library";
+import { MAX_CANVAS_STEPS, MAX_ROOM_FRAME_SIZE, type ClientFrame, type User } from "@ember/protocol";
+import { CANVAS_GONE, CANVAS_TOO_LONG, MAX_CANVAS_LENGTH, type Canvas } from "@ember/protocol/library";
 import type { Editor } from "@tiptap/core";
 import type { Node } from "@tiptap/pm/model";
-import type { EditorState, Transaction } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { ReplaceStep, Step, type Mappable } from "@tiptap/pm/transform";
 import { collab, getVersion, receiveTransaction, sendableSteps } from "prosemirror-collab";
 import type { RoomFrames } from "@/hooks/use-room";
@@ -67,6 +67,8 @@ interface Options {
   onMerged: (conflicts: number) => void;
   /** Says why the room refused steps from here. */
   onRefused: (message: string) => void;
+  /** Says what was written here, as a paste, was too long for the canvas, and was left out. */
+  onTooLong: () => void;
 }
 
 /** What writing together does to the editor: whether it's waiting for the room, and how to send what's left as the page goes. */
@@ -79,6 +81,43 @@ export interface LiveCanvas {
   flush: () => number;
   /** The document as the room has confirmed it, or null before the canvas is written together. */
   confirmed: () => string | null;
+}
+
+const utf8 = new TextEncoder();
+/** How many bytes `text` takes as the room counts a frame's, in UTF-8. */
+const bytesOf = (text: string) => utf8.encode(text).byteLength;
+
+/**
+ * The frame that sends `steps` over `version`, or as many of the first of them as the room takes in one, up
+ * to `MAX_CANVAS_STEPS` and under its frame limit, past which it closes the socket rather than read it; or
+ * null when not even the first fits, which no frame could carry.
+ */
+function stepsFrame(tabId: string, version: number, clientId: string, steps: readonly Step[]): ClientFrame | null {
+  const frame = { type: "canvas.steps" as const, tabId, version, clientId, steps: [] as unknown[] };
+  let size = bytesOf(JSON.stringify(frame));
+  for (const step of steps.slice(0, MAX_CANVAS_STEPS)) {
+    const json = step.toJSON() as unknown;
+    size += bytesOf(JSON.stringify(json)) + (frame.steps.length > 0 ? 1 : 0);
+    if (size > MAX_ROOM_FRAME_SIZE) break;
+    frame.steps.push(json);
+  }
+  return frame.steps.length > 0 ? frame : null;
+}
+
+/** A step's JSON past which writing it here weighs the canvas whole: a paste, say, rather than typing. */
+const LARGE_STEP_BYTES = 16_384;
+/** The most a step's JSON can take, leaving room in a frame for what wraps it. */
+const MAX_STEP_BYTES = MAX_ROOM_FRAME_SIZE - 1_024;
+
+/**
+ * Whether `tr`, written here, as a paste or a merge, would leave the canvas too long to save, or hold a step
+ * too big for any frame to the room. Typing is only measured key by key.
+ */
+function tooLong(tr: Transaction): boolean {
+  if (!tr.docChanged || tr.getMeta(FROM_ROOM) === true) return false;
+  const sizes = tr.steps.map((step) => bytesOf(JSON.stringify(step.toJSON())));
+  if (sizes.every((size) => size < LARGE_STEP_BYTES)) return false;
+  return sizes.some((size) => size > MAX_STEP_BYTES) || JSON.stringify(tr.doc.toJSON()).length > MAX_CANVAS_LENGTH;
 }
 
 /** An insertion here the room hasn't taken, which stays before someone else's at the very spot as it's rebased. */
@@ -125,8 +164,10 @@ function part(frames: RoomFrames, tabId: string, clientId: string, state: Editor
     waiting = null;
     const sendable = sendableSteps(state);
     if (!sendable) return end(true);
-    const steps = sendable.steps.slice(0, MAX_CANVAS_STEPS).map((step) => step.toJSON() as unknown);
-    if (frames.send({ type: "canvas.steps", tabId, version: sendable.version, clientId, steps })) waiting = setTimeout(send, CONFIRM_WITHIN_MS);
+    const frame = stepsFrame(tabId, sendable.version, clientId, sendable.steps);
+    // One no frame could carry would only have the room close the socket each time: the copy kept here stays.
+    if (!frame) return end(false);
+    if (frames.send(frame)) waiting = setTimeout(send, CONFIRM_WITHIN_MS);
   };
   /** Stops, forgetting the kept copy once the room has every step. */
   const end = (confirmedAll: boolean) => {
@@ -156,12 +197,13 @@ function part(frames: RoomFrames, tabId: string, clientId: string, state: Editor
   send();
 }
 
-export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerged, onRefused }: Options): LiveCanvas {
+export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerged, onRefused, onTooLong }: Options): LiveCanvas {
   const [offline, setOffline] = useState(false);
   const handle = useRef({ flush: () => version, confirmed: (): string | null => null });
   const edited = useEffectEvent(onEdited);
   const merged = useEffectEvent(onMerged);
   const refused = useEffectEvent(onRefused);
+  const leftOut = useEffectEvent(onTooLong);
 
   useEffect(() => {
     if (!editor || !frames) return;
@@ -177,6 +219,18 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
       if (history.size > KEPT_VERSIONS) history.delete(history.keys().next().value!);
     };
     editor.registerPlugin(collab({ version, clientID: clientId }));
+    // What's too long to send never goes in, rather than have the room close the socket over it, again each time it's back.
+    const guard = new PluginKey("emberCanvasTooLong");
+    editor.registerPlugin(
+      new Plugin({
+        key: guard,
+        filterTransaction: (tr) => {
+          if (!tooLong(tr)) return true;
+          leftOut();
+          return false;
+        },
+      }),
+    );
     let timer: ReturnType<typeof setTimeout> | null = null;
     let waiting: ReturnType<typeof setTimeout> | null = null;
 
@@ -188,8 +242,11 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
       timer = null;
       const sendable = sendableSteps(editor.state);
       if (!sendable || waiting) return;
-      const steps = sendable.steps.slice(0, MAX_CANVAS_STEPS).map((step) => step.toJSON() as unknown);
-      if (!frames.send({ type: "canvas.steps", tabId, version: sendable.version, clientId, steps })) return setOffline(true);
+      const frame = stepsFrame(tabId, sendable.version, clientId, sendable.steps);
+      // One no frame could carry, which the editor refuses as it's written, is never sent: the room would
+      // only close the socket, and again each time it came back.
+      if (!frame) return refused(CANVAS_TOO_LONG);
+      if (!frames.send(frame)) return setOffline(true);
       waiting = setTimeout(() => {
         waiting = null;
         sendNow();
@@ -273,6 +330,7 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
     return () => {
       stop();
       editor.off("transaction", onTransaction);
+      editor.unregisterPlugin(guard);
       if (timer) clearTimeout(timer);
       settle();
       // What's left goes on until the room has it, then the canvas is let go, which the room saves once nobody
