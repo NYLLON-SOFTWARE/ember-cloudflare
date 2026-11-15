@@ -1,7 +1,7 @@
 import type { AgentAnswer, Agents, NewAgent } from "@ember/protocol/agents";
 import { CARDS_PROMPT } from "@ember/protocol/prompts";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { ANTHROPIC_PATH, CARD_HEADER, CARD_LINK, CARD_QUESTION, CARDED, CHAT_COMPLETIONS_PATH, HELLO, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
@@ -155,8 +155,8 @@ test.describe("Agents", () => {
     await expect(page.getByRole("switch", { name: "Search the web" })).toBeChecked();
     await expect(page.getByRole("checkbox", { name: "general" })).toBeChecked();
 
-    page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Delete Scout" }).click();
+    await answerConfirm(page, "Delete Scout", "Delete");
     await expect(namesIn(card)).toHaveText(["Ember"]);
     // Its page is gone.
     const gone = await page.goto(`/account/agents/${scout.id}/edit`);
@@ -242,7 +242,7 @@ test.describe("Agents", () => {
     expect(gateway.asked.at(-1)!.body.system).toContain(CARDS_PROMPT);
 
     await page.goto(`/users/${recap.id}`);
-    await page.getByRole("button", { name: "Ping Recap" }).click();
+    await page.getByRole("button", { name: "Message" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Direct message with Recap");
     const composer = editorField(page, "Write a message");
     await composer.pressSequentially(CARD_QUESTION);
@@ -284,7 +284,7 @@ test.describe("Agents", () => {
     await expect(profile.getByText(/^An AI agent running on /)).toHaveText(
       "An AI agent running on Claude Sonnet 5.5 through Cloudflare AI Gateway, which sends the conversation you ask it in to Anthropic. You set it up.",
     );
-    await expect(profile.getByRole("button", { name: "Ping Recap" })).toBeVisible();
+    await expect(profile.getByRole("button", { name: "Message" })).toBeVisible();
     // Its instructions are for administrators, on its settings page.
     await expect(profile).not.toContainText("Sum up the conversation so far");
   });

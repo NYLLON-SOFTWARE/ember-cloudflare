@@ -28,16 +28,8 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { useOfferedModels } from "@/hooks/use-offered-models";
 import { useTitle } from "@/hooks/use-title";
-import {
-  ApiError,
-  changeAssistantAvatar,
-  changeAssistantSettings,
-  changeWebSearch,
-  fetchWorkspaceSettings,
-  isSignedOut,
-  removeAssistantAvatar,
-  removeAssistantModel,
-} from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { changeAssistantAvatar, changeAssistantSettings, changeWebSearch, fetchWorkspaceSettings, removeAssistantAvatar, removeAssistantModel } from "@/lib/api-pages";
 import { avatarVariantOf } from "@/lib/previews";
 import { cn } from "@/lib/utils";
 import { AddAssistantModel, modelsToAddTo } from "./add-assistant-model";

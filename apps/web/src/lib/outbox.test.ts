@@ -1,8 +1,9 @@
 import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handOver, leftUnsent, takeBack } from "./outbox";
+import { handOver, leftUnsent, outboxOf, takeBack, takeBackAll, watchOutbox } from "./outbox";
 import { OFFLINE_AFTER_MS } from "./reconnecting-socket";
 import { initialRoomState, type PendingMessage } from "./room-state";
+import { forgetInRoom, keepUnsent, keptUnsent } from "./unsent-store";
 
 /** Stands in for the browser's WebSocket; tests play the server and the network. */
 class FakeSocket {
@@ -79,6 +80,17 @@ const sent = (body: string, overrides: Partial<PendingMessage> = {}): PendingMes
 });
 /** One Ada wrote while the room was away. */
 const waiting = (body: string, overrides: Partial<PendingMessage> = {}) => sent(body, { queued: true, ...overrides });
+/** What another tab's writes tell this one, as the browser tells every tab but the one writing, a key at a time. */
+function writtenElsewhere(write: () => void) {
+  const before: Record<string, string> = { ...localStorage };
+  write();
+  const after: Record<string, string> = { ...localStorage };
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const oldValue = before[key] ?? null;
+    const newValue = after[key] ?? null;
+    if (oldValue !== newValue) window.dispatchEvent(new StorageEvent("storage", { key, oldValue, newValue }));
+  }
+}
 /** The room's copy of `m`. */
 const stored = ({ pending: _, queued: __, ...m }: PendingMessage): Message => ({ ...m, id: `stored-${m.clientMessageId}` });
 
@@ -144,6 +156,24 @@ describe("Send what was left unsent", () => {
     socket().receive({ type: "message.created", message: stored(reply), seq: 2 });
     expect(socket().closedWith).toBe(1000);
     expect(takeBack("general", ada)).toEqual([]);
+  });
+
+  it("tells those watching as what it keeps changes: handed over, sent, refused", async () => {
+    const watcher = vi.fn();
+    const stop = watchOutbox(watcher);
+    handOver("general", [waiting("On it", { parentId: "m1" })]);
+    expect(watcher).toHaveBeenCalled();
+    expect(outboxOf("general").map((m) => [m.body, m.queued])).toEqual([["On it", true]]);
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    expect(outboxOf("general").map((m) => m.queued)).toEqual([undefined]);
+    watcher.mockClear();
+    socket().receive({ type: "error", message: "That message was deleted.", clientMessageId: "On it" });
+    expect(watcher).toHaveBeenCalled();
+    expect(outboxOf("general").map((m) => m.failed)).toEqual([true]);
+    expect(outboxOf("random")).toBe(outboxOf("random"));
+    stop();
   });
 
   it("takes one by someone else with the same id as theirs, not as the room having it", async () => {
@@ -228,16 +258,14 @@ describe("Send what was left unsent", () => {
 });
 
 describe("Stop sending what was left unsent", () => {
-  it(`shows what's waiting as not sent once it's been without the room ${OFFLINE_AFTER_MS / 1000} seconds, as a view does, and tries no more`, async () => {
-    handOver("general", [waiting("Written while away"), sent("in doubt")]);
+  it(`keeps trying to send what's waiting once it's been without the room ${OFFLINE_AFTER_MS / 1000} seconds, as a view does`, async () => {
+    handOver("general", [waiting("Written while away")]);
     await effectsRun();
     socket().drop();
-    wait(OFFLINE_AFTER_MS);
-    const sockets = FakeSocket.all.length;
-    wait(60_000);
-    expect(FakeSocket.all).toHaveLength(sockets);
-    // What went, the view that takes it back asks about.
-    expect(takeBack("general", ada)).toEqual([{ ...sent("Written while away"), failed: true }, sent("in doubt")]);
+    wait(OFFLINE_AFTER_MS + 60_000);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toMatchObject([{ body: "Written while away" }]);
   });
 
   it("sends nothing as someone else, whom another tab has signed this browser in as", async () => {
@@ -296,5 +324,72 @@ describe("Take back what was left unsent", () => {
     expect(takeBack("random", ada)).toHaveLength(1);
     await effectsRun();
     expect(FakeSocket.all).toHaveLength(1);
+  });
+});
+
+describe("What this browser keeps", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("forgets what the room says it has, as the outbox sends it, keeping the rest", async () => {
+    const messages = [waiting("Posted"), sent("Checked"), waiting("Refused"), waiting("In the cupboard", { parentId: "m1" })];
+    keepUnsent("general", ada.id, undefined, messages.slice(0, 3));
+    keepUnsent("general", ada.id, "m1", messages.slice(3));
+    handOver("general", messages);
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome(ada, [stored(messages[3]!)]));
+    socket().receive({ type: "message.created", message: stored(messages[0]!), seq: 1 });
+    socket().receive({ type: "message.checked", stored: ["Checked"], missing: [] });
+    socket().receive({ type: "error", message: "Something went wrong", clientMessageId: "Refused", failed: "message.create" });
+    expect(keptUnsent("general", ada.id).map((m) => m.body)).toEqual(["Refused"]);
+    expect(keptUnsent("general", ada.id, "m1")).toEqual([]);
+  });
+
+  it("keeps what the room refuses, or never had, as not sent, so that a reload doesn't send it again", async () => {
+    const messages = [waiting("Refused"), sent("Lost")];
+    keepUnsent("general", ada.id, undefined, messages);
+    handOver("general", messages);
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    socket().receive({ type: "error", message: "Something went wrong", clientMessageId: "Refused", failed: "message.create" });
+    socket().receive({ type: "message.checked", stored: [], missing: ["Lost"] });
+    expect(keptUnsent("general", ada.id)).toEqual([sent("Refused", { failed: true }), sent("Lost", { failed: true })]);
+  });
+
+  it("keeps what was waiting as not sent once the room is gone", async () => {
+    const reply = waiting("In the cupboard", { parentId: "m1" });
+    keepUnsent("general", ada.id, "m1", [reply]);
+    handOver("general", [reply]);
+    await effectsRun();
+    socket().drop(CloseCode.NotFound);
+    expect(keptUnsent("general", ada.id, "m1")).toEqual([sent("In the cupboard", { parentId: "m1", failed: true })]);
+  });
+
+  it("keeps nothing more of what another tab has deleted, which the outbox doesn't send", async () => {
+    const messages = [waiting("Deleted"), waiting("Kept")];
+    keepUnsent("general", ada.id, undefined, messages);
+    handOver("general", messages);
+    await effectsRun();
+    writtenElsewhere(() => forgetInRoom("general", ada.id, ["Deleted"]));
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["Kept"]);
+
+    // And lets the socket go once another tab has sent the rest.
+    writtenElsewhere(() => forgetInRoom("general", ada.id, ["Kept"]));
+    expect(socket().closedWith).toBe(1000);
+    expect(takeBack("general", ada)).toEqual([]);
+  });
+
+  it("is what's left of a room that's gone: everything the person left in its timeline and its threads", async () => {
+    const message = waiting("In the room");
+    const reply = waiting("In the thread", { parentId: "m1" });
+    handOver("general", [message, reply, waiting("Grace's", { creator: grace })]);
+    await effectsRun();
+    expect(takeBackAll("general", ada.id)).toEqual([message, reply]);
+    expect(socket().closedWith).toBeUndefined();
+    expect(takeBackAll("general", grace.id)).toHaveLength(1);
+    expect(socket().closedWith).toBe(1000);
   });
 });

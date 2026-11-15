@@ -1,5 +1,5 @@
 import { invitation } from "../../fixtures";
-import { expect, test } from "./fixtures";
+import { expect, hasPhoneLayout, test } from "./fixtures";
 
 test("the join screen fits the phone", async ({ page, request, session, screenIsFine }) => {
   await page.goto(`/join/${(await invitation(request, session)).joinCode}`);
@@ -16,5 +16,6 @@ test("you can join with taps", async ({ page, request, session }) => {
   await page.getByLabel("Password").tap();
   await page.keyboard.type("tapped in");
   await page.getByRole("button", { name: "Create account" }).tap();
-  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+  // In, at the room home goes to, or on a phone, Home's list.
+  await expect(hasPhoneLayout(page) ? page.getByRole("list", { name: "Shortcuts" }) : page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 });

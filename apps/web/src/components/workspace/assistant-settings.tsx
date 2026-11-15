@@ -2,7 +2,9 @@ import { useState } from "react";
 import type { WorkspaceSettings } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
-import { forgetAssistant, isSignedOut } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { forgetAssistant } from "@/lib/api-pages";
+import { useConfirm } from "./confirm-dialog";
 import { BUTTON } from "./email-settings";
 
 // The Ember AI card on the AI assistant tab, for administrators: whether Ember's AI agents, @ember and
@@ -26,8 +28,7 @@ export const ASSISTANT_EXPLAINED =
 export const AGENTS_ANSWER = "Ember's agents answer through Cloudflare AI Gateway, each on the model you choose for it.";
 
 /** What turning Ember AI off asks first. */
-export const CONFIRM_STOP_ASSISTANT =
-  "Are you sure you want to turn off Ember AI? @ember and the agents will leave every room, and Ember will forget the API token and the models people can pick. It keeps each agent for when Ember AI is on again.";
+export const CONFIRM_STOP_ASSISTANT = { title: "Turn off Ember AI", body: "@ember and the agents will leave every room, and Ember will forget the API token." };
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -45,9 +46,10 @@ interface Props {
 export function AssistantSettings({ assistant, onSetUp, onStopped, onFailed }: Props) {
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_ASSISTANT)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_ASSISTANT.title, { body: CONFIRM_STOP_ASSISTANT.body, confirm: "Turn off", destructive: true }))) return;
     setStopping(true);
     forgetAssistant().then(
       () => {
@@ -91,6 +93,7 @@ export function AssistantSettings({ assistant, onSetUp, onStopped, onFailed }: P
           </div>
         </>
       )}
+      {confirmation}
     </section>
   );
 }

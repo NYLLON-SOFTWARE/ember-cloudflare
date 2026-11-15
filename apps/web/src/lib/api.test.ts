@@ -1,24 +1,7 @@
-import { AVATAR_PATH, type NewRoom, type ProfileAnswer, type Sidebar } from "@ember/protocol";
+import { AVATAR_PATH, SCHEDULED_API_PATH, type NewRoom, type ProfileAnswer, type Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  ApiError,
-  changeAvatar,
-  changeRoom,
-  createRoom,
-  fetchMe,
-  fetchNewRoomForm,
-  fetchRoomSettings,
-  fetchSidebar,
-  forgetStoredSession,
-  joinWorkspace,
-  removeAvatar,
-  roomSocketUrl,
-  setFavorite,
-  setFavoriteOrder,
-  setUpWorkspace,
-  signOut,
-  workspaceSocketUrl,
-} from "./api";
+import { ApiError, fetchMe, fetchRoomSettings, fetchSidebar, forgetStoredSession, roomSocketUrl, setFavorite, setFavoriteOrder, signOut, workspaceSocketUrl } from "./api";
+import { changeAvatar, changeRoom, createRoom, fetchNewRoomForm, fetchScheduled, joinWorkspace, removeAvatar, setUpWorkspace } from "./api-pages";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -148,9 +131,10 @@ describe("Connection sign-in and revocation", () => {
 
 describe("One live connection per tab outside the open room", () => {
   it("opens the workspace socket on the page's own host, over wss on https pages", () => {
-    expect(workspaceSocketUrl()).toBe("ws://localhost:3000/api/socket");
+    const zone = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(workspaceSocketUrl()).toBe(`ws://localhost:3000/api/socket?tz=${zone}`);
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
-    expect(workspaceSocketUrl()).toBe("wss://ember.example/api/socket");
+    expect(workspaceSocketUrl()).toBe(`wss://ember.example/api/socket?tz=${zone}`);
     vi.unstubAllGlobals();
   });
 });
@@ -223,5 +207,14 @@ describe("Room settings page", () => {
     fetch.mockResolvedValueOnce(Response.json({ room: { ...café, name: "Coffee" } }));
     expect(await changeRoom("café", { name: "Coffee" })).toEqual({ ...café, name: "Coffee" });
     expect(fetch).toHaveBeenLastCalledWith("/api/rooms/caf%C3%A9", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Coffee" }) }));
+  });
+});
+
+describe("Scheduled messages across rooms", () => {
+  it("lists your scheduled messages, answering them soonest first as the server sends them", async () => {
+    const messages = [{ id: "s1", roomId: "r1", sendAt: 1, preview: "Morning" }, { id: "s2", roomId: "r2", sendAt: 2, preview: "Later", parentId: "m1", failed: "Its thread was deleted." }];
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ messages }));
+    expect(await fetchScheduled()).toEqual(messages);
+    expect(fetch).toHaveBeenLastCalledWith(SCHEDULED_API_PATH, expect.anything());
   });
 });

@@ -29,7 +29,7 @@ export function useIsWithAgent(): (room: Room) => boolean {
  * doesn't show the space. The mentions prompt draws it from its own markup (`.autocompletable__badge`
  * in rich-text-editor.css).
  */
-export function AgentBadge({ className }: { className?: string }) {
+export function AgentBadge({ className, label = "Agent" }: { className?: string; label?: string }) {
   return (
     <>
       {" "}
@@ -37,7 +37,7 @@ export function AgentBadge({ className }: { className?: string }) {
         variant="secondary"
         className={cn("bg-foreground/8 px-1.5 py-0 text-[10px] leading-4 font-semibold tracking-wider text-message-muted uppercase", className)}
       >
-        Agent
+        {label}
       </Badge>
     </>
   );

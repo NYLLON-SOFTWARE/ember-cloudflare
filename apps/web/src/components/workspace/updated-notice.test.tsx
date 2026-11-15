@@ -33,6 +33,12 @@ describe("UpdatedNotice", () => {
     expect(reloadPage).toHaveBeenCalledOnce();
   });
 
+  it("gives Reload a 44px target on a touch screen, as Close beside it has", () => {
+    render(<UpdatedNotice />);
+    expect(screen.getByRole("button", { name: "Reload" })).toHaveClass("touch:inline-flex", "touch:min-h-11");
+    expect(screen.getByRole("button", { name: "Close" })).toHaveClass("size-11");
+  });
+
   it("asks the page's guard first, so changes it holds aren't lost unasked", async () => {
     let proceed: (() => unknown) | null = null;
     const release = guardLeaving((path, go) => {

@@ -22,7 +22,7 @@ export function UpdatedNotice() {
     <div role="status" className="flex items-center gap-3 rounded-[10px] border bg-background py-1 ps-4 pe-1 shadow-[0_8px_24px_#00000012]">
       <p className="min-w-0">
         Ember has been updated.{" "}
-        <button type="button" onClick={reload} className="cursor-pointer font-medium whitespace-nowrap underline">
+        <button type="button" onClick={reload} className="cursor-pointer font-medium whitespace-nowrap underline touch:inline-flex touch:min-h-11 touch:items-center">
           Reload
         </button>
       </p>

@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving, navigate } from "@/hooks/use-route";
-import { CONFIRM_BAN, CONFIRM_UNBAN, PersonPage } from "./person-page";
+import { answerConfirm } from "@/test-confirm";
+import { PersonPage } from "./person-page";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace: Person = { id: "u2", name: "Grace Hopper", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };
@@ -68,7 +69,7 @@ function showPage(person: Person | string, { me = ada, people = new Map(), start
 
 const heading = () => screen.findByRole("heading", { level: 1 });
 const avatar = () => screen.findByRole("img", { name: "Profile avatar" });
-const directButton = (name: string) => screen.queryByRole("button", { name: `Ping ${name}` });
+const directButton = () => screen.queryByRole("button", { name: "Message" });
 const mailLink = () => screen.queryByRole("link", { name: /@/ });
 
 beforeEach(() => {
@@ -156,7 +157,7 @@ describe("Someone's profile page", () => {
     expect(await heading()).toHaveTextContent("Ada Lovelace");
     expect(screen.getByRole("link", { name: "Edit my profile" })).toHaveAttribute("href", "/users/me/profile");
     // You can start a DM with yourself.
-    expect(directButton("Ada Lovelace")).toBeVisible();
+    expect(directButton()).toBeVisible();
   });
 
   it("names them, and shows their bio and avatar, as the people directory lists them now", async () => {
@@ -178,7 +179,7 @@ describe("Someone's profile page", () => {
     expect(screen.getByText("Wrote the first compiler")).toBeVisible();
     expect(await avatar()).toHaveClass("opacity-50");
     expect(document.querySelector("svg.iconoir-prohibition")).toBeInTheDocument();
-    expect(directButton("Grace Hopper")).toBeNull();
+    expect(directButton()).toBeNull();
   });
 
   it("shows removed people's names and that they're no longer on this account", async () => {
@@ -187,7 +188,7 @@ describe("Someone's profile page", () => {
     expect(await heading()).toHaveTextContent("Grace Hopper");
     expect(screen.getByText("Grace Hopper is no longer on this account")).toBeVisible();
     expect(screen.queryByText("Wrote the first compiler")).toBeNull();
-    expect(directButton("Grace Hopper")).toBeNull();
+    expect(directButton()).toBeNull();
     expect(document.querySelector("svg.iconoir-prohibition")).toBeNull();
   });
 
@@ -196,7 +197,7 @@ describe("Someone's profile page", () => {
     let settle = (_: boolean) => {};
     const { onStartDirect, user } = showPage(grace, { started: () => new Promise((resolve) => (settle = resolve)) });
     await heading();
-    const button = directButton("Grace Hopper")!;
+    const button = directButton()!;
     expect(button.querySelector("svg")).toHaveClass("iconoir-chat-lines");
     await user.click(button);
     expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: grace.id, name: grace.name }));
@@ -221,7 +222,7 @@ describe("Someone's profile page", () => {
     try {
       const { onStartDirect, user } = showPage(grace);
       await heading();
-      await user.click(directButton("Grace Hopper")!);
+      await user.click(directButton()!);
       expect(onStartDirect).not.toHaveBeenCalled();
       await act(async () => proceed());
       expect(onStartDirect).toHaveBeenCalledOnce();
@@ -260,7 +261,7 @@ describe("A bot's profile", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /\bban\b/i })).toBeNull();
 
-    const button = directButton("Bender")!;
+    const button = directButton()!;
     expect(button.querySelector("svg")).toHaveClass("iconoir-chat-lines");
     await user.click(button);
     expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: bender.id, name: bender.name }));
@@ -274,7 +275,7 @@ describe("A bot's profile", () => {
     const badge = screen.getByText("Agent");
     expect(badge).toHaveAttribute("data-slot", "badge");
     expect(badge.previousElementSibling).toContainElement(await avatar());
-    expect(directButton("Ember")).toBeVisible();
+    expect(directButton()).toBeVisible();
     cleanup();
 
     serve(found(bender));
@@ -302,7 +303,7 @@ describe("A bot's profile", () => {
       );
       // Its instructions are only on its settings page.
       expect(screen.queryByRole("textbox")).toBeNull();
-      await user.click(directButton("Recap")!);
+      await user.click(directButton()!);
       expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: recap.id, name: "Recap" }));
     });
 
@@ -340,7 +341,7 @@ describe("A bot's profile", () => {
       expect(await heading()).toHaveTextContent(/^Recap$/);
       expect(screen.getByText("Sums up long threads")).toBeVisible();
       expect(screen.getByText("Recap is no longer on this account")).toBeVisible();
-      expect(directButton("Recap")).toBeNull();
+      expect(directButton()).toBeNull();
     });
 
     it("badges an agent the people directory lists, deleted ones too, with only their avatar, as a bot's page", async () => {
@@ -359,7 +360,7 @@ describe("A bot's profile", () => {
     showPage(bender, { me: administrator });
     expect(await avatar()).toBeVisible();
     expect(screen.getByText("Bender is no longer on this account")).toBeVisible();
-    expect(directButton("Bender")).toBeNull();
+    expect(directButton()).toBeNull();
     expect(screen.queryByRole("heading")).toBeNull();
   });
 });
@@ -376,7 +377,7 @@ describe("Private sign-in link", () => {
     await heading();
     const link = screen.getByRole("textbox", { name: "Share to get them back into their account" });
     expect(link).toHaveValue(`http://localhost:3000/session/transfers#token=${TRANSFER_ID}`);
-    expect(directButton("Grace Hopper")!.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(directButton()!.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("labels an administrator's own link for screen readers only", async () => {
@@ -476,20 +477,24 @@ describe("Ban and unban people", () => {
         return Response.json({ user: banned });
       },
     );
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    const confirm = vi.spyOn(window, "confirm");
     const { onPersonChanged, onFailed, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
-    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_BAN);
+    expect(await screen.findByRole("alertdialog", { name: "Ban Grace Hopper" })).toHaveAccessibleDescription(
+      "They’ll be signed out, their messages deleted and their IP addresses blocked.",
+    );
+    await answerConfirm(user, "Ban Grace Hopper", "Cancel");
     expect(fetch).toHaveBeenCalledOnce();
 
-    sure.mockReturnValueOnce(true);
     await user.click(banButton()!);
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(banned));
     expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "POST" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     expect(fetch).toHaveBeenLastCalledWith("/api/users/u2", expect.anything());
     expect(onFailed).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("lifts a ban once you've said you're sure", async () => {
@@ -497,13 +502,14 @@ describe("Ban and unban people", () => {
       () => banned,
       () => Response.json({ user: active }),
     );
-    const sure = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { onPersonChanged, user } = showPage(grace, { me: administrator });
     await heading();
     await user.click(unbanButton()!);
-    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_UNBAN);
+    await answerConfirm(user, "Remove ban on Grace Hopper", "Remove ban");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(active));
     expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "DELETE" }));
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("waits for the answer before another click, and says why it failed", async () => {
@@ -512,14 +518,16 @@ describe("Ban and unban people", () => {
       () => grace,
       () => new Promise<Response>((resolve) => (fail = () => resolve(Response.json({ error: "They signed in from a private or internal IP address, which a ban can't block" }, { status: 422 })))),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { onPersonChanged, onFailed, user } = showPage(grace, { me: administrator });
     await heading();
     const button = banButton()!;
     await user.click(button);
-    expect(button).toHaveAttribute("aria-disabled", "true");
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
+    await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
     await user.click(button);
-    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
 
     await act(async () => fail());
     await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
@@ -534,10 +542,10 @@ describe("Ban and unban people", () => {
       () => grace,
       () => new Promise<Response>((resolve) => (answer = (user) => resolve(Response.json({ user })))),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onPersonChanged, reloadPeople, list, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     // The workspace socket says she's banned before the answer does, from this ban.
     list(new Map([[grace.id, banned]]));
     await act(async () => answer(banned));
@@ -548,6 +556,7 @@ describe("Ban and unban people", () => {
     // When it disagrees, as when another administrator banned her again once this lifted it, it can't
     // tell which is newer.
     await user.click(unbanButton()!);
+    await answerConfirm(user, "Remove ban on Grace Hopper", "Remove ban");
     list(new Map([[grace.id, { ...banned, avatarUrl: "/users/t2/avatar?v=4" }]]));
     await act(async () => answer(active));
     await waitFor(() => expect(reloadPeople).toHaveBeenCalledOnce());
@@ -561,10 +570,10 @@ describe("Ban and unban people", () => {
       () => grace,
       () => new Promise<Response>((resolve) => (answer = (user) => resolve(Response.json({ user })))),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onPersonChanged, reloadPeople, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     // Gone before the answer, as when you open another page, while the directory may since have heard
     // she was banned and then let back in.
     cleanup();
@@ -584,7 +593,7 @@ describe("Memberful memberships", () => {
     expect(screen.getByText("Grace Hopper is no longer on this account")).toBeVisible();
     expect(screen.queryByText("Wrote the first compiler")).toBeNull();
     expect(screen.queryByText(/membership/)).toBeNull();
-    expect(directButton("Grace Hopper")).toBeNull();
+    expect(directButton()).toBeNull();
   });
 
   it("shows administrators who they are, that they can't sign in until their membership's renewed, and Ban, with no DM button", async () => {
@@ -595,7 +604,7 @@ describe("Memberful memberships", () => {
     expect(mailLink()).toHaveAttribute("href", "mailto:grace@example.com");
     expect(screen.getByText("Grace Hopper’s Memberful membership has lapsed, so they can’t sign in until it’s renewed.")).toBeVisible();
     expect(screen.queryByText(/no longer on this account/)).toBeNull();
-    expect(directButton("Grace Hopper")).toBeNull();
+    expect(directButton()).toBeNull();
     expect(screen.getByRole("button", { name: "Ban Grace Hopper" })).toBeVisible();
   });
 });

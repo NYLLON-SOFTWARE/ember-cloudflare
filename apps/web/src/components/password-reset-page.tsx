@@ -17,7 +17,8 @@ import { TURNSTILE_UNAVAILABLE } from "@/components/join-page";
 import { TurnstileCheck } from "@/components/turnstile-check";
 import { Input } from "@/components/ui/input";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, askForPasswordResetCode, resetPasswordWithCode } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { askForPasswordResetCode, resetPasswordWithCode } from "@/lib/api-pages";
 import { loadPage } from "@/lib/page";
 import { takeReturnPath } from "@/lib/return-path";
 

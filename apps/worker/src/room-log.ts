@@ -65,7 +65,7 @@ export const UNDELIVERED_EVENTS = `SELECT room_events.seq, room_events.kind, roo
   WHERE room_events.room_id = ? ORDER BY room_events.seq LIMIT ?`;
 
 /** A JSON array of the people a message mentions, each `{ "id", "name" }`, or an id alone in a row from before mentions kept names. */
-type StoredMentions = Array<{ id: UserId } | UserId>;
+export type StoredMentions = Array<{ id: UserId } | UserId>;
 
 interface EventRow extends Omit<RoomEvent, "message" | "threadOnly"> {
   inRoom: number;
@@ -77,9 +77,9 @@ interface EventRow extends Omit<RoomEvent, "message" | "threadOnly"> {
   thread: string | null;
 }
 
-const mentionedIds = (mentions: StoredMentions): UserId[] => mentions.map((person) => (typeof person === "string" ? person : person.id));
+export const mentionedIds = (mentions: StoredMentions): UserId[] => mentions.map((person) => (typeof person === "string" ? person : person.id));
 
-function followersOf(thread: string): UserId[] {
+export function followersOf(thread: string): UserId[] {
   const followers = (JSON.parse(thread) as Array<[UserId, StoredMentions]>).flatMap(([creatorId, mentions]) => [creatorId, ...mentionedIds(mentions)]);
   return [...new Set(followers)];
 }

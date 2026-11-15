@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, RenderError } from "./attachments";
 import { bodyFromPlainText, plainText, prepareBody, type PreparedBody } from "./body";
-import { displayBody, displayMarkup, type DisplayNode } from "./display";
+import { displayBody, displayMarkup, quoteMarkup, type DisplayNode } from "./display";
 import { MAX_TREE_DEPTH, ParseLimitError } from "./markup";
 import { mentionSgid } from "./mentions";
 import { parseHtml } from "./parse";
@@ -184,6 +184,19 @@ describe("Reply with a quote", () => {
     );
   });
 
+  it("quotes what a message shows, citing its author, when they wrote it and a link to it, which a message keeps and shows", () => {
+    const nodes = display(`<p>Hi <action-text-attachment ${MENTION} sgid="0123456789abcdef"></action-text-attachment></p>`);
+    const citation = { author: "Ada & co", createdAt: "2026-11-11T19:30:00.000Z", when: "Nov 11, 7:30 PM", link: "https://ember.test/rooms/general/@m1" };
+    const quote = quoteMarkup(nodes, citation, () => "Grace");
+    expect(quote).toBe(
+      '<blockquote><p>Hi Grace</p></blockquote><cite>Ada &amp; co · <time datetime="2026-11-11T19:30:00.000Z">Nov 11, 7:30 PM</time> <a href="https://ember.test/rooms/general/@m1">#</a></cite>',
+    );
+    const kept = prepareBody(parseHtml, quote, () => undefined)!;
+    expect(kept.plainText).toContain("Ada & co · Nov 11, 7:30 PM #");
+    const cite = display(kept.html, kept.plainText).find((node) => node.kind === "element" && node.name === "cite");
+    expect(cite).toMatchObject({ children: [{ value: "Ada & co · " }, { name: "time", attrs: { datetime: citation.createdAt } }, { value: " " }, { name: "a" }] });
+  });
+
   it("writes every corpus body as it shows", { timeout: 30_000 }, () => {
     const differences: string[] = [];
     for (const { name, body } of corpus.cases) {
@@ -217,5 +230,26 @@ describe("Links in message text", () => {
   it("links after taking out what can't show, so an address links even with a scheme no link can keep", () => {
     expect(markupOf(display("<p>feed://example.com/rss</p>"))).toBe('<p><a href="feed://example.com/rss">feed://example.com/rss</a></p>');
     expect(markupOf(display('<p><a href="feed://example.com/rss">News</a></p>'))).toBe("<p><a>News</a></p>");
+  });
+});
+
+describe("The composer's toolbar's formatting", () => {
+  // As Lexxy writes each of the toolbar's formats (composer-toolbar.tsx): underline as <u>, strikethrough
+  // as <s>, Bold as <b><strong>, the paragraph style menu's headings, a divider, a blockquote, the lists,
+  // inline code and a code block with its language.
+  const written =
+    '<p><u>under</u> <s>struck</s> <b><strong>bold</strong></b> <i><em>it</em></i> <code>x = 1</code></p>' +
+    "<h1>Heading</h1><h3>Subheading</h3><hr><blockquote><p>Quoted</p></blockquote>" +
+    '<ol><li>one</li></ol><ul><li>dot</li></ul><pre data-language="js">let a;\nlet b;</pre>';
+
+  it("keeps all of it through storing and showing, as Lexxy wrote it", () => {
+    const stored = prepareBody(parseHtml, written, () => undefined)!;
+    expect(stored.html).toBe(written);
+    expect(markupOf(display(stored.html, stored.plainText))).toBe(written);
+  });
+
+  it("reads its text plainly, as Action Text does, the code block's lines and all", () => {
+    // A divider has no text, and a blockquote's is quoted, as Action Text's plain text has them.
+    expect(plainText(parseHtml, written, () => undefined)).toBe("under struck bold it x = 1\n\nHeading\n\nSubheading“Quoted”\n\n1. one\n\n• dot\n\nlet a;\nlet b;");
   });
 });

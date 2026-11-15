@@ -9,9 +9,10 @@ import { apiWith, connect, freshRoom, objectSql, post, roomSql, roomStub, search
 
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
 const TABLES: Record<Exclude<Scope, "search">, string[]> = {
-  room: ["blobs", "boosts", "message_deletions", "messages", "revocations", "room_events", "unindexed_messages", "waiting_calls"],
+  room: ["blobs", "boosts", "forwards", "message_deletions", "messages", "revocations", "room_events", "scheduled_changes", "scheduled_messages", "unindexed_messages", "waiting_calls"],
   workspace: [
     "accounts",
+    "activity",
     "agent_tools",
     "agents",
     "app_sign_ins",
@@ -21,10 +22,12 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "email_link_requests",
     "email_links",
     "favorites",
+    "file_marks",
     "identities",
     "membership_catch_ups",
     "membership_checks",
     "memberships",
+    "note_uploads",
     "outside_clients",
     "outside_connections",
     "outside_spent_tokens",
@@ -37,7 +40,11 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "pending_revocations",
     "push_subscriptions",
     "recent_searches",
+    "room_tab_items",
+    "room_tabs",
     "rooms",
+    "saved_items",
+    "scheduled_listings",
     "searches",
     "sessions",
     "users",
@@ -174,6 +181,61 @@ describe("Durable Object SQLite or D1", () => {
     );
     expect(rows[1]).toMatchObject({ body: "<p>Fish &amp; chips &lt;3 &gt;_&lt; &amp;amp;</p>", plain_text: "Fish & chips <3 >_< &amp;" });
     expect(rows[3]).toMatchObject({ body: "<p>Windows<br>line</p>", plain_text: "Windows\nline" });
+  });
+
+  /** The migrations upstream added after a7f778dc, which production runs, numbered beside ours and never renamed. */
+  const sinceProduction = [
+    "0055_apps.sql",
+    "0056_agent_tools.sql",
+    "0057_waiting_calls.sql",
+    "0058_app_sign_ins.sql",
+    "0059_app_sign_in_clients.sql",
+    "0060_app_scope_wanted.sql",
+    "0061_own_app_sign_ins.sql",
+    "0062_outside_ai.sql",
+  ];
+
+  it("lists upstream's migrations beside ours of the same numbers, in the directory's order, for a fresh install to apply", () => {
+    const names = MIGRATIONS.map(({ name }) => name).filter((name) => /^00(5[5-9]|6[0-2])_/.test(name));
+    expect(names).toEqual([
+      "0055_apps.sql",
+      "0055_unread_counts.sql",
+      "0056_agent_tools.sql",
+      "0056_unread_mentions.sql",
+      "0057_waiting_calls.sql",
+      "0058_app_sign_ins.sql",
+      "0059_app_sign_in_clients.sql",
+      "0060_app_scope_wanted.sql",
+      "0060_file_marks.sql",
+      "0061_own_app_sign_ins.sql",
+      "0061_room_tabs.sql",
+      "0062_outside_ai.sql",
+    ]);
+  });
+
+  it("gives a Workspace and a room as they were at a7f778dc only the migrations upstream added since, after the ones they ran", async () => {
+    // D1 applies by name too, through wrangler, at setup.
+    if (sharedD1()) return;
+    /** What `scope`'s migrate adds to storage that ran every migration of its scope but upstream's since a7f778dc. */
+    const addedSince = async (name: string, scope: "workspace" | "room") => {
+      // A new room's storage stands in for either, since each migrates as it opens.
+      const room = await freshRoom(name);
+      return runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+        state.storage.sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+        for (const migration of MIGRATIONS.filter((m) => m.scope === scope && !sinceProduction.includes(m.name))) {
+          state.storage.sql.exec(migration.sql);
+          state.storage.sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", migration.name);
+        }
+        const before = state.storage.sql.exec<{ id: number }>("SELECT MAX(id) AS id FROM d1_migrations").one().id;
+        migrate(state.storage, scope);
+        return state.storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations WHERE id > ? ORDER BY id", before).toArray().map((row) => row.name);
+      });
+    };
+    const workspace = await addedSince("workspace-at-a7f778dc", "workspace");
+    const room = await addedSince("room-at-a7f778dc", "room");
+    expect(workspace).toEqual(["0055_apps.sql", "0056_agent_tools.sql", "0058_app_sign_ins.sql", "0059_app_sign_in_clients.sql", "0060_app_scope_wanted.sql", "0061_own_app_sign_ins.sql", "0062_outside_ai.sql"]);
+    expect(room).toEqual(["0057_waiting_calls.sql"]);
+    expect([...workspace, ...room].sort()).toEqual(sinceProduction);
   });
 
   it("keeps the push subscriptions saved before they were numbered with AUTOINCREMENT, and never numbers another as one deleted", async () => {

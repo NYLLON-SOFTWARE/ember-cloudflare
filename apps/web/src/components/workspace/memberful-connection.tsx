@@ -4,7 +4,8 @@ import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
-import { connectMemberful, disconnectMemberful, isSignedOut } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { connectMemberful, disconnectMemberful } from "@/lib/api-pages";
 import { openPage } from "@/lib/page";
 import { pushEndpoint } from "@/lib/push";
 

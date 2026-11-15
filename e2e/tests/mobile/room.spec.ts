@@ -1,7 +1,23 @@
+import type { Page } from "@playwright/test";
 import { REACTIONS, type Sidebar } from "@ember/protocol";
 import { isolateRoom, keepOtherRoomsOut, openRoom, signInAs } from "../../fixtures";
-import { settle } from "./audits";
-import { expect, hasDrawerLayout, REACTION_PILLS, test } from "./fixtures";
+import { expect, hasPhoneLayout, REACTION_PILLS, test } from "./fixtures";
+
+/**
+ * Goes from the room shown to Home's list of conversations: Back on a phone, as Slack's goes up from a
+ * conversation, and nowhere elsewhere, where the sidebar shows them beside the room.
+ */
+async function showConversations(page: Page): Promise<void> {
+  if (hasPhoneLayout(page)) await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).tap();
+}
+
+/** Where the room's star is: its top bar, or on a phone, its details, which the top bar's pill opens. */
+async function roomStar(page: Page, name: string) {
+  const header = page.getByRole("navigation", { name: "Page" });
+  if (!hasPhoneLayout(page)) return header.getByRole("button", { name: "Star room" });
+  await header.getByRole("button", { name: new RegExp(`^${name}`) }).tap();
+  return page.getByRole("dialog", { name }).getByRole("button", { name: "Star room" });
+}
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -54,26 +70,28 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
 
   await openRoom(page, room);
   await expect(page.getByText("🔥🔥🔥")).toBeVisible();
-  // Four faces, then a count for everyone else, though up to 500px wide only screen readers hear who's here.
+  // How many are in the room, which a phone's pill says, and a wider screen's members button; a phone's
+  // screen readers hear who's here too.
   const header = page.getByRole("navigation", { name: "Page" });
-  await expect(header.getByText("7 here now")).toBeAttached();
-  if (page.viewportSize()!.width > 500) await expect(header.getByText("+3")).toBeVisible();
+  if (hasPhoneLayout(page)) await expect(header.getByText("7 here now")).toBeAttached();
+  else await expect(header.getByRole("button", { name: /^View members, \d+ members$/ })).toBeVisible();
   // So the faces never squeeze out the room's name, which keeps its first few letters even 320px wide.
   expect((await header.getByRole("heading", { level: 1 }).boundingBox())!.width).toBeGreaterThan(40);
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 
-test("the room's star, and a starred room's row in the drawer, fit the phone", async ({ page, room, screenIsFine }) => {
+test("the room's star, and a starred room's row on Home, fit the phone", async ({ page, room, screenIsFine }) => {
   await isolateRoom(page, room);
   await openRoom(page, room);
-  const star = page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+  const star = await roomStar(page, room.name);
   await star.tap();
   await expect(star).toHaveAttribute("aria-pressed", "true");
   await screenIsFine();
 
-  if (!hasDrawerLayout(page)) return;
-  await page.getByRole("button", { name: "Open conversations" }).tap();
-  await expect(page.getByRole("dialog").getByRole("link", { name: room.name }).getByRole("img", { name: "Favorite" })).toBeVisible();
+  if (!hasPhoneLayout(page)) return;
+  await page.keyboard.press("Escape");
+  await showConversations(page);
+  await expect(page.getByRole("main").getByRole("region", { name: "Starred" }).getByRole("link", { name: room.name })).toBeVisible();
   await screenIsFine();
 });
 
@@ -83,8 +101,8 @@ test("a star that can't be saved says so on the phone, however long the room's n
   await isolateRoom(page, named);
   await page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
   await openRoom(page, named);
-  await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" }).tap();
-  await expect(page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
+  await (await roomStar(page, named.name)).tap();
+  await expect(page.getByRole("status").filter({ hasText: "Couldn’t save your star. Please try again." })).toBeVisible();
   await screenIsFine();
 });
 
@@ -95,23 +113,26 @@ test("long room names are truncated, not overflowing", async ({ page, room, scre
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   await screenIsFine();
 
-  if (hasDrawerLayout(page)) {
-    await page.getByRole("button", { name: "Open conversations" }).tap();
-    await expect(page.getByRole("dialog")).toBeVisible();
-  }
+  await showConversations(page);
   await expect(page.getByRole("link", { name })).toBeVisible();
   await screenIsFine();
 });
 
-test("the rail's appearance menu fits the phone", async ({ page, room, screenIsFine }) => {
+test("the rail's appearance menu, or the You sheet's on a phone, fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
-  const rail = page.getByRole("navigation", { name: "Workspace" });
-  if (hasDrawerLayout(page)) {
-    await page.getByRole("button", { name: "Open conversations" }).tap();
-    // Once it has slid in, as a person would wait: tapping a button that's still sliding in has
-    // Playwright scroll it into view first, which can move it up from the bottom of the screen.
-    await settle(page);
+  await showConversations(page);
+  if (hasPhoneLayout(page)) {
+    await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "You" }).tap();
+    const you = page.getByRole("dialog");
+    await expect(you.getByRole("group", { name: "Appearance" })).toBeVisible();
+    await screenIsFine();
+    await you.getByText("Dark", { exact: true }).tap();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    // It stays open for another choice.
+    await expect(you.getByRole("radio", { name: "Dark" })).toBeChecked();
+    return;
   }
+  const rail = page.getByRole("navigation", { name: "Workspace" });
 
   // Where the rail scrolls, as on a phone in landscape, start with the button at the bottom of the
   // screen, where its menu is most likely to open under the home indicator.

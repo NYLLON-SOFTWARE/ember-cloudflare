@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useState } from "react";
 import { ASSISTANT_MODELS, SUGGESTED_MODEL, type AssistantKeys, type OfferedModels } from "@ember/protocol/assistant";
-import { ApiError, fetchOfferedModels, isSignedOut } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { fetchOfferedModels } from "@/lib/api-pages";
 
 /** The models this Ember shipped with, as the Worker offers them before it has read the models file. */
 export const SHIPPED_MODELS: OfferedModels = { models: [...ASSISTANT_MODELS], suggested: SUGGESTED_MODEL, workersAi: null };

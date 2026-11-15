@@ -8,7 +8,8 @@ import { TurnstileCheck } from "@/components/turnstile-check";
 import { Input } from "@/components/ui/input";
 import { useEmailLink, useLinksOpened } from "@/hooks/use-email-link";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, askForEmailLink } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { askForEmailLink } from "@/lib/api-pages";
 import { loadPage } from "@/lib/page";
 
 // The page for joining with an email address at the workspace's email domains: someone asks there for a

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
-import { changeOutsideAi, isSignedOut } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { changeOutsideAi } from "@/lib/api-pages";
 import { outsideAddress } from "./your-outside-ai";
 
 // The Outside AI card on the AI assistant tab, for administrators: a switch that lets the people in the

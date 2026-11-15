@@ -18,14 +18,15 @@ import {
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { LogOut } from "@/components/icons/iconoir";
+import { LogOut } from "@/components/icons/iconoir-more";
 import { Input } from "@/components/ui/input";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { usePush } from "@/hooks/use-push";
 import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeAvatar, changeProfile, fetchProfile, isSignedOut, removeAvatar } from "@/lib/api";
+import { isSignedOut } from "@/lib/api";
+import { changeAvatar, changeProfile, fetchProfile, removeAvatar } from "@/lib/api-pages";
 import { avatarVariantOf } from "@/lib/previews";
 import { pushEndpoint } from "@/lib/push";
 import type { RoomAnswer } from "@/lib/room-list";

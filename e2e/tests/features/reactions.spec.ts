@@ -29,12 +29,13 @@ test.describe("React to a message", () => {
     await react(grace, text, "Thumbs up");
     await expect(reactions(ada, text).getByRole("listitem")).toHaveText(["👍"]);
     await expect(reactions(ada, text).getByRole("img", { name: "Grace boosted 👍" })).toBeVisible();
-    // Only your own reactions do anything.
-    await expect(reactions(ada, text).getByRole("button")).toHaveCount(0);
+    // Only your own reactions do anything; Add reaction is the one button after them.
+    await expect(reactions(ada, text).getByRole("button")).toHaveText([""]);
+    await expect(reactions(ada, text).getByRole("button", { name: "Add reaction" })).toBeVisible();
     await expect(reactions(grace, text).getByRole("button", { name: "👍" })).toBeVisible();
   });
 
-  test("adds the other reactions from the tray", async ({ members }) => {
+  test("adds any emoji from the tray's picker", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     const text = "Party?";
@@ -42,8 +43,9 @@ test.describe("React to a message", () => {
 
     await (await grace.actions(text)).getByRole("button", { name: "More reactions" }).click();
     const tray = grace.message(text).getByRole("group", { name: "More reactions" });
-    await expect(tray.getByRole("button")).toHaveText(["💪Muscle", "❤️Red heart", "😂Face with tears of joy", "🎉Party popper", "🔥Fire", "New boost"]);
-    await tray.getByRole("button", { name: "Party popper" }).click();
+    await expect(tray.getByRole("button", { name: "New boost" })).toBeVisible();
+    await tray.getByRole("searchbox", { name: "Search emoji" }).fill("tada");
+    await tray.getByRole("button", { name: "🎉", exact: true }).first().click();
     await expect(reactions(ada, text).getByRole("img", { name: "Grace boosted 🎉" })).toBeVisible();
   });
 
@@ -68,38 +70,38 @@ test.describe("React to a message", () => {
     await expect(avatars).toHaveCount(3);
   });
 
-  test("opens the bar with More reactions from Add a boost, and Escape hands focus back to it", async ({ members }) => {
+  test("opens every reaction from Add reaction, never the message's actions, and Escape hands focus back to it", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1200, height: 900 } } });
     const text = "React from either control.";
     await ada.send(text);
     const message = ada.message(text);
-    const add = message.getByRole("button", { name: "Add a boost" });
-    const tray = message.getByRole("group", { name: "More reactions" });
+    const add = message.getByRole("button", { name: "Add reaction" });
+    const picker = ada.page.getByRole("dialog", { name: "Add reaction" });
     await expect(message).not.toHaveAttribute("aria-busy");
+    // Only once the message has a reaction.
     await expect(add).toHaveCount(0);
     await react(ada, text, "Thumbs up");
 
     await ada.composer().hover();
     await add.focus();
     await ada.page.keyboard.press("Enter");
-    await expect(tray.getByRole("button", { name: "Muscle" })).toBeFocused();
+    await expect(picker.getByRole("button", { name: "Muscle" })).toBeVisible();
+    await expect(ada.page.getByRole("group", { name: "Message actions" })).toBeHidden();
     await ada.page.keyboard.press("Escape");
-    await expect(tray).toBeHidden();
+    await expect(picker).toBeHidden();
     await expect(add).toBeFocused();
 
     await add.click();
-    await tray.getByRole("button", { name: "Fire" }).click();
+    await picker.getByRole("button", { name: "Fire" }).click();
     await expect(reactions(ada, text).getByRole("button", { name: "🔥" })).toBeVisible();
-    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
+    await expect(add).toBeFocused();
 
     await add.click();
-    await tray.getByRole("button", { name: "New boost" }).click();
+    await picker.getByRole("button", { name: "New boost" }).click();
     await expect(message.getByRole("textbox", { name: "Custom reaction" })).toBeFocused();
     await message.getByRole("button", { name: "Cancel" }).click();
     await add.click();
-    await expect(tray).toBeVisible();
-    await ada.page.getByRole("heading", { level: 1 }).click();
-    await expect(tray).toBeHidden();
+    await expect(picker).toBeVisible();
   });
 });
 
@@ -173,7 +175,7 @@ test.describe("Custom reactions", () => {
     await grace.send(text);
     await (await newBoost(ada, text)).fill("Hey!");
 
-    await (await grace.actions(text)).getByRole("button", { name: "Edit" }).click();
+    await grace.edit(text);
     await grace.editor().fill("Redacted!");
     await grace.editor().press("ControlOrMeta+Enter");
     await react(grace, "Redacted!", "Clapping");

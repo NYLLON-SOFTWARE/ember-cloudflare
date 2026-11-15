@@ -4,7 +4,8 @@ import { APP_ID_REFUSED, APP_SECRET_REFUSED, appIdOf, appSecretOf, type HuddlesF
 import { FIELD_INPUT, Field } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
-import { ApiError, isSignedOut, saveHuddles } from "@/lib/api";
+import { ApiError, isSignedOut } from "@/lib/api";
+import { saveHuddles } from "@/lib/api-pages";
 import { cn } from "@/lib/utils";
 import { BUTTON } from "./email-settings";
 import { dashboard, NOTE } from "./model-picker";
