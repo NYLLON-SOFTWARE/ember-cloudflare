@@ -155,6 +155,29 @@ describe("Schedule a message to send later", () => {
     expect(await roomSql(room.id, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room.id)).toEqual([{ n: 0 }]);
   });
 
+  it.each([
+    ["banned", 2],
+    ["suspended", 3],
+  ])("drops a waiting message whose author was %s before it sends, though their membership stays", async (_status, status) => {
+    const clock = freezeClock();
+    const room = await freshRoom(`gone-${status}`);
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    const sendAt = clock.iso(clock.now() + 60_000);
+
+    grace.send({ type: "message.schedule", clientMessageId: "g1", body: "<p>After my ban</p>", sendAt });
+    await grace.next("scheduled.created");
+    await workspaceSql("UPDATE users SET status = ? WHERE id = ?", status, grace.me.id);
+    expect(await workspaceSql("SELECT count(*) AS n FROM memberships WHERE room_id = ? AND user_id = ?", room, grace.me.id)).toEqual([{ n: 1 }]);
+
+    clock.advance(60_000);
+    await ring(room);
+    await settle(ada);
+    expect(ada.pending("message.created")).toEqual([]);
+    expect((await connect(room, "Linus")).welcome.messages).toEqual([]);
+    expect(await roomSql(room, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
+  });
+
   it("lets only a member of the room schedule, list or cancel", async () => {
     const clock = freezeClock();
     const ada = await signIn("Ada");
