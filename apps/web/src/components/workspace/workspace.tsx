@@ -623,17 +623,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The rail's Saved control, by Activity's conventions: it opens the pane beside the room shown, or
   // goes home to the last room visited for it from a page of community settings. Opening it asks for
   // the list again, which a failed ask never brought, but never asks a room for anything, so it marks
-  // nothing read.
+  // nothing read. The pane shows only over a room, so a pane asked for from a page it doesn't show on
+  // counts as closed, whose press opens it rather than closing a pane that isn't there.
   const coversRoom = useMediaQuery(THREAD_COVERS_ROOM);
+  const savedShown = savedOpen && room !== null;
   // Below 1180px wide the pane covers the room, which then counts as hidden, and leaves nothing of
   // itself to reach behind it, as a thread covering the room does.
-  const savedCovered = savedOpen && room !== null && coversRoom;
+  const savedCovered = savedShown && coversRoom;
   const saved = {
-    on: savedOpen,
+    on: savedShown,
     count: saver.saves?.length ?? 0,
     onToggle: () => {
       setDrawerOpen(false);
-      if (savedOpen) return setSavedOpen(false);
+      if (savedShown) return setSavedOpen(false);
       saver.load();
       if (!settings && route.page === "room") return setSavedOpen(true);
       navigate("/");

@@ -1177,6 +1177,22 @@ describe("Saved pane", () => {
     expect(room.sent).not.toContainEqual({ type: "presence.visible", visible: false });
   });
 
+  it("opens again with one press from a page it doesn't show on, where the pane went with the room it was open beside", async () => {
+    serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    // Off to workspace settings, which the pane doesn't show on: it leaves, and Saved counts as closed.
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    expect(await communitySettings()).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    expect(screen.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "true");
+  });
 });
 
 describe("New releases", () => {
