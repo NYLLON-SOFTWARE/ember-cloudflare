@@ -7,18 +7,22 @@ import { useSaves } from "./use-saves";
 /** The saves the GET answers with, next answer first, or nothing, which answers an empty list. */
 const answers: Array<() => Promise<Response>> = [];
 
+/** What the DELETE of a save answers with, next answer first, or nothing, which answers gone at once. */
+const deletes: Array<() => Promise<Response>> = [];
+
 /** How many times the list was asked for. */
 const asks = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/saves" && (init?.method ?? "GET") === "GET").length;
 
 beforeEach(() => {
   answers.length = 0;
+  deletes.length = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/saves" && (init?.method ?? "GET") === "GET") return (answers.shift() ?? (() => Response.json({ saves: [] })))();
       if (path === "/api/saves" && init?.method === "POST") return Response.json({ save: { id: "s-new", roomId: "general", messageId: "m-new", createdAt: 1 } }, { status: 201 });
-      if (path.startsWith("/api/saves/") && init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (path.startsWith("/api/saves/") && init?.method === "DELETE") return (deletes.shift() ?? (() => new Response(null, { status: 204 })))();
       throw new Error(`No answer for ${init?.method ?? "GET"} ${path}`);
     }),
   );
@@ -87,6 +91,58 @@ describe("The saves hook", () => {
     });
     await waitFor(() => expect(result.current.saves).toEqual([saved("s2", "m2")]));
     expect(asks()).toBe(2);
+  });
+
+  it("leaves an answer asked for while the server hadn't heard of the remove yet, and asks once more once it has", async () => {
+    // The list's first answer waits, and so does the remove's own ask, as either does on a slow connection.
+    let releaseList!: () => void;
+    answers.push(
+      () =>
+        new Promise<Response>((done) => {
+          releaseList = () => done(Response.json({ saves: [saved("s1", "m1"), saved("s2", "m2")] }));
+        }),
+    );
+    let releaseForget!: () => void;
+    deletes.push(
+      () =>
+        new Promise<Response>((done) => {
+          releaseForget = () => done(new Response(null, { status: 204 }));
+        }),
+    );
+    const onFailed = vi.fn();
+    const { result } = renderHook(() => useSaves(onFailed));
+    let forgotten!: Promise<void>;
+    await act(async () => {
+      forgotten = result.current.forget("s1");
+    });
+    // The stale list arrives, which asks for one afresh while the remove is still unsettled: that ask
+    // may reach the server before the remove does, and answer holding what was taken out.
+    let releaseBetween!: () => void;
+    answers.push(
+      () =>
+        new Promise<Response>((done) => {
+          releaseBetween = () => done(Response.json({ saves: [saved("s1", "m1"), saved("s2", "m2")] }));
+        }),
+    );
+    await act(() => {
+      releaseList();
+      return Promise.resolve();
+    });
+    await waitFor(() => expect(asks()).toBe(2));
+    // The remove settles, and only then does the list asked for in between arrive, holding what was
+    // taken out: it's left too, and a last one asked for, which knows of the remove.
+    answers.push(async () => Response.json({ saves: [saved("s2", "m2")] }));
+    await act(async () => {
+      releaseForget();
+      await forgotten;
+    });
+    await act(() => {
+      releaseBetween();
+      return Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.saves).toEqual([saved("s2", "m2")]));
+    expect(asks()).toBe(3);
+    expect(onFailed).not.toHaveBeenCalled();
   });
 
   it("asks again when the pane's load is called, which a failed ask never brought", async () => {

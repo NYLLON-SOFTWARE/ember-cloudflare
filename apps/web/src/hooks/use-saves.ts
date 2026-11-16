@@ -32,8 +32,9 @@ export function useSaves(onFailed: (error: unknown) => void): Saver {
   // Asked when the page loads, and again after a save or a remove here, or when the pane opens for
   // what a failed ask never brought.
   const [asked, setAsked] = useState(0);
-  // What a remove here has taken out of the list since it was asked for, so an answer that set out
-  // before it doesn't put what was taken out back: that answer is left, and a fresh list asked for.
+  // What a remove here has taken out of the list since it was asked for, counted once as it goes and
+  // again once the server has heard of it, since a list asked for in between may still hold it: an
+  // answer that set out before either count is left, and a fresh list asked for.
   const changed = useRef(0);
   const askAgain = useCallback(() => setAsked((asked) => asked + 1), []);
   useEffect(() => {
@@ -77,6 +78,9 @@ export function useSaves(onFailed: (error: unknown) => void): Saver {
         onFailed(error);
         askAgain();
       }
+      // However the server answers, a list asked for before now may not know of the remove, so none
+      // on its way tells of the saves any more.
+      changed.current++;
     },
     [askAgain, onFailed],
   );
