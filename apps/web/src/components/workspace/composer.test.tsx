@@ -849,6 +849,65 @@ describe("Slash commands", () => {
     expect(input).toHaveValue("");
   });
 
+  it("runs a command registered since the commands were had, rather than posting it to the room", async () => {
+    const had = [RESTART_COMMAND];
+    let asked = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (!String(input).endsWith("/api/account/commands")) throw new Error(`Unexpected request for ${String(input)}`);
+      asked += 1;
+      return Response.json({ commands: [...had], subscriptions: [] } satisfies Commands);
+    });
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [RESTART_COMMAND] });
+    await user.type(input, "/");
+    await screen.findByRole("listbox", { name: "Commands" });
+    // An administrator registers /deploy elsewhere while this page holds the commands it had, which
+    // name no /deploy.
+    had.push(DEPLOY_COMMAND);
+    await user.type(input, "deploy production");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    // Asked for again before what they don't name is told from a message, so the command runs, and
+    // goes to the room as no message.
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(asked).toBe(2);
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written while the commands can't be had again, then sends it as the message they don't name", async () => {
+    let asked = 0;
+    let answer!: (response: Response) => void;
+    const again = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (!String(input).endsWith("/api/account/commands")) throw new Error(`Unexpected request for ${String(input)}`);
+      asked += 1;
+      if (asked === 2) return again;
+      return Response.json({ commands: [RESTART_COMMAND], subscriptions: [] } satisfies Commands);
+    });
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [RESTART_COMMAND] });
+    await user.type(input, "/etc/hosts says otherwise");
+    await vi.waitFor(() => expect(asked).toBe(1));
+    await user.keyboard("{Enter}");
+    await act(async () => {});
+    // The commands are being had again, so nothing goes, and what's written stays.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/etc/hosts says otherwise");
+
+    // Had again to no avail, so what's written is kept still.
+    act(() => answer(Response.json({ error: "Something went wrong" }, { status: 500 })));
+    await act(async () => {});
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/etc/hosts says otherwise");
+
+    // Had again at the next Enter, they name it not, so what's written goes as the message it is.
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>/etc/hosts says otherwise</p>", false));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(asked).toBe(3);
+    expect(input).toHaveValue("");
+  });
+
   it("runs what began with a slash once, though Enter is pressed again while the commands wait", async () => {
     const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
     let answer!: (response: Response) => void;
