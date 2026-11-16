@@ -1,6 +1,7 @@
 import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   CloseCode,
+  COMMAND_TOO_LONG,
   HISTORY_PAGE_SIZE,
   isInRoom,
   isMessageTooLong,
@@ -104,6 +105,13 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
  */
 export function runCommandOf({ send, listen }: RoomFrames, warn: (message: string) => void): (name: string, text: string) => Promise<boolean> {
   return (name, text) => {
+    // One longer than a frame takes is refused before it's sent, that what's written stays to be cut
+    // down: the room would drop the frame as unrecognized, with no `commandId` for an error to name,
+    // and leave whoever sent it waiting while their writing is gone.
+    if (text.length > MAX_MESSAGE_HTML_LENGTH) {
+      warn(COMMAND_TOO_LONG);
+      return Promise.resolve(false);
+    }
     const commandId = crypto.randomUUID();
     if (!send({ type: "command.run", commandId, name, text })) {
       warn("Not connected. Try again once you're reconnected.");

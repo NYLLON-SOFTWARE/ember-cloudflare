@@ -1,4 +1,4 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, COMMAND_TOO_LONG, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type ClientFrame, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
-import { openRoomSocketAhead, useRoom } from "./use-room";
+import { openRoomSocketAhead, runCommandOf, useRoom } from "./use-room";
 import { useThread } from "./use-thread";
 
 vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
@@ -1580,5 +1580,37 @@ describe("Threads", () => {
       outbox!.receive({ type: "message.created", message: stored("m3", again!), seq: 3 });
       expect(outbox!.closedWith).toBe(1000);
     });
+  });
+});
+
+describe("Running a command", () => {
+  it("refuses one longer than a frame takes, saying so, and sends nothing", async () => {
+    const sent: ClientFrame[] = [];
+    const warnings: string[] = [];
+    const heard: Array<(frame: ServerFrame) => void> = [];
+    const run = runCommandOf(
+      {
+        send: (frame) => {
+          sent.push(frame);
+          return true;
+        },
+        listen: (frame) => {
+          heard.push(frame);
+          return () => {};
+        },
+      },
+      (message) => warnings.push(message),
+    );
+    await expect(run("deploy", "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1))).resolves.toBe(false);
+    // Nothing went to the room, which drops a frame that long as unrecognized, without the id its
+    // error names, and leaves whoever sent it waiting.
+    expect(sent).toEqual([]);
+    expect(warnings).toEqual([COMMAND_TOO_LONG]);
+
+    // One the room takes goes, and its answer ends the wait.
+    const fitting = run("deploy", "x".repeat(MAX_MESSAGE_HTML_LENGTH));
+    expect(sent).toEqual([expect.objectContaining({ type: "command.run", name: "deploy", text: "x".repeat(MAX_MESSAGE_HTML_LENGTH) })]);
+    heard.at(-1)!({ type: "command.ran", commandId: (sent.at(-1) as { commandId: string }).commandId });
+    await expect(fitting).resolves.toBe(true);
   });
 });

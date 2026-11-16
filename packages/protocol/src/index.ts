@@ -1812,6 +1812,8 @@ export const MESSAGE_TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLo
 export const isMessageTooLong = (plainText: string) => plainText.length > MAX_MESSAGE_LENGTH;
 /** The most characters of markup a message can arrive as: room for the longest message, formatted. */
 export const MAX_MESSAGE_HTML_LENGTH = 100_000;
+/** What the room says of a command with more typed after it than a frame takes, which the app says itself rather than send one. */
+export const COMMAND_TOO_LONG = `Commands can be up to ${MAX_MESSAGE_HTML_LENGTH.toLocaleString("en-US")} characters.`;
 /** As long as Campfire's `boosts.content` column can be (`limit: 16`, db/schema.rb). */
 export const MAX_BOOST_LENGTH = 16;
 /**
