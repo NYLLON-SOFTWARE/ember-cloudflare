@@ -3286,11 +3286,15 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Someone as their page shows them to the person `credentials` signs in, whatever their status, and
    * with their email address and sign-in link to administrators: "not found" if nobody has id `userId`,
-   * or null without a valid session.
+   * or null without a valid session. A guest of one room reads the profiles of their room's people
+   * alone, as their directory lists them, whose stays hold them to, and to nobody outside it, whoever
+   * asks by an id heard of elsewhere.
    */
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
+    const stay = await this.stayOf(session.user.id);
+    if (stay && !(await this.store.isMember(stay.roomId, userId))) return "not found";
     const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
     if (!person) return "not found";
     const agent = person.agent ? await this.store.agentProfile(userId) : null;

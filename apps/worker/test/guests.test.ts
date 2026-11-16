@@ -246,6 +246,17 @@ describe("One room, and nothing else", () => {
     expect(await elsewhere.json()).toEqual({ error: ROOM_NOT_FOUND });
   });
 
+  it("reads the profiles of their room's people alone, and hears 404 for anyone else's", async () => {
+    const member = await signIn("Grace");
+    expect((await api(`/api/users/${host.user.id}`, { headers: { Cookie: guest.cookie } })).status).toBe(200);
+    expect((await api(`/api/users/${guest.user.id}`, { headers: { Cookie: guest.cookie } })).status).toBe(200);
+
+    // Grace is in no room of theirs, though active in the workspace, so their page is none of theirs to read.
+    expect((await api(`/api/users/${member.user.id}`, { headers: { Cookie: guest.cookie } })).status).toBe(404);
+    // Nor once the answer would say nothing of anyone, as a stranger's would.
+    expect((await api("/api/users/nowhere", { headers: { Cookie: guest.cookie } })).status).toBe(404);
+  });
+
   it("is offered their room's people to mention, and nobody else's room's", async () => {
     const theirs = await api(`/api/autocompletable/users?room_id=${room}&query=`, { headers: { Cookie: guest.cookie } });
     expect(theirs.status).toBe(200);
