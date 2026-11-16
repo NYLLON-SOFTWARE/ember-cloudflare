@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -129,14 +129,19 @@ afterEach(() => {
   rmSync(path.dirname(output), { recursive: true, force: true });
 });
 
-/** Runs the export of the workspace at `address` to `output`, with `emailAddress` and `password` signing in. */
-function run(emailAddress: string | null, password: string | null): Promise<{ status: number | null; stdout: string; stderr: string }> {
+/**
+ * Runs the export of the workspace at `address` to `to` — `output` unless another file is given —
+ * with `emailAddress` and `password` signing in. `before`, when there is one, has the child as soon
+ * as it has its process id, before the script is up to open anything.
+ */
+function run(emailAddress: string | null, password: string | null, to: string | null = null, before: ((child: ChildProcess) => void) | null = null): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const env = { ...process.env };
   delete env.EMBER_EXPORT_EMAIL_ADDRESS;
   delete env.EMBER_EXPORT_PASSWORD;
   if (emailAddress !== null) env.EMBER_EXPORT_EMAIL_ADDRESS = emailAddress;
   if (password !== null) env.EMBER_EXPORT_PASSWORD = password;
-  const child = spawn(process.execPath, [SCRIPT, address, output], { env });
+  const child = spawn(process.execPath, [SCRIPT, address, to ?? output], { env });
+  if (before) before(child);
   let [stdout, stderr] = ["", ""];
   child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
   child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
@@ -210,6 +215,43 @@ describe("The export script", () => {
     expect(readFileSync(output, "utf8")).toBe(good);
     // And nothing of the rerun that failed is left beside it.
     expect(readdirSync(path.dirname(output))).toEqual([path.basename(output)]);
+  });
+
+  it("fails rather than write into a file somebody else put where the temporary goes, and leaves that file and the last export be", async () => {
+    const { status } = await run(MAYA.emailAddress, MAYA.password);
+    expect(status).toBe(0);
+    const good = readFileSync(output, "utf8");
+
+    // A neighbour's file where the temporary goes — theirs directly, or as good as, a link to one
+    // they can read, which is how it would be planted — is made as soon as the child has its
+    // process id, before the script is up to open anything. The export has to fail loudly on it,
+    // write nothing of the workspace into it, leave what was planted as it is, and leave the last
+    // export be.
+    let planted: string | null = null;
+    const { status: rerun, stderr } = await run(MAYA.emailAddress, MAYA.password, null, (child) => {
+      planted = `${output}.${child.pid}.tmp`;
+      symlinkSync("/etc/passwd", planted);
+    });
+    expect(rerun).toBe(1);
+    expect(stderr).toContain("file already exists");
+    expect(stderr).toContain(planted!);
+    expect(readFileSync(output, "utf8")).toBe(good);
+    expect(readlinkSync(planted!)).toBe("/etc/passwd");
+    expect([...readdirSync(path.dirname(output))].sort()).toEqual([path.basename(output), path.basename(planted!)].sort());
+  });
+
+  it("answers with the file's own trouble, before it has asked the Worker for anything of the export", async () => {
+    // Nowhere to put the temporary: the directory the export would go in isn't there, which the file
+    // finds as it opens, before the listing is asked for. The export answers with that, and not with
+    // what a write into a file that closed says, or with nothing at all.
+    const nowhere = path.join(path.dirname(output), "not-here", "ember-export.ndjson");
+    const { status, stderr } = await run(MAYA.emailAddress, MAYA.password, nowhere);
+    expect(status).toBe(1);
+    expect(stderr).toContain("no such file or directory");
+    expect(stderr).toContain("not-here");
+    // The Worker was asked for the sign-in alone, the file having failed before the listing.
+    expect(asked).toEqual(["/api/session"]);
+    expect(existsSync(nowhere)).toBe(false);
   });
 
   it("refuses someone who isn't an administrator, before it asks the Worker for anything of the export", async () => {

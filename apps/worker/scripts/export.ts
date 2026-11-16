@@ -47,40 +47,64 @@ async function writeRecord(file: WriteStream, record: ExportRecord): Promise<voi
 
 /**
  * Asks the Worker at `ember` for everything, as the administrator `session` signs in, and writes it
+ * to `stream` a record at a line: everyone, then every room with its messages. Answers how many of
+ * each.
+ */
+async function writeEverything(ember: Ember, session: Session, stream: WriteStream): Promise<{ people: number; rooms: number; messages: number }> {
+  const listing = (await (await ember.request("/api/export", { session })).json()) as ExportedListing;
+  let messages = 0;
+  for (const user of listing.users) await writeRecord(stream, { type: "user", user });
+  for (const room of listing.rooms) {
+    await writeRecord(stream, { type: "room", room });
+    // Pages from nothing, then from each page's last message, until the room says there are no more.
+    let after: string | null = null;
+    for (;;) {
+      const page = await messagesPage(ember, session, room.id, after);
+      for (const message of page.messages) await writeRecord(stream, { type: "message", message });
+      messages += page.messages.length;
+      if (!page.hasMore) break;
+      after = page.messages.at(-1)!.id;
+    }
+  }
+  return { people: listing.users.length, rooms: listing.rooms.length, messages };
+}
+
+/**
+ * Asks the Worker at `ember` for everything, as the administrator `session` signs in, and writes it
  * to `file` a record at a line: everyone, then every room with its messages. It goes first to a
- * private file beside `file` — the export has every DM in it, so only its owner may read it — and
- * takes `file`'s place only once all of it is written, so that a rerun that fails leaves the last
- * export standing. Answers how many of each.
+ * private file beside `file`, made for this run alone — the export has every DM in it, so only its
+ * owner may read it, and a file somebody else put where it goes fails the export instead of taking
+ * any of it — and takes `file`'s place only once all of it is written, so that a rerun that fails
+ * leaves the last export standing. Answers how many of each.
  */
 async function writeExportTo(ember: Ember, session: Session, file: string): Promise<{ people: number; rooms: number; messages: number }> {
   const temp = join(dirname(file), `${basename(file)}.${process.pid}.tmp`);
-  const stream = createWriteStream(temp, { encoding: "utf8", mode: 0o600 });
+  // 'wx' opens the temporary only if nothing is there: whatever is — another user's file, or a link
+  // to one they can read — fails the export before any of the workspace is written into it, and
+  // 0o600 keeps what is written to its owner alone.
+  const stream = createWriteStream(temp, { flags: "wx", encoding: "utf8", mode: 0o600 });
   const closed = once(stream, "close").catch(() => {});
+  // The file answers for itself wherever the export has got to: its failure rejects here even while
+  // the script is away asking the Worker for more, instead of surfacing as a write that can't be
+  // made, or not at all. It is heard once nothing is left waiting on it, so the quiet catch keeps it
+  // from being nobody's.
+  const failure = new Promise<never>((_, failed) => stream.once("error", failed));
+  failure.catch(() => {});
+  // Only a temporary whose open came through is ours to clean up after.
+  let opened = false;
   try {
-    const listing = (await (await ember.request("/api/export", { session })).json()) as ExportedListing;
-    let messages = 0;
-    for (const user of listing.users) await writeRecord(stream, { type: "user", user });
-    for (const room of listing.rooms) {
-      await writeRecord(stream, { type: "room", room });
-      // Pages from nothing, then from each page's last message, until the room says there are no more.
-      let after: string | null = null;
-      for (;;) {
-        const page = await messagesPage(ember, session, room.id, after);
-        for (const message of page.messages) await writeRecord(stream, { type: "message", message });
-        messages += page.messages.length;
-        if (!page.hasMore) break;
-        after = page.messages.at(-1)!.id;
-      }
-    }
+    await Promise.race([once(stream, "open"), failure]);
+    opened = true;
+    const written = await Promise.race([writeEverything(ember, session, stream), failure]);
     stream.end();
-    await once(stream, "finish");
+    await Promise.race([once(stream, "finish"), failure]);
     await closed;
     await rename(temp, file);
-    return { people: listing.users.length, rooms: listing.rooms.length, messages };
+    return written;
   } catch (error) {
     stream.destroy();
     await closed;
-    await unlink(temp).catch(() => {});
+    if (opened) await unlink(temp).catch(() => {});
     throw error;
   }
 }
