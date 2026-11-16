@@ -33,13 +33,28 @@ export function ApiTokens({ onFailed }: Props) {
   const [tokens, setTokens] = useState<ApiToken[] | null>(null);
   /** The token just made, whose secret is on its way out of the only place it's ever shown. */
   const [made, setMade] = useState<ApiTokenCreated | null>(null);
+  /** The tokens made while this page has been open, newest first, since the list was asked for. */
+  const madeTokens = useRef<ApiToken[]>([]);
+  /** The tokens revoked while this page has been open, since the list was asked for. */
+  const revokedIds = useRef<Set<string>>(new Set());
   const nameInput = useRef<HTMLInputElement>(null);
   const mounted = useMounted();
+
+  /** The list as the page has it: the server's, with the tokens made here that it doesn't know of in, and the ones revoked here out, however their reads and changes went in. */
+  const withLocalChanges = (list: ApiToken[]): ApiToken[] => {
+    const revoked = revokedIds.current;
+    const kept = list.filter((token) => !revoked.has(token.id));
+    const listed = new Set(kept.map((token) => token.id));
+    const made = madeTokens.current.filter((token) => !revoked.has(token.id) && !listed.has(token.id));
+    return [...made, ...kept];
+  };
 
   useEffect(() => {
     let stopped = false;
     fetchApiTokens().then(
-      (tokens) => !stopped && setTokens(tokens),
+      (tokens) => {
+        if (!stopped) setTokens(withLocalChanges(tokens ?? []));
+      },
       (error: unknown) => {
         if (!stopped || isSignedOut(error)) onFailed(error);
       },
@@ -57,8 +72,10 @@ export function ApiTokens({ onFailed }: Props) {
     createApiToken(name).then(
       (created) => {
         if (!mounted.current) return;
+        madeTokens.current = [created, ...madeTokens.current];
         setMade(created);
-        setTokens((tokens) => tokens && [created, ...tokens]);
+        // A list still loading has nothing to put the token in, so the ones made here hold its place.
+        setTokens((tokens) => withLocalChanges([created, ...(tokens ?? [])]));
         if (nameInput.current) nameInput.current.value = "";
       },
       (error: unknown) => {
@@ -71,7 +88,10 @@ export function ApiTokens({ onFailed }: Props) {
     if (!confirm(CONFIRM_REVOKE)) return;
     revokeApiToken(id).then(
       () => {
-        if (mounted.current) setTokens((tokens) => tokens && tokens.filter((token) => token.id !== id));
+        if (!mounted.current) return;
+        revokedIds.current.add(id);
+        madeTokens.current = madeTokens.current.filter((token) => token.id !== id);
+        setTokens((tokens) => withLocalChanges((tokens ?? []).filter((token) => token.id !== id)));
       },
       (error: unknown) => {
         if (mounted.current || isSignedOut(error)) onFailed(error);

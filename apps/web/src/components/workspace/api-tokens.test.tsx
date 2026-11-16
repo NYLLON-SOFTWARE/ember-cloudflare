@@ -14,6 +14,23 @@ function renderSection(tokens: ApiToken[] = [], onFailed = vi.fn()) {
 }
 afterEach(() => vi.restoreAllMocks());
 
+/** Fetch that keeps the list's answer and the making's back until the test lets them go: the list's read is the one without a method. */
+function renderWaiting(onFailed = vi.fn()) {
+  let resolveList!: (response: Response) => void;
+  const list = new Promise<Response>((resolve) => (resolveList = resolve));
+  let resolveMake!: (response: Response) => void;
+  const making = new Promise<Response>((resolve) => (resolveMake = resolve));
+  vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => (init?.method === "POST" ? making : list));
+  render(<ApiTokens onFailed={onFailed} />);
+  const makeIt = async () => {
+    await userEvent.type(screen.getByLabelText("Name the token for what it opens"), "Deploy bot");
+    await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+    resolveMake(Response.json(made("t1", "Deploy bot")));
+    await screen.findByTestId("made-token");
+  };
+  return { onFailed, resolveList, makeIt };
+}
+
 describe("API tokens on your profile", () => {
   it("lists your tokens, newest first, with when each was made and last used", async () => {
     renderSection([token("b", "Newer", 1_760_000_000_000), token("a", "Older", 1_750_000_000_000)]);
@@ -34,6 +51,33 @@ describe("API tokens on your profile", () => {
     // It's on the list now, to revoke later.
     const list = screen.getByRole("list", { name: "API tokens" });
     expect(list).toHaveTextContent("Deploy bot");
+  });
+
+  it("keeps a token made before the list has loaded, once a list read before it arrives", async () => {
+    const { resolveList, makeIt } = renderWaiting();
+    await makeIt();
+    // The list wasn't in yet, and the token is on it all the same.
+    expect(screen.getByRole("list", { name: "API tokens" })).toHaveTextContent("Deploy bot");
+    // The list, read before the token was made, arrives without it, which keeps it where it is.
+    resolveList(Response.json({ tokens: [token("a", "Older", 1_750_000_000_000)] }));
+    await screen.findByText("Older");
+    const list = screen.getByRole("list", { name: "API tokens" });
+    expect([...list.querySelectorAll("strong")].map((strong) => strong.textContent)).toEqual(["Deploy bot", "Older"]);
+  });
+
+  it("keeps a token revoked before the list has loaded off the list it arrives in", async () => {
+    const { resolveList, makeIt } = renderWaiting();
+    await makeIt();
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await userEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(screen.queryByRole("list", { name: "API tokens" })).toBeNull());
+    // The list, read after the token was made but before it was revoked, arrives with it, which keeps it off.
+    resolveList(Response.json({ tokens: [token("t1", "Deploy bot", 1_760_000_000_000), token("a", "Older", 1_750_000_000_000)] }));
+    await screen.findByText("Older");
+    const list = screen.getByRole("list", { name: "API tokens" });
+    expect(list).toHaveTextContent("Older");
+    expect(list).not.toHaveTextContent("Deploy bot");
   });
 
   it("copies the token it just made", async () => {
