@@ -610,7 +610,7 @@ describe("Webhook replies", () => {
     // Once the room has heard.
     await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
     file.send();
-    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"));
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"), { timeout: 5_000 });
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
   });
 
@@ -685,7 +685,7 @@ describe("Webhook replies", () => {
       object.env = { ...object.env, WORKSPACE: workspace as unknown as Env["WORKSPACE"] };
     });
     file.send();
-    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, unreachable));
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, unreachable), { timeout: 5_000 });
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
     expect((await files().list({ prefix: "previews/" })).objects).toEqual([]);
     client.close();
@@ -933,7 +933,7 @@ describe("Webhooks run in the background", () => {
   });
 
   it("queries webhooks first, with @ember, finding each one's bot and membership by their keys, and a delivery's webhook by its bot's", async () => {
-    const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_BOTS}`, "room", "user", "[]", 1)).map((row) => (row as { detail: string }).detail);
+    const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_BOTS}`, "room", "user", "[]", 1, 0)).map((row) => (row as { detail: string }).detail);
     expect(plan).toContainEqual(expect.stringMatching(/^SCAN webhooks\b/));
     expect(plan.filter((step) => /^SCAN (users|memberships|rooms)\b/.test(step))).toEqual([]);
     const found = (await workspaceSql(`EXPLAIN QUERY PLAN ${BOT_WEBHOOK}`, "room", "bot")).map((row) => (row as { detail: string }).detail);

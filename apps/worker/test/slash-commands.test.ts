@@ -403,6 +403,38 @@ describe("Message events", () => {
     await settle(inRoom);
   });
 
+  it("delivers a reply left to its thread alone to no bot watching the room, one the reply mentions excepted", async () => {
+    const { ada, bot, general } = await withBot();
+    expect((await subscribe(ada, bot.id, general)).status).toBe(204);
+    const inRoom = await connect(general, ada);
+    const delivered = bots();
+
+    // The thread's first message is one of the room's, which watching delivers.
+    const root = await post(inRoom, "Starting a thread");
+    await vi.waitFor(() => expect(delivered).toHaveLength(1));
+
+    // A reply to the thread alone is none of the room's events, so watching the room delivers
+    // nothing of it, though it names no one.
+    const alone = crypto.randomUUID();
+    inRoom.send({ type: "message.create", clientMessageId: alone, body: "<p>To the thread alone</p>", parentId: root.id });
+    await inRoom.next("message.created");
+    await settle(inRoom);
+    expect(delivered).toHaveLength(1);
+
+    // A reply left to its thread that names the bot is still its to answer, as a mention is, which
+    // comes as a mention's delivery comes, kept to the thread it was said in.
+    const named = crypto.randomUUID();
+    inRoom.send({ type: "message.create", clientMessageId: named, body: `<p>@Deploy Bot ${mention(bot)}, to you alone</p>`, parentId: root.id });
+    await inRoom.next("message.created");
+    await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    expect(sentIn(delivered[1]!)).toMatchObject({
+      room: { id: general },
+      user: { id: ada.user.id },
+      message: { id: expect.any(String), body: { plain: expect.stringContaining("to you alone") }, path: expect.stringContaining(`/threads/${root.id}/`) },
+    });
+    await settle(inRoom);
+  });
+
   it("delivers one event to every bot watching the room, however many that is, counting it once among theirs", async () => {
     const { ada, bot, general } = await withBot();
     // Three more bots join, so one of Kai's messages goes to four watching bots at once, more than the

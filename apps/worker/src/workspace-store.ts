@@ -1741,16 +1741,17 @@ const deliveryOf = (row: DeliveryRow): PushDelivery => ({
  * it's delivered to, and @ember and the agents, which answer it (`answers` 1) unless a bot wrote it,
  * @ember or an agent among them, so that bots can't keep each other talking. `subscribed` says whether
  * the delivery is one of a message event, which a bot watching the room's messages is sent mention or
- * no; one both mentioned and watching is delivered to once, as the event. Each comes with the room's
- * name, but a DM's, and the author's, and its id: a bot's webhook `BOT_WEBHOOK` reads once the
- * delivery's turn comes. Nothing once the Workspace has applied the message's event. Webhooks,
- * subscriptions and agents are few, so they're read first, with @ember, and each one's bot and
- * membership found by their keys.
+ * no; one both mentioned and watching is delivered to once, as the event. A reply sent to its thread
+ * alone, ?5, is none of the room's events, so only whom the message mentions, or a DM's bots, go,
+ * none by watching alone. Each comes with the room's name, but a DM's, and the author's, and its id:
+ * a bot's webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once the Workspace has
+ * applied the message's event. Webhooks, subscriptions and agents are few, so they're read first, with
+ * @ember, and each one's bot and membership found by their keys.
  */
 export const MESSAGE_BOTS = `SELECT users.id, bots.answers, bots.subscribed,
     (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
   FROM (SELECT user_id, 0 AS answers, 0 AS subscribed FROM webhooks
-        UNION ALL SELECT user_id, 0, 1 FROM bot_subscriptions WHERE room_id = ?1
+        UNION ALL SELECT user_id, 0, 1 FROM bot_subscriptions WHERE room_id = ?1 AND ?5 = 0
         UNION ALL SELECT '${ASSISTANT_ID}', 1, 0 UNION ALL SELECT user_id, 1, 0 FROM agents) AS bots
     CROSS JOIN users ON users.id = bots.user_id
   WHERE users.role = ${BOT} AND users.status = ${ACTIVE} AND users.id <> ?2
@@ -3793,7 +3794,7 @@ export class WorkspaceStore {
       const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
-      const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
+      const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq, event.threadOnly ? 1 : 0)) - 1 : null;
       return { event, marks, pushes, bots };
     });
     const told = statements.length;
