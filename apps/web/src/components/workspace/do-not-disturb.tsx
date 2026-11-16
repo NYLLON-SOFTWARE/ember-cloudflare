@@ -74,6 +74,10 @@ export function DoNotDisturb({ dndUntil, askForDnd, onChanged, onFailed }: Props
     return SPANS.find(({ label: at }) => at === label)?.untilOf(now) ?? aheadOf(now, 3_600_000);
   };
 
+  // The picker goes back to an hour when the span it picked has passed, since a hush switched on
+  // would save one under a pick it no longer shows. A custom time stays picked, yours to change.
+  if (picked !== CUSTOM && SPANS.find(({ label: at }) => at === picked)?.untilOf(new Date()) === null) setPicked(ONE_HOUR);
+
   const save = (until: string | null) => {
     const was = dndUntil;
     setSaving(true);

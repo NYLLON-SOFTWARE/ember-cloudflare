@@ -118,6 +118,32 @@ describe("Do not disturb", () => {
     expect(within(untils()).getByRole("option", { name: "Tomorrow morning" })).toBeEnabled();
   });
 
+  it("goes back to an hour when the span it picked has passed, which the switch then hushes for", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-13T16:00:00"));
+    const { socketSays } = showSection();
+    // This evening, picked before five, hushes until five.
+    fireEvent.change(untils(), { target: { value: "This evening" } });
+    const until = new Date(hushes()[0]!);
+    expect([until.getHours(), until.getMinutes()]).toEqual([17, 0]);
+    await act(async () => {});
+    expect(hush()).toBeChecked();
+    // The hush passes, which the workspace hears as any change, and the picker goes back to an hour
+    // rather than stand for the pick it can no longer hush until.
+    vi.setSystemTime(new Date("2026-11-13T18:30:00"));
+    socketSays(null);
+    expect(untils()).toHaveValue("1 hour");
+    expect(hushes()).toHaveLength(1);
+    // Switched back on, the hush keeps the hour the picker shows, not one under the pick it dropped.
+    fireEvent.click(hush());
+    await act(async () => {});
+    expect(hush()).toBeChecked();
+    const again = new Date(hushes()[1]!);
+    expect(again.getTime() - Date.now()).toBeGreaterThan(59 * 60_000);
+    expect(again.getTime() - Date.now()).toBeLessThanOrEqual(61 * 60_000);
+    expect(untils()).toHaveValue("1 hour");
+  });
+
   it("hushes until a custom time, which the picker's own field picks once it holds one", async () => {
     const { user, onChanged } = showSection();
     await user.selectOptions(untils(), "Custom…");
