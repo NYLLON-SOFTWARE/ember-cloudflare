@@ -636,9 +636,10 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * A page of the room's messages for an AI app that reads it as someone in it (`outside/tools`): the
-   * page `cursor` names, or null when the cursor isn't one of them. The room isn't counted, as it is for
-   * a bot, since on D1 counting reads a row for every message.
+   * A page of the room's messages for someone the room has checked is in it who reads from outside its
+   * sockets — an AI app (`outside/tools`) or the Slack-compatible Web API's history: the page `cursor`
+   * names, or null when the cursor isn't one of them. The room isn't counted, as it is for the bot API's
+   * page, since on D1 counting reads a row for every message.
    */
   async outsidePage(roomId: RoomId, cursor: PageCursor): Promise<Omit<TimelinePage, "around"> | null> {
     return this.serially(() => this.storeFor(roomId).pageAt(cursor, HISTORY_PAGE_SIZE));
