@@ -112,6 +112,8 @@ export default defineConfig({
       "^/account/logo(\\.[^/.?]+)?(\\?|$)": "http://localhost:8787",
       // Bots' webhooks, at the addresses the Chat bots page shows here.
       "^/rooms/[^/]+/[^/]+/(messages|slack)(\\?|$)": "http://localhost:8787",
+      // The bot API with its key in a header (docs/bot-api.md), which no page of the app's is under.
+      "^/bot/": "http://localhost:8787",
     },
   },
   test: {

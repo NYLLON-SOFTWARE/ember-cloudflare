@@ -23,6 +23,18 @@ export function botKeyParts(key: string): { botId: UserId; token: string } | nul
   return botId && token ? { botId, token } : null;
 }
 
+/** The key an `Authorization: Bearer <bot key>` header carries, or null for a request without one. */
+export function bearerKey(request: Request): string | null {
+  const match = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1]!.trim() : null;
+}
+
+/** Whether keys `a` and `b` name the same bot token, as `botKeyParts` reads them. */
+export function isSameKey(a: string, b: string): boolean {
+  const [first, second] = [botKeyParts(a), botKeyParts(b)];
+  return first && second ? first.botId === second.botId && first.token === second.token : a.trim() === b.trim();
+}
+
 const encoder = new TextEncoder();
 
 /** Whether `given` is the bot token `token`, compared in constant time. A bot without a token has none to give. */
