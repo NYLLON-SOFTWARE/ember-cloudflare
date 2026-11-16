@@ -96,7 +96,7 @@ test("an administrator's Huddles tab and Set up huddles, with a key refused, fit
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
-test("an administrator's Huddles tab, naming the app huddles run through, fits the phone", async ({ page, screenIsFine }) => {
+test("an administrator's Huddles tab, naming the app huddles run through, and its card of Cameras and Screen sharing under that, fit the phone", async ({ page, screenIsFine }) => {
   await useOwnAddress(page);
   // The settings as they are once an app's keys are given, without giving the test server any, which every other test shows.
   await page.route("**/api/account", async (route) => {
@@ -109,6 +109,16 @@ test("an administrator's Huddles tab, naming the app huddles run through, fits t
   const card = page.getByRole("region", { name: "Audio and video chat", exact: true });
   await card.getByRole("button", { name: "Change keys" }).scrollIntoViewIfNeeded();
   await expect(card.getByRole("switch", { name: "Audio and video chat" })).toBeChecked();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+
+  // What people may do in a huddle comes with huddles: turn their camera on and share their screen, which are both on.
+  const cameras = page.getByRole("region", { name: "Cameras", exact: true });
+  const screens = page.getByRole("region", { name: "Screen sharing", exact: true });
+  await screens.getByRole("switch", { name: "Screen sharing" }).scrollIntoViewIfNeeded();
+  await expect(cameras.getByRole("switch", { name: "Cameras" })).toBeChecked();
+  await expect(cameras).toContainText("People can turn their camera on in a huddle.");
+  await expect(screens.getByRole("switch", { name: "Screen sharing" })).toBeChecked();
+  await expect(screens).toContainText("People can share their screen in a huddle, from a computer.");
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
@@ -290,6 +300,7 @@ const AGENT: AgentSettings = {
   model: "anthropic/claude-sonnet-5.5",
   modelName: "Claude Sonnet 5.5",
   webTools: ["search", "read"],
+  access: "everyone",
   rooms: [1, 2, 3, 4].map((n) => ({ id: `0mgk3x2a9b4c5${n}`, name: `${LONG_NAME}-${n}` })),
   instructions: "You sum up conversations for the team.\n\nList the decisions made, then the questions still open, then the to-dos, each with who took it on.",
   promptTemplate: `${AGENT_TEMPLATE}\n\nSign off as ${LONG_NAME}.`,

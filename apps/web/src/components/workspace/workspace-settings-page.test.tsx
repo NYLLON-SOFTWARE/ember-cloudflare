@@ -64,7 +64,7 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
@@ -148,6 +148,7 @@ const RECAP: Agent = {
   model: "anthropic/claude-sonnet-5.5",
   modelName: "Claude Sonnet 5.5",
   webTools: [],
+  access: "everyone",
   rooms: null,
 };
 
@@ -187,6 +188,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           tagline,
           hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
+          huddleCameras: changed?.huddleCameras ?? account.huddleCameras,
+          huddleScreens: changed?.huddleScreens ?? account.huddleScreens,
           customDomain,
           joinLink: changed?.joinLink ?? account.joinLink,
           openSignUp: changed?.openSignUp ?? account.openSignUp,
@@ -478,8 +481,10 @@ describe("Community settings page", () => {
 describe("Version", () => {
   /** Ember 0.2's page on GitHub, with its notes. */
   const NOTES = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases/tag/v0.2.0";
+  /** The time the tests run at: noon, so that a minute before it or after it is the same day, whenever they're run. */
+  const NOW = new Date("2026-10-12T12:00:00");
   /** When GitHub named the newest release to the Worker, just now, and what the card says of it. */
-  const CHECKED_AT = new Date().toISOString();
+  const CHECKED_AT = NOW.toISOString();
   const LAST_CHECKED = `Last checked today at ${timeLabel(new Date(CHECKED_AT))}.`;
   const card = () => screen.findByRole("region", { name: /^Ember \d(?!.* is out to try$)/ });
   /** The box under it that offers a beta to try, apart from it. */
@@ -493,6 +498,12 @@ describe("Version", () => {
     newestBeta: null,
     copy,
   });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => vi.useRealTimers());
+
   /** The card's links, by name, which each open in a new tab. */
   function linksIn(shown: HTMLElement): Record<string, string | null> {
     const links = within(shown).getAllByRole("link");
@@ -2127,7 +2138,7 @@ describe("Ember AI", () => {
     // @ember, on the model it saved, then the agents.
     await waitFor(() => expect(within(agentsCard()!).getAllByRole("listitem")).toHaveLength(2));
     const [ember, recap] = within(agentsCard()!).getAllByRole("listitem");
-    expect(ember).toHaveTextContent("Claude Haiku 5.5 · Every open room");
+    expect(ember).toHaveTextContent("Claude Haiku 5.5 · Every room");
     expect(within(ember!).getByRole("link", { name: "Edit Ember" })).toHaveAttribute("href", "/account/agents/ember/edit");
     expect(within(recap!).getByRole("link", { name: "Edit Recap" })).toHaveAttribute("href", `/account/agents/${RECAP.id}/edit`);
     expect(within(agentsCard()!).getByRole("link", { name: "New agent" })).toHaveAttribute("href", "/account/agents/new");
@@ -2219,6 +2230,9 @@ describe("Set up huddles", () => {
   const APP = { appId: "2a95132c15732412d22c1476fa83f27a", appSecret: "66bcf64aa8907b9f9d90ac17746a77ce394c393b92b3916633dc02846e608ad4" };
   /** The Huddles tab's card, by its title. */
   const huddlesCard = () => within(screen.getByRole("region", { name: "Huddles" })).findByRole("region", { name: "Audio and video chat" });
+  /** The card under it, which says whether cameras may go on in a huddle, and after that, whether screens may be shared. */
+  const camerasCard = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Cameras" });
+  const screensRow = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Screen sharing" });
 
   it("gives administrators the Huddles tab's card, whose switch sets up huddles with an SFU app's keys", async () => {
     const { user } = showPage();
@@ -2226,6 +2240,8 @@ describe("Set up huddles", () => {
     expect(card).toHaveTextContent("Huddles let people in a room talk to each other live.");
     const huddlesSwitch = within(card).getByRole("switch", { name: "Audio and video chat" });
     expect(huddlesSwitch).not.toBeChecked();
+    // What people may do in a huddle waits for huddles.
+    expect(camerasCard()).not.toBeInTheDocument();
 
     await user.click(huddlesSwitch);
     const setup = await screen.findByRole("dialog", { name: "Set up huddles" });
@@ -2238,6 +2254,7 @@ describe("Set up huddles", () => {
     expect(card).toHaveTextContent(`Huddles run through the Realtime SFU app ${APP.appId} in your Cloudflare account.`);
     expect(huddlesSwitch).toBeChecked();
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "PUT", body: JSON.stringify(APP) }));
+    expect(camerasCard()).toBeInTheDocument();
 
     await user.click(within(card).getByRole("button", { name: "Change keys" }));
     expect(await screen.findByRole("textbox", { name: "App ID" })).toHaveValue(APP.appId);
@@ -2266,6 +2283,61 @@ describe("Set up huddles", () => {
     expect(within(card).getByRole("switch", { name: "Audio and video chat" })).toBeEnabled();
     expect(card).toHaveTextContent("Huddles let people in a room talk to each other live.");
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "DELETE" }));
+    expect(camerasCard()).not.toBeInTheDocument();
+  });
+
+  it("gives administrators a Cameras card under it while huddles are on, whose switch keeps huddles to voices, saved at once with no notice", async () => {
+    serve({ ...asAdministrator, huddles: { appId: APP.appId } });
+    const { onAccountChanged, user } = showPage();
+    await huddlesCard();
+    const cameras = camerasCard()!;
+    expect(cameras).toHaveTextContent("People can turn their camera on in a huddle.");
+    const camerasSwitch = within(cameras).getByRole("switch", { name: "Cameras" });
+    expect(camerasSwitch).toBeChecked();
+
+    await user.click(camerasSwitch);
+    expect(camerasSwitch).not.toBeChecked();
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, huddleCameras: false }));
+    await user.click(camerasSwitch);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account));
+    expect(camerasSwitch).toBeChecked();
+    expect(saved()).toEqual([{ settings: { huddleCameras: false } }, { settings: { huddleCameras: true } }]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("follows the workspace socket, for a Cameras switch moved in another tab", async () => {
+    serve({ ...asAdministrator, huddles: { appId: APP.appId } });
+    showPage();
+    await huddlesCard();
+    const camerasSwitch = within(camerasCard()!).getByRole("switch", { name: "Cameras" });
+    act(() => workspaceSays({ ...asAdministrator.account, huddleCameras: false }));
+    expect(camerasSwitch).not.toBeChecked();
+  });
+
+  it("has Screen sharing under Cameras in that card, whose switch keeps people from sharing their screens, saved at once with no notice, and follows the workspace socket", async () => {
+    serve({ ...asAdministrator, huddles: { appId: APP.appId } });
+    const { onAccountChanged, user } = showPage();
+    await huddlesCard();
+    const screens = screensRow()!;
+    expect(camerasCard()!.compareDocumentPosition(screens) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screens.parentElement).toBe(camerasCard()!.parentElement);
+    expect(screens).toHaveTextContent("People can share their screen in a huddle, from a computer.");
+    const screensSwitch = within(screens).getByRole("switch", { name: "Screen sharing" });
+    expect(screensSwitch).toBeChecked();
+
+    await user.click(screensSwitch);
+    expect(screensSwitch).not.toBeChecked();
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, huddleScreens: false }));
+    expect(within(camerasCard()!).getByRole("switch", { name: "Cameras" })).toBeChecked();
+    await user.click(screensSwitch);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account));
+    expect(screensSwitch).toBeChecked();
+    expect(saved()).toEqual([{ settings: { huddleScreens: false } }, { settings: { huddleScreens: true } }]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Moved in another tab.
+    act(() => workspaceSays({ ...asAdministrator.account, huddleScreens: false }));
+    expect(screensSwitch).not.toBeChecked();
   });
 
   it("keeps the card out of Rooms and permissions, where it was", async () => {
@@ -2283,6 +2355,8 @@ describe("Set up huddles", () => {
     showPage(asLinus);
     expect(await screen.findByText("Community admins manage huddles.")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Audio and video chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Cameras" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Screen sharing" })).not.toBeInTheDocument();
   });
 });
 
