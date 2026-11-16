@@ -3888,9 +3888,10 @@ export class WorkspaceStore {
    * found just after its marks, so that a push's badge counts them and none of the events after it, and
    * to guests only if `guests` says they can stay signed in. It answers the bots' webhooks each new
    * message is delivered to, but for a bot's reply to one, which reaches the room as any message does but
-   * goes to no webhook.
+   * goes to no webhook. `now` is the moment the pushes are chosen at, which a guest's stay must outlast
+   * for their push to be among them, so that a stay passed since answers as it will when the push is sent.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false): Promise<AppliedEvents> {
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false, now = Date.now()): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
     const message = events.findLast(isRoomMessage);
@@ -3905,7 +3906,7 @@ export class WorkspaceStore {
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
       const followers = JSON.stringify(event.message?.followerIds ?? []);
       const inRoom = event.threadOnly ? 0 : 1;
-      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
+      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers, now)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
