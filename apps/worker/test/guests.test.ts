@@ -885,6 +885,24 @@ describe("Renaming", () => {
     expect(kept.status, await kept.clone().text()).toBe(200);
     expect((await guestSession("P".repeat(48))).user.id).toBe(session.user.id);
   });
+
+  it("keeps a stay-holding guest from saving a name that signing in would trim to nothing, which would strand them", async () => {
+    const host = await setUp();
+    const room = (await createRoom("Designers", { closedTo: [host.user.id] })).id;
+    await addGuest(host, room, "Pat");
+    const session = await guestSession("Pat");
+
+    // The form's own required input lets whitespace through, so the Worker refuses what it would save:
+    // signed out with a blank name saved, no name would sign them back in, their stay's having had it.
+    for (const blank of ["", "   "]) {
+      const refused = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ name: blank }) });
+      expect(refused.status).toBe(422);
+      expect(await refused.json()).toEqual({ error: "Your name must be 1 to 48 characters, as signing in with just a name takes it" });
+      // Nothing saved: their own name signs them in still.
+      expect((await guestSession("Pat")).user.id).toBe(session.user.id);
+    }
+    expect((await guestSession(" pat ")).user.id).toBe(session.user.id);
+  });
 });
 
 describe("The guests of the open sign-in", () => {

@@ -4456,7 +4456,8 @@ export class Workspace extends DurableObject<Env> {
    * people directory lists. A new name can't be @ember's ("name reserved"), an agent's ("agent's name"),
    * or, for a guest of one room, another guest's, whose stay signs them in by it too ("another guest's
    * name") and, while their stay holds them, one longer than signing in with just a name takes
-   * ("guest's name too long"), unless it was theirs before.
+   * ("guest's name too long"), or one it would trim to nothing ("guest's name blank"), unless it was
+   * theirs before.
    */
   async changeProfile(
     credentials: Credentials,
@@ -4465,7 +4466,7 @@ export class Workspace extends DurableObject<Env> {
     checked: string | null,
     pushEndpoint: string | null,
     memberfulSite: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "another guest's name" | "guest's name too long" | null> {
+  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "another guest's name" | "guest's name too long" | "guest's name blank" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -4486,6 +4487,9 @@ export class Workspace extends DurableObject<Env> {
       // A guest of one room signs in by their name, so it takes no more characters than the sign-in form
       // gives it: a longer one, and neither it nor any other would sign them back in once saved.
       if (session.guest && profile.name.length > MAX_GUEST_NAME_LENGTH && (await this.stayOf(user.id))) return "guest's name too long";
+      // Nor one that signing in would trim to nothing, which the form's own required input lets through:
+      // saved, it signs nobody in, and their stay's name alone would have been their way back.
+      if (session.guest && profile.name.trim() === "" && (await this.stayOf(user.id))) return "guest's name blank";
       // A guest of one room signs in by their name, so theirs is the only stay under it, as adding one
       // can't take another's either. Renaming keeps it, and one they alone hold, while the stays last.
       if (

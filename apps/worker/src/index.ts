@@ -700,7 +700,8 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
   if (yours === "another guest's name") return problem(422, guestsNameTaken(rest.name!));
-  if (yours === "guest's name too long") return problem(422, `Your name must be 1 to ${MAX_NAME_LENGTH} characters, as signing in with just a name takes it`);
+  if (yours === "guest's name blank" || yours === "guest's name too long")
+    return problem(422, `Your name must be 1 to ${MAX_NAME_LENGTH} characters, as signing in with just a name takes it`);
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   return profileAnswer(yours, env, memberfulSite);
 }
