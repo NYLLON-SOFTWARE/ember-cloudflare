@@ -166,7 +166,9 @@ async function postMessage(env: Env, request: Request): Promise<Response> {
   const inChannel = await botChannelIn(env, key, fields);
   if (inChannel instanceof Response) return inChannel;
   const thread = textOf(fields.thread_ts);
-  const message = slackMessage(fields);
+  // A bot with a webhook has somewhere for a card's clicks to go, so its buttons that act stay, as its
+  // webhook's payloads keep them.
+  const message = slackMessage(fields, inChannel.access.takesClicks);
   if (typeof message === "string") return refused(message);
   const created = await env.CHAT_ROOM.getByName(inChannel.roomId).createBotMessage(inChannel.roomId, inChannel.access, message.markup, message.cards, present(thread));
   if (!created) return refused(thread === "" ? "channel_not_found" : "message_not_found");
@@ -184,7 +186,9 @@ async function chatUpdate(env: Env, request: Request): Promise<Response> {
   if (inChannel instanceof Response) return inChannel;
   const ts = textOf(fields.ts);
   if (ts === "") return refused("message_not_found");
-  const message = slackMessage(fields);
+  // As `chat.postMessage` keeps them: an update without the bot's webhook would take the acting buttons
+  // the message's card has.
+  const message = slackMessage(fields, inChannel.access.takesClicks);
   if (typeof message === "string") return refused(message);
   const edited = await env.CHAT_ROOM.getByName(inChannel.roomId).editBotMessage(inChannel.roomId, inChannel.access, ts, message.markup, message.cards);
   if (edited === NOT_FOUND) return refused("message_not_found");

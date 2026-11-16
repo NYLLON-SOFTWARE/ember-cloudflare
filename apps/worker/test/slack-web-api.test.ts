@@ -1,4 +1,4 @@
-import { MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type NewWorkspace, type RoomId } from "@ember/protocol";
+import { MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type Card, type NewWorkspace, type RoomId } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
@@ -8,12 +8,12 @@ import { api, apiWith, connect, cookieOf, createRoom, freshDeploy, origin, post,
 // Slack's Web API, answered for bots at /api/<method> (bots/slack-web.ts), so scripts and SDKs written
 // for Slack work by swapping the address they call and the token they send, which is the bot's key.
 
-/** Sets Ember up with a bot, which is in first run's general and random rooms. */
-async function withBot(): Promise<{ administrator: Session; bot: BotSettings; general: RoomId; random: RoomId }> {
+/** Sets Ember up with a bot, which is in first run's general and random rooms, whose webhook delivers to `webhookUrl`, if it's given. */
+async function withBot(webhookUrl?: string): Promise<{ administrator: Session; bot: BotSettings; general: RoomId; random: RoomId }> {
   const setUp = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
   expect(setUp.status).toBe(201);
   const administrator = { user: shown(((await setUp.json()) as NewWorkspace).user), cookie: cookieOf(setUp) };
-  const added = await api("/api/account/bots", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name: "Build Bot" }) });
+  const added = await api("/api/account/bots", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name: "Build Bot", webhookUrl }) });
   expect(added.status, await added.clone().text()).toBe(201);
   const rooms = (await workspaceSql("SELECT id, name FROM rooms WHERE kind <> 'direct'")) as Array<{ id: RoomId; name: string }>;
   const roomNamed = (name: string) => rooms.find(({ name: known }) => known === name)!.id;
@@ -51,6 +51,33 @@ interface HistoryMessage {
   ts: string;
   user: string;
 }
+
+/** The buttons of the first buttons part among `cards`, which a click reports to the bot's webhook. */
+const buttonsOf = (cards: Card[] | undefined) => cards?.flatMap(({ parts }) => parts).flatMap((part) => (part.kind === "buttons" ? part.buttons : [])) ?? [];
+
+/** An actions block of Approve, which acts, and Logs, which links somewhere, as an alerting tool's card is. */
+const APPROVAL_ACTIONS = {
+  type: "actions",
+  block_id: "deploy-42",
+  elements: [
+    { type: "button", text: { type: "plain_text", text: "Approve" }, action_id: "approve", value: '{"build":42}', style: "primary" },
+    { type: "button", text: { type: "plain_text", text: "Logs" }, action_id: "logs", url: "https://ci.example.com/42" },
+  ],
+};
+
+/** The fields a method takes, whose blocks ask `question` over those buttons. */
+const approval = (question: string) => ({
+  blocks: [{ type: "section", text: { type: "mrkdwn", text: question } }, APPROVAL_ACTIONS],
+});
+
+/** The buttons those blocks keep once the room reads them, acting ones included. */
+const APPROVAL_BUTTONS = [
+  { text: "Approve", action: { id: "approve", blockId: "deploy-42", value: '{"build":42}' }, style: "primary" },
+  { text: "Logs", href: "https://ci.example.com/42" },
+];
+
+/** The buttons they keep where nothing can report a click: the one that links, only. */
+const LINK_ONLY_BUTTONS = [{ text: "Logs", href: "https://ci.example.com/42" }];
 
 /** Sends what curl sends: no browser headers at all, which the app's own API refuses as cross-site. */
 const curlPost = (path: string, body: string, key: string) =>
@@ -108,6 +135,24 @@ describe("Slack Web API posting", () => {
       message: { type: "message", text: "Deploy finished 🎉", ts: message.id, user: bot.id },
     });
     expect(message).toMatchObject({ roomId: general, creator: { id: bot.id }, body: "<p>Deploy <strong>finished</strong> 🎉</p>" });
+  });
+
+  it("keeps the buttons that act in the cards it posts while the bot's webhook takes the clicks, and drops them when it doesn't", async () => {
+    const { administrator, bot, general } = await withBot("https://bots.example.com/hook");
+    const inRoom = await connect(general, administrator);
+    const posted = await send("chat.postMessage", bot.key, { channel: general, text: "Deploying", ...approval("Deploy *v42* to production?") });
+    expect(await envelopeOf(posted)).toEqual([200, { ok: true, channel: general, ts: expect.any(String), message: expect.objectContaining({ text: "Deploy v42 to production?\nApprove · Logs" }) }]);
+    const { message } = await inRoom.next("message.created");
+    expect(buttonsOf(message.cards)).toEqual(APPROVAL_BUTTONS);
+
+    // A bot with nowhere to report a click keeps only what links somewhere, as its webhook's payload keeps.
+    const added = await api("/api/account/bots", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name: "Plain Bot" }) });
+    expect(added.status, await added.clone().text()).toBe(201);
+    const plain = ((await added.json()) as BotAnswer).bot;
+    const postedWithout = await send("chat.postMessage", plain.key, { channel: general, text: "Deploying", ...approval("Deploy *v42* to production?") });
+    expect(await envelopeOf(postedWithout)).toEqual([200, { ok: true, channel: general, ts: expect.any(String), message: expect.objectContaining({ text: "Deploy v42 to production?\nLogs" }) }]);
+    const { message: without } = await inRoom.next("message.created");
+    expect(buttonsOf(without.cards)).toEqual(LINK_ONLY_BUTTONS);
   });
 
   it("takes a room's name for its channel, with or without its #, ignoring case", async () => {
@@ -240,6 +285,50 @@ describe("Slack Web API editing", () => {
     expect(await historyOf(bot.key, general)).toMatchObject({ ok: true, messages: [{ text: "Rolled back" }] });
     const cards = (await roomSql(general, "SELECT cards FROM messages WHERE id = ?", posted.ts!)) as Array<{ cards: string | null }>;
     expect(cards).toEqual([{ cards: expect.stringContaining("Rolled") }]);
+  });
+
+  it("keeps a card's acting buttons in an update while the bot's webhook takes the clicks, and drops them once it doesn't", async () => {
+    const { administrator, bot, general } = await withBot("https://bots.example.com/hook");
+    const posted = (await (await send("chat.postMessage", bot.key, { channel: general, text: "Deploying" })).json()) as { ts?: string };
+    const inRoom = await connect(general, administrator);
+    const updated = await send("chat.update", bot.key, { channel: general, ts: posted.ts, ...approval("Deploy *v42* to production?") });
+    expect(await envelopeOf(updated)).toEqual([
+      200,
+      { ok: true, channel: general, ts: posted.ts, text: "Deploy v42 to production?\nApprove · Logs", message: expect.objectContaining({ text: "Deploy v42 to production?\nApprove · Logs" }) },
+    ]);
+    const { message } = await inRoom.next("message.updated");
+    expect(buttonsOf(message.cards)).toEqual(APPROVAL_BUTTONS);
+
+    // With the webhook gone, the same blocks keep the button that links only: nowhere reports a click.
+    const taken = await api(`/api/account/bots/${bot.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ webhookUrl: "" }) });
+    expect(taken.status, await taken.clone().text()).toBe(200);
+    const stripped = await send("chat.update", bot.key, { channel: general, ts: posted.ts, ...approval("Rolled *back* to staging") });
+    expect(await envelopeOf(stripped)).toEqual([
+      200,
+      { ok: true, channel: general, ts: posted.ts, text: "Rolled back to staging\nLogs", message: expect.objectContaining({ text: "Rolled back to staging\nLogs" }) },
+    ]);
+    const { message: without } = await inRoom.next("message.updated");
+    expect(buttonsOf(without.cards)).toEqual(LINK_ONLY_BUTTONS);
+  });
+
+  it("counts an update that repeats the message as it is, its cards too, as no edit at all", async () => {
+    const { bot, general } = await withBot();
+    const posted = (await (await send("chat.postMessage", bot.key, { channel: general, text: "Deploy *v42*", attachments: [{ title: "web" }] })).json()) as { ts?: string };
+    const asSaved = async () =>
+      ((await roomSql(general, "SELECT updated_at, edited_at FROM messages WHERE id = ?", posted.ts!)) as Array<{ updated_at: string; edited_at: string | null }>)[0]!;
+    expect((await asSaved()).edited_at).toBeNull();
+
+    // The same fields again, as an alerting tool's repeated status card is, change nothing: the message
+    // stays saved as it was, its update time included, and the room hears nothing of it.
+    const before = await asSaved();
+    const repeated = await send("chat.update", bot.key, { channel: general, ts: posted.ts, text: "Deploy *v42*", attachments: [{ title: "web" }] });
+    expect(await envelopeOf(repeated)).toEqual([200, { ok: true, channel: general, ts: posted.ts, text: "Deploy v42\nweb", message: expect.objectContaining({ text: "Deploy v42\nweb" }) }]);
+    expect(await asSaved()).toEqual(before);
+
+    // A change still edits it.
+    const changed = await send("chat.update", bot.key, { channel: general, ts: posted.ts, text: "Deploy *v43*", attachments: [{ title: "web" }] });
+    expect(await envelopeOf(changed)).toEqual([200, { ok: true, channel: general, ts: posted.ts, text: "Deploy v43\nweb", message: expect.objectContaining({ text: "Deploy v43\nweb" }) }]);
+    expect((await asSaved()).edited_at).not.toBeNull();
   });
 
   it("answers what it refuses: a message that isn't the bot's, and one there isn't", async () => {

@@ -1114,7 +1114,9 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async edit(store: MessageStore, message: Message, body: StoredBody, now: string): Promise<Message> {
     const cards = "cards" in body && body.cards ? body.cards : undefined;
-    if (body.html === message.body && !message.cards && !cards) return message;
+    // A body that is the message as it is, its cards too, as a webhook's repeated status card is, changes
+    // nothing, so it's saved as it was, its update time included.
+    if (body.html === message.body && JSON.stringify(cards) === JSON.stringify(message.cards)) return message;
     const { message: edited, seq } = await store.updateBody(message, body, now);
     this.broadcast({ type: "message.updated", message: edited, seq });
     this.couriersFor(store.roomId).index.deliver();
