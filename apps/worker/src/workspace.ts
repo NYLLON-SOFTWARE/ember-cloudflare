@@ -1809,9 +1809,19 @@ export class Workspace extends DurableObject<Env> {
         providerEndpointsTriedAt: null,
       };
       this.assistantSetups++;
+      // Turning it off takes @ember and the agents out of every room before anyone hears of it, so whom
+      // each deactivation reaches is asked of the rooms they're still in, and the announcing after holds
+      // nobody out whose room held them, as the asking once they were out would.
+      const off = assistant === null && account.assistant !== null;
+      const reaches = off ? await this.reachOf([ASSISTANT_ID, ...(await this.store.agentEntries()).map(({ id }) => id)]) : null;
       const changed = await this.saveAccount({ ...account, assistant }, (now) => (assistant ? this.store.turnOnAssistant(assistant, now) : this.store.turnOffAssistant(now)));
-      await this.publishPerson(ASSISTANT_ID);
-      if ((account.assistant === null) !== (assistant === null)) await this.publishAgents();
+      if (reaches) {
+        await this.publishPerson(ASSISTANT_ID, reaches.get(ASSISTANT_ID));
+        await this.publishAgents(reaches);
+      } else {
+        await this.publishPerson(ASSISTANT_ID);
+        if ((account.assistant === null) !== (assistant === null)) await this.publishAgents();
+      }
       return { assistant: await this.assistantSettings(changed) };
     });
   }
@@ -2857,13 +2867,14 @@ export class Workspace extends DurableObject<Env> {
    * announcing runs, a stay that has passed holds its guest from everyone, and a live one holds them
    * to their room's people, since what happens outside their room is none of a guest's to hear, names
    * of people included. One of the guests themselves is heard of the same way, their stay naming the
-   * room whose people they are.
+   * room whose people they are. `beyond`, when given, is that holding, asked of the rooms whoever it
+   * names was in before a change took them out, since the asking afterwards would hold out everyone,
+   * whose rooms would have none of them in it anymore.
    */
-  private async announce(listed: DirectoryUser): Promise<void> {
+  private async announce(listed: DirectoryUser, beyond?: UserId[]): Promise<void> {
     const frame: WorkspaceServerFrame = { type: "user.updated", user: listed };
-    const beyond = await this.store.stayGuestsBeyond(listed.id, Date.now());
-    if (beyond.length === 0) return this.broadcast(frame);
-    const held = new Set(beyond);
+    const held = new Set(beyond ?? (await this.store.stayGuestsBeyond(listed.id, Date.now())));
+    if (held.size === 0) return this.broadcast(frame);
     const data = JSON.stringify(frame);
     for (const socket of this.ctx.getWebSockets()) {
       if (held.has(this.ctx.getTags(socket)[0]!)) continue;
@@ -2875,19 +2886,36 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
-  /** Tells every workspace socket of `userId` as the people directory now lists them. */
-  private async publishPerson(userId: UserId): Promise<void> {
+  /**
+   * Tells every workspace socket of `userId` as the people directory now lists them, held from the
+   * guests of one room by `beyond`, when the caller has asked for it before a change moved them out of
+   * their rooms, as `reachOf` does.
+   */
+  private async publishPerson(userId: UserId, beyond?: UserId[]): Promise<void> {
     const person = await this.store.person(userId);
-    if (person) await this.announce(await this.directoryUser(person));
+    if (person) await this.announce(await this.directoryUser(person), beyond);
   }
 
   /**
    * Tells the workspace sockets of everyone an agent's listing may reach, asked of each agent as
    * announcing one runs: an agent is in the rooms it's in, so a guest of one room hears of the agents
    * of that room alone, as the people directory lists them to them, and of no agent of another room's.
+   * `reaches`, when given, is each agent's holding as `reachOf` asked it of the rooms the agents were
+   * in before a change took them all out.
    */
-  private async publishAgents(): Promise<void> {
-    for (const user of await directoryOf(await this.store.agentEntries(), this.env.SESSION_SECRET)) await this.announce(user);
+  private async publishAgents(reaches?: Map<UserId, UserId[]>): Promise<void> {
+    for (const user of await directoryOf(await this.store.agentEntries(), this.env.SESSION_SECRET))
+      await this.announce(user, reaches?.get(user.id));
+  }
+
+  /**
+   * Whom a listing of each of `userIds` may reach now, which a change about to take them out of their
+   * rooms asks first: once the rooms have none of them in it, the asking would hold every guest of one
+   * room out, whose tab would keep whoever it shows as they were.
+   */
+  private async reachOf(userIds: UserId[]): Promise<Map<UserId, UserId[]>> {
+    const now = Date.now();
+    return new Map(await Promise.all(userIds.map(async (userId) => [userId, await this.store.stayGuestsBeyond(userId, now)] as const)));
   }
 
   /**
@@ -3382,6 +3410,9 @@ export class Workspace extends DurableObject<Env> {
     const now = Date.now();
     const removedAt = new Date(now).toISOString();
     const removed = await this.directoryUser({ id, name, bio, role, status: "deactivated", updatedAt: removedAt, agent });
+    // Whom the removal reaches, asked before their rooms are none of theirs anymore, which the asking
+    // would hold every guest of one room out by.
+    const beyond = await this.store.stayGuestsBeyond(id, now);
     // As when resetting a password, until the database says it queued nothing.
     let queued = true;
     try {
@@ -3394,7 +3425,7 @@ export class Workspace extends DurableObject<Env> {
       this.closeSockets(id, CloseCode.Revoked);
       if (queued) await this.revocationsQueued(now);
     }
-    await this.announce(removed);
+    await this.announce(removed, beyond);
     return removed;
   }
 
@@ -3678,8 +3709,11 @@ export class Workspace extends DurableObject<Env> {
   async deleteAgent(credentials: Credentials, agentId: UserId): Promise<"deleted" | "off" | "not found" | "forbidden" | null> {
     return this.administerAgents(credentials, async () => {
       if (!(await this.store.isAgent(agentId))) return "not found";
+      // Deleting takes the agent out of every room before anyone hears of it, so whom that reaches is
+      // asked while its rooms still hold it, as the asking afterwards would hold everyone out.
+      const beyond = await this.store.stayGuestsBeyond(agentId, Date.now());
       await this.store.deleteAgent(agentId, new Date().toISOString());
-      await this.publishPerson(agentId);
+      await this.publishPerson(agentId, beyond);
       return "deleted";
     });
   }

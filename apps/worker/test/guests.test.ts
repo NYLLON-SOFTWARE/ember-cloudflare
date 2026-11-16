@@ -591,6 +591,38 @@ describe("What a guest hears of people", () => {
     expect(await membersTab.next()).toMatchObject({ type: "user.updated", user: { id: nia.userId, status: "deactivated" } });
     expect(await patsTab.answers()).toBe(true);
   });
+
+  it("hears of one of their room's people removed, whose listing their tab would have kept as it was", async () => {
+    const host = await setUp();
+    const mine = await createRoom("Designers", { closedTo: [host.user.id] }).then((created) => created.id);
+    const elsewhere = await createRoom("Lounge", { closedTo: [host.user.id] }).then((created) => created.id);
+    const pat = await addGuest(host, mine, "Pat");
+    const grace = await signIn("Grace");
+    const nia = await signIn("Nia");
+    const patsTab = await openWorkspaceSocket(await guestSession("Pat"));
+
+    // Grace is put in the guest's room, and Nia in another room only, which changes no listing of
+    // theirs to hear of.
+    const inMine = await api(`/api/rooms/${mine}`, {
+      method: "PATCH",
+      headers: { Cookie: host.cookie },
+      body: JSON.stringify({ kind: "closed", memberIds: [host.user.id, pat.userId, grace.user.id] }),
+    });
+    expect(inMine.status, await inMine.clone().text()).toBe(200);
+    const inElsewhere = await api(`/api/rooms/${elsewhere}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [host.user.id, nia.user.id] }) });
+    expect(inElsewhere.status).toBe(200);
+
+    // Grace, whose room the guest's was until removing her took her out of it, is heard of removed: her
+    // listing would keep showing as it was on their tab, the asking holding them out once she was out.
+    const removed = await api(`/api/account/users/${grace.user.id}`, { method: "DELETE", headers: { Cookie: host.cookie } });
+    expect(removed.status, await removed.clone().text()).toBe(200);
+    expect(await patsTab.next()).toMatchObject({ type: "user.updated", user: { id: grace.user.id, status: "deactivated" } });
+
+    // Nia's, whom no room of theirs held, is none of theirs to hear of.
+    const removedToo = await api(`/api/account/users/${nia.user.id}`, { method: "DELETE", headers: { Cookie: host.cookie } });
+    expect(removedToo.status, await removedToo.clone().text()).toBe(200);
+    expect(await patsTab.answers()).toBe(true);
+  });
 });
 
 // The agents are in the rooms they're in, so a guest of one room hears of the agents of that room alone,
@@ -710,10 +742,12 @@ describe("What a guest hears of agents", () => {
     const hostsTab = await openWorkspaceSocket(host);
 
     // Turning Ember AI off takes @ember and the agents out of every room, so the host hears of each of
-    // them, and a guest of one room hears nothing of any of them: none is of their room any more.
+    // them, and a guest of one room hears of those their room held while it did, whose tabs would keep
+    // them as they were otherwise, and of no agent of another room's.
     await turnOffAssistant(host);
     expect(await hostsTab.next()).toMatchObject({ type: "user.updated", user: { id: ASSISTANT_ID, status: "deactivated" } });
     expect((await heardIds(hostsTab, 2)).sort()).toEqual([everywhere.id, kept.id].sort());
+    expect((await heardIds(tab, 2)).sort()).toEqual([ASSISTANT_ID, everywhere.id].sort());
     expect(await tab.answers()).toBe(true);
 
     // Turning it on puts them back, so their room's reach them again, and one kept to another room's
