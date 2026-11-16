@@ -996,8 +996,9 @@ describe("Saved pane", () => {
     // The pane covers the room, which opens as a hidden tab's would: reading nothing, counting as away.
     expect(room.url).toContain("visible=0");
     room.letIn();
-    // The room asked for its pins as it opened, which is no reading of it.
-    expect(room.sent).toEqual([{ type: "pins.list" }]);
+    // The room reads nothing while the pane covers it: the welcome already said it isn't visible, so
+    // no frame says so again.
+    expect(room.sent).toEqual([]);
     await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
     await waitFor(() => expect(room.sent).toContainEqual({ type: "presence.visible", visible: true }));
     expect(room.sent).not.toContainEqual({ type: "presence.visible", visible: false });
