@@ -238,7 +238,7 @@ describe("Download and share files", () => {
   it("offers Download in place of Quote among a file message's actions", async () => {
     const { user } = show(fileMessage(), { me: grace });
     await user.click(optionsOn("Q3 report.pdf"));
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Download", "Copy link"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Download", "Copy link", "Remind me"]);
     const download = within(actionBar()).getByRole("link", { name: "Download" });
     expect(download).toHaveAttribute("href", report.downloadUrl);
     expect(download).toHaveClass("ios-pwa:hidden");
@@ -452,7 +452,7 @@ describe("Edit a message", () => {
   it("puts Edit last, as Slack does, and Delete in the editor", async () => {
     const { user } = show(message({ creator: grace }), { administrator: true });
     await user.click(optionsOn("Hello"));
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Edit"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Remind me", "Edit"]);
   });
 
   it("edits in place of the message, starting from its text, and Ctrl or Cmd+Enter saves", async () => {
@@ -567,11 +567,23 @@ describe("Message action bar", () => {
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "true");
     expect(options).toHaveAttribute("aria-controls", actionBar().id);
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Remind me"]);
 
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+  });
+
+  it("opens Remind me from the bar with a finger, which only More actions opens with a mouse", async () => {
+    // The dialog asks what's waiting on the message as it opens.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ reminders: [] })));
+    const { user } = show(message());
+    const options = optionsOn("Hello");
+    await user.click(options);
+    await user.click(within(actionBar()).getByRole("button", { name: "Remind me" }));
+    // The bar closes and the dialog takes its place.
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("dialog", { name: "Remind me" })).toBeInTheDocument();
   });
 
   it("closes the actions after a reaction and hands focus to Message options", async () => {

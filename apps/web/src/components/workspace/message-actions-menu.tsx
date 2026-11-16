@@ -457,6 +457,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </ActionTooltip>
             )}
+            {/* Remind me joins the bar for fingers, which Message options never opens More actions for. */}
+            {!overlapping && (
+              <ActionTooltip label="Remind me">
+                <button type="button" aria-label="Remind me" className={ACTION} onClick={remind}>
+                  <Timer />
+                </button>
+              </ActionTooltip>
+            )}
             {/* As Campfire's `.message__edit-btn` shows (messages.css). */}
             {editable && (
               <ActionTooltip label="Edit">

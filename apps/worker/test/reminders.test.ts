@@ -400,6 +400,50 @@ describe("Reminders", () => {
     expect(await heard(tab)).toEqual([]);
   });
 
+  it("tries a reminder's push again when it couldn't ask whether the browser may have it, and settles it only once the push has gone", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pushed = pushServices();
+    const room = await freshRoom("unanswerable");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    const tab = await openWorkspaceSocket(grace);
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const message = await post(ada, "<p>Tell me though the asking fails</p>");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    // The Workspace can't ask whether the push may go — the ask fails — so it sends nothing, yet the
+    // push counts a failure rather than as sent: the reminder waits to be tried again, unsettled.
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const pushable = store.pushable.bind(store);
+      store.pushable = async () => {
+        store.pushable = pushable;
+        throw new Error("The database's answer was lost");
+      };
+    });
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await heard(tab)).toEqual([
+      { type: "reminder.due", reminder: expect.objectContaining({ excerpt: "Tell me though the asking fails" }) },
+    ]);
+    expect(pushed).toEqual([]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 0 }]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE push_tried_at IS NOT NULL")).toEqual([{ n: 1 }]);
+
+    // A run that comes round before the wait has passed asks nothing more; once it has, the ask
+    // answers, the push goes out, and only then is the reminder settled.
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(pushed).toEqual([]);
+    await workspaceSql("UPDATE reminders SET push_tried_at = ?", Date.now() - REMINDER_PUSH_RETRY_MS - 1_000);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(pushed).toHaveLength(1);
+    expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "Tell me though the asking fails" } });
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE pushed_at IS NOT NULL")).toEqual([{ n: 1 }]);
+    expect(await heard(tab)).toEqual([]);
+  });
+
   it("gives up on pushes that keep failing once the day past its time is spent, and stays told", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const pushed = pushServices(() => 503);

@@ -11,7 +11,7 @@ import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-direct
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
-import { DismissReminder, isDue, useReminders } from "@/hooks/use-reminders";
+import { DismissReminder, dueReminderOf, useReminders } from "@/hooks/use-reminders";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
@@ -277,7 +277,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const directory = useDirectory();
   // Reminders of theirs, which the workspace socket tells this tab about as each one comes due or is
   // dismissed in another tab. Declared before the sidebar, whose socket hands it both.
-  const { reminders, cameDue, cameGone, dismiss: dismissReminder, load: reloadReminders } = useReminders();
+  const { reminders, announcedDue, cameDue, cameGone, dismiss: dismissReminder, load: reloadReminders } = useReminders();
   const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone, reloadReminders);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
@@ -891,7 +891,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           )}
           {/* The reminder that has come due, over whatever page it finds the person on, until they're done with it. */}
           {(() => {
-            const dueReminder = reminders?.find(isDue) ?? null;
+            const dueReminder = dueReminderOf(reminders, announcedDue);
             if (dueReminder === null) return null;
             const reminderRoom = rooms?.find((candidate) => candidate.id === dueReminder.roomId);
             const roomName = reminderRoom === undefined || reminderRoom.kind === "direct" ? null : (reminderRoom.name ?? null);

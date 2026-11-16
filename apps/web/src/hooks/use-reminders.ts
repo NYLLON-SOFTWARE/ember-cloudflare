@@ -5,6 +5,21 @@ import { dismissReminder, fetchReminders } from "@/lib/api";
 /** Whether a reminder has come due: its time is the past, or this very moment is as good as the past. */
 export const isDue = (reminder: Reminder) => new Date(reminder.remindAt).getTime() <= Date.now();
 
+/**
+ * The reminder of `reminders` whose notice shows: past its time by this clock, or announced due by the
+ * Worker, whose telling this tab trusts — a clock that trails the Worker's would keep a notice hidden
+ * until something drew the page again, and an idle page has nothing to draw it.
+ */
+export const dueReminderOf = (reminders: Reminder[] | null, announcedDue: Set<string>): Reminder | null =>
+  reminders?.find((reminder) => announcedDue.has(reminder.id) || isDue(reminder)) ?? null;
+
+/** `ids` without `id`, a new set, so what watches them hears of the leaving. */
+const without = (ids: Set<string>, id: string) => {
+  const next = new Set(ids);
+  next.delete(id);
+  return next;
+};
+
 /** Dismissing a reminder as this hook does, which every tab of theirs hears of: what Remind me takes one back with. */
 export const DismissReminder = createContext<(id: string) => Promise<void>>(async () => {});
 
@@ -17,6 +32,9 @@ export const DismissReminder = createContext<(id: string) => Promise<void>>(asyn
  */
 export function useReminders() {
   const [reminders, setReminders] = useState<Reminder[] | null>(null);
+  // Reminders the Worker has announced due, whose telling this tab keeps until the reminder itself
+  // leaves, believing it over this clock, which may trail the Worker's and keep a notice hidden.
+  const [announcedDue, setAnnouncedDue] = useState(() => new Set<string>());
   // Reminders this tab heard of by frame, with when each arrived. A load that started after one arrived
   // carries it (its snapshot couldn't have known it); one the frame predates is the Worker's truth,
   // dismissed elsewhere included, and the frame leaves.
@@ -41,7 +59,10 @@ export function useReminders() {
       frameArrived.current = new Map(arrived.filter(([id]) => kept.some((r) => r.id === id)));
       // What left before this answer went out the Worker has gone already; this tab needn't remember those.
       goneAt.current = new Map([...goneAt.current].filter(([, at]) => at >= askedAt));
-      setReminders(kept.length > 0 ? [...known, ...kept] : known);
+      const listed = kept.length > 0 ? [...known, ...kept] : known;
+      // What the answer has gone, the Worker's telling of it has gone with it.
+      setAnnouncedDue((announced) => new Set([...announced].filter((id) => listed.some((r) => r.id === id))));
+      setReminders(listed);
     }, () => {});
   }, []);
 
@@ -58,6 +79,7 @@ export function useReminders() {
 
   /** The Workspace has told this tab that a reminder has come due, which this tab keeps for its banner. */
   const cameDue = useCallback((reminder: Reminder) => {
+    setAnnouncedDue((announced) => new Set(announced).add(reminder.id));
     frameArrived.current.set(reminder.id, { reminder, at: Date.now() });
     setReminders((current) => (current === null ? [reminder] : [...current.filter((other) => other.id !== reminder.id), reminder]));
   }, []);
@@ -66,6 +88,7 @@ export function useReminders() {
   const cameGone = useCallback((id: string) => {
     goneAt.current.set(id, Date.now());
     frameArrived.current.delete(id);
+    setAnnouncedDue((announced) => without(announced, id));
     setReminders((current) => current?.filter((reminder) => reminder.id !== id) ?? current);
   }, []);
 
@@ -77,8 +100,9 @@ export function useReminders() {
     await dismissReminder(id);
     goneAt.current.set(id, Date.now());
     frameArrived.current.delete(id);
+    setAnnouncedDue((announced) => without(announced, id));
     setReminders((current) => current?.filter((reminder) => reminder.id !== id) ?? current);
   }, []);
 
-  return { reminders, cameDue, cameGone, dismiss, load };
+  return { reminders, announcedDue, cameDue, cameGone, dismiss, load };
 }

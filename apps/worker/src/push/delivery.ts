@@ -28,8 +28,9 @@ const encoder = new TextEncoder();
  * many pushes failed otherwise, which it logs, and the subscriptions a push went out to, so what sends
  * the same deliveries again can leave these out. An endpoint that's no longer at a permitted push service
  * is skipped, as if its push were sent, and so is a subscription `pushable` says may no longer
- * have pushes, or can't say about, asked just before each is sent: a push can wait its turn while its
- * person is banned. `send` stands in for `fetch` in tests.
+ * have pushes, asked just before each is sent: a push can wait its turn while its person is banned. A
+ * check that can't be asked keeps its push from going, and counts it among the failures, which waits to
+ * be tried again rather than counting as sent. `send` stands in for `fetch` in tests.
  */
 export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Pushable, send: typeof fetch = fetch): Promise<{ gone: number[]; delivered: number[]; failed: number }> {
   const push = await webPush(env);
@@ -39,7 +40,12 @@ export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Push
   const delivered: number[] = [];
   let failed = 0;
   await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery }) => {
-    if (!(await mayPush(pushable, delivery.subscriptionId))) return;
+    const may = await mayPush(pushable, delivery.subscriptionId);
+    if (may === null) {
+      failed++;
+      return;
+    }
+    if (!may) return;
     try {
       await deliver(message, delivery, push.keys, subjectOf(env), send);
     } catch (error) {
@@ -73,15 +79,16 @@ const subjectOf = (env: Env) => env.VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJE
 export type Pushable = (subscriptionId: number) => Promise<boolean>;
 
 /**
- * Whether `pushable` says subscription `id` may still have pushes, which fails closed: no when it can't
- * say, logging why.
+ * Whether `pushable` says subscription `id` may still have pushes, which fails closed: `null` when it
+ * can't say, logging why — an ask that failed says nothing of the push, and whoever sent it counts it
+ * among its failures, to be tried again, rather than as sent or refused.
  */
-async function mayPush(pushable: Pushable, id: number): Promise<boolean> {
+async function mayPush(pushable: Pushable, id: number): Promise<boolean | null> {
   try {
     return await pushable(id);
   } catch (error) {
     console.warn(`push authorization failed for subscription ${id}: ${error}`);
-    return false;
+    return null;
   }
 }
 

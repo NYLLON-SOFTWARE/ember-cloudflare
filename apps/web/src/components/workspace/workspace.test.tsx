@@ -2614,4 +2614,22 @@ describe("Reminders", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     unmount();
   });
+
+  it("shows a notice the socket tells of coming due, though this clock still calls its time the future", async () => {
+    // A browser whose clock trails the Worker's has the reminder's time still to come, so only the
+    // telling finds it: nothing else would redraw the page when this clock caught up.
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: new Date(Date.now() + 60_000).toISOString() };
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    const { user, unmount } = showWorkspace("/");
+    await workspaceSends({ type: "reminder.due", reminder: due });
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("The deploy is at noon");
+    await user.click(within(notice).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    unmount();
+  });
 });

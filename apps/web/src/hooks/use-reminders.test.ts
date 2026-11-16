@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Reminder } from "@ember/protocol";
-import { useReminders } from "./use-reminders";
+import { dueReminderOf, useReminders } from "./use-reminders";
 
 vi.mock("@/lib/api", () => ({
   fetchReminders: vi.fn(),
@@ -156,6 +156,58 @@ describe("useReminders", () => {
     });
     // The older answer's list is stale, and the notice the newer one brought stays.
     expect(result.current.reminders?.map((r) => r.id)).toEqual(["waiting", "due"]);
+  });
+
+  it("trusts the Worker's telling that a reminder came due, whatever this clock says of its time", async () => {
+    const later = reminder("later", new Date(Date.now() + 60_000).toISOString());
+    fetchRemindersMock.mockResolvedValue([later]);
+    dismissMock.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useReminders());
+    await waitFor(() => expect(result.current.reminders).toEqual([later]));
+    // Its time is still to come by this clock, so nothing finds it yet.
+    expect(dueReminderOf(result.current.reminders, result.current.announcedDue)).toBeNull();
+
+    // The Worker tells of it coming due while this tab's clock still has its time to come, and the
+    // notice it brings is found by that telling, not by this clock, however far behind it runs.
+    act(() => result.current.cameDue(later));
+    expect(result.current.announcedDue).toEqual(new Set(["later"]));
+    expect(dueReminderOf(result.current.reminders, result.current.announcedDue)).toEqual(later);
+
+    // A load that answers with the reminder still there keeps the telling: it came due all the same.
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(result.current.announcedDue).toEqual(new Set(["later"])));
+    expect(dueReminderOf(result.current.reminders, result.current.announcedDue)).toEqual(later);
+
+    // Done with it, the telling is forgotten with the reminder.
+    await act(async () => {
+      await result.current.dismiss("later");
+    });
+    expect(result.current.announcedDue).toEqual(new Set());
+    expect(dueReminderOf(result.current.reminders, result.current.announcedDue)).toBeNull();
+  });
+
+  it("lets an answer that has a reminder gone take the Worker's telling of it with it", async () => {
+    const later = reminder("later", new Date(Date.now() + 60_000).toISOString());
+    let resolveAnswer: (reminders: Reminder[]) => void = () => {};
+    fetchRemindersMock.mockImplementation(() => new Promise((resolve) => { resolveAnswer = resolve; }));
+    const { result } = renderHook(() => useReminders());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => result.current.cameDue(later));
+    expect(result.current.announcedDue).toEqual(new Set(["later"]));
+
+    // Another load goes out, and its answer, taken after the telling, knows the reminder no more.
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      resolveAnswer([]);
+    });
+    await waitFor(() => expect(result.current.reminders).toEqual([]));
+    expect(result.current.announcedDue).toEqual(new Set());
+    expect(dueReminderOf(result.current.reminders, result.current.announcedDue)).toBeNull();
   });
 
   it("doesn't let an answer taken before a dismissal here bring it back either", async () => {
