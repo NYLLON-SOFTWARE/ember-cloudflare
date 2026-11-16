@@ -351,6 +351,34 @@ describe("One room, and nothing else", () => {
     expect(await opened(elsewhere.id, guest)).toBe(CloseCode.NotFound);
   });
 
+  it("marks a guest their room has dropped as out of its settings' chosen, whose saving brings nobody back", async () => {
+    const tab = await openWorkspaceSocket(guest);
+
+    // Taking them out of their room ends their way in, and their stay keeps its row still.
+    const out = await api(`/api/rooms/${room}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [host.user.id] }) });
+    expect(out.status, await out.clone().text()).toBe(200);
+    expect(await tab.next()).toMatchObject({ type: "room.gone", roomId: room });
+    expect(await opened(room, guest)).toBe(CloseCode.NotFound);
+
+    // The settings' people list marks them as out, with their stay named apart, so the form's chosen
+    // has none of them, whoever reopens it.
+    const settings = (await (await settingsOf(host, room)).json()) as RoomSettings;
+    const pat = settings.people.find((person) => person.id === guest.user.id)!;
+    expect(pat.member).toBe(false);
+    expect(pat.guestUntil).toBeTypeOf("string");
+
+    // Saving an unrelated change, which the page sends with the people it marks as in, puts nobody
+    // back: their membership is still gone, and their room's socket refuses them.
+    const renamed = await api(`/api/rooms/${room}`, {
+      method: "PATCH",
+      headers: { Cookie: host.cookie },
+      body: JSON.stringify({ kind: "closed", name: "Design", memberIds: [host.user.id] }),
+    });
+    expect(renamed.status, await renamed.clone().text()).toBe(200);
+    expect((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<unknown>).toEqual([]);
+    expect(await opened(room, guest)).toBe(CloseCode.NotFound);
+  });
+
   it("gains no open room from being unbanned, whose stay keeps them to their own", async () => {
     expect(await opened(room, guest)).toBe("welcome");
     const banned = await api(`/api/users/${guest.user.id}/ban`, { method: "POST", headers: { Cookie: host.cookie } });

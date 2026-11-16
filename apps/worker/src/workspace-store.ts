@@ -4644,9 +4644,14 @@ export class WorkspaceStore {
     return row
       ? {
           ...roomToChange(row),
+          // `member` stays as the memberships say it, so a stay whose room has dropped the guest
+          // reports them out, and saving the room's other changes takes nobody back in; their stay is
+          // named apart, that its panel may keep offering its end to whoever can change the room.
           people: people.map((person) => {
             const until = untilOf.get(person.id);
-            return until === undefined ? { ...person, member: person.member === 1 } : { ...person, member: true, guestUntil: new Date(until).toISOString() };
+            return until === undefined
+              ? { ...person, member: person.member === 1 }
+              : { ...person, member: person.member === 1, guestUntil: new Date(until).toISOString() };
           }),
         }
       : null;
