@@ -27,6 +27,19 @@ describe("Schedule send", () => {
     expect(utcIsoFromLocalInput("nope")).toBeNull();
   });
 
+  it("refuses a time the clock skips when daylight saving starts", () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      expect(utcIsoFromLocalInput("2027-03-14T02:30")).toBeNull();
+      expect(utcIsoFromLocalInput("2027-03-14T03:30")).toBe("2027-03-14T07:30:00.000Z");
+      expect(utcIsoFromLocalInput("2027-02-30T09:00")).toBeNull();
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
+  });
+
   it("schedules what's written for the chosen time", async () => {
     const onSchedule = vi.fn((_sendAt: string) => true);
     const user = userEvent.setup();

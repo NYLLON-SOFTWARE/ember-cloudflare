@@ -12,13 +12,20 @@ export function localInputFromDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** The UTC instant a `datetime-local` value names in the reader's time zone, or null if it isn't one. */
+/**
+ * The UTC instant a `datetime-local` value names in the reader's time zone, or null if it isn't one,
+ * including a time the clock skips when daylight saving starts.
+ */
 export function utcIsoFromLocalInput(value: string): string | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) return null;
   const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  if (Number.isNaN(date.getTime())) return null;
+  // Date moves a nonexistent wall time (02:30 on a spring-forward night) to one that exists.
+  return localInputFromDate(date) === value ? date.toISOString() : null;
 }
+
+export const SEND_AT_SKIPPED = "That time doesn't exist on your clock. Choose another.";
 
 const inAnHour = () => {
   const date = new Date(Date.now() + 60 * 60 * 1000);
@@ -57,7 +64,7 @@ export function ScheduleSend({ disabled, scheduled, canSchedule, onSchedule, onC
   const submit = () => {
     const sendAt = utcIsoFromLocalInput(when);
     if (sendAt === null) {
-      setError(SEND_AT_IN_THE_PAST);
+      setError(when ? SEND_AT_SKIPPED : SEND_AT_IN_THE_PAST);
       return;
     }
     if (Date.parse(sendAt) <= Date.now()) {
