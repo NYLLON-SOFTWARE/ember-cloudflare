@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, parentTextOf, type EphemeralMessage, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, parentTextOf, type EphemeralMessage, type Message, type ScheduledMessage, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 
 /** `gone` is a room that isn't there for this person any more, deleted or no longer theirs, which nothing reconnects to. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
@@ -112,6 +112,8 @@ export interface RoomState {
    * address. It doesn't say which reaction, so a deletion sent before the latest may not happen.
    */
   refusedUnboosts: number;
+  /** The messages you have scheduled in the room, soonest first, as it last listed them. */
+  scheduled: ScheduledMessage[];
   /**
    * Set for a timeline that keeps every message it's sent, as a thread's does: it has no way to page
    * forward, so it can't cut its newest, and then it can't cut its oldest either, which may be the ones
@@ -171,6 +173,7 @@ export const initialRoomState: RoomState = {
   paged: null,
   connections: 0,
   refusedUnboosts: 0,
+  scheduled: [],
 };
 
 export const isPending = (m: Message | PendingMessage): m is PendingMessage => "pending" in m;
@@ -451,9 +454,11 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
 function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomState {
   switch (frame.type) {
     case "welcome":
-      return welcomed(state, frame, frame.present, frame.ephemeral);
+      return { ...welcomed(state, frame, frame.present, frame.ephemeral), scheduled: frame.scheduled ?? [] };
     case "resumed":
-      return resumed(state, frame, frame.present, frame.ephemeral);
+      return { ...resumed(state, frame, frame.present, frame.ephemeral), scheduled: frame.scheduled ?? [] };
+    case "scheduled":
+      return { ...state, scheduled: frame.messages };
     case "message.created":
       return received(state, frame.message);
     case "message.updated":
