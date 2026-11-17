@@ -3,11 +3,22 @@ import { CodeBrackets, Microphone, Plus, Upload, VideoCamera, Xmark, type Iconoi
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { ClipKind } from "@/lib/clips";
 import { appleKeyboard, snippetShortcut, uploadShortcut, type Shortcut } from "@/lib/keyboard";
+import { scheduleChoices, type ScheduleChoice } from "@/lib/schedule-times";
 import { DraftsItems, listsDrafts, type Drafts, type DraftsShown } from "./drafts-menu";
+import { ScheduleItems } from "./schedule-menu";
 import { ShortcutTooltip } from "./shortcut-tooltip";
 
 /** What the menu closed for, which says where focus goes as it does. */
-type Choice = "upload" | "snippet" | ClipKind;
+type Choice = "upload" | "snippet" | "custom time" | ClipKind;
+
+/** Schedule for later, as + offers it where the composer's row has no room for its chevron. */
+export interface AttachedSchedule {
+  /** Whether what's written can be scheduled. */
+  schedulable: boolean;
+  onSchedule: (at: Date) => void;
+  /** Opens Custom time, once the menu's gone. */
+  onCustomTime: () => void;
+}
 
 interface Props {
   disabled: boolean;
@@ -24,6 +35,10 @@ interface Props {
   drafts?: Drafts;
   /** Whether the composer's row shows Manage drafts, as the menu opens. */
   draftsInRow: () => boolean;
+  /** Schedule for later's, where the room schedules messages. */
+  schedule?: AttachedSchedule;
+  /** Whether the composer's row shows Schedule for later's chevron, as the menu opens. */
+  scheduleInRow: () => boolean;
   /** Puts focus back in the text once the menu's gone, but for a snippet. */
   onClosed: () => void;
 }
@@ -31,19 +46,23 @@ interface Props {
 /**
  * Slack's +, under the composer's text: a menu of Text snippet and Upload from your computer, Slack's two that
  * Ember has, each with its keys, and where the composer's row has no room for the clips' buttons, Record a
- * video clip and Record an audio clip, which Slack's apps have in their + too, and for Manage drafts, the
- * drafts it lists, with Save as draft. The + is an × while it's open.
+ * video clip and Record an audio clip, which Slack's apps have in their + too, for Manage drafts, the
+ * drafts it lists, with Save as draft, and for Schedule for later's chevron, its times, once there's
+ * something to schedule. The + is an × while it's open.
  */
-export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordClip, clipsInRow, drafts, draftsInRow, onClosed }: Props) {
+export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordClip, clipsInRow, drafts, draftsInRow, schedule, scheduleInRow, onClosed }: Props) {
   const [open, setOpen] = useState(false);
   const [clips, setClips] = useState(false);
   const [draftsShown, setDraftsShown] = useState<DraftsShown | null>(null);
+  const [scheduleShown, setScheduleShown] = useState<ScheduleChoice[] | null>(null);
   const chosen = useRef<Choice>(null);
   const openChanged = (opened: boolean) => {
     if (opened) {
       setClips(onRecordClip !== undefined && !clipsInRow());
       const shown = drafts && !draftsInRow() ? drafts.look() : null;
       setDraftsShown(shown && listsDrafts(shown) ? shown : null);
+      // As Manage drafts shows only once something's written, as the times do in Slack's apps.
+      setScheduleShown(schedule?.schedulable && !scheduleInRow() ? scheduleChoices() : null);
     }
     setOpen(opened);
   };
@@ -67,6 +86,7 @@ export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordC
           chosen.current = null;
           if (choice === "snippet") onSnippet();
           else if (choice === "video" || choice === "audio") onRecordClip?.(choice);
+          else if (choice === "custom time") schedule?.onCustomTime();
           else onClosed();
         }}
       >
@@ -90,6 +110,12 @@ export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordC
           <>
             <DropdownMenuSeparator />
             <DraftsItems drafts={drafts} shown={draftsShown} />
+          </>
+        )}
+        {schedule && scheduleShown && (
+          <>
+            <DropdownMenuSeparator />
+            <ScheduleItems choices={scheduleShown} onSchedule={schedule.onSchedule} onCustomTime={() => (chosen.current = "custom time")} />
           </>
         )}
       </DropdownMenuContent>

@@ -1,9 +1,10 @@
 import { lazy, Suspense, useContext, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
+import { MAX_FILE_SIZE, type LinkPreview, type ScheduledMessage } from "@ember/protocol";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { AtSign, Microphone, Page, Send, SlashSquare, TextSquare, VideoCamera, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
+import type { Scheduling } from "@/hooks/use-room";
 import { RoomsContext } from "@/hooks/use-rooms";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { recordsClips, type ClipKind } from "@/lib/clips";
@@ -21,6 +22,8 @@ import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandl
 import { EmojiButton } from "./emoji-button";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
 import { useNotifyConfirm } from "./notify-confirm";
+import { CustomTimeDialog, ScheduleMenu } from "./schedule-menu";
+import { ScheduledDialog, ScheduledLine } from "./scheduled-messages";
 import { ShortcutTooltip } from "./shortcut-tooltip";
 import { SnippetDialog } from "./snippet-dialog";
 
@@ -78,6 +81,20 @@ const CLIP_BUTTON = "touch:hidden @max-[17rem]:hidden";
  */
 const DRAFTS_BUTTON = "@max-[19rem]:hidden touch:@max-[20rem]:hidden";
 const DRAFTS_BUTTON_WITHOUT_SHORTCUT = "@max-[17rem]:hidden touch:@max-[17.125rem]:hidden";
+
+/**
+ * Schedule for later's chevron, joined to Send, as Slack's is, and Send beside it: it gives way on touch
+ * screens, and in a card narrower than the row's nine buttons and it, 324px, or where there's no Run
+ * shortcut, 290px, where + has what it does.
+ */
+const SCHEDULE_BUTTON = "flex h-8 w-5 shrink-0 cursor-pointer items-center justify-center rounded-e-full border-s border-background/25 disabled:pointer-events-none";
+const SCHEDULE_BUTTON_SHOWN = "touch:hidden @max-[20.25rem]:hidden";
+const SCHEDULE_BUTTON_SHOWN_WITHOUT_SHORTCUT = "touch:hidden @max-[18.125rem]:hidden";
+const SEND_BESIDE_SCHEDULE = "rounded-e-none touch:rounded-e-full @max-[20.25rem]:rounded-e-full";
+const SEND_BESIDE_SCHEDULE_WITHOUT_SHORTCUT = "rounded-e-none touch:rounded-e-full @max-[18.125rem]:rounded-e-full";
+
+/** What's said of a / that names no command, which isn't sent. */
+const isntACommand = (name: string) => `/${name} isn't a command. To send a message that starts with /, put a space before it.`;
 
 /** Whether `button` is in the row under the text, rather than given way, where + has what it does. */
 const shownInRow = (button: HTMLButtonElement | null) => !!button && getComputedStyle(button).display !== "none";
@@ -438,11 +455,23 @@ interface Props {
    * that starts with a / is sent as it is.
    */
   onCommand?: CommandRunner;
+  /**
+   * Schedule for later, where the room schedules messages: what schedules what's written, and what you
+   * have scheduled in the room, of which the line over the card counts those where the composer writes.
+   */
+  scheduling?: ComposerScheduling;
   /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
   autoFocus?: boolean;
   /** Whether the people @ lists show above the text with a mouse too, as on touch screens: for a composer with something under it that would cut the list off. */
   mentionsAbove?: boolean;
   ref?: Ref<ComposerHandle>;
+}
+
+export interface ComposerScheduling extends Scheduling {
+  /** Every message you have scheduled in the room, soonest first. */
+  scheduled: ScheduledMessage[];
+  /** Says, as the page does, when the message just scheduled will be sent. */
+  onScheduled: (at: Date) => void;
 }
 
 export interface ComposerHandle {
@@ -464,15 +493,16 @@ export interface ComposerHandle {
  * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
  * Mention someone, Record video clip and Record audio clip, which are in + where the row has no room for
  * them, as on touch screens, as in Slack's apps, Run shortcut, which types / for the commands, Manage
- * drafts, once there are drafts to list, and a round Send button, grey until there's something to send. @
- * offers the room's people to mention, # the rooms you're in, and a / that starts the message Slack's
- * commands Ember can do, a message that starts with one running it. Files picked, pasted or dropped,
- * snippets and clips wait above the card to go with the next message. What's written is kept as a draft
- * until it's sent, or put aside for another with Manage drafts' Save as draft, which lists it to open
- * again. A thread's has Also send to the room before Manage drafts and Send. A message the room won't take
- * for what it says, as one with a word Blocked words keeps out, comes back to be changed, saying why above
- * the card. One whose @channel, @here or @everyone would notify a room of six or more asks first, as
- * Slack's does.
+ * drafts, once there are drafts to list, and a round Send button, grey until there's something to send, with
+ * Schedule for later's chevron joined to it, where the room schedules messages, over which a line counts
+ * those you have scheduled where the composer writes, and lists them. @ offers the room's people to
+ * mention, # the rooms you're in, and a / that starts the message Slack's commands Ember can do, a message
+ * that starts with one running it. Files picked, pasted or dropped, snippets and clips wait above the card
+ * to go with the next message. What's written is kept as a draft until it's sent, or put aside for another
+ * with Manage drafts' Save as draft, which lists it to open again. A thread's has Also send to the room
+ * before Manage drafts and Send. A message the room won't take for what it says, as one with a word
+ * Blocked words keeps out, comes back to be changed, saying why above the card. One whose @channel, @here
+ * or @everyone would notify a room of six or more asks first, as Slack's does.
  */
 export function Composer({
   roomId,
@@ -489,6 +519,7 @@ export function Composer({
   onEditLastMessage,
   commands,
   onCommand,
+  scheduling,
   autoFocus = true,
   mentionsAbove = false,
   ref,
@@ -525,6 +556,11 @@ export function Composer({
   const [saved, setSaved] = useState(() => readSavedDrafts(key));
   const [notSaved, setNotSaved] = useState(false);
   const draftsButton = useRef<HTMLButtonElement>(null);
+  // Why the room refused to schedule what's written, Custom time's dialog, and the list of what's scheduled here.
+  const [notScheduled, setNotScheduled] = useState<string | null>(null);
+  const [pickingTime, setPickingTime] = useState(false);
+  const [listingScheduled, setListingScheduled] = useState(false);
+  const scheduleButton = useRef<HTMLButtonElement>(null);
   // Whether the editor can be written in, which Emoji and Mention someone wait for, since what they wrote before
   // would be lost.
   const [editorReady, setEditorReady] = useState(false);
@@ -622,6 +658,7 @@ export function Composer({
     wrote(body);
     setNotACommand(null);
     setNotSaved(false);
+    setNotScheduled(null);
     setUsage(onCommand ? commandNamedIn(body) : null);
   };
 
@@ -742,6 +779,32 @@ export function Composer({
       }
     : undefined;
 
+  // Where the composer writes, as "in" goes on, and what you have scheduled there: replies in its thread, or
+  // the room's own messages.
+  const place = threadId !== undefined ? "in this thread" : direct ? "in this conversation" : `in #${roomName}`;
+  const scheduledHere = scheduling?.scheduled.filter((message) => message.parentId === threadId) ?? [];
+  // Something written can be scheduled, but not files, which go as they're sent, nor a command.
+  const schedulable = editorReady && !blank && picked.files.length === 0 && usage === null;
+
+  // Schedules what's written for `at`, as a reply sent to the room too while Also send to the room is
+  // ticked. Once the room has it, the composer empties, as Send empties it, unless something else has been
+  // written meanwhile. One the room refuses stays, with why over the card, and a command isn't scheduled.
+  const scheduleWritten = async (at: Date) => {
+    const written = editor.current;
+    if (!scheduling || !written || written.isBlank()) return;
+    const body = written.value();
+    const typedIn = onCommand ? commandIn(body) : null;
+    if (typedIn) return setNotACommand(typedIn.command ? `/${typedIn.command.name} can't be scheduled.` : isntACommand(typedIn.typed.name));
+    const refusal = await scheduling.schedule(body, at, threadId === undefined ? undefined : { parentId: threadId, alsoSend });
+    if (refusal !== null) return setNotScheduled(refusal);
+    const stillWritten = editor.current;
+    if (stillWritten && !stillWritten.isBlank() && stillWritten.value() === body) {
+      doneWith(stillWritten);
+      setAlsoSend(false);
+    }
+    scheduling.onScheduled(at);
+  };
+
   // A command that didn't run is written again, to put right, unless something else has been written
   // meanwhile: in the editor, or, where the composer has gone, as when its room was left meanwhile, as its
   // draft, which it opens with.
@@ -758,7 +821,7 @@ export function Composer({
   // / that names no command says so, and sends nothing.
   const run = (written: RichTextEditorHandle, typedIn: NonNullable<ReturnType<typeof commandIn>>) => {
     const { command, typed, markup } = typedIn;
-    if (!command) return setNotACommand(`/${typed.name} isn't a command. To send a message that starts with /, put a space before it.`);
+    if (!command) return setNotACommand(isntACommand(typed.name));
     if (command.name === "shrug") return sendWritten();
     if (command.name === "snippet") {
       const left = bodyAfter(markup, 1 + typed.name.length);
@@ -839,8 +902,14 @@ export function Composer({
         {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
-        {/* The files picked, those too large to send, and the command being written, or a / that names none, or drafts that couldn't be saved. */}
-        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0 || usage || notACommand || notSaved) && "pb-2")}>
+        {/* What's scheduled here, the files picked, those too large to send, and the command being written, or a / that names none, or drafts that couldn't be saved, or what couldn't be scheduled. */}
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-x-[1ch] gap-y-2",
+            (scheduledHere.length > 0 || picked.files.length > 0 || picked.errors.length > 0 || usage || notACommand || notSaved || notScheduled) && "pb-2",
+          )}
+        >
+          {scheduledHere.length > 0 && <ScheduledLine count={scheduledHere.length} place={place} onOpen={() => setListingScheduled(true)} />}
           {picked.files.map(({ key, file }) => (
             <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
           ))}
@@ -857,6 +926,11 @@ export function Composer({
           {notSaved && (
             <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
               Your drafts couldn't be saved, as this browser has no room left for them.
+            </p>
+          )}
+          {notScheduled && (
+            <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
+              {notScheduled}
             </p>
           )}
           {usage && <CommandUsage command={usage} />}
@@ -921,7 +995,7 @@ export function Composer({
               )}
             </Suspense>
           </div>
-          <div className="flex flex-none items-center gap-0.5 @max-[32rem]:flex-wrap touch:@max-[34rem]:flex-wrap">
+          <div className="flex flex-none items-center gap-0.5 @max-[33.25rem]:flex-wrap touch:@max-[34rem]:flex-wrap">
             {/* Upload from your computer's, and Cmd or Ctrl+O's, file picker. */}
             <input
               ref={fileField}
@@ -943,6 +1017,8 @@ export function Composer({
               clipsInRow={() => shownInRow(videoClipButton.current)}
               drafts={drafts}
               draftsInRow={() => shownInRow(draftsButton.current)}
+              schedule={scheduling && { schedulable, onSchedule: (at) => void scheduleWritten(at), onCustomTime: () => setPickingTime(true) }}
+              scheduleInRow={() => shownInRow(scheduleButton.current)}
               onClosed={() => editor.current?.focus()}
               // Slack's + sits in a circle of its own.
               className={cn(BUTTON, "rounded-full bg-hover hover:not-active:brightness-95 aria-expanded:brightness-95")}
@@ -1022,11 +1098,12 @@ export function Composer({
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. Where
                 the buttons would leave the label too little room, it takes a line of its own above them, with its
                 box over the middle of +: under 34rem for fingers' bigger buttons, as on a phone held upright, and
-                under 32rem otherwise, with the clips' two more, as in a thread beside its room, and a huddle's. A
-                button added to the row takes room from the label, so these grow with it, as for Manage drafts,
-                whose room is kept while it isn't there, so the label doesn't move as it comes. */}
+                under 33.25rem otherwise, with the clips' two more and Schedule for later's chevron, as in a thread
+                beside its room, and a huddle's. A button added to the row takes room from the label, so these grow
+                with it, as for Manage drafts, whose room is kept while it isn't there, so the label doesn't move as
+                it comes. */}
             {threadId !== undefined && (
-              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[32rem]:order-first @max-[32rem]:mr-0 @max-[32rem]:ml-2 @max-[32rem]:min-h-7 @max-[32rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[34rem]:order-first touch:@max-[34rem]:mr-0 touch:@max-[34rem]:basis-full">
+              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[33.25rem]:order-first @max-[33.25rem]:mr-0 @max-[33.25rem]:ml-2 @max-[33.25rem]:min-h-7 @max-[33.25rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[34rem]:order-first touch:@max-[34rem]:mr-0 touch:@max-[34rem]:basis-full">
                 <input
                   type="checkbox"
                   checked={alsoSend}
@@ -1056,25 +1133,44 @@ export function Composer({
                   className={cn(TOOL, onCommand ? DRAFTS_BUTTON : DRAFTS_BUTTON_WITHOUT_SHORTCUT)}
                 />
               )}
-              <ShortcutTooltip label="Send message">
-                <button
-                  type="submit"
-                  disabled={disabled}
-                  data-empty={(blank && picked.files.length === 0) || undefined}
-                  // Keep focus in the editor, so a phone's keyboard stays up between messages.
-                  onMouseDown={(event) => event.preventDefault()}
-                  className={cn(
-                    BUTTON,
-                    "rounded-full bg-foreground text-background hover:not-active:brightness-70",
-                    // Slack's paper plane is grey, with nothing behind it, until there's something to send.
-                    "data-empty:bg-transparent data-empty:text-muted-foreground data-empty:hover:not-active:brightness-100",
-                    "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
-                  )}
-                >
-                  <Send className="size-[18px]" />
-                  <span className="sr-only">Send Message</span>
-                </button>
-              </ShortcutTooltip>
+              <div className="flex items-center">
+                <ShortcutTooltip label="Send message">
+                  <button
+                    type="submit"
+                    disabled={disabled}
+                    data-empty={(blank && picked.files.length === 0) || undefined}
+                    // Keep focus in the editor, so a phone's keyboard stays up between messages.
+                    onMouseDown={(event) => event.preventDefault()}
+                    className={cn(
+                      BUTTON,
+                      "rounded-full bg-foreground text-background hover:not-active:brightness-70",
+                      // Slack's paper plane is grey, with nothing behind it, until there's something to send.
+                      "data-empty:bg-transparent data-empty:text-muted-foreground data-empty:hover:not-active:brightness-100",
+                      "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
+                      scheduling && (onCommand ? SEND_BESIDE_SCHEDULE : SEND_BESIDE_SCHEDULE_WITHOUT_SHORTCUT),
+                    )}
+                  >
+                    <Send className="size-[18px]" />
+                    <span className="sr-only">Send Message</span>
+                  </button>
+                </ShortcutTooltip>
+                {scheduling && (
+                  <ScheduleMenu
+                    ref={scheduleButton}
+                    disabled={disabled || !schedulable}
+                    onSchedule={(at) => void scheduleWritten(at)}
+                    onCustomTime={() => setPickingTime(true)}
+                    onClosed={() => editor.current?.focus()}
+                    className={cn(
+                      SCHEDULE_BUTTON,
+                      onCommand ? SCHEDULE_BUTTON_SHOWN : SCHEDULE_BUTTON_SHOWN_WITHOUT_SHORTCUT,
+                      // Grey as Send is while there's nothing to schedule, and faded as it is while the room's away.
+                      schedulable ? "bg-foreground text-background hover:not-active:brightness-70" : "border-muted-foreground/25 bg-transparent text-muted-foreground",
+                      disabled && "opacity-50 grayscale contrast-50",
+                    )}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1083,6 +1179,20 @@ export function Composer({
       <LinkDialog formatting={formatting} />
       <SnippetDialog open={writingSnippet} onOpenChange={setWritingSnippet} onCreate={(file) => picked.add([file])} onClosed={() => editor.current?.focus()} />
       {notifyConfirm.dialog}
+      {scheduling && (
+        <>
+          <CustomTimeDialog open={pickingTime} onOpenChange={setPickingTime} onPick={(at) => void scheduleWritten(at)} onClosed={() => editor.current?.focus()} />
+          <ScheduledDialog
+            open={listingScheduled}
+            onOpenChange={setListingScheduled}
+            messages={scheduledHere}
+            roomId={roomId}
+            place={place}
+            scheduling={scheduling}
+            onClosed={() => editor.current?.focus()}
+          />
+        </>
+      )}
       {recordingClip === "video" && (
         <Suspense fallback={null}>
           <VideoClipDialog onRecorded={(clip) => picked.add([clip])} onClose={closeClip} />

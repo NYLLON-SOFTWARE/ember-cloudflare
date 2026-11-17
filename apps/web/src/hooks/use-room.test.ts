@@ -1,4 +1,17 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type LinkPreview, type Message, type ServerFrame, type User } from "@ember/protocol";
+import {
+  CloseCode,
+  MAX_CHECKED_MESSAGES,
+  MAX_MESSAGE_HTML_LENGTH,
+  MAX_MESSAGE_LENGTH,
+  MESSAGE_TOO_LONG,
+  SCHEDULE_TIME_REFUSED,
+  SCHEDULED_GONE,
+  type LinkPreview,
+  type Message,
+  type ScheduledMessage,
+  type ServerFrame,
+  type User,
+} from "@ember/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { AddPreview } from "@/components/workspace/composer";
 import { StrictMode } from "react";
@@ -8,7 +21,7 @@ import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
-import { openRoomSocketAhead, useRoom } from "./use-room";
+import { NOT_CONNECTED, openRoomSocketAhead, useRoom, type ScheduledReply } from "./use-room";
 import { useThread } from "./use-thread";
 
 vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
@@ -1286,6 +1299,96 @@ describe("Click a card's button", () => {
     });
     expect(await went).toBe(false);
     expect(result.current.state.notice).toBe("Not connected. Try again once you're reconnected.");
+  });
+});
+
+describe("Schedule a message", () => {
+  const at = new Date("2026-11-18T17:00:00.000Z");
+  const scheduledAs = (clientMessageId: string, overrides: Partial<ScheduledMessage> = {}): ScheduledMessage => ({
+    id: clientMessageId,
+    clientMessageId,
+    body: "<p>Later</p>",
+    sendAt: at.toISOString(),
+    ...overrides,
+  });
+
+  /** Schedules "Later" for `at`, answering what that settles with and the frame it sent. */
+  function scheduleLater(result: ReturnType<typeof joinGeneral>["result"], reply?: ScheduledReply) {
+    let settled: Promise<string | null> | undefined;
+    act(() => {
+      settled = result.current.scheduling.schedule("<p>Later</p>", at, reply);
+    });
+    const [sent] = socket().sentOfType("message.schedule").slice(-1);
+    return { settled: settled!, sent: sent as { clientMessageId: string } };
+  }
+
+  it("sends it to the room, and waits for the room to list it among those scheduled", async () => {
+    const { result } = joinGeneral();
+    const { settled, sent } = scheduleLater(result, { parentId: "m1", alsoSend: true });
+    expect(sent).toEqual({ type: "message.schedule", clientMessageId: expect.any(String), body: "<p>Later</p>", sendAt: "2026-11-18T17:00:00.000Z", parentId: "m1", alsoSend: true });
+    // Another's listing isn't this one's.
+    act(() => socket().receive({ type: "scheduled", messages: [scheduledAs("another")] }));
+    let answer: string | null | undefined;
+    void settled.then((settledWith) => (answer = settledWith));
+    await act(async () => {});
+    expect(answer).toBeUndefined();
+    const listed = [scheduledAs("another"), scheduledAs(sent.clientMessageId, { parentId: "m1", alsoSend: true })];
+    act(() => socket().receive({ type: "scheduled", messages: listed }));
+    expect(await settled).toBeNull();
+    expect(result.current.state.scheduled).toEqual(listed);
+  });
+
+  it("says why the room refused it, there rather than over the timeline", async () => {
+    const { result } = joinGeneral();
+    const { settled, sent } = scheduleLater(result);
+    act(() => socket().receive({ type: "error", message: SCHEDULE_TIME_REFUSED, clientMessageId: sent.clientMessageId, failed: "message.schedule" }));
+    expect(await settled).toBe(SCHEDULE_TIME_REFUSED);
+    expect(result.current.state.notice).toBeNull();
+  });
+
+  it("says one too long for the room is, without sending it, and one written while the room is away wasn't scheduled", async () => {
+    const { result } = joinGeneral();
+    let settled: Promise<string | null> | undefined;
+    act(() => {
+      settled = result.current.scheduling.schedule(paragraphOf(MAX_MESSAGE_LENGTH + 1), at);
+    });
+    expect(await settled).toBe(MESSAGE_TOO_LONG);
+    expect(socket().sentOfType("message.schedule")).toEqual([]);
+    socket().drop();
+    act(() => {
+      settled = result.current.scheduling.schedule("<p>Later</p>", at);
+    });
+    expect(await settled).toBe(NOT_CONNECTED);
+  });
+
+  it("finds out as the room lets the page in again whether it had one sent before, as it lists what's scheduled", async () => {
+    const { result } = joinGeneral();
+    const lost = scheduleLater(result);
+    const kept = scheduleLater(result);
+    act(() => socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 0, scheduled: [scheduledAs(kept.sent.clientMessageId)] }));
+    expect(await lost.settled).toBe(NOT_CONNECTED);
+    expect(await kept.settled).toBeNull();
+    expect(result.current.state.scheduled).toEqual([scheduledAs(kept.sent.clientMessageId)]);
+    // A welcome that lists none means there are none.
+    socket().receive(welcome());
+    expect(result.current.state.scheduled).toEqual([]);
+  });
+
+  it("edits, moves, sends now and deletes one, saying why a change couldn't go, and shows the room's refusal", () => {
+    const { result } = joinGeneral();
+    const { scheduling } = result.current;
+    expect([scheduling.edit("s1", "<p>Sooner</p>"), scheduling.reschedule("s1", at), scheduling.sendNow("s1"), scheduling.remove("s1")]).toEqual([null, null, null, null]);
+    expect(scheduling.edit("s1", overformatted)).toBe(MESSAGE_TOO_LONG);
+    expect(socket().sent.filter((frame) => String(frame.type).startsWith("scheduled."))).toEqual([
+      { type: "scheduled.edit", scheduledId: "s1", body: "<p>Sooner</p>" },
+      { type: "scheduled.reschedule", scheduledId: "s1", sendAt: "2026-11-18T17:00:00.000Z" },
+      { type: "scheduled.send", scheduledId: "s1" },
+      { type: "scheduled.delete", scheduledId: "s1" },
+    ]);
+    socket().receive({ type: "error", message: SCHEDULED_GONE, scheduledId: "s1", failed: "scheduled.delete" });
+    expect(result.current.state.notice).toBe(SCHEDULED_GONE);
+    socket().drop();
+    expect(result.current.scheduling.sendNow("s1")).toBe(NOT_CONNECTED);
   });
 });
 

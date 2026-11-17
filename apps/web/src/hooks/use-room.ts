@@ -12,6 +12,7 @@ import {
   type ClientFrame,
   type Me,
   type Message,
+  type ScheduledMessage,
   type ServerFrame,
   type User,
 } from "@ember/protocol";
@@ -57,6 +58,9 @@ export interface RoomFrames {
   listen: (listener: (frame: ServerFrame) => void) => () => void;
 }
 
+/** What's said of something that couldn't go to the room, as it's away. */
+export const NOT_CONNECTED = "Not connected. Try again once you're reconnected.";
+
 /**
  * What can be done to a room's messages over `frames`. Unlike new messages, these aren't kept to send later,
  * so `warn` says when one couldn't go. An edit longer than the room takes isn't sent either, so its editor
@@ -65,7 +69,7 @@ export interface RoomFrames {
 export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: string) => void): MessageActions {
   const sendOrWarn = (frame: ClientFrame) => {
     const sent = send(frame);
-    if (!sent) warn("Not connected. Try again once you're reconnected.");
+    if (!sent) warn(NOT_CONNECTED);
     return sent;
   };
   return {
@@ -95,6 +99,58 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
         });
       });
     },
+  };
+}
+
+/** Where a message is scheduled to be sent as a reply: in `parentId`'s thread, and with `alsoSend`, to the room too. */
+export interface ScheduledReply {
+  parentId: string;
+  alsoSend: boolean;
+}
+
+/**
+ * Schedule for later, over a room's frames: what schedules what's written, and what can be done to the
+ * messages scheduled. A change that can't go, as the room is away, or an edit longer than the room takes,
+ * answers why, and the room says why it refused one as it refuses a change to a message.
+ */
+export interface Scheduling {
+  /** Schedules `body` to be sent at `at`, or as `reply`, settling with why it wasn't, or null once the room has it. */
+  schedule: (body: string, at: Date, reply?: ScheduledReply) => Promise<string | null>;
+  edit: (scheduledId: string, body: string) => string | null;
+  reschedule: (scheduledId: string, at: Date) => string | null;
+  sendNow: (scheduledId: string) => string | null;
+  remove: (scheduledId: string) => string | null;
+}
+
+/** Whether the room lists `clientMessageId`'s message among those scheduled. */
+const lists = (scheduled: ScheduledMessage[] | undefined, clientMessageId: string) => scheduled?.some((message) => message.clientMessageId === clientMessageId) ?? false;
+
+export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
+  const whyNotSent = (frame: ClientFrame) => (send(frame) ? null : NOT_CONNECTED);
+  return {
+    schedule: (body, at, reply) => {
+      if (isTooLong(body, writtenBody(body).plainText)) return Promise.resolve(MESSAGE_TOO_LONG);
+      const clientMessageId = crypto.randomUUID();
+      return new Promise((resolve) => {
+        const answered = (refusal: string | null) => {
+          stop();
+          resolve(refusal);
+        };
+        // The room lists it once it has it, or says why it doesn't. A room that lets the page in again
+        // lists what it has, which says whether it had it before the page left.
+        const stop = listen((frame) => {
+          if (frame.type === "scheduled" && lists(frame.messages, clientMessageId)) answered(null);
+          else if (frame.type === "error" && frame.clientMessageId === clientMessageId) answered(frame.message);
+          else if (frame.type === "welcome" || frame.type === "resumed") answered(lists(frame.scheduled, clientMessageId) ? null : NOT_CONNECTED);
+        });
+        const sent = send({ type: "message.schedule", clientMessageId, body, sendAt: at.toISOString(), ...reply });
+        if (!sent) answered(NOT_CONNECTED);
+      });
+    },
+    edit: (scheduledId, body) => (isTooLong(body, writtenBody(body).plainText) ? MESSAGE_TOO_LONG : whyNotSent({ type: "scheduled.edit", scheduledId, body })),
+    reschedule: (scheduledId, at) => whyNotSent({ type: "scheduled.reschedule", scheduledId, sendAt: at.toISOString() }),
+    sendNow: (scheduledId) => whyNotSent({ type: "scheduled.send", scheduledId }),
+    remove: (scheduledId) => whyNotSent({ type: "scheduled.delete", scheduledId }),
   };
 }
 
@@ -390,11 +446,12 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   );
 
   const messageActions = useMemo(() => messageActionsOf(frames, warn), [frames, warn]);
+  const scheduling = useMemo(() => schedulingOf(frames), [frames]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
   const givenBack = useCallback((clientMessageId: string, taken: boolean) => dispatch({ type: "given-back", clientMessageId, taken }), []);
 
-  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack };
+  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, scheduling, dismissNotice, givenBack };
 }
 
 /**

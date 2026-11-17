@@ -19,7 +19,8 @@ import { avatarUrlOf } from "./user-avatar";
 const ROUND_BUTTON = "grid size-9 shrink-0 cursor-pointer place-items-center rounded-full touch:size-11 hover:not-active:brightness-70";
 
 interface Props {
-  message: Message;
+  /** The message, or what's been written to be sent as one, as a scheduled message has been. */
+  message: Pick<Message, "body" | "mentions" | "roomId">;
   /** Saves the message as written, answering whether the change went: one that didn't stays to be tried again. */
   onSave: (body: string) => boolean;
   onDelete: () => void;

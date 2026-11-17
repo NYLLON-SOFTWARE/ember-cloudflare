@@ -1,5 +1,6 @@
-import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, type Ref } from "react";
 import type { Favorites, Invitation, Involvement, Me, SidebarRoom, User } from "@ember/protocol";
+import { useFlash } from "@/components/flash";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useGivingBack } from "@/hooks/use-giving-back";
@@ -15,7 +16,8 @@ import { rememberLastRoom } from "@/lib/last-room";
 import { newestWrittenBy } from "@/lib/messages";
 import type { RoomAnswer } from "@/lib/room-list";
 import { isPending } from "@/lib/room-state";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { sendAtLabel } from "@/lib/schedule-times";
+import { Composer, RoomDeleted, type ComposerHandle, type ComposerScheduling } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
@@ -98,7 +100,14 @@ export function RoomView({
   onGone,
   ref,
 }: Props) {
-  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId);
+  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, scheduling, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId);
+  // Schedule for later, in the room's composer and its thread's, each saying when a message it schedules will be sent.
+  const flash = useFlash();
+  const { scheduled } = state;
+  const composerScheduling = useMemo<ComposerScheduling>(
+    () => ({ ...scheduling, scheduled, onScheduled: (at) => flash("notice", `Your message will be sent ${sendAtLabel(at)}.`) }),
+    [scheduling, scheduled, flash],
+  );
   // Slack's / commands, in the room's composer and its thread's.
   const slash = useSlashCommands({ room, me, involvement, rooms, askForRoom, onFailed, onOpenDirects, onOpenShortcuts, onSend: (body) => postMessage(body) !== null });
   const nameOf = useNameOf();
@@ -204,6 +213,7 @@ export function RoomView({
               onEditLastMessage={editLastMessage}
               commands={slash.commands}
               onCommand={slash.run}
+              scheduling={composerScheduling}
             />
           )}
         </MainContent>
@@ -224,6 +234,7 @@ export function RoomView({
           onDismissRoomNotice={dismissNotice}
           commands={slash.commands}
           onCommand={slash.run}
+          scheduling={composerScheduling}
         />
       )}
     </>

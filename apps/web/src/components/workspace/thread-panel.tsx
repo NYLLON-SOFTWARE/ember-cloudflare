@@ -11,7 +11,7 @@ import { useThread } from "@/hooks/use-thread";
 import { isPending, type ConnectionStatus } from "@/lib/room-state";
 import type { CommandRunner, SlashCommand } from "@/lib/slash-commands";
 import { cn } from "@/lib/utils";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { Composer, RoomDeleted, type ComposerHandle, type ComposerScheduling } from "./composer";
 import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 import { MessageList } from "./message-list";
 import { RoomNotice } from "./room-notice";
@@ -40,6 +40,8 @@ interface Props {
   /** The commands / lists, which run as the room's composer runs them. */
   commands?: readonly SlashCommand[];
   onCommand?: CommandRunner;
+  /** Schedule for later, as the room's composer has it, whose line over the thread's composer counts what's scheduled in the thread. */
+  scheduling?: ComposerScheduling;
 }
 
 /**
@@ -48,7 +50,7 @@ interface Props {
  * the room's right, below that it covers the room, and on phones the whole page, with Back in its header
  * in Close thread's place.
  */
-export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice, commands, onCommand }: Props) {
+export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice, commands, onCommand, scheduling }: Props) {
   const thread = useThread(room.id, frames, status, offline, me, parentId, replyId);
 
   // Following a reply's permalink in the thread goes to it, or the thread's own link to its end, as a
@@ -111,6 +113,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
         onDismissRoomNotice={onDismissRoomNotice}
         commands={commands}
         onCommand={onCommand}
+        scheduling={scheduling}
       />
     </aside>
   );
@@ -138,13 +141,15 @@ interface RepliesProps {
   /** The commands / lists, which run as the room's composer runs them. Without them, as in a huddle's thread, a / is just a /. */
   commands?: readonly SlashCommand[];
   onCommand?: CommandRunner;
+  /** Schedule for later, as the room's composer has it. Without it, as in a huddle's thread, replies go as they're sent. */
+  scheduling?: ComposerScheduling;
 }
 
 /**
  * A thread under its panel's header, wherever the panel is: what the room has to say, the thread's
  * message over its replies, and a composer to reply with, while the room has the message.
  */
-export function ThreadReplies({ room, name, me, thread, offline, deleted, roomNotice, onDismissRoomNotice, intro, autoFocus, mentionsAbove, commands, onCommand }: RepliesProps) {
+export function ThreadReplies({ room, name, me, thread, offline, deleted, roomNotice, onDismissRoomNotice, intro, autoFocus, mentionsAbove, commands, onCommand, scheduling }: RepliesProps) {
   const { parentId, parent, replies } = thread.state;
   // Replying tells nobody you're typing, so only @ember shows as typing here, as it answers in the thread.
   const typing = useMemo(() => Object.values(replies.typing), [replies.typing]);
@@ -205,6 +210,7 @@ export function ThreadReplies({ room, name, me, thread, offline, deleted, roomNo
             mentionsAbove={mentionsAbove}
             commands={commands}
             onCommand={onCommand}
+            scheduling={scheduling}
           />
         )
       )}

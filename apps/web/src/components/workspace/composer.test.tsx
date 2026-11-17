@@ -1,8 +1,8 @@
-import { MAX_FILE_SIZE, type LinkPreview, type NotifiedCounts } from "@ember/protocol";
+import { MAX_FILE_SIZE, SCHEDULE_TIME_REFUSED, type LinkPreview, type NotifiedCounts, type ScheduledMessage } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, type SpecialMention } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { RoomsContext, type Rooms } from "@/hooks/use-rooms";
@@ -11,7 +11,7 @@ import type { Typist } from "@/lib/room-state";
 import { SHRUG, SLASH_COMMANDS, type CommandRunner, type WrittenCommand } from "@/lib/slash-commands";
 import { installRecording, lastRecorder } from "@/test-recording";
 import { createRef, type ReactNode } from "react";
-import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
+import { Composer, RoomDeleted, type AddPreview, type ComposerHandle, type ComposerScheduling } from "./composer";
 import { editorLoaded } from "./editor";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
@@ -53,6 +53,7 @@ async function showComposer({
   warns = true,
   onCommand = undefined as CommandRunner | undefined,
   rooms = null as Rooms | null,
+  scheduling = undefined as ComposerScheduling | undefined,
 } = {}) {
   // Hears a link's preview that comes once the message has gone.
   const addPreview = vi.fn((_preview: LinkPreview) => {});
@@ -79,6 +80,7 @@ async function showComposer({
           mentionsAbove={mentionsAbove}
           commands={onCommand && SLASH_COMMANDS}
           onCommand={onCommand}
+          scheduling={scheduling}
         />
       </RoomsContext>
     </Warning>,
@@ -1200,6 +1202,203 @@ describe("Clips", () => {
     expect(screen.queryByRole("button", { name: /clip/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Text snippetCtrl+Shift+Enter", "Upload from your computerCtrl+O"]);
+  });
+});
+
+describe("Schedule for later", () => {
+  // Tuesday, November 17, 2026, at 10:30 AM, when Slack's menu was read.
+  const TUESDAY = new Date(2026, 10, 17, 10, 30);
+  const scheduleButton = () => screen.getByRole("button", { name: "Schedule for later" });
+  const choices = () => screen.getAllByRole("menuitem").map((item) => item.textContent);
+  const scheduledAs = (id: string, overrides: Partial<ScheduledMessage> = {}): ScheduledMessage => ({
+    id,
+    clientMessageId: id,
+    body: `<p>${id}</p>`,
+    sendAt: new Date(2026, 10, 18, 9).toISOString(),
+    ...overrides,
+  });
+
+  /** Schedule for later, with what's scheduled in the room, answering each message scheduled with `answer`. */
+  function schedulingWith({ scheduled = [] as ScheduledMessage[], answer = null as string | null } = {}) {
+    return {
+      scheduled,
+      schedule: vi.fn(async (_body: string, _at: Date, _reply?: { parentId: string; alsoSend: boolean }) => answer),
+      edit: vi.fn((_id: string, _body: string) => null as string | null),
+      reschedule: vi.fn((_id: string, _at: Date) => null as string | null),
+      sendNow: vi.fn((_id: string) => null as string | null),
+      remove: vi.fn((_id: string) => null as string | null),
+      onScheduled: vi.fn((_at: Date) => {}),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(TUESDAY);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("joins its chevron to Send, as Slack does, which waits for something written to schedule", async () => {
+    const { input, user, view } = await showComposer({ scheduling: schedulingWith() });
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent).slice(-2)).toEqual(["Send Message", "Schedule for later"]);
+    expect(scheduleButton()).toBeDisabled();
+    await user.type(input, "Hello");
+    expect(scheduleButton()).toBeEnabled();
+  });
+
+  it("offers Slack's times, and schedules what's written for the one picked, emptying the composer once the room has it", async () => {
+    const scheduling = schedulingWith();
+    const { input, onTyping, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    expect(screen.getByText("Schedule message")).toBeInTheDocument();
+    expect(choices()).toEqual(["Later today at 1:00 PM", "Tomorrow at 9:00 AM", "Monday at 9:00 AM", "Custom time"]);
+
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith("<p>Hello</p>", new Date(2026, 10, 18, 9), undefined);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(scheduling.onScheduled).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 18, 9));
+    expect(onTyping).toHaveBeenLastCalledWith(false);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("schedules a thread's reply, sent to the room too while Also send is ticked, which it unticks", async () => {
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ threadId: "m1", scheduling });
+    await user.type(input, "Later");
+    await user.click(screen.getByRole("checkbox", { name: "Also send to #general" }));
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Monday at 9:00 AM" }));
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith("<p>Later</p>", new Date(2026, 10, 23, 9), { parentId: "m1", alsoSend: true });
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(screen.getByRole("checkbox", { name: "Also send to #general" })).not.toBeChecked();
+  });
+
+  it("keeps what's written where the room refuses it, saying why until it's changed", async () => {
+    const scheduling = schedulingWith({ answer: SCHEDULE_TIME_REFUSED });
+    const { input, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Later today at 1:00 PM" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(SCHEDULE_TIME_REFUSED);
+    expect(input).toHaveValue("Hello");
+    expect(scheduling.onScheduled).not.toHaveBeenCalled();
+    await user.type(input, "!");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("picks a custom time: a day, and a time that stays as the day changes", async () => {
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Custom time" }));
+    const dialog = await screen.findByRole("dialog", { name: "Schedule message" });
+    expect(dialog).toHaveTextContent(/Time zone: \S/);
+    const day = within(dialog).getByRole("combobox", { name: "Date" });
+    const time = within(dialog).getByRole("combobox", { name: "Time" });
+    expect([day, time].map((select) => (select as HTMLSelectElement).selectedOptions[0]!.textContent)).toEqual(["Today", "11:00 AM"]);
+
+    await user.selectOptions(day, "Tomorrow");
+    expect((time as HTMLSelectElement).selectedOptions[0]!.textContent).toBe("11:00 AM");
+    await user.click(within(dialog).getByRole("button", { name: "Schedule Message" }));
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith("<p>Hello</p>", new Date(2026, 10, 18, 11), undefined);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("schedules no files, which go as they're sent, nor commands", async () => {
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ scheduling, onCommand: vi.fn((_written: WrittenCommand) => Promise.resolve(true)) });
+    await user.type(input, "Hello");
+    await user.upload(fileField(), fileOf("notes.txt"));
+    expect(scheduleButton()).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+    await user.clear(input);
+    await user.type(input, "/shrug ok");
+    expect(scheduleButton()).toBeDisabled();
+    await user.clear(input);
+    await user.type(input, "/nope later");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("/nope isn't a command.");
+    expect(scheduling.schedule).not.toHaveBeenCalled();
+  });
+
+  it("isn't there where the room doesn't schedule, as in a huddle's thread", async () => {
+    await showComposer({ threadId: "m1" });
+    expect(screen.queryByRole("button", { name: "Schedule for later" })).not.toBeInTheDocument();
+  });
+
+  it("counts what's scheduled where it writes over the card: in the room, a DM, or a thread", async () => {
+    const scheduled = [scheduledAs("s1"), scheduledAs("s2", { parentId: "m1" }), scheduledAs("s3", { parentId: "m1" }), scheduledAs("s4", { parentId: "m2" })];
+    for (const [shown, line] of [
+      [{}, "1 scheduled message in #general"],
+      [{ direct: true }, "1 scheduled message in this conversation"],
+      [{ threadId: "m1" }, "2 scheduled messages in this thread"],
+    ] as const) {
+      const { view } = await showComposer({ ...shown, scheduling: schedulingWith({ scheduled }) });
+      expect(screen.getByRole("button", { name: line })).toBeInTheDocument();
+      view.unmount();
+    }
+    await showComposer({ threadId: "m3", scheduling: schedulingWith({ scheduled }) });
+    expect(screen.queryByRole("button", { name: /scheduled message/ })).not.toBeInTheDocument();
+  });
+
+  it("lists them, soonest first, to edit, reschedule, send now or delete, saying why a change couldn't go", async () => {
+    const scheduled = [scheduledAs("s1", { body: "<p>First</p>" }), scheduledAs("s2", { body: "<p>Second</p>", sendAt: new Date(2026, 10, 26, 9).toISOString(), failure: "Its thread's message has been deleted." })];
+    const scheduling = schedulingWith({ scheduled });
+    const { input, user } = await showComposer({ scheduling });
+    await user.click(screen.getByRole("button", { name: "2 scheduled messages in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    const [first, second] = within(dialog).getAllByRole("listitem");
+    expect(first).toHaveTextContent("Scheduled for tomorrow at 9:00 AMFirst");
+    expect(second).toHaveTextContent("Scheduled for Thursday, November 26 at 9:00 AMSecondIts thread's message has been deleted.");
+
+    await user.click(within(first!).getByRole("button", { name: "Send now" }));
+    expect(scheduling.sendNow).toHaveBeenCalledExactlyOnceWith("s1");
+    await user.click(within(second!).getByRole("button", { name: "Reschedule" }));
+    await user.click(screen.getByRole("menuitem", { name: "Monday at 9:00 AM" }));
+    expect(scheduling.reschedule).toHaveBeenCalledExactlyOnceWith("s2", new Date(2026, 10, 23, 9));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    await user.click(within(second!).getByRole("button", { name: "Delete" }));
+    await user.click(within(second!).getByRole("button", { name: "Delete" }));
+    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this scheduled message?");
+    expect(scheduling.remove).toHaveBeenCalledExactlyOnceWith("s2");
+
+    await user.click(within(first!).getByRole("button", { name: "Edit" }));
+    const editor = await within(first!).findByRole("textbox", { name: "Edit message" });
+    await user.type(editor, " and more");
+    scheduling.edit.mockReturnValueOnce("Not connected. Try again once you're reconnected.");
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Not connected.");
+    // Kept to try again.
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    expect(scheduling.edit).toHaveBeenLastCalledWith("s1", "<p>First and more</p>");
+    expect(within(first!).queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(within(first!).getByRole("button", { name: "Edit" })).toHaveFocus();
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("takes Escape in a message being edited to close its editor, and only then the list", async () => {
+    const scheduling = schedulingWith({ scheduled: [scheduledAs("s1", { body: "<p>First</p>" })] });
+    const { input, user } = await showComposer({ scheduling });
+    await user.click(screen.getByRole("button", { name: "1 scheduled message in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    await user.click(within(dialog).getByRole("button", { name: "Edit" }));
+    await user.type(await within(dialog).findByRole("textbox", { name: "Edit message" }), " and more");
+    await user.keyboard("{Escape}");
+    expect(within(dialog).queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Scheduled messages" })).toBe(dialog);
+    expect(within(dialog).getByRole("button", { name: "Edit" })).toHaveFocus();
+    expect(scheduling.edit).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Scheduled messages" })).not.toBeInTheDocument());
+    await waitFor(() => expect(input).toHaveFocus());
   });
 });
 
