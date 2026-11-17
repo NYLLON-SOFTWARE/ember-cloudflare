@@ -6,6 +6,7 @@ import { HEADING_TAGS, NOT_IN_CODE_BLOCKS, PLAIN_TEXT, type FormattingCommand, t
 // line, and what the row shows of the text where the cursor is.
 
 const {
+  $copyNode,
   $createTextNode,
   $findMatchingParent,
   $getNodeByKey,
@@ -90,8 +91,38 @@ const LINE_STYLES = new Set<FormattingCommand>(["paragraph", ...HEADING_TAGS, "o
 /** Formats what's selected, or what's typed next, as a button of the formatting row does. */
 export function $applyFormatting(lexxy: FormattedEditor, command: FormattingCommand) {
   if (lexxy.selection.isInsideCodeBlock && NOT_IN_CODE_BLOCKS.has(command)) return;
-  if (LINE_STYLES.has(command)) $keepingSelection(() => $format(lexxy, command));
-  else $format(lexxy, command);
+  if (LINE_STYLES.has(command)) {
+    if (command !== "paragraph") $emptyLastLineOnItsOwn();
+    $keepingSelection(() => $format(lexxy, command));
+  } else {
+    $format(lexxy, command);
+  }
+}
+
+/**
+ * Gives the empty line the cursor's on at the end of a paragraph of lines, as Shift+Enter leaves it, a
+ * paragraph of its own, so a style goes to that line alone, as Slack styles it. Lexxy takes the line break
+ * before it for the end of the line above, which it styles with it, and what's typed next goes on the end
+ * of that.
+ */
+function $emptyLastLineOnItsOwn() {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.type !== "element") return;
+  const paragraph = selection.anchor.getNode();
+  if (!$isParagraphNode(paragraph) || selection.anchor.offset !== paragraph.getChildrenSize()) return;
+  const lineBreak = paragraph.getLastChild();
+  if (!$isLineBreakNode(lineBreak)) return;
+  const { format, style } = selection;
+  lineBreak.remove();
+  const line = $copyNode(paragraph);
+  paragraph.insertAfter(line);
+  line.select();
+  // What's typed next keeps the formatting it was to have.
+  const moved = $getSelection();
+  if ($isRangeSelection(moved)) {
+    moved.setFormat(format);
+    moved.setStyle(style);
+  }
 }
 
 /**

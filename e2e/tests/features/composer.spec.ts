@@ -363,6 +363,89 @@ test.describe("Formatting row", () => {
     await expect(ada.composer().locator("li")).toHaveText("Hello big wide world");
   });
 
+  test("styles just the empty line Shift+Enter leaves, so a list, a quote, a heading or code starts under a line, as in Slack", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.composer().pressSequentially("Launch plan");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().press("ControlOrMeta+Shift+8");
+    await ada.composer().pressSequentially("Press kit");
+    await expect(ada.composer().locator(":scope > p")).toHaveText("Launch plan");
+    await expect(ada.composer().locator("ul > li")).toHaveText(["Press kit"]);
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("FAQ");
+    await ada.composer().press("Enter");
+    const plan = grace.message("Launch plan").locator(".message-content");
+    await expect(plan.locator(":scope > p")).toHaveText("Launch plan");
+    await expect(plan.locator("ul > li")).toHaveText(["Press kit", "FAQ"]);
+
+    // The row's buttons, and its headings, as its keys do.
+    for (const [style, selector] of [
+      ["Ordered list", "ol > li"],
+      ["Blockquote", "blockquote"],
+      ["Code block", "code"],
+      ["Big heading", "h1"],
+    ] as const) {
+      await ada.composer().pressSequentially("Above");
+      await ada.composer().press("Shift+Enter");
+      if (style === "Big heading") {
+        await tool(ada, "Paragraph").click();
+        await paragraphStyle(ada, style).click();
+      } else {
+        await tool(ada, style).click();
+      }
+      await ada.composer().pressSequentially("Below");
+      await expect(ada.composer().locator(":scope > p"), style).toHaveText("Above");
+      await expect(ada.composer().locator(selector), style).toHaveText("Below");
+      await write(ada, "");
+    }
+  });
+
+  test("lists the line - or * and a space start, or 1. and a space, on any line, as Slack does, as > quotes it", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.composer().pressSequentially("Launch plan");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("- Press kit");
+    await expect(ada.composer().locator(":scope > p")).toHaveText("Launch plan");
+    await expect(ada.composer().locator("ul > li")).toHaveText(["Press kit"]);
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("FAQ");
+    // Shift+Enter on an empty item ends the list.
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("Then");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("1. Ship it");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("Celebrate");
+    await ada.composer().press("Enter");
+    const plan = grace.message("Launch plan").locator(".message-content");
+    await expect(plan.locator(":scope > p")).toHaveText(["Launch plan", "Then"]);
+    await expect(plan.locator("ul > li")).toHaveText(["Press kit", "FAQ"]);
+    await expect(plan.locator("ol > li")).toHaveText(["Ship it", "Celebrate"]);
+
+    // * too, and on the first of two lines, just that line.
+    await ada.composer().pressSequentially("Milk");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("from the shop");
+    await ada.composer().press("ArrowUp");
+    await ada.composer().press("Home");
+    // Lexical hears the caret move with the selectionchange after the key, as a frame goes by.
+    await ada.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await ada.composer().pressSequentially("* ");
+    await expect(ada.composer().locator("ul > li")).toHaveText(["Milk"]);
+    await expect(ada.composer().locator(":scope > p")).toHaveText("from the shop");
+
+    // Anywhere else, and with another number, it's written as typed.
+    await write(ada, "");
+    await ada.composer().pressSequentially("Price - 5");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("2. Two");
+    await expect(ada.composer().locator("li")).toHaveCount(0);
+    await expect(ada.composer()).toHaveText("Price - 5\n2. Two", { useInnerText: true });
+  });
+
   test("keeps what's selected as it styles the line, so what's typed next takes only its place", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const select = async (word: string, before: string) => {
