@@ -7,6 +7,7 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import { FILES_NOT_SCHEDULED } from "./schedule-send";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
@@ -669,17 +670,43 @@ describe("Schedule a message", () => {
     expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>After lunch</p>");
   });
 
-  it("drops picked files once the room has taken the schedule", async () => {
+  it("won't schedule while files are picked, and keeps them, since only what's written is scheduled", async () => {
     const onSchedule = vi.fn((_body: string, _sendAt: string) => true);
     const { input, user } = await showComposer({ onSchedule });
     await user.upload(attachFiles(), fileOf("notes.txt"));
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    expect(screen.getByRole("button", { name: "Schedule" })).toBeDisabled();
+    expect(screen.getByText(FILES_NOT_SCHEDULED)).toBeInTheDocument();
+    expect(onSchedule).not.toHaveBeenCalled();
     expect(chips()).toEqual(["Remove notes.txt"]);
+    expect(input).toHaveValue("After lunch");
+  });
+
+  it("leaves what's written since, and its draft, when the room takes the schedule later", async () => {
+    let accept = (_accepted: boolean) => {};
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => new Promise<boolean>((resolve) => (accept = resolve)));
+    const { input, user } = await showComposer({ onSchedule });
     await user.type(input, "After lunch");
     await user.click(screen.getByRole("button", { name: "Schedule send" }));
     await user.click(screen.getByRole("button", { name: "Schedule" }));
-    expect(onSchedule).toHaveBeenCalledOnce();
-    expect(chips()).toEqual([]);
+    expect(onSchedule.mock.calls[0]![0]).toBe("<p>After lunch</p>");
+    await user.type(input, " and tea");
+    await act(async () => accept(true));
+    expect(input).toHaveValue("After lunch and tea");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>After lunch and tea</p>");
+  });
+
+  it("empties the box when the room takes the schedule later and nothing was written since", async () => {
+    let accept = (_accepted: boolean) => {};
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => new Promise<boolean>((resolve) => (accept = resolve)));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    await act(async () => accept(true));
     expect(input).toHaveValue("");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
   });
 });
 

@@ -97,6 +97,30 @@ describe("Schedule a message to send later", () => {
     expect((await connect(room, "Linus")).welcome.messages).toEqual([]);
   });
 
+  it("posts nothing and clears the wake-up when it rings with no message waiting, as after a restart before the message was saved", async () => {
+    const clock = freezeClock();
+    const room = await freshRoom("unsaved");
+    const ada = await connect(room, "Ada");
+    // What a restart between saving the wake-up and the message leaves behind.
+    await runInDurableObject(roomStub(room), async (_room, state: DurableObjectState) => {
+      await state.storage.put("scheduledRoom", room);
+      await state.storage.setAlarm(clock.now() + 60_000);
+    });
+
+    clock.advance(60_000);
+    await ring(room);
+    await settle(ada);
+    expect(ada.pending("message.created")).toEqual([]);
+    expect(await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => state.storage.get("scheduledRoom"))).toBeUndefined();
+
+    // A message scheduled after it still sends.
+    ada.send({ type: "message.schedule", clientMessageId: "c1", body: "<p>Still here</p>", sendAt: clock.iso(clock.now() + 60_000) });
+    await ada.next("scheduled.created");
+    clock.advance(60_000);
+    await ring(room);
+    expect((await ada.next("message.created")).message).toMatchObject({ clientMessageId: "c1", plainText: "Still here" });
+  });
+
   it("refuses a send time that has already passed, and does not post the message", async () => {
     const clock = freezeClock();
     const ada = await connect(await freshRoom("past"), "Ada");

@@ -27,6 +27,8 @@ export function utcIsoFromLocalInput(value: string): string | null {
 
 export const SEND_AT_SKIPPED = "That time doesn't exist on your clock. Choose another.";
 
+export const FILES_NOT_SCHEDULED = "Files can't be scheduled. Send them now, or remove them to schedule what's written.";
+
 const inAnHour = () => {
   const date = new Date(Date.now() + 60 * 60 * 1000);
   date.setSeconds(0, 0);
@@ -38,6 +40,8 @@ interface Props {
   scheduled: ScheduledMessage[];
   /** Whether the composer has anything to schedule. */
   canSchedule: boolean;
+  /** Why nothing can be scheduled now, said under the time. */
+  unavailable?: string;
   /** Schedules what's written for `sendAt`, answering whether it went. */
   onSchedule: (sendAt: string) => boolean;
   onCancel: (scheduledId: string) => void;
@@ -49,7 +53,7 @@ const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center 
  * The composer's clock: pick a future send time in the reader's zone, see waiting messages, and
  * cancel one. Times go to the room as UTC.
  */
-export function ScheduleSend({ disabled, scheduled, canSchedule, onSchedule, onCancel }: Props) {
+export function ScheduleSend({ disabled, scheduled, canSchedule, unavailable, onSchedule, onCancel }: Props) {
   const [open, setOpen] = useState(false);
   const [when, setWhen] = useState(() => localInputFromDate(inAnHour()));
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +115,7 @@ export function ScheduleSend({ disabled, scheduled, canSchedule, onSchedule, onC
               className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             />
           </label>
+          {unavailable && <p className="text-xs text-muted-foreground">{unavailable}</p>}
           {error && (
             <p role="alert" className="text-xs text-destructive">
               {error}
@@ -119,6 +124,7 @@ export function ScheduleSend({ disabled, scheduled, canSchedule, onSchedule, onC
           <button
             type="button"
             disabled={disabled || !canSchedule}
+            title={unavailable}
             onClick={submit}
             className="flex h-9 cursor-pointer items-center justify-center rounded-md bg-foreground px-3 text-sm font-medium text-background hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50"
           >

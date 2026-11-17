@@ -1028,9 +1028,11 @@ export class ChatRoom extends DurableObject<Env> {
           return this.send(ws, { type: "error", message: TOO_MANY_SCHEDULED, clientMessageId, failed: frame.type });
         }
         const sendAt = new Date(sendAtMs).toISOString();
-        const scheduled = await store.schedule(sortableId(), clientMessageId, user, body, sendAt, isoNow());
+        // The wake-up is saved before the message, so a restart between the two can't leave a message
+        // nothing wakes to send. One that rings with nothing waiting finds nothing due and clears itself.
         await this.ctx.storage.put(SCHEDULED_ROOM, store.roomId);
         await this.wakeForScheduled(sendAtMs);
+        const scheduled = await store.schedule(sortableId(), clientMessageId, user, body, sendAt, isoNow());
         this.sendTo(user.id, { type: "scheduled.created", scheduled });
         markTyping(ws, false);
         return;

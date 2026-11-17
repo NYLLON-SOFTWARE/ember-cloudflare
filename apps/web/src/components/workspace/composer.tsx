@@ -10,7 +10,7 @@ import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
-import { ScheduleSend } from "./schedule-send";
+import { FILES_NOT_SCHEDULED, ScheduleSend } from "./schedule-send";
 
 /**
  * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
@@ -406,26 +406,34 @@ export function Composer({
     written.focus();
   };
 
-  const finishSchedule = (written: RichTextEditorHandle, accepted: boolean) => {
+  // Once the room takes `body`, it's cleared, and its draft, unless what's written has changed since, as
+  // while the room answered, which is left as it is.
+  const finishSchedule = (body: string, accepted: boolean) => {
     if (!accepted) return;
+    const written = editor.current;
+    if (!written) {
+      if (readDraft(key) === body) keepDraft(key, null);
+      return;
+    }
+    if (written.isBlank() || written.value() !== body) return;
     wasBlank.current = true;
     written.clear();
     keepDraft(key, null);
     setHasText(false);
-    picked.clear();
   };
 
   const schedule = (sendAt: string) => {
-    if (disabled || !onSchedule) return false;
+    if (disabled || !onSchedule || picked.files.length > 0) return false;
     const written = editor.current;
     if (!written || written.isBlank()) return false;
-    const result = onSchedule(written.value(), sendAt);
+    const body = written.value();
+    const result = onSchedule(body, sendAt);
     if (result === false) return false;
     if (result === true) {
-      finishSchedule(written, true);
+      finishSchedule(body, true);
       return true;
     }
-    void result.then((accepted) => finishSchedule(editor.current ?? written, accepted));
+    void result.then((accepted) => finishSchedule(body, accepted));
     return true;
   };
 
@@ -555,7 +563,9 @@ export function Composer({
               <ScheduleSend
                 disabled={disabled}
                 scheduled={scheduled}
-                canSchedule={hasText && editorShown}
+                canSchedule={hasText && editorShown && picked.files.length === 0}
+                // Only what's written is scheduled, so files picked wait to be sent or removed.
+                unavailable={picked.files.length > 0 ? FILES_NOT_SCHEDULED : undefined}
                 onSchedule={schedule}
                 onCancel={onCancelScheduled ?? (() => {})}
               />
