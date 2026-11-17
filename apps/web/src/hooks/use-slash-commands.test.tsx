@@ -12,9 +12,9 @@ import { PeopleContext } from "./use-directory";
 import { navigate, NEW_DIRECT_PATH, roomPath, roomSettingsPath } from "./use-route";
 import { useSlashCommands } from "./use-slash-commands";
 
-const { flash, handOver } = vi.hoisted(() => ({ flash: vi.fn(), handOver: vi.fn() }));
+const { flash, sendAway } = vi.hoisted(() => ({ flash: vi.fn(), sendAway: vi.fn(async () => true) }));
 vi.mock("@/components/flash", () => ({ useFlash: () => flash }));
-vi.mock("@/lib/outbox", () => ({ handOver }));
+vi.mock("@/lib/outbox", () => ({ sendAway }));
 vi.mock("./use-route", async (importOriginal) => ({ ...(await importOriginal<typeof import("./use-route")>()), navigate: vi.fn() }));
 
 const person = (id: string, name: string): DirectoryUser => ({ id, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${id}/avatar` });
@@ -173,6 +173,19 @@ describe("/ commands", () => {
     expect(flash).toHaveBeenLastCalledWith("alert", "Only administrators and the room's creator can add people to #design.");
   });
 
+  it("adds and removes each of two people /invite and /remove mention who share a name", async () => {
+    const otherGrace = person("grace00000000002", "Grace Hopper");
+    const settings = (members: DirectoryUser[]): RoomSettings => ({ room: design, canAdminister: true, people: [ada, grace, otherGrace].map((p) => ({ id: p.id, name: p.name, member: members.includes(p) })) });
+    const both = `${mention(grace)} ${mention(otherGrace)}`;
+    serve({ "GET /api/rooms/design/settings": settings([ada]), "PATCH /api/rooms/design": { room: design } });
+    expect(await runIn(design).run(written("", `<p>/invite ${both}</p>`))).toBe(true);
+    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design", { kind: "closed", memberIds: [ada.id, grace.id, otherGrace.id] }]);
+
+    serve({ "GET /api/rooms/design/settings": settings([ada, grace, otherGrace]), "PATCH /api/rooms/design": { room: design } });
+    expect(await runIn(design).run(written("", `<p>/remove ${both} ${mention(grace)}</p>`))).toBe(true);
+    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design", { kind: "closed", memberIds: [ada.id] }]);
+  });
+
   it("opens the room's settings for /invite with nobody named, and says everyone's in an open room", async () => {
     await runIn(design).run(written("/invite"));
     expect(navigate).toHaveBeenLastCalledWith(roomSettingsPath("closed", design.id));
@@ -233,16 +246,23 @@ describe("/ commands", () => {
     expect(await run(written("", `<p>/msg ${mention(grace)} lunch at <strong>noon</strong>?</p>`))).toBe(true);
     expect(requests()).toEqual([["POST", "/api/directs", { userIds: [grace.id] }]]);
     expect(answers).toEqual([{ type: "saved", room: withGrace }]);
-    expect(handOver).toHaveBeenCalledExactlyOnceWith(withGrace.id, [
+    expect(sendAway).toHaveBeenCalledExactlyOnceWith(
+      withGrace.id,
       expect.objectContaining({ roomId: withGrace.id, body: "<p>lunch at <strong>noon</strong>?</p>", plainText: "lunch at noon?", creator: me, queued: true }),
-    ]);
+    );
     expect(flash).toHaveBeenLastCalledWith("notice", "Sent to Grace Hopper.");
+  });
+
+  it("says /msg's message wasn't sent where the room didn't take it, keeping it to send again", async () => {
+    sendAway.mockResolvedValueOnce(false);
+    expect(await runIn(general).run(written("/msg #design see the brief"))).toBe(false);
+    expect(flash).toHaveBeenCalledExactlyOnceWith("alert", "Your message to #design wasn't sent.");
   });
 
   it("sends /msg's message to a room it names, or to this one as written here, and opens the conversation with nothing to send", async () => {
     const { run, onSend } = runIn(general);
     await run(written("/msg #design see the brief"));
-    expect(handOver).toHaveBeenCalledExactlyOnceWith(design.id, [expect.objectContaining({ body: "<p>see the brief</p>" })]);
+    expect(sendAway).toHaveBeenCalledExactlyOnceWith(design.id, expect.objectContaining({ body: "<p>see the brief</p>" }));
     expect(await run(written("/msg #general hello all"))).toBe(true);
     expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>hello all</p>");
     await run(written("/msg #design"));

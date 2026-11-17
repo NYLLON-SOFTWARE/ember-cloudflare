@@ -102,6 +102,15 @@ function showDraft(key: string, lookAgain: () => void): () => void {
 }
 
 /**
+ * Keeps `body` as the draft under `key` where there's none, as a command that didn't run is kept once its
+ * composer has gone, and has the composers showing it look again.
+ */
+function restoreDraft(key: string, body: string): void {
+  if (readDraft(key) !== undefined || !keepDraft(key, body)) return;
+  for (const lookAgain of showing.get(key) ?? []) lookAgain();
+}
+
+/**
  * How tall the editor will be (rich-text-editor.css: 40px, or 30px below 900px wide, and the 4px under the
  * text, and under the formatting row, the 6px over it), which the composer keeps for it while it loads and
  * until it's drawn its text, so the composer doesn't move meanwhile.
@@ -497,11 +506,19 @@ export function Composer({
     setUsage(null);
   };
 
+  // A command that didn't run is written again, to put right, unless something else has been written
+  // meanwhile: in the editor, or, where the composer has gone, as when its room was left meanwhile, as its
+  // draft, which it opens with.
+  const writeAgain = (markup: string) => {
+    const written = editor.current;
+    if (!written) restoreDraft(key, markup);
+    else if (written.isBlank()) written.replace(markup);
+  };
+
   // Runs the command written, as Slack does: /shrug sends the message with ¯\_(ツ)_/¯ at its end, and the
   // files picked; /snippet opens Text snippet, leaving what follows it written; and the room runs the rest,
   // one at a time, which empties the composer as it starts, as it may leave the room. One that doesn't
-  // run is written again, to put right, unless something else has been written meanwhile. A / that names
-  // no command says so, and sends nothing.
+  // run is written again. A / that names no command says so, and sends nothing.
   const run = (written: RichTextEditorHandle, typedIn: NonNullable<ReturnType<typeof commandIn>>) => {
     const { command, typed, markup } = typedIn;
     if (!command) return setNotACommand(`/${typed.name} isn't a command. To send a message that starts with /, put a space before it.`);
@@ -520,7 +537,7 @@ export function Composer({
       .catch(() => false)
       .then((ran) => {
         running.current = false;
-        if (!ran && written.isBlank()) written.replace(markup);
+        if (!ran) writeAgain(markup);
       });
   };
 

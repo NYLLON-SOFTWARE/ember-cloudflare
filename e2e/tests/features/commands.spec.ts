@@ -68,6 +68,17 @@ async function open(member: Member, room: TestRoom): Promise<void> {
 const text = (field: Locator) => field.evaluate((element) => element.textContent);
 
 /**
+ * Empties the composer as you would, selecting what's written and deleting it. `fill("")` selects it by
+ * script and presses Delete at once, which Lexical can take before it hears of the selection, deleting
+ * nothing, or only a letter of it.
+ */
+async function clear(field: Locator): Promise<void> {
+  await field.press("ControlOrMeta+a");
+  await field.press("Delete");
+  await expect(field).toHaveText("");
+}
+
+/**
  * Waits for Lexxy to hear the / that opens the list again: it looks again at what's typed 50 ms after the
  * last key, even once a pick has closed the list, closing it again where the / has gone, and a closed list
  * opens again only from the next frame on.
@@ -92,13 +103,13 @@ test.describe("/ commands", () => {
     await expect(usage(ada)).toHaveText("/shrug [your message] Append ¯\\_(ツ)_/¯ to the end of your message");
 
     await listSettled(ada);
-    await field.fill("");
+    await clear(field);
     await field.pressSequentially("/sea");
     await field.press("Tab");
     expect(await text(field)).toBe("/search ");
     await expect(usage(ada)).toHaveText("/search [your search terms] Search messages");
     await listSettled(ada);
-    await field.fill("");
+    await clear(field);
     await field.pressSequentially("/");
     await commandList(ada).getByRole("option", { name: /^\/darkmode/ }).click();
     expect(await text(field)).toBe("/darkmode ");
@@ -115,7 +126,7 @@ test.describe("/ commands", () => {
       ["MU", "/mute "],
     ] as const) {
       await listSettled(ada);
-      await field.fill("");
+      await clear(field);
       // The list shows a frame after the /, and then lists for what follows it once typing pauses.
       await field.pressSequentially("/");
       await expect(commandList(ada)).toBeVisible();
@@ -132,7 +143,7 @@ test.describe("/ commands", () => {
     await field.pressSequentially("/mu ");
     await expect(commandList(ada)).toBeHidden();
     expect(await text(field)).toBe("/mu ");
-    await field.fill("");
+    await clear(field);
 
     await field.pressSequentially("/r/programming is great");
     await expect(commandList(ada)).toBeHidden();
@@ -189,7 +200,7 @@ test.describe("/ commands", () => {
     await open(ada, leads);
     await ada.composer().pressSequentially("/re");
     await expect(listed(ada)).toHaveText(["/remove", "/rename"]);
-    await ada.composer().fill("");
+    await clear(ada.composer());
 
     await mention(ada, "/invite ", tag, `Grace ${tag}`);
     await ada.composer().press("Enter");

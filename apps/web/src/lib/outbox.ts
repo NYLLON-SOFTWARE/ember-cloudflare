@@ -13,6 +13,8 @@ interface Outbox {
   /** In the order they were written: waiting to be sent, sent without the room saying it has them, or not sent. */
   messages: PendingMessage[];
   socket: ReconnectingSocket | null;
+  /** What waits to hear whether the room has a message sent to it from another, by the message's client id. */
+  awaited: Map<string, (sent: boolean) => void>;
 }
 
 /** By room. */
@@ -37,10 +39,27 @@ export function leftUnsent({ messages, status, connections }: RoomState): Pendin
  */
 export function handOver(roomId: string, messages: PendingMessage[]): void {
   if (messages.length === 0) return;
-  const outbox = outboxes.get(roomId) ?? { messages: [], socket: null };
-  outboxes.set(roomId, outbox);
+  const outbox = outboxOf(roomId);
   outbox.messages = [...outbox.messages, ...messages].sort(byWritten);
   queueMicrotask(() => (outbox.socket ? deliver(outbox) : connect(roomId, outbox)));
+}
+
+/**
+ * Sends `message`, written to room `roomId` from another, as /msg writes one, and answers whether it went:
+ * true once the room says it has it, or a view of the room opening takes it back, to send or show as not
+ * sent itself, and false once it's refused, or the outbox gives up on it, sent or not, which lets it go,
+ * as what wrote it is to say so.
+ */
+export function sendAway(roomId: string, message: PendingMessage): Promise<boolean> {
+  const sent = new Promise<boolean>((answer) => outboxOf(roomId).awaited.set(message.clientMessageId, answer));
+  handOver(roomId, [message]);
+  return sent;
+}
+
+function outboxOf(roomId: string): Outbox {
+  const outbox = outboxes.get(roomId) ?? { messages: [], socket: null, awaited: new Map() };
+  outboxes.set(roomId, outbox);
+  return outbox;
 }
 
 const byWritten = (a: PendingMessage, b: PendingMessage) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
@@ -135,17 +154,28 @@ function createFrame({ clientMessageId, body, parentId, alsoSent }: PendingMessa
 
 /**
  * Stops sending, as a view does once it's been without the room a while: what's waiting shows as not
- * sent, and what went, the view that takes it back asks about.
+ * sent, and what went, the view that takes it back asks about, but for what went from another room, which
+ * nothing would ask about, as no view of the room may open: what wrote it says it wasn't sent.
  */
 function giveUp(roomId: string, outbox: Outbox): void {
-  outbox.messages = notSent(outbox.messages);
+  outbox.messages = notSent(outbox.messages).map((m) => (outbox.awaited.has(m.clientMessageId) ? { ...m, failed: true } : m));
   outbox.socket?.close();
   outbox.socket = null;
   settle(roomId, outbox);
 }
 
-/** Lets the socket go once the room has nothing more to hear, and the outbox once it keeps nothing. */
+/**
+ * Answers what waits to hear about a message the outbox no longer keeps, or keeps as not sent, which goes,
+ * then lets the socket go once the room has nothing more to hear, and the outbox once it keeps nothing.
+ */
 function settle(roomId: string, outbox: Outbox): void {
+  for (const [clientMessageId, answer] of outbox.awaited) {
+    const message = outbox.messages.find((m) => m.clientMessageId === clientMessageId);
+    if (message && !message.failed) continue;
+    outbox.awaited.delete(clientMessageId);
+    outbox.messages = outbox.messages.filter((m) => m !== message);
+    answer(!message);
+  }
   if (!outbox.messages.some(isUnsettled)) {
     outbox.socket?.close();
     outbox.socket = null;

@@ -704,6 +704,36 @@ describe("/ commands", () => {
     await waitFor(() => expect(input).toHaveValue("/mute #nowhere"));
   });
 
+  it("keeps a command that didn't run as its draft where the composer has gone meanwhile, as when its room was left, unless something else is written there", async () => {
+    let answer!: (ran: boolean) => void;
+    const onCommand = vi.fn(() => new Promise<boolean>((resolve) => (answer = resolve)));
+    const first = await showComposer({ onCommand });
+    await first.user.type(first.input, "/mute #nowhere{Enter}");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+    first.view.unmount();
+    await act(async () => answer(false));
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>/mute #nowhere</p>");
+
+    // The composer, open again, takes it up.
+    localStorage.clear();
+    const second = await showComposer({ onCommand });
+    await second.user.type(second.input, "/mute #nowhere{Enter}");
+    second.view.unmount();
+    const third = await showComposer({ onCommand });
+    await act(async () => answer(false));
+    await waitFor(() => expect(within(third.view.container).getByRole("textbox", { name: "Write a message" })).toHaveValue("/mute #nowhere"));
+    third.view.unmount();
+
+    // Though not over what's been written there since.
+    localStorage.clear();
+    const fourth = await showComposer({ onCommand });
+    await fourth.user.type(fourth.input, "/mute #nowhere{Enter}");
+    fourth.view.unmount();
+    localStorage.setItem("composer-draft-u1-r1", "<p>Something else</p>");
+    await act(async () => answer(false));
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Something else</p>");
+  });
+
   it("says a / that names no command isn't one, as Slack does, sending nothing until it's changed", async () => {
     const onCommand = ran();
     const { input, onSend, user } = await showComposer({ onCommand });

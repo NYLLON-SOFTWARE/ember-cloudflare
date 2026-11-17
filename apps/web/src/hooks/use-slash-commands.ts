@@ -8,7 +8,7 @@ import { changeRoom, CONFIRM_LEAVE, fetchRoomSettings, leaveRoom, setInvolvement
 import { chooseAppearance } from "@/lib/appearance";
 import { roomName, toSentence } from "@/lib/directs";
 import { hasHuddles } from "@/lib/huddle-people";
-import { handOver } from "@/lib/outbox";
+import { sendAway } from "@/lib/outbox";
 import type { RoomAnswer } from "@/lib/room-list";
 import { bodyAfter, commandsIn, isBlankBody, mentionAfter, personNamedIn, roomNamedIn, type CommandName, type SlashCommand, type Taken, type WrittenCommand } from "@/lib/slash-commands";
 import { useAccount } from "./use-account";
@@ -71,15 +71,20 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
   };
   const focused = () => (document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
-  /** The people named after an @ at the start of `argument`, one after another, and what follows them. */
+  /**
+   * The people named after an @ at the start of `argument`, one after another, and what follows them. Two
+   * people can share a name, so each mention of it names the next of them mentioned, in turn, and once
+   * they're all found, whom it named before.
+   */
   const peopleIn = (argument: string, mentions: User[]) => {
     const found: User[] = [];
-    let rest = argument;
-    for (let next = personNamedIn(rest, mentions, people.values()); next; next = personNamedIn(rest, mentions, people.values())) {
-      if (!found.some((person) => person.id === next!.named.id)) found.push(next.named);
+    const isFound = (person: User) => found.some(({ id }) => id === person.id);
+    for (let rest = argument; ; ) {
+      const next = personNamedIn(rest, [...mentions.filter((person) => !isFound(person)), ...found], people.values());
+      if (!next) return { found, rest };
+      if (!isFound(next.named)) found.push(next.named);
       rest = next.rest;
     }
-    return { found, rest };
   };
 
   /** The room `argument` names after a #, or this one, where it names none; undefined where it names one that isn't this person's. */
@@ -160,8 +165,10 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       if (roomId === room.id) return onSend(body);
       const { plainText, mentions: mentioned } = writtenBody(body);
       if (isTooLong(body, plainText)) return refuse(MESSAGE_TOO_LONG);
-      // Sent as one written in that room while it was away would be, which shows there as it's opened.
-      handOver(roomId, [{ ...pendingMessage(crypto.randomUUID(), roomId, me, body, plainText, mentioned, new Date().toISOString()), queued: true }]);
+      // Sent as one written in that room while it was away would be, which shows there as it's opened, and
+      // said to be sent once the room has it. One that isn't is written again, to send again.
+      const message = { ...pendingMessage(crypto.randomUUID(), roomId, me, body, plainText, mentioned, new Date().toISOString()), queued: true };
+      if (!(await sendAway(roomId, message))) return refuse(`Your message to ${to.name} wasn't sent.`);
       flash("notice", `Sent to ${to.name}.`);
       return true;
     },

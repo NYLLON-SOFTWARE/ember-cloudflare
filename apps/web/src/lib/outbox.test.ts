@@ -1,6 +1,6 @@
 import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handOver, leftUnsent, takeBack } from "./outbox";
+import { handOver, leftUnsent, sendAway, takeBack } from "./outbox";
 import { OFFLINE_AFTER_MS } from "./reconnecting-socket";
 import { initialRoomState, type PendingMessage } from "./room-state";
 
@@ -224,6 +224,58 @@ describe("Send what was left unsent", () => {
     socket().receive({ type: "message.created", message: stored(waiting("Fine")), seq: 1 });
     expect(socket().closedWith).toBe(1000);
     expect(takeBack("general", ada)).toEqual([{ ...sent("Doomed"), failed: true }]);
+  });
+});
+
+describe("Send to another room", () => {
+  /** Whether what `sending` answers has been answered yet, and how. */
+  const answerOf = async (sending: Promise<boolean>) => Promise.race([sending, Promise.resolve("not yet")]);
+
+  it("answers that a message written to the room from another went once the room has it", async () => {
+    const sending = sendAway("general", waiting("From elsewhere"));
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toEqual([{ type: "message.create", clientMessageId: "From elsewhere", body: "From elsewhere" }]);
+    expect(await answerOf(sending)).toBe("not yet");
+    socket().receive({ type: "message.created", message: stored(waiting("From elsewhere")), seq: 1 });
+    expect(await sending).toBe(true);
+    expect(socket().closedWith).toBe(1000);
+  });
+
+  it("answers that it didn't once the room refuses it, or the outbox gives up, letting it go, as what wrote it says so", async () => {
+    const refused = sendAway("general", waiting("Refused"));
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    socket().receive({ type: "error", message: "Something went wrong", clientMessageId: "Refused", failed: "message.create" });
+    expect(await refused).toBe(false);
+    expect(takeBack("general", ada)).toEqual([]);
+
+    const offline = sendAway("random", waiting("Offline", { roomId: "random" }));
+    await effectsRun();
+    socket().drop();
+    wait(OFFLINE_AFTER_MS);
+    expect(await offline).toBe(false);
+    expect(takeBack("random", ada)).toEqual([]);
+  });
+
+  it("answers that it didn't once it went, but the room was away too long after to say it has it, letting it go", async () => {
+    const sending = sendAway("general", waiting("In doubt"));
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toHaveLength(1);
+    socket().drop();
+    wait(OFFLINE_AFTER_MS);
+    expect(await sending).toBe(false);
+    expect(takeBack("general", ada)).toEqual([]);
+  });
+
+  it("answers that it went once a view of the room opening takes it back, to send or show as not sent itself", async () => {
+    const sending = sendAway("general", waiting("From elsewhere"));
+    expect(takeBack("general", ada)).toEqual([waiting("From elsewhere")]);
+    expect(await sending).toBe(true);
   });
 });
 
