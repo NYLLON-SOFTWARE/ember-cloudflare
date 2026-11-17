@@ -1291,6 +1291,161 @@ describe("Keep drafts", () => {
   });
 });
 
+describe("Manage drafts", () => {
+  const manageDrafts = () => screen.queryByRole("button", { name: "Manage drafts" });
+  const listed = (place = "room") => within(screen.getByRole("group", { name: `Drafts in this ${place}` })).getAllByRole("menuitemradio");
+  const ticked = (place = "room") => listed(place).map((item) => [item.textContent, item.getAttribute("aria-checked")]);
+  /** The drafts put aside in room r1, or in one of its threads, as this browser keeps them, newest first. */
+  const putAside = (threadId?: string) =>
+    (JSON.parse(localStorage.getItem(`composer-draft-u1-r1${threadId ? `/threads/${threadId}` : ""}/saved`) ?? "[]") as { body: string }[]).map((draft) => draft.body);
+  const keepAside = (...bodies: string[]) =>
+    localStorage.setItem("composer-draft-u1-r1/saved", JSON.stringify(bodies.map((body, index) => ({ id: `d${index}`, body, savedAt: bodies.length - index }))));
+
+  it("shows before Send once something's written, as Slack's does, and goes once it's emptied with nothing put aside", async () => {
+    const { input, user, view } = await showComposer({ onCommand: vi.fn((_written: WrittenCommand) => Promise.resolve(true)) });
+    expect(manageDrafts()).not.toBeInTheDocument();
+    await user.type(input, "Hello");
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent).slice(-3)).toEqual(["Run shortcut", "Manage drafts", "Send Message"]);
+
+    await user.clear(input);
+    expect(manageDrafts()).not.toBeInTheDocument();
+  });
+
+  it("puts what's written aside with Save as draft, emptying the composer for another, and lists it, unticked once it's no longer written", async () => {
+    const { input, onTyping, user } = await showComposer();
+    await user.type(input, "First idea{Shift>}{Enter}{/Shift}with a second line");
+    await user.click(manageDrafts()!);
+    expect(screen.getByText("Drafts in this room")).toBeInTheDocument();
+    // Each by its first line.
+    expect(ticked()).toEqual([["First idea", "true"]]);
+
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(input).toHaveValue("");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(sendButton()).toHaveAttribute("data-empty");
+    expect(onTyping).toHaveBeenLastCalledWith(false);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+    expect(putAside()).toEqual(["<p>First idea<br>with a second line</p>"]);
+
+    // It stays, for the draft put aside, which Save as draft can't put aside again.
+    await user.click(manageDrafts()!);
+    expect(ticked()).toEqual([["First idea", "false"]]);
+    expect(screen.getByRole("menuitem", { name: "Save as draft" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("opens a draft put aside in the composer, putting what's written aside in its place, newest first", async () => {
+    keepAside("<p>Newer</p>", "<p>Older</p>");
+    const { input, user } = await showComposer();
+    expect(manageDrafts()).toBeInTheDocument();
+    await user.type(input, "Now");
+    await user.click(manageDrafts()!);
+    expect(ticked()).toEqual([
+      ["Now", "true"],
+      ["Newer", "false"],
+      ["Older", "false"],
+    ]);
+
+    await user.click(screen.getByRole("menuitemradio", { name: "Older" }));
+    expect(input).toHaveValue("Older");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Older</p>");
+    expect(putAside()).toEqual(["<p>Now</p>", "<p>Newer</p>"]);
+
+    // With nothing written, nothing's put aside for the one opened.
+    await user.clear(input);
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitemradio", { name: "Newer" }));
+    expect(input).toHaveValue("Newer");
+    expect(putAside()).toEqual(["<p>Now</p>"]);
+  });
+
+  it("names where the drafts are: a room, a DM, or a thread", async () => {
+    keepAside("<p>Aside</p>");
+    localStorage.setItem("composer-draft-u1-r1/threads/m1/saved", localStorage.getItem("composer-draft-u1-r1/saved")!);
+    for (const [shown, place] of [[{}, "room"], [{ direct: true }, "conversation"], [{ threadId: "m1" }, "thread"]] as const) {
+      const { user, view } = await showComposer(shown);
+      await user.click(manageDrafts()!);
+      expect(ticked(place)).toEqual([["Aside", "false"]]);
+      await user.keyboard("{Escape}");
+      view.unmount();
+    }
+  });
+
+  it("keeps a thread's drafts apart from its room's", async () => {
+    keepAside("<p>For the room</p>");
+    const { input, user } = await showComposer({ threadId: "m1" });
+    expect(manageDrafts()).not.toBeInTheDocument();
+    await user.type(input, "For the thread");
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(putAside("m1")).toEqual(["<p>For the thread</p>"]);
+    expect(putAside()).toEqual(["<p>For the room</p>"]);
+  });
+
+  it("lists the drafts in + where the row has no room for Manage drafts", async () => {
+    keepAside("<p>Aside</p>");
+    const { input, user } = await showComposer();
+    await user.type(input, "Hello");
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.queryByRole("group", { name: "Drafts in this room" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    // As the row's styles hide it, which jsdom has none of.
+    manageDrafts()!.style.display = "none";
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(ticked()).toEqual([
+      ["Hello", "true"],
+      ["Aside", "false"],
+    ]);
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(input).toHaveValue("");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(putAside()).toEqual(["<p>Hello</p>", "<p>Aside</p>"]);
+  });
+
+  it("says so, leaving what's written, where the drafts can't be kept, until it's changed", async () => {
+    const { input, user } = await showComposer();
+    await user.type(input, "Hello");
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.endsWith("/saved")) throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      localStorage[key] = value;
+    });
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(input).toHaveValue("Hello");
+    expect(screen.getByRole("alert")).toHaveTextContent("Your drafts couldn't be saved, as this browser has no room left for them.");
+
+    await user.type(input, "!");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    setItem.mockRestore();
+  });
+
+  it("isn't there where this browser can't keep drafts", async () => {
+    const refuse = () => {
+      throw new DOMException("The operation is insecure.", "SecurityError");
+    };
+    vi.stubGlobal("localStorage", { getItem: refuse, setItem: refuse, removeItem: refuse });
+    const { input, user } = await showComposer();
+    await user.type(input, "Hello");
+    expect(manageDrafts()).not.toBeInTheDocument();
+  });
+
+  it("lists beside the room what a thread's composer in the huddle over it put aside, once that's gone", async () => {
+    const beside = await showComposer({ threadId: "m1" });
+    const huddle = await showComposer({ threadId: "m1", autoFocus: false });
+    await huddle.user.type(huddle.input, "From the huddle");
+    await huddle.user.click(within(huddle.view.container).getByRole("button", { name: "Manage drafts" }));
+    await huddle.user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    huddle.view.unmount();
+
+    expect(beside.input).toHaveValue("");
+    await beside.user.click(manageDrafts()!);
+    expect(ticked("thread")).toEqual([["From the huddle", "false"]]);
+  });
+});
+
 describe("Reply in a thread", () => {
   const alsoSend = () => screen.getByRole("checkbox", { name: "Also send to #general" });
 
@@ -1686,6 +1841,22 @@ describe("Link previews while writing", () => {
       await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
       expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body as string).url)).toEqual(["https://basecamp.com", "http://www.basecamp.com"]);
       expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(true);
+    });
+
+    it("asks for the preview of a link typed in a draft opened in place of what took a pasted link's preview, as it goes", async () => {
+      localStorage.setItem("composer-draft-u1-r1/saved", JSON.stringify([{ id: "d0", body: "<p>See http://www.basecamp.com</p>", savedAt: 1 }]));
+      const fetch = previews(() => Response.json(basecamp));
+      const { onSend, addPreview, input, user } = await showComposer();
+      await user.paste("https://basecamp.com");
+      await screen.findByRole("link", { name: "Basecamp" });
+      await user.click(screen.getByRole("button", { name: "Manage drafts" }));
+      await user.click(screen.getByRole("menuitemradio", { name: "See http://www.basecamp.com" }));
+      await waitFor(() => expect(input).toHaveFocus());
+
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>See http://www.basecamp.com</p>", false);
+      await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
+      expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body as string).url)).toEqual(["https://basecamp.com", "http://www.basecamp.com"]);
     });
 
     it("adds none to a message that took a preview as it was written, even one taken out of it", async () => {

@@ -9,12 +9,14 @@ import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { recordsClips, type ClipKind } from "@/lib/clips";
 import { previewOf } from "@/lib/previews";
 import { dropTarget } from "@/lib/drop-target";
+import { keepSavedDrafts, keepsDrafts, readSavedDrafts, savedDraft, type SavedDraft } from "@/lib/saved-drafts";
 import { breaksLine, hasTouchKeyboard, pressedAlone, sendsMessage, uploadsFiles, writesSnippet } from "@/lib/keyboard";
 import type { Typist } from "@/lib/room-state";
 import { bodyAfter, commandIn, isBlankBody, nameWritten, withShrug, type CommandRunner, type SlashCommand } from "@/lib/slash-commands";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { AttachMenu } from "./attach-menu";
+import { DraftsMenu, type Drafts } from "./drafts-menu";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { EmojiButton } from "./emoji-button";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
@@ -68,6 +70,17 @@ const TOOL = cn(BUTTON, "rounded-[7px] hover:not-active:brightness-85 [@media(ho
 
 /** Record video clip and Record audio clip, which give way on touch screens, and in a card narrower than the row's eight buttons, 270px. */
 const CLIP_BUTTON = "touch:hidden @max-[17rem]:hidden";
+
+/**
+ * Manage drafts, which gives way in a card narrower than the row's nine buttons with it, 304px, or for
+ * fingers, seven, 320px, and where there's no Run shortcut, as in a huddle's thread, one fewer: 270px, or
+ * for fingers, 274px.
+ */
+const DRAFTS_BUTTON = "@max-[19rem]:hidden touch:@max-[20rem]:hidden";
+const DRAFTS_BUTTON_WITHOUT_SHORTCUT = "@max-[17rem]:hidden touch:@max-[17.125rem]:hidden";
+
+/** Whether `button` is in the row under the text, rather than given way, where + has what it does. */
+const shownInRow = (button: HTMLButtonElement | null) => !!button && getComputedStyle(button).display !== "none";
 
 /**
  * Where what someone has written in a room, or in one of its threads, and not yet sent is kept in this
@@ -450,14 +463,16 @@ export interface ComposerHandle {
  * The composer: a card with Slack's formatting row on top, then the editor, and below it Slack's buttons:
  * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
  * Mention someone, Record video clip and Record audio clip, which are in + where the row has no room for
- * them, as on touch screens, as in Slack's apps, Run shortcut, which types / for the commands, and a round
- * Send button, grey until there's something to send. @ offers the room's people to mention, # the rooms
- * you're in, and a / that starts the message Slack's commands Ember can do, a message that starts with one
- * running it. Files picked, pasted or dropped, snippets and clips wait above the card to go with the next
- * message. What's written is kept as a draft until it's sent. A thread's has Also send to the room before
- * Send. A message the room won't take for what it says, as one with a word Blocked words keeps out, comes
- * back to be changed, saying why above the card. One whose @channel, @here or @everyone would notify a
- * room of six or more asks first, as Slack's does.
+ * them, as on touch screens, as in Slack's apps, Run shortcut, which types / for the commands, Manage
+ * drafts, once there are drafts to list, and a round Send button, grey until there's something to send. @
+ * offers the room's people to mention, # the rooms you're in, and a / that starts the message Slack's
+ * commands Ember can do, a message that starts with one running it. Files picked, pasted or dropped,
+ * snippets and clips wait above the card to go with the next message. What's written is kept as a draft
+ * until it's sent, or put aside for another with Manage drafts' Save as draft, which lists it to open
+ * again. A thread's has Also send to the room before Manage drafts and Send. A message the room won't take
+ * for what it says, as one with a word Blocked words keeps out, comes back to be changed, saying why above
+ * the card. One whose @channel, @here or @everyone would notify a room of six or more asks first, as
+ * Slack's does.
  */
 export function Composer({
   roomId,
@@ -504,6 +519,12 @@ export function Composer({
   // The clip being recorded: a video clip in its dialog, or an audio clip over the card. Where the browser can't record one, there are no buttons for them.
   const [recordingClip, setRecordingClip] = useState<ClipKind | null>(null);
   const [clips] = useState(recordsClips);
+  // The drafts put aside here, which Manage drafts lists, and whether they couldn't be kept, which leaves
+  // what's written as it was. Where this browser can't keep them at all, there's no Manage drafts.
+  const [keepsSaved] = useState(keepsDrafts);
+  const [saved, setSaved] = useState(() => readSavedDrafts(key));
+  const [notSaved, setNotSaved] = useState(false);
+  const draftsButton = useRef<HTMLButtonElement>(null);
   // Whether the editor can be written in, which Emoji and Mention someone wait for, since what they wrote before
   // would be lost.
   const [editorReady, setEditorReady] = useState(false);
@@ -540,8 +561,10 @@ export function Composer({
 
   // Another composer of this draft has gone, as a thread's in its huddle goes from over the thread's own,
   // beside its room. Where it left the draft other than this one has it, what it left is what's written
-  // here: the editor opens again with it, as it opened with the draft it found.
+  // here: the editor opens again with it, as it opened with the draft it found. It may have put drafts
+  // aside, or opened them, too.
   const lookAgain = useEffectEvent(() => {
+    setSaved(readSavedDrafts(key));
     const left = readDraft(key) ?? null;
     if (left === kept.current) return;
     kept.current = left;
@@ -595,6 +618,7 @@ export function Composer({
     const body = editor.current!.isBlank() ? null : editor.current!.value();
     wrote(body);
     setNotACommand(null);
+    setNotSaved(false);
     setUsage(onCommand ? commandNamedIn(body) : null);
   };
 
@@ -666,6 +690,48 @@ export function Composer({
         if (body !== undefined) sendNow.current(body);
       },
     );
+
+  // Keeps `drafts` as those put aside here, and lists them, answering whether they could be kept.
+  const keepSaved = (drafts: SavedDraft[]) => {
+    const keeps = keepSavedDrafts(key, drafts);
+    if (keeps) setSaved(drafts);
+    else setNotSaved(true);
+    return keeps;
+  };
+
+  // Save as draft: what's written is put aside, newest of the drafts listed, and the composer empties for another.
+  const putAside = () => {
+    const written = editor.current;
+    if (written && !written.isBlank() && keepSaved([savedDraft(written.value()), ...readSavedDrafts(key)])) doneWith(written);
+  };
+
+  // The draft put aside as `id` is written in the composer, and what's written put aside in its place, with
+  // the previews asked for of its links forgotten, as it's no longer what's written. One that another
+  // composer of this draft has opened meanwhile has gone from the list.
+  const openDraft = (id: string) => {
+    const written = editor.current;
+    const drafts = readSavedDrafts(key);
+    const opened = drafts.find((draft) => draft.id === id);
+    if (!written || !opened) return setSaved(drafts);
+    const others = drafts.filter((draft) => draft !== opened);
+    if (!keepSaved(written.isBlank() ? others : [savedDraft(written.value()), ...others])) return;
+    written.replace(opened.body);
+    linkPreviews.dropped();
+  };
+
+  const drafts: Drafts | undefined = keepsSaved
+    ? {
+        place: threadId !== undefined ? "thread" : direct ? "conversation" : "room",
+        look: () => {
+          const written = editor.current;
+          const listed = readSavedDrafts(key);
+          setSaved(listed);
+          return { written: written && !written.isBlank() ? written.value() : null, saved: listed };
+        },
+        onPutAside: putAside,
+        onOpen: openDraft,
+      }
+    : undefined;
 
   // A command that didn't run is written again, to put right, unless something else has been written
   // meanwhile: in the editor, or, where the composer has gone, as when its room was left meanwhile, as its
@@ -764,8 +830,8 @@ export function Composer({
         {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
-        {/* The files picked, those too large to send, and the command being written, or a / that names none. */}
-        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0 || usage || notACommand) && "pb-2")}>
+        {/* The files picked, those too large to send, and the command being written, or a / that names none, or drafts that couldn't be saved. */}
+        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0 || usage || notACommand || notSaved) && "pb-2")}>
           {picked.files.map(({ key, file }) => (
             <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
           ))}
@@ -777,6 +843,11 @@ export function Composer({
           {notACommand && (
             <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
               {notACommand}
+            </p>
+          )}
+          {notSaved && (
+            <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
+              Your drafts couldn't be saved, as this browser has no room left for them.
             </p>
           )}
           {usage && <CommandUsage command={usage} />}
@@ -841,7 +912,7 @@ export function Composer({
               )}
             </Suspense>
           </div>
-          <div className="flex flex-none items-center gap-0.5 @max-[29rem]:flex-wrap touch:@max-[31rem]:flex-wrap">
+          <div className="flex flex-none items-center gap-0.5 @max-[32rem]:flex-wrap touch:@max-[34rem]:flex-wrap">
             {/* Upload from your computer's, and Cmd or Ctrl+O's, file picker. */}
             <input
               ref={fileField}
@@ -860,7 +931,9 @@ export function Composer({
               onUpload={() => fileField.current?.click()}
               onSnippet={() => setWritingSnippet(true)}
               onRecordClip={clips ? setRecordingClip : undefined}
-              clipsInRow={() => !!videoClipButton.current && getComputedStyle(videoClipButton.current).display !== "none"}
+              clipsInRow={() => shownInRow(videoClipButton.current)}
+              drafts={drafts}
+              draftsInRow={() => shownInRow(draftsButton.current)}
               onClosed={() => editor.current?.focus()}
               // Slack's + sits in a circle of its own.
               className={cn(BUTTON, "rounded-full bg-hover hover:not-active:brightness-95 aria-expanded:brightness-95")}
@@ -939,11 +1012,12 @@ export function Composer({
             )}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. Where
                 the buttons would leave the label too little room, it takes a line of its own above them, with its
-                box over the middle of +: under 31rem for fingers' bigger buttons, as on a phone held upright, and
-                under 29rem otherwise, with the clips' two more, as in a thread beside its room, and a huddle's. A
-                button added to the row takes room from the label, so these grow with it. */}
+                box over the middle of +: under 34rem for fingers' bigger buttons, as on a phone held upright, and
+                under 32rem otherwise, with the clips' two more, as in a thread beside its room, and a huddle's. A
+                button added to the row takes room from the label, so these grow with it, as for Manage drafts,
+                whose room is kept while it isn't there, so the label doesn't move as it comes. */}
             {threadId !== undefined && (
-              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[29rem]:order-first @max-[29rem]:mr-0 @max-[29rem]:ml-2 @max-[29rem]:min-h-7 @max-[29rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[31rem]:order-first touch:@max-[31rem]:mr-0 touch:@max-[31rem]:basis-full">
+              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[32rem]:order-first @max-[32rem]:mr-0 @max-[32rem]:ml-2 @max-[32rem]:min-h-7 @max-[32rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[34rem]:order-first touch:@max-[34rem]:mr-0 touch:@max-[34rem]:basis-full">
                 <input
                   type="checkbox"
                   checked={alsoSend}
@@ -962,25 +1036,37 @@ export function Composer({
                 </span>
               </label>
             )}
-            <ShortcutTooltip label="Send message">
-              <button
-                type="submit"
-                disabled={disabled}
-                data-empty={(blank && picked.files.length === 0) || undefined}
-                // Keep focus in the editor, so a phone's keyboard stays up between messages.
-                onMouseDown={(event) => event.preventDefault()}
-                className={cn(
-                  BUTTON,
-                  "ml-auto rounded-full bg-foreground text-background hover:not-active:brightness-70",
-                  // Slack's paper plane is grey, with nothing behind it, until there's something to send.
-                  "data-empty:bg-transparent data-empty:text-muted-foreground data-empty:hover:not-active:brightness-100",
-                  "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
-                )}
-              >
-                <Send className="size-[18px]" />
-                <span className="sr-only">Send Message</span>
-              </button>
-            </ShortcutTooltip>
+            <div className="ml-auto flex items-center gap-0.5">
+              {/* Once there's something written, or put aside, to list, as Slack's shows once something's written. */}
+              {drafts && (!blank || saved.length > 0) && (
+                <DraftsMenu
+                  ref={draftsButton}
+                  drafts={drafts}
+                  disabled={disabled || !editorReady}
+                  onClosed={() => editor.current?.focus()}
+                  className={cn(TOOL, onCommand ? DRAFTS_BUTTON : DRAFTS_BUTTON_WITHOUT_SHORTCUT)}
+                />
+              )}
+              <ShortcutTooltip label="Send message">
+                <button
+                  type="submit"
+                  disabled={disabled}
+                  data-empty={(blank && picked.files.length === 0) || undefined}
+                  // Keep focus in the editor, so a phone's keyboard stays up between messages.
+                  onMouseDown={(event) => event.preventDefault()}
+                  className={cn(
+                    BUTTON,
+                    "rounded-full bg-foreground text-background hover:not-active:brightness-70",
+                    // Slack's paper plane is grey, with nothing behind it, until there's something to send.
+                    "data-empty:bg-transparent data-empty:text-muted-foreground data-empty:hover:not-active:brightness-100",
+                    "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
+                  )}
+                >
+                  <Send className="size-[18px]" />
+                  <span className="sr-only">Send Message</span>
+                </button>
+              </ShortcutTooltip>
+            </div>
           </div>
         </div>
       </form>
