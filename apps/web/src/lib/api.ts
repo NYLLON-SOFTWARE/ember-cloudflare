@@ -48,6 +48,7 @@ import {
   type MemberfulConnection,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
+  type MembersChange,
   type NewAssistantModel,
   type OfferedModels,
   type NewDirect,
@@ -986,6 +987,11 @@ export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
 /** Changes a room, answering it as it is then. */
 export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<SharedRoom> {
   return (await request<{ room: SharedRoom }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
+}
+
+/** Puts people in a private room, and takes people out of it, leaving everyone else as they are, answering the room. */
+export async function changeMembers(roomId: RoomId, change: MembersChange): Promise<SharedRoom> {
+  return (await request<{ room: SharedRoom }>(`/api/rooms/${encodeURIComponent(roomId)}/members`, { method: "PATCH", body: JSON.stringify(change) })).room;
 }
 
 /**

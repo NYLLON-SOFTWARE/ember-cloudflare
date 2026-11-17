@@ -722,6 +722,7 @@ describe("/ commands", () => {
     const third = await showComposer({ onCommand });
     await act(async () => answer(false));
     await waitFor(() => expect(within(third.view.container).getByRole("textbox", { name: "Write a message" })).toHaveValue("/mute #nowhere"));
+    expect(within(third.view.container).getByText("Mute or unmute a conversation")).toBeInTheDocument();
     third.view.unmount();
 
     // Though not over what's been written there since.
@@ -773,6 +774,12 @@ describe("/ commands", () => {
     expect(screen.getByText("Add someone to a room").parentElement).toHaveTextContent("/invite [@someone] [#room] Add someone to a room");
     await user.clear(input);
     expect(screen.queryByText("Add someone to a room")).not.toBeInTheDocument();
+  });
+
+  it("shows the usage of the command a draft opens with", async () => {
+    localStorage.setItem("composer-draft-u1-r1", "<p>/invite #design</p>");
+    await showComposer({ onCommand: ran() });
+    expect(screen.getByText("Add someone to a room").parentElement).toHaveTextContent("/invite [@someone] [#room] Add someone to a room");
   });
 
   it("sends a message that starts with a / as it is where there are no commands", async () => {

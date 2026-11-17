@@ -13,9 +13,18 @@ interface Outbox {
   /** In the order they were written: waiting to be sent, sent without the room saying it has them, or not sent. */
   messages: PendingMessage[];
   socket: ReconnectingSocket | null;
-  /** What waits to hear whether the room has a message sent to it from another, by the message's client id. */
-  awaited: Map<string, (sent: boolean) => void>;
+  /** What waits to hear what became of a message sent to the room from another, by the message's client id. */
+  awaited: Map<string, (sent: SentAway) => void>;
 }
+
+/**
+ * What became of a message sent to a room from another, as /msg sends one: the room has it; it wasn't
+ * sent, as the room refused it, or said it never had it, or it was still waiting as the outbox gave up,
+ * so it's to be written again; or it's left for a view of the room to send, or ask about, and show as
+ * sent or not, as one opening has taken it back, or it went without the room saying it has it before the
+ * outbox gave up, when writing it again could send it twice.
+ */
+export type SentAway = "sent" | "not sent" | "unconfirmed";
 
 /** By room. */
 const outboxes = new Map<string, Outbox>();
@@ -45,13 +54,11 @@ export function handOver(roomId: string, messages: PendingMessage[]): void {
 }
 
 /**
- * Sends `message`, written to room `roomId` from another, as /msg writes one, and answers whether it went:
- * true once the room says it has it, or a view of the room opening takes it back, to send or show as not
- * sent itself, and false once it's refused, or the outbox gives up on it, sent or not, which lets it go,
- * as what wrote it is to say so.
+ * Sends `message`, written to room `roomId` from another, as /msg writes one, and answers what became of
+ * it, letting go of one that wasn't sent, as what wrote it is to say so.
  */
-export function sendAway(roomId: string, message: PendingMessage): Promise<boolean> {
-  const sent = new Promise<boolean>((answer) => outboxOf(roomId).awaited.set(message.clientMessageId, answer));
+export function sendAway(roomId: string, message: PendingMessage): Promise<SentAway> {
+  const sent = new Promise<SentAway>((answer) => outboxOf(roomId).awaited.set(message.clientMessageId, answer));
   handOver(roomId, [message]);
   return sent;
 }
@@ -74,6 +81,7 @@ export function takeBack(roomId: string, me: User, parentId?: string): PendingMe
   const isFor = (m: PendingMessage) => m.creator.id === me.id && m.parentId === parentId;
   const taken = outbox.messages.filter(isFor);
   outbox.messages = outbox.messages.filter((m) => !isFor(m));
+  for (const m of taken) answer(outbox, m.clientMessageId, "unconfirmed");
   settle(roomId, outbox);
   return taken;
 }
@@ -154,27 +162,33 @@ function createFrame({ clientMessageId, body, parentId, alsoSent }: PendingMessa
 
 /**
  * Stops sending, as a view does once it's been without the room a while: what's waiting shows as not
- * sent, and what went, the view that takes it back asks about, but for what went from another room, which
- * nothing would ask about, as no view of the room may open: what wrote it says it wasn't sent.
+ * sent, and what went, the view that takes it back asks about, as what sent it from another room hears.
  */
 function giveUp(roomId: string, outbox: Outbox): void {
-  outbox.messages = notSent(outbox.messages).map((m) => (outbox.awaited.has(m.clientMessageId) ? { ...m, failed: true } : m));
+  outbox.messages = notSent(outbox.messages);
   outbox.socket?.close();
   outbox.socket = null;
+  for (const m of outbox.messages) if (!m.failed) answer(outbox, m.clientMessageId, "unconfirmed");
   settle(roomId, outbox);
 }
 
+/** Tells what waits to hear about the message `clientMessageId`, if anything does, what became of it. */
+function answer(outbox: Outbox, clientMessageId: string, sent: SentAway): void {
+  outbox.awaited.get(clientMessageId)?.(sent);
+  outbox.awaited.delete(clientMessageId);
+}
+
 /**
- * Answers what waits to hear about a message the outbox no longer keeps, or keeps as not sent, which goes,
- * then lets the socket go once the room has nothing more to hear, and the outbox once it keeps nothing.
+ * Answers what waits to hear about a message the outbox no longer keeps, which the room has, or keeps as
+ * not sent, which goes, then lets the socket go once the room has nothing more to hear, and the outbox
+ * once it keeps nothing.
  */
 function settle(roomId: string, outbox: Outbox): void {
-  for (const [clientMessageId, answer] of outbox.awaited) {
+  for (const clientMessageId of [...outbox.awaited.keys()]) {
     const message = outbox.messages.find((m) => m.clientMessageId === clientMessageId);
     if (message && !message.failed) continue;
-    outbox.awaited.delete(clientMessageId);
     outbox.messages = outbox.messages.filter((m) => m !== message);
-    answer(!message);
+    answer(outbox, clientMessageId, message ? "not sent" : "sent");
   }
   if (!outbox.messages.some(isUnsettled)) {
     outbox.socket?.close();

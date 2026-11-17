@@ -365,6 +365,15 @@ export interface RoomSettings {
 export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /**
+ * Whom `PATCH /api/rooms/<id>/members` puts in a private room, and takes out of it, as /invite and /remove
+ * do: only them, leaving everyone else as they are, whoever else has changed the room meanwhile.
+ */
+export interface MembersChange {
+  addedIds: UserId[];
+  removedIds: UserId[];
+}
+
+/**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
  * settings.
  */
@@ -2101,6 +2110,18 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
 
 /** Whether `data` is a JSON object: an array is an object too, but not one that can name a change. */
 const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof data === "object" && data !== null && !Array.isArray(data);
+
+/**
+ * Parses an untrusted change to whom a private room has. Returns why it's refused instead of the change.
+ * Either list can be left out, for nobody.
+ */
+export function parseMembersChange(data: unknown): MembersChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { addedIds = [], removedIds = [] } = data;
+  if (!userIds(addedIds) || !userIds(removedIds)) return `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  const removing = new Set(removedIds);
+  return addedIds.some((id) => removing.has(id)) ? "Nobody can be put in a room and taken out of it at once" : { addedIds, removedIds };
+}
 
 /**
  * Parses an untrusted request to start a DM. Returns why it's refused instead of the DM. Naming nobody,

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenSearchContext } from "@/components/workspace/search-box";
 import { CONFIRM_LEAVE } from "@/lib/api";
+import type { SentAway } from "@/lib/outbox";
 import type { RoomAnswer } from "@/lib/room-list";
 import { commandIn, type WrittenCommand } from "@/lib/slash-commands";
 import { AccountContext } from "./use-account";
@@ -12,7 +13,7 @@ import { PeopleContext } from "./use-directory";
 import { navigate, NEW_DIRECT_PATH, roomPath, roomSettingsPath } from "./use-route";
 import { useSlashCommands } from "./use-slash-commands";
 
-const { flash, sendAway } = vi.hoisted(() => ({ flash: vi.fn(), sendAway: vi.fn(async () => true) }));
+const { flash, sendAway } = vi.hoisted(() => ({ flash: vi.fn(), sendAway: vi.fn(async (): Promise<SentAway> => "sent") }));
 vi.mock("@/components/flash", () => ({ useFlash: () => flash }));
 vi.mock("@/lib/outbox", () => ({ sendAway }));
 vi.mock("./use-route", async (importOriginal) => ({ ...(await importOriginal<typeof import("./use-route")>()), navigate: vi.fn() }));
@@ -158,12 +159,12 @@ describe("/ commands", () => {
   });
 
   it("adds whom /invite mentions or names to the room, or the room named, which only its administrators can", async () => {
-    serve({ "GET /api/rooms/design/settings": settingsOf(design, [ada]), "PATCH /api/rooms/design": { room: design } });
+    serve({ "GET /api/rooms/design/settings": settingsOf(design, [ada]), "PATCH /api/rooms/design/members": { room: design } });
     const { run, answers } = runIn(design);
     expect(await run(written("", `<p>/invite ${mention(grace)} @linus torvalds</p>`))).toBe(true);
     expect(requests()).toEqual([
       ["GET", "/api/rooms/design/settings", undefined],
-      ["PATCH", "/api/rooms/design", { kind: "closed", memberIds: [ada.id, grace.id, linus.id] }],
+      ["PATCH", "/api/rooms/design/members", { addedIds: [grace.id, linus.id], removedIds: [] }],
     ]);
     expect(answers).toEqual([{ type: "saved", room: design }]);
     expect(flash).toHaveBeenLastCalledWith("notice", "Added Grace Hopper and Linus Torvalds to #design.");
@@ -177,13 +178,13 @@ describe("/ commands", () => {
     const otherGrace = person("grace00000000002", "Grace Hopper");
     const settings = (members: DirectoryUser[]): RoomSettings => ({ room: design, canAdminister: true, people: [ada, grace, otherGrace].map((p) => ({ id: p.id, name: p.name, member: members.includes(p) })) });
     const both = `${mention(grace)} ${mention(otherGrace)}`;
-    serve({ "GET /api/rooms/design/settings": settings([ada]), "PATCH /api/rooms/design": { room: design } });
+    serve({ "GET /api/rooms/design/settings": settings([ada]), "PATCH /api/rooms/design/members": { room: design } });
     expect(await runIn(design).run(written("", `<p>/invite ${both}</p>`))).toBe(true);
-    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design", { kind: "closed", memberIds: [ada.id, grace.id, otherGrace.id] }]);
+    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design/members", { addedIds: [grace.id, otherGrace.id], removedIds: [] }]);
 
-    serve({ "GET /api/rooms/design/settings": settings([ada, grace, otherGrace]), "PATCH /api/rooms/design": { room: design } });
+    serve({ "GET /api/rooms/design/settings": settings([ada, grace, otherGrace]), "PATCH /api/rooms/design/members": { room: design } });
     expect(await runIn(design).run(written("", `<p>/remove ${both} ${mention(grace)}</p>`))).toBe(true);
-    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design", { kind: "closed", memberIds: [ada.id] }]);
+    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design/members", { addedIds: [], removedIds: [grace.id, otherGrace.id] }]);
   });
 
   it("opens the room's settings for /invite with nobody named, and says everyone's in an open room", async () => {
@@ -195,10 +196,10 @@ describe("/ commands", () => {
   });
 
   it("takes whom /remove names out of the room", async () => {
-    serve({ "GET /api/rooms/design/settings": settingsOf(design, [ada, grace, linus]), "PATCH /api/rooms/design": { room: design } });
+    serve({ "GET /api/rooms/design/settings": settingsOf(design, [ada, grace, linus]), "PATCH /api/rooms/design/members": { room: design } });
     const { run, answers } = runIn(design);
     expect(await run(written("/kick @Grace Hopper"))).toBe(true);
-    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design", { kind: "closed", memberIds: [ada.id, linus.id] }]);
+    expect(requests().at(-1)).toEqual(["PATCH", "/api/rooms/design/members", { addedIds: [], removedIds: [grace.id] }]);
     expect(answers).toEqual([{ type: "saved", room: design }]);
     expect(flash).toHaveBeenLastCalledWith("notice", "Removed Grace Hopper from #design.");
   });
@@ -254,9 +255,15 @@ describe("/ commands", () => {
   });
 
   it("says /msg's message wasn't sent where the room didn't take it, keeping it to send again", async () => {
-    sendAway.mockResolvedValueOnce(false);
+    sendAway.mockResolvedValueOnce("not sent");
     expect(await runIn(general).run(written("/msg #design see the brief"))).toBe(false);
     expect(flash).toHaveBeenCalledExactlyOnceWith("alert", "Your message to #design wasn't sent.");
+  });
+
+  it("says /msg's message may not have gone where the room didn't say it has it, leaving it to the room rather than sending it again", async () => {
+    sendAway.mockResolvedValueOnce("unconfirmed");
+    expect(await runIn(general).run(written("/msg #design see the brief"))).toBe(true);
+    expect(flash).toHaveBeenCalledExactlyOnceWith("alert", "Your message to #design may not have gone yet. If it doesn't, it shows there as not sent.");
   });
 
   it("sends /msg's message to a room it names, or to this one as written here, and opens the conversation with nothing to send", async () => {

@@ -4,7 +4,7 @@ import { writtenBody } from "@ember/richtext/dom";
 import { useFlash } from "@/components/flash";
 import { useJoinsNoHuddle } from "@/components/workspace/huddle-button";
 import { OpenSearchContext } from "@/components/workspace/search-box";
-import { changeRoom, CONFIRM_LEAVE, fetchRoomSettings, leaveRoom, setInvolvement, startDirect } from "@/lib/api";
+import { changeMembers, changeRoom, CONFIRM_LEAVE, fetchRoomSettings, leaveRoom, setInvolvement, startDirect } from "@/lib/api";
 import { chooseAppearance } from "@/lib/appearance";
 import { roomName, toSentence } from "@/lib/directs";
 import { hasHuddles } from "@/lib/huddle-people";
@@ -131,8 +131,9 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
         flash("notice", `${toSentence(found.map(nameOf))} ${found.length === 1 ? "is" : "are"} in #${target.name} already.`);
         return true;
       }
+      // Only whom it names, so it undoes nothing changed in the room since its settings were read.
       const answered = askForRoom();
-      answered({ type: "saved", room: await changeRoom(target.id, { kind: "closed", memberIds: [...members, ...added.map((person) => person.id)] }) });
+      answered({ type: "saved", room: await changeMembers(target.id, { addedIds: added.map((person) => person.id), removedIds: [] }) });
       flash("notice", `Added ${toSentence(added.map(nameOf))} to #${target.name}.`);
       return true;
     },
@@ -166,10 +167,13 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       const { plainText, mentions: mentioned } = writtenBody(body);
       if (isTooLong(body, plainText)) return refuse(MESSAGE_TOO_LONG);
       // Sent as one written in that room while it was away would be, which shows there as it's opened, and
-      // said to be sent once the room has it. One that isn't is written again, to send again.
+      // said to be sent once the room has it. One that wasn't sent is written again, to send again, but not
+      // one that may have gone, which could go twice: the room shows it, sent or not.
       const message = { ...pendingMessage(crypto.randomUUID(), roomId, me, body, plainText, mentioned, new Date().toISOString()), queued: true };
-      if (!(await sendAway(roomId, message))) return refuse(`Your message to ${to.name} wasn't sent.`);
-      flash("notice", `Sent to ${to.name}.`);
+      const sent = await sendAway(roomId, message);
+      if (sent === "not sent") return refuse(`Your message to ${to.name} wasn't sent.`);
+      if (sent === "unconfirmed") flash("alert", `Your message to ${to.name} may not have gone yet. If it doesn't, it shows there as not sent.`);
+      else flash("notice", `Sent to ${to.name}.`);
       return true;
     },
     mute: async ({ typed }) => {
@@ -194,10 +198,10 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
         flash("notice", `${toSentence(found.map(nameOf))} ${found.length === 1 ? "isn't" : "aren't"} in #${room.name}.`);
         return true;
       }
-      const memberIds = members.filter((id) => !removed.some((person) => person.id === id));
-      const leaving = !memberIds.includes(me.id);
+      const leaving = removed.some((person) => person.id === me.id);
+      // Only whom it names, as for /invite.
       const answered = askForRoom();
-      const saved = await changeRoom(room.id, { kind: "closed", memberIds });
+      const saved = await changeMembers(room.id, { addedIds: [], removedIds: removed.map((person) => person.id) });
       answered(leaving ? { type: "gone", roomId: room.id } : { type: "saved", room: saved });
       flash("notice", `Removed ${toSentence(removed.map(nameOf))} from #${room.name}.`);
       if (leaving) navigate("/");

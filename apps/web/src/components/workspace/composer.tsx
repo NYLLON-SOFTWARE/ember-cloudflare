@@ -110,6 +110,12 @@ function restoreDraft(key: string, body: string): void {
   for (const lookAgain of showing.get(key) ?? []) lookAgain();
 }
 
+/** The command `body` starts with, once its name is written, as / no longer lists the commands, whose usage shows over the card. */
+function commandNamedIn(body: string | null): SlashCommand | null {
+  const written = body === null ? null : commandIn(body);
+  return written?.command && nameWritten(written) ? written.command : null;
+}
+
 /**
  * How tall the editor will be (rich-text-editor.css: 40px, or 30px below 900px wide, and the 4px under the
  * text, and under the formatting row, the 6px over it), which the composer keeps for it while it loads and
@@ -403,8 +409,9 @@ export function Composer({
   const wasBlank = useRef(!draft);
   // Whether Quote wrote what the editor opens with, before it showed, so it takes focus as Quote has it do.
   const replied = useRef(false);
-  // The command being written, whose usage shows over the card, and what's said of one that isn't a command.
-  const [usage, setUsage] = useState<SlashCommand | null>(null);
+  // The command being written, whose usage shows over the card, as it does for a draft that opens with
+  // one, and what's said of one that isn't a command.
+  const [usage, setUsage] = useState(() => (onCommand ? commandNamedIn(draft ?? null) : null));
   const [notACommand, setNotACommand] = useState<string | null>(null);
   // Whether a command is running, which another waits for.
   const running = useRef(false);
@@ -433,6 +440,7 @@ export function Composer({
     wasBlank.current = left === null;
     setBlank(left === null);
     setDraft(left ?? undefined);
+    setUsage(onCommand ? commandNamedIn(left) : null);
     setEditorReady(false);
     setReopened((times) => times + 1);
   });
@@ -471,9 +479,7 @@ export function Composer({
     const body = editor.current!.isBlank() ? null : editor.current!.value();
     wrote(body);
     setNotACommand(null);
-    // Once its name is written, as / no longer lists the commands.
-    const written = body !== null && onCommand ? commandIn(body) : null;
-    setUsage(written?.command && nameWritten(written) ? written.command : null);
+    setUsage(onCommand ? commandNamedIn(body) : null);
   };
 
   // Sends the files picked, then `body` unless it's null, and focuses the editor, on touch screens too.
