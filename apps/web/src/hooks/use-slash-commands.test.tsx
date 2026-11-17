@@ -65,7 +65,7 @@ function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = 
       </PeopleContext>
     </AccountContext>
   );
-  const { result } = renderHook(
+  const { result, unmount } = renderHook(
     () =>
       useSlashCommands({
         room,
@@ -80,7 +80,7 @@ function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = 
       }),
     { wrapper },
   );
-  return { ...callbacks, answers, run: (command: WrittenCommand) => result.current.run(command), commands: () => result.current.commands.map(({ name }) => name) };
+  return { ...callbacks, answers, unmount, run: (command: WrittenCommand) => result.current.run(command), commands: () => result.current.commands.map(({ name }) => name) };
 }
 
 const settingsOf = (room: SharedRoom, members: DirectoryUser[], canAdminister = true): RoomSettings => ({
@@ -220,6 +220,18 @@ describe("/ commands", () => {
     expect(flash).toHaveBeenLastCalledWith("notice", "#general is hidden from your sidebar.");
   });
 
+  it("stays in the room opened while /leave was on its way, rather than going home", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { run, answers, unmount } = runIn(general);
+    const ran = run(written("/leave"));
+    unmount();
+    answer(Response.json({ involvement: "invisible" }));
+    expect(await ran).toBe(true);
+    expect(answers).toEqual([{ type: "involved", roomId: "general", involvement: "invisible" }]);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("says why a command the server refused didn't run, keeping it to put right", async () => {
     serve({ "DELETE /api/rooms/design/membership": Response.json({ error: "You can change this room, so take yourself out in its settings" }, { status: 403 }) });
     vi.stubGlobal("confirm", () => true);
@@ -264,6 +276,19 @@ describe("/ commands", () => {
     sendAway.mockResolvedValueOnce("unconfirmed");
     expect(await runIn(general).run(written("/msg #design see the brief"))).toBe(true);
     expect(flash).toHaveBeenCalledExactlyOnceWith("alert", "Your message to #design may not have gone yet. If it doesn't, it shows there as not sent.");
+  });
+
+  it("sends /msg's message to the DM it's run in as to any other room where the DM's been left by the time it has it, so it isn't lost", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { run, onSend, unmount } = runIn(withGrace);
+    const ran = run(written("", `<p>/msg ${mention(grace)} see you there</p>`));
+    unmount();
+    answer(Response.json({ room: withGrace }));
+    expect(await ran).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(sendAway).toHaveBeenCalledExactlyOnceWith(withGrace.id, expect.objectContaining({ roomId: withGrace.id, body: "<p>see you there</p>", queued: true }));
+    expect(flash).toHaveBeenLastCalledWith("notice", "Sent to Grace Hopper.");
   });
 
   it("sends /msg's message to a room it names, or to this one as written here, and opens the conversation with nothing to send", async () => {

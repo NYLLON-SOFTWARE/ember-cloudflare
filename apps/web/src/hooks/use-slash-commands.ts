@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { MESSAGE_TOO_LONG, searchPath, startingInvolvement, type Involvement, type Me, type Room, type RoomId, type SharedRoom, type SidebarRoom, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import { useFlash } from "@/components/flash";
@@ -70,6 +70,15 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
     return false;
   };
   const focused = () => (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  // Whether the room's view is still open, which a command can find it isn't by the time it sends, as when
+  // the room's been left while /msg asked for its DM.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
+  }, []);
 
   /**
    * The people named after an @ at the start of `argument`, one after another, and what follows them. Two
@@ -151,7 +160,8 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
         await leaveRoom(room.id);
         answered({ type: "gone", roomId: room.id });
       }
-      navigate("/");
+      // Unless another room's been opened meanwhile.
+      if (open.current) navigate("/");
       return true;
     },
     msg: async ({ typed, markup, mentions }) => {
@@ -163,7 +173,8 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
         navigate(roomPath(roomId));
         return true;
       }
-      if (roomId === room.id) return onSend(body);
+      // Written here, while the room's view is open to show it; once it's gone, it goes as to any other room.
+      if (roomId === room.id && open.current) return onSend(body);
       const { plainText, mentions: mentioned } = writtenBody(body);
       if (isTooLong(body, plainText)) return refuse(MESSAGE_TOO_LONG);
       // Sent as one written in that room while it was away would be, which shows there as it's opened, and
