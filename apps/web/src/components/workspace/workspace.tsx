@@ -362,6 +362,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const [huddlePreview, setHuddlePreview] = useState<RoomId | null>(null);
   // Whether the keyboard shortcuts dialog is open.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const closeHuddlePreview = useCallback(() => setHuddlePreview(null), []);
   const liveHuddles = list?.huddles ?? NO_HUDDLES;
   const huddles = useMemo<Huddles>(() => ({ live: liveHuddles, preview: setHuddlePreview }), [liveHuddles]);
@@ -823,6 +824,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
               newSince={opened.roomId === room.id ? opened.newSince : null}
               askForRoom={askForRoom}
+              rooms={rooms ?? NO_ROOMS}
+              onOpenDirects={openNewDirect}
+              onOpenShortcuts={openShortcuts}
               onSessionChanged={onSessionChanged}
               onFailed={failed}
               onGone={roomGone}

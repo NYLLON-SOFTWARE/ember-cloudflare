@@ -44,9 +44,10 @@ const attachmentMarkup = ({ contentType, html }: Attachment) =>
  * changes and keys as the editor does, and of addresses pasted in it, below which it shows what's
  * added. Formatting changes only the formatting it tells of, and a link only the text, which it
  * marks `data-linked` with the address. It lists nobody for an @, and is marked `data-mentions-above`
- * where the list is to show above the text. The browser tests in e2e/ write in Lexxy itself.
+ * where the list is to show above the text. It names the commands a / would list in `data-commands`.
+ * The browser tests in e2e/ write in Lexxy itself.
  */
-export default function RichTextEditor({ label, placeholder, rows, initialValue, mentionsAbove, autoFocus, onChange, onFormatChange, onKeyDown, onLinkPasted, onReady, ref }: ComponentProps<typeof Editor>) {
+export default function RichTextEditor({ label, placeholder, rows, initialValue, mentionsAbove, commands, autoFocus, onChange, onFormatChange, onKeyDown, onLinkPasted, onReady, ref }: ComponentProps<typeof Editor>) {
   const box = useRef<HTMLTextAreaElement>(null);
   // Read as soon as they change, as Lexxy's are, and shown once React renders them.
   const attachments = useRef<Attachment[]>([]);
@@ -106,6 +107,13 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
       text.setRangeText(/\S$/.test(before) ? " @" : "@", text.selectionStart, text.selectionEnd, "end");
       onChange?.();
     },
+    startCommand: () => {
+      const text = box.current!;
+      text.focus();
+      text.value = text.value.trim() ? `/ ${text.value}` : "/";
+      text.setSelectionRange(1, 1);
+      onChange?.();
+    },
     startNewBlock: () => false,
     catchUp: () => {},
   }));
@@ -148,6 +156,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
         placeholder={placeholder}
         rows={rows}
         data-mentions-above={mentionsAbove || undefined}
+        data-commands={commands?.map(({ name }) => name).join(" ")}
         defaultValue={initialValue && writtenBody(initialValue).plainText}
         onChange={() => onChange?.()}
         onPaste={(event) => pasted(event.clipboardData.getData("text/plain"))}

@@ -62,6 +62,41 @@ lexxy-editor {
   }
 }
 
+/*
+ * The commands / lists, after Slack's list of them: each one's /name in semibold and what follows the name
+ * in the muted ink, with what it does under them, in a list as wide as the text, up to 34rem, which / opens
+ * at the start of.
+ */
+.lexxy-prompt-menu:has(.command) {
+  inline-size: min(34rem, calc(100% - var(--lexxy-prompt-offset-x)));
+  max-block-size: min(22rem, 50dvh);
+  max-inline-size: none;
+}
+
+.command {
+  display: grid;
+  line-height: 1.35;
+  min-inline-size: 0;
+  padding-block: 2px;
+}
+
+.command__title {
+  overflow-wrap: anywhere;
+
+  strong {
+    font-weight: 600;
+  }
+}
+
+.command__usage,
+.command__description {
+  color: var(--muted-foreground);
+}
+
+.command__description {
+  font-size: 0.9em;
+}
+
 /* Same for the code block language picker: with a transparent canvas the
    native dropdown renders white-on-white in dark mode */
 lexxy-editor lexxy-code-language-picker select {

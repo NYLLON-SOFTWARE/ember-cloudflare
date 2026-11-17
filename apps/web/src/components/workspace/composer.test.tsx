@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import { createRef } from "react";
+import { SHRUG, SLASH_COMMANDS, type WrittenCommand } from "@/lib/slash-commands";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
 
@@ -21,7 +22,16 @@ vi.mock("./emoji-panel", () => ({
   ),
 }));
 
-async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, autoFocus = true, mentionsAbove = false } = {}) {
+async function showComposer({
+  typing = [] as User[],
+  disabled = false,
+  roomId = "r1",
+  threadId = undefined as string | undefined,
+  direct = false,
+  autoFocus = true,
+  mentionsAbove = false,
+  onCommand = undefined as ((written: WrittenCommand) => Promise<boolean>) | undefined,
+} = {}) {
   const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
   const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
@@ -41,6 +51,8 @@ async function showComposer({ typing = [] as User[], disabled = false, roomId = 
       onTyping={onTyping}
       autoFocus={autoFocus}
       mentionsAbove={mentionsAbove}
+      commands={onCommand && SLASH_COMMANDS}
+      onCommand={onCommand}
     />,
   );
   // The editor loads as the first composer shows.
@@ -652,6 +664,92 @@ describe("The buttons under the text", () => {
     await user.type(input, "{Backspace}Thanks");
     await user.click(screen.getByRole("button", { name: "Mention someone" }));
     expect(input).toHaveValue("Thanks @");
+  });
+});
+
+describe("/ commands", () => {
+  const ran = () => vi.fn((_written: WrittenCommand) => Promise.resolve(true));
+
+  it("has Run shortcut after Mention someone, which types / for the commands, before what's written", async () => {
+    const { input, view, user } = await showComposer({ onCommand: ran() });
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["Attach", "Show formatting", "Emoji", "Mention someone", "Run shortcut", "Send Message"]);
+    expect(input).toHaveAttribute("data-commands", SLASH_COMMANDS.map(({ name }) => name).join(" "));
+
+    await user.click(screen.getByRole("button", { name: "Run shortcut" }));
+    expect(input).toHaveValue("/");
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, "hello");
+    await user.click(screen.getByRole("button", { name: "Run shortcut" }));
+    expect(input).toHaveValue("/ hello");
+    expect(input).toHaveProperty("selectionStart", 1);
+  });
+
+  it("runs the command written rather than sending it, emptying the composer as it starts", async () => {
+    const onCommand = ran();
+    const { input, onSend, onTyping, user } = await showComposer({ onCommand });
+    await user.type(input, "/MUTE  #design{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ command: SLASH_COMMANDS.find(({ name }) => name === "mute"), typed: { name: "MUTE", argument: "#design" } }));
+    expect(input).toHaveValue("");
+    expect(onTyping).toHaveBeenLastCalledWith(false);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+  });
+
+  it("writes a command that didn't run back, to put right", async () => {
+    const onCommand = vi.fn(() => Promise.resolve(false));
+    const { input, user } = await showComposer({ onCommand });
+    await user.type(input, "/mute #nowhere{Enter}");
+    await waitFor(() => expect(input).toHaveValue("/mute #nowhere"));
+  });
+
+  it("says a / that names no command isn't one, as Slack does, sending nothing until it's changed", async () => {
+    const onCommand = ran();
+    const { input, onSend, user } = await showComposer({ onCommand });
+    await user.type(input, "/r/programming is great{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("/r/programming isn't a command. To send a message that starts with /, put a space before it.");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/r/programming is great");
+
+    await user.type(input, "{Home} ");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.type(input, "{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p> /r/programming is great</p>", false);
+  });
+
+  it("sends /shrug's message with ¯\\_(ツ)_/¯ at its end, after the files picked", async () => {
+    const { input, onSend, onSendFiles, user } = await showComposer({ onCommand: ran() });
+    await user.upload(fileField(), fileOf("a.txt"));
+    await user.type(input, "/shrug it works{Enter}");
+    expect(onSendFiles).toHaveBeenCalledOnce();
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(`<p>it works ${SHRUG}</p>`, false);
+    expect(input).toHaveValue("");
+  });
+
+  it("opens Text snippet for /snippet, leaving what follows it written", async () => {
+    const { input, user } = await showComposer({ onCommand: ran() });
+    await user.type(input, "/snippet{Enter}");
+    expect(await screen.findByRole("dialog", { name: "Create a text snippet" })).toBeInTheDocument();
+    expect(input).toHaveValue("");
+  });
+
+  it("shows a command's usage over the card once its name is written", async () => {
+    const { input, user } = await showComposer({ onCommand: ran() });
+    await user.type(input, "/invite");
+    expect(screen.queryByText("Add someone to a room")).not.toBeInTheDocument();
+    await user.type(input, " ");
+    expect(screen.getByText("Add someone to a room").parentElement).toHaveTextContent("/invite [@someone] [#room] Add someone to a room");
+    await user.clear(input);
+    expect(screen.queryByText("Add someone to a room")).not.toBeInTheDocument();
+  });
+
+  it("sends a message that starts with a / as it is where there are no commands", async () => {
+    const { input, onSend, user } = await showComposer();
+    expect(screen.queryByRole("button", { name: "Run shortcut" })).not.toBeInTheDocument();
+    await user.type(input, "/shrug{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>/shrug</p>", false);
   });
 });
 

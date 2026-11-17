@@ -1027,6 +1027,9 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
 }
 
+/** What's asked before `leaveRoom`, by Leave on a room's settings page, and by /leave. */
+export const CONFIRM_LEAVE = "Are you sure you want to leave this room? Only someone in it who can change it can add you back.";
+
 /** Takes this person out of a private room they can't change, as Leave on its settings page does. */
 export async function leaveRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}/membership`, { method: "DELETE" });
@@ -1061,9 +1064,10 @@ export async function clearSearches(): Promise<void> {
 
 /**
  * Where a room's @ prompt asks for the people it offers: Lexxy adds what's typed after the @ as
- * `filter`, and the answer is its prompt items.
+ * `filter`, and the answer is its prompt items. Without a room, it offers everyone.
  */
-export const mentionPromptSrc = (roomId: RoomId) => `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}`;
+export const mentionPromptSrc = (roomId: RoomId | null) =>
+  roomId === null ? "/api/autocompletable/users" : `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}`;
 
 /** The address of a socket at `path` on this page's host, over wss on https pages. */
 export function socketUrl(path: string): string {

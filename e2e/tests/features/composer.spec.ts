@@ -100,7 +100,7 @@ test.describe("Composer", () => {
     expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(fieldBox.y);
     expect(sendBox.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height);
     let left = 0;
-    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone"]) {
+    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone", "Run shortcut"]) {
       const buttonBox = await box(underText(ada, name));
       expect(buttonBox.y, name).toBe(sendBox.y);
       expect(buttonBox.x, name).toBeGreaterThan(left);
@@ -687,13 +687,14 @@ test.describe("Formatting row", () => {
 test.describe("Buttons under the text", () => {
   test("names each in a tooltip, as Slack's do", async ({ members }) => {
     const ada = await members.signIn("Ada");
-    // Once the text's ready, which Emoji and Mention someone wait for.
+    // Once the text's ready, which Emoji, Mention someone and Run shortcut wait for.
     await expect(ada.composer()).toBeFocused();
     const tips = [
       ["Attach", "Attach"],
       ["Show formatting", "Hide formatting"],
       ["Emoji", "Emoji"],
       ["Mention someone", "Mention someone"],
+      ["Run shortcut", "Run shortcut"],
       ["Send Message", "Send message"],
     ] as const;
     for (const [name, tip] of tips) {
@@ -843,7 +844,7 @@ test.describe("Buttons under the text", () => {
     await expect(ada.composer().getByText(`Jason ${tag}`, { exact: true })).toBeVisible();
   });
 
-  test("keeps Emoji and Mention someone off until the text they write in is ready", async ({ members }) => {
+  test("keeps Emoji, Mention someone and Run shortcut off until the text they write in is ready", async ({ members }) => {
     const ada = await members.signIn("Ada");
     // The editor's code loads once the room has shown its messages. Holding it shows the composer without it.
     let release!: () => void;
@@ -856,9 +857,11 @@ test.describe("Buttons under the text", () => {
     const button = (name: string) => ada.page.locator("form.composer").getByRole("button", { name, exact: true });
     await expect(button("Emoji")).toBeDisabled();
     await expect(button("Mention someone")).toBeDisabled();
+    await expect(button("Run shortcut")).toBeDisabled();
     release();
     await expect(button("Emoji")).toBeEnabled();
     await expect(button("Mention someone")).toBeEnabled();
+    await expect(button("Run shortcut")).toBeEnabled();
   });
 
   test("shows Send as a grey paper plane until there's something to send, a file too", async ({ members }) => {
