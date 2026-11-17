@@ -9,6 +9,7 @@ import {
   microphoneOf,
   NO_DEVICES,
   openCamera,
+  openCameraSized,
   openMicrophone,
   openOtherCamera,
   openScreen,
@@ -198,6 +199,17 @@ describe("Opening a camera", () => {
     expect(getUserMedia).toHaveBeenCalledTimes(1);
     vi.stubGlobal("navigator", {});
     expect(await openCamera(null, "hd")).toBeNull();
+  });
+
+  it("opens one for a picture of the size asked, as a clip's, in any browser, the browser's own choice where the one asked for is gone, at no video quality, as it goes out to nobody", async () => {
+    const [first, fallback] = [streamFrom("camera-1", "video"), streamFrom("camera-2", "video")];
+    const getUserMedia = vi.fn().mockResolvedValueOnce(first.stream).mockRejectedValueOnce(refusal("NotFoundError")).mockResolvedValueOnce(fallback.stream);
+    withMedia({ getUserMedia }, SAFARI);
+    const CLIP = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    expect(await openCameraSized(null, CLIP)).toBe(first.stream);
+    expect(await openCameraSized("camera-3", CLIP)).toBe(fallback.stream);
+    expect(getUserMedia.mock.calls).toEqual([[{ video: CLIP }], [{ video: { ...CLIP, deviceId: { exact: "camera-3" } } }], [{ video: CLIP }]]);
+    expect([first, fallback].map(({ stream }) => qualityOpenedAt(stream.getVideoTracks()[0]!))).toEqual([undefined, undefined]);
   });
 
   it("says which device a stream is from, and stops it, which puts its light out", () => {

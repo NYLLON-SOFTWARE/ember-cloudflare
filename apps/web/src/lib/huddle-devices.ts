@@ -98,13 +98,18 @@ export const NO_CAMERA = "Ember has no camera to use. To show yours, let this si
  * one a browser gives a camera.
  */
 export async function openCamera(deviceId: string | null, quality: HuddleVideoQuality): Promise<MediaStream | null> {
+  const stream = await openCameraSized(deviceId, cameraAt(quality));
+  return stream && openedAtQuality(stream, quality);
+}
+
+/** Opens a camera as `openCamera` does, for a picture the size `size` asks for, as a clip's is, which goes out to nobody. */
+export async function openCameraSized(deviceId: string | null, size: MediaTrackConstraints): Promise<MediaStream | null> {
   const media = navigator.mediaDevices as MediaDevices | undefined;
   if (!media?.getUserMedia) return null;
-  const picture = cameraAt(quality);
   try {
-    return openedAtQuality(await media.getUserMedia({ video: deviceId ? { ...picture, deviceId: { exact: deviceId } } : picture }), quality);
+    return await media.getUserMedia({ video: deviceId ? { ...size, deviceId: { exact: deviceId } } : size });
   } catch (error) {
-    return deviceId && deviceGone(error) ? openCamera(null, quality) : null;
+    return deviceId && deviceGone(error) ? openCameraSized(null, size) : null;
   }
 }
 
