@@ -1,5 +1,78 @@
+import type { DirectRoom, Room, User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { inItNow, inItsHuddle, inTheHuddle } from "./huddle-people";
+import { hasHuddles, huddledWith, huddlePlace, inItNow, inItsHuddle, inTheHuddle, invitable, invitedNow, invitedOnceItStarts, sharingScreens } from "./huddle-people";
+
+const [ada, priya, sam, deploys]: User[] = [
+  { id: "ada", name: "Ada Lovelace" },
+  { id: "priya", name: "Priya Patel" },
+  { id: "sam", name: "Sam Rivera" },
+  { id: "deploys", name: "Deploys" },
+];
+const launch: Room = { id: "launch", name: "Launch", kind: "open", icon: null };
+const directOf = (...members: User[]): DirectRoom => ({ id: "direct-1", kind: "direct", members, activeAt: "2026-11-10T09:00:00.000Z" });
+/** Deploys is a bot, which joins no huddle. */
+const joinsNone = (user: User) => user.id === "deploys";
+
+describe("huddledWith", () => {
+  it("is the others in a direct message, but for whoever joins no huddle", () => {
+    expect(huddledWith(directOf(ada!, priya!), "ada", joinsNone)).toEqual([priya]);
+    expect(huddledWith(directOf(priya!, ada!, deploys!, sam!), "ada", joinsNone)).toEqual([priya, sam]);
+  });
+
+  it("is nobody in a direct message with oneself, or with only those who join none", () => {
+    expect(huddledWith(directOf(ada!), "ada", joinsNone)).toEqual([]);
+    expect(huddledWith(directOf(ada!, deploys!), "ada", joinsNone)).toEqual([]);
+  });
+});
+
+describe("hasHuddles", () => {
+  it("is so of every shared room", () => {
+    expect(hasHuddles(launch, "ada", joinsNone)).toBe(true);
+    expect(hasHuddles({ ...launch, kind: "closed" }, "ada", joinsNone)).toBe(true);
+  });
+
+  it("is so of a direct message with someone to huddle with, and of no other", () => {
+    expect(hasHuddles(directOf(ada!, priya!), "ada", joinsNone)).toBe(true);
+    expect(hasHuddles(directOf(ada!, deploys!, sam!), "ada", joinsNone)).toBe(true);
+    expect(hasHuddles(directOf(ada!), "ada", joinsNone)).toBe(false);
+    expect(hasHuddles(directOf(ada!, deploys!), "ada", joinsNone)).toBe(false);
+  });
+});
+
+describe("invitable", () => {
+  it("is everyone in the huddle's room but oneself, whoever is in the huddle, and whoever joins none, in the room's order", () => {
+    expect(invitable([sam!, ada!, deploys!, priya!], "ada", new Set(), joinsNone)).toEqual([sam, priya]);
+    expect(invitable([sam!, ada!, deploys!, priya!], "ada", new Set(["ada", "sam"]), joinsNone)).toEqual([priya]);
+  });
+
+  it("is nobody once everyone who could join is in it", () => {
+    expect(invitable([ada!, deploys!, priya!], "ada", new Set(["ada", "priya"]), joinsNone)).toEqual([]);
+    expect(invitable([], "ada", new Set(), joinsNone)).toEqual([]);
+  });
+});
+
+describe("huddlePlace", () => {
+  it("is in a shared room, and with whoever a direct message is with", () => {
+    expect(huddlePlace(launch, "Launch")).toBe("in Launch");
+    expect(huddlePlace(directOf(ada!, priya!), "Priya Patel")).toBe("with Priya Patel");
+  });
+});
+
+describe("invitedOnceItStarts", () => {
+  it("names whoever a direct message's huddle invites, by first name up to three", () => {
+    expect(invitedOnceItStarts(["Priya Patel"])).toBe("Priya is invited once it starts.");
+    expect(invitedOnceItStarts(["Priya Patel", "Sam Rivera"])).toBe("Priya and Sam are invited once it starts.");
+    expect(invitedOnceItStarts(["Priya Patel", "Sam Rivera", "Leo Park", "Maya Chen"])).toBe("Priya, Sam, Leo, and 1 other are invited once it starts.");
+  });
+});
+
+describe("invitedNow", () => {
+  it("names whoever someone in a huddle has invited, by first name up to three", () => {
+    expect(invitedNow(["Priya Patel"])).toBe("Priya is invited.");
+    expect(invitedNow(["Priya Patel", "Sam Rivera"])).toBe("Priya and Sam are invited.");
+    expect(invitedNow(["Priya Patel", "Sam Rivera", "Leo Park", "Maya Chen", "Noor Aziz"])).toBe("Priya, Sam, Leo, and 2 others are invited.");
+  });
+});
 
 describe("inItNow", () => {
   it("names up to three people by first name", () => {
@@ -43,6 +116,22 @@ describe("inTheHuddle", () => {
   it("counts the others past the third", () => {
     expect(inTheHuddle(["Sam Rivera", "Priya Patel", "Leo Park", "Ada Lovelace"])).toBe("Sam, Priya, Leo, and 1 other are in the huddle");
     expect(inTheHuddle(Array.from({ length: 49 }, (_, index) => `Person ${index}`))).toBe("Person, Person, Person, and 46 others are in the huddle");
+  });
+});
+
+describe("sharingScreens", () => {
+  it("says nothing while nobody shares one", () => {
+    expect(sharingScreens([], false)).toBeNull();
+  });
+
+  it("says when only you do, and names someone else who does by first name", () => {
+    expect(sharingScreens([], true)).toBe("You're sharing your screen");
+    expect(sharingScreens(["Sam Rivera"], false)).toBe("Sam is sharing a screen");
+  });
+
+  it("names both of two who do, you last", () => {
+    expect(sharingScreens(["Sam Rivera", "Priya Patel"], false)).toBe("Sam and Priya are sharing screens");
+    expect(sharingScreens(["Sam Rivera"], true)).toBe("Sam and you are sharing screens");
   });
 });
 

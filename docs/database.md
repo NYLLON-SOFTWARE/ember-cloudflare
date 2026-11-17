@@ -335,13 +335,6 @@ Objects, D1 or speed call for something else.
   when they hold a message, and never moved back, so events sent again or late change nothing. Until
   a DM has one, it goes by `created_at`. The sidebar's statement reads the time with each room, so
   listing DMs in order costs nothing more.
-- **Suggestions are one statement.** The people someone has DMs with are left out with a subquery
-  over the memberships of their DMs, rather than a `NOT IN` list of their ids, so it binds one value
-  however many DMs they have, and runs in the batch that reads the rest of the sidebar.
-  `index_users_on_created_at_and_id` (workspace migration 0017) gives it people oldest first, so it
-  stops at the nineteenth it can suggest rather than sorting everyone. The index leaves status out,
-  since SQLite would otherwise read every active person through it, as New room's list does, rather
-  than reading the table straight through.
 - **Rooms send the Workspace their change logs.** Unread marks are the Workspace's and messages
   their rooms', so a room logs each new message in `room_events`, in the batch that stores it, and
   each time someone opens it in a shown tab, then sends the Workspace its oldest events, up to 50 a
@@ -573,14 +566,23 @@ Objects, D1 or speed call for something else.
   in the `assistant` setting, beside the API token, at most 20 of them, so they're forgotten with
   the token when Ember AI is turned off. A pick that's no longer among them is kept, and followed
   again once the model is added back.
+- **Who can ask an AI agent is a column of its person.** Campfire has no AI agents.
+  `users.agent_access` (workspace migration 0063) is null for an agent anyone can ask, and for
+  everyone who isn't an agent, `'admins'` for one only administrators can ask, and `'admin-dms'` for
+  one only their direct messages reach, which is in no other room. It's on `users` rather than
+  `agents` so that it outlasts the agent: deleting an agent deletes its row in `agents` and keeps its
+  person, whose answers stay, and one that only administrators were told of stays untold. The
+  statements that list people, such as the directory's and the mention prompt's, and the one that
+  finds who answers a question, check it against the asker's role in SQL, so nobody is sent a person
+  they aren't told of.
 - **Your skin tone for emoji is a column of the person.** Campfire has no emoji by their codes. The
   tone someone chooses on their profile for the people and hands they type by their `:codes:` and add as
-  quick reactions, as Slack's default skin tone is, is `users.skin_tone` (workspace migration 0063),
+  quick reactions, as Slack's default skin tone is, is `users.skin_tone` (workspace migration 0064),
   0 for the emoji's own yellow and 1 to 5 for Unicode's tones. A session reads it with the person, in
   the statement that already reads them, so it comes with who's signed in at no cost, and choosing
   another has the Workspace read their sessions again and tell their tabs.
 - **Custom emoji are a table of names, and nothing refers to it.** Campfire has none. Each one anyone
-  adds, as in Slack, is a row of `custom_emoji` (workspace migration 0064): its name, the key R2 keeps
+  adds, as in Slack, is a row of `custom_emoji` (workspace migration 0065): its name, the key R2 keeps
   its picture at, the type its bytes said it is, and who added it and when. A message or a boost keeps
   an emoji's `:name:` as the text it was typed as, as Slack's do, so no row of theirs changes when one
   is added or removed, the search index and pushes carry the code as words, and the app draws the

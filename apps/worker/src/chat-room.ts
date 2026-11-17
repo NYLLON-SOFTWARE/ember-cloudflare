@@ -116,6 +116,11 @@ export const HUDDLE_HEADER = "X-Ember-Huddle";
 
 /** What a deleted room's object keeps in its own storage until its alarm: the room's id, whose records the alarm erases. */
 const DELETED_ROOM = "deletedRoom";
+/**
+ * What it keeps beside that once its alarm has been set for sooner, to have the SFU close what's left
+ * of the room's huddle: when the alarm was to erase the room, which it doesn't before.
+ */
+const ERASE_DUE = "eraseDue";
 /** What a room's object keeps in its own storage while its alarm is to send its logs: the room's id. */
 const UNDELIVERED_ROOM = "undeliveredRoom";
 /**
@@ -392,10 +397,12 @@ export class ChatRoom extends DurableObject<Env> {
    * room's does, so whatever ends their access to the room takes them out of its huddle. Like one of the
    * room's, it's turned away when the Workspace's word for it is too old, or older than a revocation.
    */
-  private joinHuddle(user: User, roomId: RoomId, tags: string[], authorizedAt: number, muted: boolean): Promise<Response> {
+  private async joinHuddle(user: User, roomId: RoomId, tags: string[], authorizedAt: number, muted: boolean): Promise<Response> {
+    // Cloudflare is asked for the relay's servers before the join takes its turn, so that nothing else the room does waits on its answer.
+    const iceServers = await this.huddle.iceServers();
     return this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(tags, authorizedAt)) return closedAtOnce(CloseCode.Reconnect);
-      const response = await this.huddle.join(user, roomId, tags, muted);
+      const response = await this.huddle.join(user, roomId, tags, muted, iceServers);
       if (this.huddle.live) await this.checkHuddleBy(Date.now() + HUDDLE_CHECK_MS);
       return response;
     });
@@ -464,6 +471,8 @@ export class ChatRoom extends DurableObject<Env> {
     await this.waitingCallsFor(roomId).forget();
     while (await searchIndex(this.env).forget(roomId, MESSAGES_DELETED_AT_ONCE));
     await this.ctx.storage.put(DELETED_ROOM, roomId);
+    // Asked again, as after a failure, the room is to be erased later than it was.
+    await this.ctx.storage.delete(ERASE_DUE);
     await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
     this.couriersFor(roomId).files.deliver();
   }
@@ -524,8 +533,13 @@ export class ChatRoom extends DurableObject<Env> {
    * Erases what's left of deleted room `roomId` once R2 has deleted its files: its revocations, and the
    * object's own storage, which on DO SQLite is everything it kept. An object with nothing stored ceases
    * to exist. Until R2 has, the alarm tries again later, since the room's record of its files goes too.
+   * So does the list of what the SFU has yet to close of the room's huddle, which the alarm comes
+   * sooner for: it asks the SFU again, and erases nothing before the room was to be erased.
    */
   private async erase(roomId: RoomId): Promise<void> {
+    if (await this.huddle.closeUnclosed()) return this.ctx.storage.setAlarm(Date.now() + HUDDLE_CHECK_MS);
+    const due = await this.ctx.storage.get<number>(ERASE_DUE);
+    if (due !== undefined && due > Date.now()) return this.ctx.storage.setAlarm(due);
     const { workspace, index, files } = this.couriersFor(roomId);
     await files.retry();
     if (files.failing) return this.ctx.storage.setAlarm(Date.now() + ERASE_RETRY_MS);
@@ -2011,13 +2025,18 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Sets the alarm to check the room's huddle by `time`, unless it's set for sooner. A deleted room's
-   * alarm is left as it is, as `wakeAt` leaves it, and like it this runs one event at a time with
-   * deleting the room.
+   * alarm is left as it is, as `wakeAt` leaves it, unless the SFU has tracks of its huddle to close
+   * still: the alarm then comes sooner, to ask it again, and when it was to erase the room is kept.
+   * Like `wakeAt`, this runs one event at a time with deleting the room.
    */
   private async checkHuddleBy(time: number): Promise<void> {
-    if (await this.isDeleted()) return;
     const alarm = await this.ctx.storage.getAlarm();
-    if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);
+    if (alarm !== null && alarm <= time) return;
+    if (await this.isDeleted()) {
+      if (!(await this.huddle.hasUnclosed())) return;
+      if (alarm !== null && (await this.ctx.storage.get(ERASE_DUE)) === undefined) await this.ctx.storage.put(ERASE_DUE, alarm);
+    }
+    await this.ctx.storage.setAlarm(time);
   }
 
   /**
