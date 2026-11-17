@@ -1,6 +1,6 @@
 import type { APIRequestContext, Locator } from "@playwright/test";
 import { allowNotifications, cookieHeader, createSession, type Session, type TestRoom } from "../../fixtures";
-import { expect, test, unique, type Member } from "./fixtures";
+import { expect, test, typeWhileFramesWait, unique, type Member } from "./fixtures";
 
 /** The commands / lists at the start of a message, while it shows. */
 const commandList = (member: Member) => member.page.getByRole("listbox");
@@ -144,6 +144,14 @@ test.describe("/ commands", () => {
     await expect(commandList(ada)).toBeHidden();
     expect(await text(field)).toBe("/mu ");
     await clear(field);
+    // On a busy page, where the list, which shows a frame after the /, shows only once the name's ended.
+    for (const typed of ["/mu ", "/r/"]) {
+      await listSettled(ada);
+      await typeWhileFramesWait(ada, typed);
+      await expect(commandList(ada), typed).toBeHidden();
+      expect(await text(field)).toBe(typed);
+      await clear(field);
+    }
 
     await field.pressSequentially("/r/programming is great");
     await expect(commandList(ada)).toBeHidden();

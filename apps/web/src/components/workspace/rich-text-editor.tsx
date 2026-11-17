@@ -138,11 +138,25 @@ const LOOK_AGAIN = Symbol("look again");
 /** What starts what a list lists for: a / for the commands, which are written into it, and otherwise an @ for the people. */
 const triggerOf = (list: Element) => (list.querySelector("[data-command]") ? "/" : "@");
 
+/** What's written between the / that starts the message and the cursor, where nothing's selected. */
+function commandNameWritten(lexxy: LexxyEditor): string {
+  return lexxy.editor.getEditorState().read(() => {
+    const selection = Lexical.$getSelection();
+    if (!Lexical.$isRangeSelection(selection) || !selection.isCollapsed()) return "";
+    const text = selection.anchor.getNode();
+    const before = Lexical.$isTextNode(text) ? text.getTextContent().slice(0, selection.anchor.offset) : "";
+    return before.slice(before.indexOf("/") + 1);
+  });
+}
+
 /**
  * Has `lexxy`'s prompts list what's typed after their @ or / as the list shows, when that's changed since
  * the prompt asked for the list. Lexxy (0.9.24, and still 1.0.1) hears what's typed only once the list
  * shows, so a quick "@ka" would list everyone until the next key. Lexxy reads what's typed as it adds a
- * list to the editor, and as it unpins the list (`data-anchored`) to open it again.
+ * list to the editor, and as it unpins the list (`data-anchored`) to open it again. The commands' list,
+ * which shows a frame after the /, closes as it shows where a space or another / typed before then, as
+ * quick typing or a busy page has it, has ended the name, as it would have for that key had it shown,
+ * rather than staying open until the next key.
  */
 function lookAgainAsListShows(lexxy: LexxyEditor): MutationObserver {
   const typed = (trigger: string) => lexxy.contents.textBackUntil(trigger);
@@ -164,8 +178,9 @@ function lookAgainAsListShows(lexxy: LexxyEditor): MutationObserver {
       if (!prompt) continue;
       if (attributeName === "data-anchored") {
         if (!list.hasAttribute("data-anchored")) prompt.typed = typed(prompt.trigger);
-      } else if (list.classList.contains(LIST_SHOWN) && !oldValue?.includes(LIST_SHOWN) && typed(prompt.trigger) !== prompt.typed) {
-        lexxy.dispatchEvent(new CustomEvent("lexxy:change", { detail: LOOK_AGAIN }));
+      } else if (list.classList.contains(LIST_SHOWN) && !oldValue?.includes(LIST_SHOWN)) {
+        if (prompt.trigger === "/" && endsCommandName(commandNameWritten(lexxy))) closePrompt(lexxy);
+        else if (typed(prompt.trigger) !== prompt.typed) lexxy.dispatchEvent(new CustomEvent("lexxy:change", { detail: LOOK_AGAIN }));
       }
     }
   });

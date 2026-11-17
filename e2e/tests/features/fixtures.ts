@@ -152,6 +152,36 @@ export const paste = (member: Member, text: string, html?: string) =>
     [text, html] as const,
   );
 
+/**
+ * Types `keys` into the composer while the page's animation frames wait, as on a busy page, so what was to
+ * happen at the next frame, as the list a / opens shows, happens only once they're typed, and once it has.
+ */
+export async function typeWhileFramesWait(member: Member, keys: string): Promise<void> {
+  await member.composer().focus();
+  await member.page.evaluate(() => {
+    const requestFrame = window.requestAnimationFrame;
+    const waiting: FrameRequestCallback[] = [];
+    // An id no frame has, so cancelling it cancels none of the page's.
+    window.requestAnimationFrame = (callback) => -waiting.push(callback);
+    window.addEventListener(
+      "e2e:frames",
+      () => {
+        window.requestAnimationFrame = requestFrame;
+        for (const callback of waiting) requestFrame(callback);
+      },
+      { once: true },
+    );
+  });
+  await member.page.keyboard.type(keys);
+  await member.page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        window.dispatchEvent(new Event("e2e:frames"));
+        requestAnimationFrame(() => setTimeout(resolve));
+      }),
+  );
+}
+
 export interface SignInOptions {
   /** Where to open the app: this test's #general by default. */
   path?: string;
