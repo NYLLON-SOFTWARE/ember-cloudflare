@@ -1,9 +1,10 @@
-import type { DirectoryUser, Room, User } from "@ember/protocol";
+import type { DirectoryUser, DirectRoom, Room, User } from "@ember/protocol";
 import type { HuddlePerson } from "@ember/protocol/huddles";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { FlashProvider } from "@/components/flash";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { showHuddle, showSpeaking, type JoinedHuddle } from "@/lib/huddle-store";
@@ -13,6 +14,8 @@ const ada: User = { id: "ada", name: "Ada Lovelace" };
 const sam: User = { id: "sam", name: "Sam Rivera" };
 const priya: User = { id: "priya", name: "Priya Patel" };
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
+/** Ada's direct message with Sam and Priya. */
+const direct: DirectRoom = { id: "direct-1", kind: "direct", members: [ada, sam, priya], activeAt: "2026-11-16T09:00:00.000Z" };
 const inHuddle = (user: User, changes: Partial<HuddlePerson> = {}): HuddlePerson => ({ user, muted: false, audio: true, video: false, screen: false, ...changes });
 const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
   roomId: "general",
@@ -21,6 +24,8 @@ const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
   people: [inHuddle(sam), inHuddle(ada)],
   muted: false,
   microphone: true,
+  microphoneId: "",
+  speakerId: "",
   camera: null,
   watched: new Map(),
   screen: null,
@@ -28,17 +33,20 @@ const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
   open: true,
   ...changes,
 });
-/** A camera's stream, or a shared screen's, as much of one as a tile reads: jsdom has none. */
-const camera = () => ({}) as MediaStream;
+/** A camera's stream, as much of one as a tile reads, which is the way it faces, where the browser says: jsdom has none. */
+const camera = (facingMode?: string) => ({ getVideoTracks: () => [{ getSettings: () => ({ facingMode }) }] }) as unknown as MediaStream;
+/** And a shared screen's, of which it reads nothing. */
 const shared = () => ({}) as MediaStream;
 const crowd = (count: number) => Array.from({ length: count }, (_, index) => inHuddle({ id: `u${index}`, name: `Person ${index}` }));
+/** Hears that the session has ended, which none here does. */
+const failed = vi.fn();
 
 /** The huddle this tab is in, opened, with what the huddle's controls were asked. */
 function renderView(joined: JoinedHuddle = huddle(), room: Room | null = general) {
-  const controls = { leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn() };
+  const controls = { leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setDevice: vi.fn(), setSmall: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(() => true) };
   act(() => showHuddle(joined, controls));
   const user = userEvent.setup();
-  const view = render(<HuddleView huddle={joined} room={room} meId="ada" />);
+  const view = render(<HuddleView huddle={joined} room={room} meId="ada" onFailed={failed} />, { wrapper: FlashProvider });
   return { ...controls, user, ...view };
 }
 
@@ -55,6 +63,18 @@ function ScreensOff({ children }: { children: ReactNode }) {
 /** Has the browser be one that can share a screen, which jsdom's isn't, as a phone's isn't. */
 function browserSharesScreens() {
   Object.defineProperty(navigator, "mediaDevices", { value: { getDisplayMedia: vi.fn() }, configurable: true });
+}
+
+/** Has the browser list `count` cameras. Answers what has it list another number, and tell the page that its devices changed. */
+function browserCameras(count: number) {
+  let listed = count;
+  const enumerateDevices = async () => Array.from({ length: listed }, (_, index) => ({ kind: "videoinput", deviceId: `camera-${index}`, label: "" }));
+  const media = Object.assign(new EventTarget(), { enumerateDevices });
+  Object.defineProperty(navigator, "mediaDevices", { value: media, configurable: true });
+  return async (now: number) => {
+    listed = now;
+    await act(async () => void media.dispatchEvent(new Event("devicechange")));
+  };
 }
 
 /** Has the huddle measure `space` as its own, which jsdom, laying nothing out, leaves to the test. Answers what tells it that its window changed. */
@@ -82,6 +102,15 @@ const tiles = () => within(list()).getAllByRole("listitem");
 const stage = () => screen.queryByRole("figure");
 const shape = () => parseFloat((stage()!.querySelector("figcaption")!.nextElementSibling as HTMLElement).style.aspectRatio);
 const count = () => opened().querySelector("header [aria-live]");
+/** The buttons along its base, first to last. */
+const tools = () => within(opened().querySelector("footer")!).getAllByRole("button");
+const inviteDialog = () => screen.findByRole("dialog", { name: "Invite people" });
+
+/** The page is hidden, as when its person goes to another app on a phone, or shows again. */
+const pageShows = (state: DocumentVisibilityState) => {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue(state);
+  document.dispatchEvent(new Event("visibilitychange"));
+};
 
 let play: MockInstance<HTMLMediaElement["play"]>;
 
@@ -93,6 +122,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => showHuddle(null));
   act(() => showSpeaking(new Set()));
+  failed.mockClear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(navigator, "mediaDevices");
@@ -104,14 +134,14 @@ describe("The huddle opened", () => {
     expect(opened()).toHaveAccessibleName("Huddle in general");
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Huddle in general");
     expect(count()).toHaveTextContent("2 people");
-    rerender(<HuddleView huddle={huddle({ people: [inHuddle(ada)] })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle({ people: [inHuddle(ada)] })} room={general} meId="ada" onFailed={failed} />);
     expect(count()).toHaveTextContent("1 person");
   });
 
   it("says that it's connecting until the room lets the tab in, and reconnecting while its connection is down", () => {
     const { rerender } = renderView(huddle({ connected: false, you: null, people: [] }));
     expect(count()).toHaveTextContent("Connecting…");
-    rerender(<HuddleView huddle={huddle({ connected: false })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle({ connected: false })} room={general} meId="ada" onFailed={failed} />);
     expect(count()).toHaveTextContent("Reconnecting…");
     expect(count()).toHaveAttribute("aria-live", "polite");
   });
@@ -156,7 +186,7 @@ describe("The tiles of a huddle", () => {
     const renamed: DirectoryUser = { id: "sam", name: "Samuel Rivera", bio: null, role: "member", status: "active", avatarUrl: "/users/sam/avatar" };
     render(
       <PeopleContext value={new Map([[renamed.id, renamed]])}>
-        <HuddleView huddle={huddle()} room={general} meId="ada" />
+        <HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />
       </PeopleContext>,
     );
     expect(tiles()[0]).toHaveTextContent("Samuel Rivera");
@@ -229,6 +259,16 @@ describe("The tiles of a huddle", () => {
     expect(tiles()[1]).toContainElement(picture);
   });
 
+  it("shows you a camera that faces away from you, as a phone's back camera does, as it is, and one that faces you as a mirror would", () => {
+    const { rerender } = renderView(huddle({ camera: camera("environment") }));
+    expect(screen.getByLabelText("Your camera")).not.toHaveClass("-scale-x-100");
+    rerender(<HuddleView huddle={huddle({ camera: camera("user") })} room={general} meId="ada" onFailed={failed} />);
+    expect(screen.getByLabelText("Your camera")).toHaveClass("-scale-x-100");
+    // Someone else's is as it is whichever way it faces.
+    rerender(<HuddleView huddle={huddle({ watched: new Map([["sam", camera("user")]]) })} room={general} meId="ada" onFailed={failed} />);
+    expect(screen.getByLabelText("Sam Rivera's camera")).not.toHaveClass("-scale-x-100");
+  });
+
   it("plays a picture the browser kept from playing at the person's next click or key, until it's gone", async () => {
     const { user, rerender } = renderView(huddle({ watched: new Map([["sam", camera()]]) }));
     const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
@@ -237,10 +277,24 @@ describe("The tiles of a huddle", () => {
     expect(play.mock.contexts).toEqual([picture]);
     await user.keyboard("a");
     expect(play.mock.contexts).toEqual([picture, picture]);
-    rerender(<HuddleView huddle={huddle()} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />);
     expect(picture.srcObject).toBeNull();
     await user.click(screen.getByRole("heading", { level: 2 }));
     expect(play).toHaveBeenCalledTimes(2);
+  });
+
+  it("plays a picture the browser stopped while the page was hidden as the page shows again, and none that plays still, until it's gone", () => {
+    const { rerender } = renderView(huddle({ camera: camera("user"), watched: new Map([["sam", camera()]]) }));
+    const [yours, sams] = [screen.getByLabelText<HTMLVideoElement>("Your camera"), screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera")];
+    vi.spyOn(yours, "paused", "get").mockReturnValue(false);
+    pageShows("hidden");
+    expect(play).not.toHaveBeenCalled();
+    pageShows("visible");
+    expect(play.mock.contexts).toEqual([sams]);
+
+    rerender(<HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />);
+    pageShows("visible");
+    expect(play).toHaveBeenCalledTimes(1);
   });
 
   it("lays the tiles out as large as shows them all in the space it measures, and again as its window changes", () => {
@@ -256,6 +310,45 @@ describe("The tiles of a huddle", () => {
     resized();
     expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(2, 142px)" });
     for (const tile of tiles()) expect(tile).toHaveClass("aspect-square");
+  });
+
+  it("tells the huddle once its tiles are no taller than the smaller of a camera's sizes, and once they're taller again", () => {
+    const space = { width: 1200, height: 700 };
+    const resized = measuring(space);
+    const { setSmall, rerender } = renderView(huddle({ people: [...crowd(3), inHuddle(ada)] }));
+    // Four people in 1200 by 700: tiles as wide as they get, 315px tall.
+    expect(setSmall.mock.calls).toEqual([[false]]);
+
+    // Twenty: five to a row, 221px wide and 165px tall, which the smaller size fills.
+    rerender(<HuddleView huddle={huddle({ people: [...crowd(19), inHuddle(ada)] })} room={general} meId="ada" onFailed={failed} />);
+    expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(5, 221px)" });
+    expect(setSmall.mock.calls).toEqual([[false], [true]]);
+
+    // In a window twice as tall they're four to a row, and 218px tall.
+    Object.assign(space, { width: 1200, height: 1400 });
+    resized();
+    expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(4, 291px)" });
+    expect(setSmall.mock.calls).toEqual([[false], [true], [false]]);
+  });
+
+  it("says nothing of its tiles' size before it has measured them, and tells the next huddle the tab joins from it", () => {
+    const { setSmall, unmount } = renderView();
+    expect(setSmall).not.toHaveBeenCalled();
+    unmount();
+
+    measuring({ width: 1200, height: 700 });
+    const { rerender } = render(<HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />);
+    expect(setSmall.mock.calls).toEqual([[false]]);
+    rerender(<HuddleView huddle={huddle({ roomId: "random" })} room={general} meId="ada" onFailed={failed} />);
+    expect(setSmall.mock.calls).toEqual([[false], [false]]);
+  });
+
+  it("says nothing of its tiles' size either while the room has yet to say who's in the huddle, when it has no tiles", () => {
+    measuring({ width: 1200, height: 700 });
+    const { setSmall, rerender } = renderView(huddle({ connected: false, you: null, people: [] }));
+    expect(setSmall).not.toHaveBeenCalled();
+    rerender(<HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />);
+    expect(setSmall.mock.calls).toEqual([[false]]);
   });
 });
 
@@ -285,6 +378,14 @@ describe("A screen shared in a huddle", () => {
     expect(list()).not.toHaveClass("shrink-0");
     expect(list().parentElement).not.toHaveClass("flex-col", "overflow-auto");
     for (const tile of tiles()) expect(tile).toHaveClass("aspect-[4/3]");
+  });
+
+  it("tells the huddle that the tiles in the strip beside a screen are small, which are no taller than the smaller of a camera's sizes", () => {
+    measuring({ width: 1400, height: 800 });
+    const { setSmall } = renderView(huddle({ people: [inHuddle(sam, { screen: true }), inHuddle(ada)], screens: new Map([["sam", shared()]]) }));
+    // Two tiles as wide as the strip's get, 220px, are 165px tall.
+    expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(1, minmax(0, 220px))" });
+    expect(setSmall.mock.calls).toEqual([[true]]);
   });
 
   it("has the tiles under the screen where that shows it larger than beside them, as on a phone held upright, laid out in what it leaves them", () => {
@@ -357,11 +458,11 @@ describe("A screen shared in a huddle", () => {
     expect(within(tiles()[0]!).getByRole("button", { name: "Show Sam Rivera's screen larger" })).toBeInTheDocument();
 
     // Once hers is no longer shared, his shows large again, and the tiles are people only.
-    rerender(<HuddleView huddle={sharing({ screens: new Map([["sam", sams]]) })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={sharing({ screens: new Map([["sam", sams]]) })} room={general} meId="ada" onFailed={failed} />);
     expect(within(stage()!).getByLabelText<HTMLVideoElement>("Sam Rivera's screen").srcObject).toBe(sams);
     expect(tiles()).toHaveLength(3);
     // And with none shared, it's the tiles as they were, as large as shows them all.
-    rerender(<HuddleView huddle={sharing()} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={sharing()} room={general} meId="ada" onFailed={failed} />);
     expect(stage()).not.toBeInTheDocument();
     expect(list()).toHaveClass("m-auto");
     expect(list().parentElement).toHaveClass("overflow-auto");
@@ -373,7 +474,7 @@ describe("A screen shared in a huddle", () => {
     const [yours, sams] = [shared(), shared()];
     const { rerender } = renderView();
     expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(2, 420px)" });
-    rerender(<HuddleView huddle={huddle({ screen: yours })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle({ screen: yours })} room={general} meId="ada" onFailed={failed} />);
     expect(stage()).not.toBeInTheDocument();
     expect(tiles().map((tile) => tile.textContent)).toEqual(["Your screen", "Sam Rivera", "Ada Lovelace (you)"]);
     const picture = within(tiles()[0]!).getByLabelText<HTMLVideoElement>("Your screen");
@@ -385,7 +486,7 @@ describe("A screen shared in a huddle", () => {
     expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(2, 325px)" });
 
     // Beside someone else's, which shows large, it's first in the strip, which is as wide as shows the three.
-    rerender(<HuddleView huddle={huddle({ screen: yours, people: [inHuddle(sam, { screen: true }), inHuddle(ada)], screens: new Map([["sam", sams]]) })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle({ screen: yours, people: [inHuddle(sam, { screen: true }), inHuddle(ada)], screens: new Map([["sam", sams]]) })} room={general} meId="ada" onFailed={failed} />);
     expect(within(stage()!).getByLabelText<HTMLVideoElement>("Sam Rivera's screen").srcObject).toBe(sams);
     expect(tiles().map((tile) => tile.textContent)).toEqual(["Your screen", "Sam Rivera", "Ada Lovelace (you)"]);
     expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(1, minmax(0, 211px))" });
@@ -396,7 +497,7 @@ describe("The buttons along the base of a huddle", () => {
   it("mutes the microphone and unmutes it, as the bar's does", async () => {
     const { setMuted, user, rerender } = renderView();
     await user.click(screen.getByRole("button", { name: "Mute microphone" }));
-    rerender(<HuddleView huddle={huddle({ muted: true })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle({ muted: true })} room={general} meId="ada" onFailed={failed} />);
     await user.click(screen.getByRole("button", { name: "Unmute microphone" }));
     expect(setMuted.mock.calls).toEqual([[true], [false]]);
   });
@@ -406,7 +507,7 @@ describe("The buttons along the base of a huddle", () => {
     const off = screen.getByRole("button", { name: "Turn on camera" });
     expect(off).not.toHaveClass("max-md:hidden");
     await user.click(off);
-    rerender(<HuddleView huddle={huddle({ camera: camera() })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle({ camera: camera() })} room={general} meId="ada" onFailed={failed} />);
     const on = screen.getByRole("button", { name: "Turn off camera" });
     expect(on).toHaveClass("bg-foreground", "text-background");
     await user.click(on);
@@ -417,18 +518,103 @@ describe("The buttons along the base of a huddle", () => {
     const { setCamera, user, rerender } = renderView();
     rerender(
       <CamerasOff>
-        <HuddleView huddle={huddle()} room={general} meId="ada" />
+        <HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />
       </CamerasOff>,
     );
     expect(screen.queryByRole("button", { name: /camera/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mute microphone" })).toBeInTheDocument();
     rerender(
       <CamerasOff>
-        <HuddleView huddle={huddle({ camera: camera() })} room={general} meId="ada" />
+        <HuddleView huddle={huddle({ camera: camera() })} room={general} meId="ada" onFailed={failed} />
       </CamerasOff>,
     );
     await user.click(screen.getByRole("button", { name: "Turn off camera" }));
     expect(setCamera.mock.calls).toEqual([[false]]);
+  });
+
+  it("has an arrow beside the microphone and one beside the camera, on a computer, each of a piece with its button and lit as it is, which opens the menu of its devices", async () => {
+    Object.defineProperty(navigator, "mediaDevices", { value: Object.assign(new EventTarget(), { enumerateDevices: async () => [] }), configurable: true });
+    const { user } = renderView();
+    const [microphones, cameras] = [screen.getByRole("button", { name: "Microphone and speaker" }), screen.getByRole("button", { name: "Camera" })];
+    for (const arrow of [microphones, cameras]) expect(arrow).toHaveClass("max-md:hidden", "rounded-l-none");
+    for (const name of ["Mute microphone", "Turn on camera"]) expect(screen.getByRole("button", { name })).toHaveClass("md:rounded-r-none");
+    expect(microphones).toHaveClass("bg-foreground", "text-background");
+    expect(cameras).toHaveClass("bg-hover");
+
+    await user.click(cameras);
+    expect(await screen.findByRole("menu")).toHaveAccessibleName("Camera");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    await user.click(microphones);
+    expect(await screen.findByRole("menu")).toHaveAccessibleName("Microphone and speaker");
+  });
+
+  it("has no arrow beside the camera while an administrator has cameras off, who leaves none to choose", () => {
+    const { rerender } = renderView();
+    rerender(
+      <CamerasOff>
+        <HuddleView huddle={huddle({ camera: camera() })} room={general} meId="ada" onFailed={failed} />
+      </CamerasOff>,
+    );
+    expect(screen.getByRole("button", { name: "Turn off camera" })).not.toHaveClass("md:rounded-r-none");
+    expect(screen.queryByRole("button", { name: "Camera" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Microphone and speaker" })).toBeInTheDocument();
+  });
+
+  it("has a button that switches cameras in the camera's arrow's place, as on a phone, while the camera is on and the browser lists another", async () => {
+    browserCameras(2);
+    const { switchCamera, user, rerender } = renderView(huddle({ camera: camera() }));
+    const button = await screen.findByRole("button", { name: "Switch camera" });
+    expect(button).toHaveClass("md:hidden", "bg-hover");
+    expect(button).toHaveAttribute("title", "Switch camera");
+    expect(screen.getByRole("button", { name: "Camera" })).toHaveClass("max-md:hidden");
+    // Right after the camera's own, and its arrow on a computer.
+    const names = screen.getAllByRole("button").map((each) => each.getAttribute("aria-label") ?? each.textContent);
+    expect(names.slice(names.indexOf("Turn off camera"))).toEqual(["Turn off camera", "Camera", "Switch camera", "More", "Leave"]);
+
+    await user.click(button);
+    expect(switchCamera).toHaveBeenCalledExactlyOnceWith();
+    // Off, there's none to switch from.
+    rerender(<HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />);
+    expect(screen.queryByRole("button", { name: "Switch camera" })).not.toBeInTheDocument();
+  });
+
+  it("has no button to switch cameras while the browser lists the one, until another is plugged in, nor once that's taken away", async () => {
+    const lists = browserCameras(1);
+    renderView(huddle({ camera: camera() }));
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Switch camera" })).not.toBeInTheDocument();
+    await lists(2);
+    expect(screen.getByRole("button", { name: "Switch camera" })).toBeInTheDocument();
+    await lists(1);
+    expect(screen.queryByRole("button", { name: "Switch camera" })).not.toBeInTheDocument();
+  });
+
+  it("asks nothing of the browser's cameras while its own is off, and hears no more of them once it's off again", async () => {
+    const lists = browserCameras(2);
+    const enumerateDevices = vi.spyOn(navigator.mediaDevices, "enumerateDevices");
+    const { rerender } = renderView();
+    await lists(2);
+    expect(enumerateDevices).not.toHaveBeenCalled();
+    rerender(<HuddleView huddle={huddle({ camera: camera() })} room={general} meId="ada" onFailed={failed} />);
+    expect(await screen.findByRole("button", { name: "Switch camera" })).toBeInTheDocument();
+    expect(enumerateDevices).toHaveBeenCalledTimes(1);
+    rerender(<HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />);
+    await lists(2);
+    expect(enumerateDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no button to switch cameras while an administrator has cameras off, who leaves none to choose", async () => {
+    browserCameras(2);
+    const { rerender } = renderView();
+    rerender(
+      <CamerasOff>
+        <HuddleView huddle={huddle({ camera: camera() })} room={general} meId="ada" onFailed={failed} />
+      </CamerasOff>,
+    );
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Turn off camera" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Switch camera" })).not.toBeInTheDocument();
   });
 
   it("keeps its camera button under a workspace that says nothing of cameras, as one told of by an older Worker does", () => {
@@ -438,7 +624,7 @@ describe("The buttons along the base of a huddle", () => {
     const { rerender } = renderView();
     rerender(
       <Unsaid>
-        <HuddleView huddle={huddle()} room={general} meId="ada" />
+        <HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />
       </Unsaid>,
     );
     expect(screen.getByRole("button", { name: "Turn on camera" })).toBeInTheDocument();
@@ -448,7 +634,7 @@ describe("The buttons along the base of a huddle", () => {
     browserSharesScreens();
     const { setScreen, user, rerender } = renderView();
     await user.click(screen.getByRole("button", { name: "Share screen" }));
-    rerender(<HuddleView huddle={huddle({ screen: shared() })} room={general} meId="ada" />);
+    rerender(<HuddleView huddle={huddle({ screen: shared() })} room={general} meId="ada" onFailed={failed} />);
     const stop = screen.getByRole("button", { name: "Stop sharing screen" });
     expect(stop).toHaveClass("bg-foreground", "text-background");
     await user.click(stop);
@@ -461,14 +647,14 @@ describe("The buttons along the base of a huddle", () => {
     browserSharesScreens();
     rerender(
       <ScreensOff>
-        <HuddleView huddle={huddle()} room={general} meId="ada" />
+        <HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />
       </ScreensOff>,
     );
     expect(screen.queryByRole("button", { name: /screen/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Turn on camera" })).toBeInTheDocument();
     rerender(
       <ScreensOff>
-        <HuddleView huddle={huddle({ screen: shared() })} room={general} meId="ada" />
+        <HuddleView huddle={huddle({ screen: shared() })} room={general} meId="ada" onFailed={failed} />
       </ScreensOff>,
     );
     await user.click(screen.getByRole("button", { name: "Stop sharing screen" }));
@@ -483,10 +669,109 @@ describe("The buttons along the base of a huddle", () => {
     const { rerender } = renderView();
     rerender(
       <Unsaid>
-        <HuddleView huddle={huddle()} room={general} meId="ada" />
+        <HuddleView huddle={huddle()} room={general} meId="ada" onFailed={failed} />
       </Unsaid>,
     );
     expect(screen.getByRole("button", { name: "Share screen" })).toBeInTheDocument();
+  });
+
+  it("has Invite people first, on a computer, which opens the list of the room's people to invite, and has the focus back once that closes", async () => {
+    const { invite, user } = renderView(huddle({ roomId: "direct-1" }), direct);
+    const button = screen.getByRole("button", { name: "Invite people" });
+    expect(tools()[0]).toBe(button);
+    expect(button).toHaveAttribute("title", "Invite people");
+    expect(button).toHaveClass("bg-hover");
+    expect(button.parentElement).toHaveClass("max-md:hidden");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(button);
+    const dialog = await inviteDialog();
+    // Sam is in the huddle, which leaves Priya to invite.
+    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(1);
+    expect(within(dialog).getByRole("checkbox", { name: "Priya Patel" })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Send Invite" }));
+    expect(invite).toHaveBeenCalledExactlyOnceWith(["priya"]);
+    expect(dialog).not.toBeInTheDocument();
+    await waitFor(() => expect(button).toHaveFocus());
+    expect(screen.getByRole("alert")).toHaveTextContent("Priya is invited.");
+  });
+
+  it("has More last before Leave, on a phone, whose menu has Invite people, which opens the list once the menu has shut, and has the focus back once that closes", async () => {
+    const { invite, user } = renderView(huddle({ roomId: "direct-1" }), direct);
+    const more = screen.getByRole("button", { name: "More" });
+    expect(tools().at(-2)).toBe(more);
+    expect(more).toHaveAttribute("title", "More");
+    expect(more).toHaveClass("md:hidden", "bg-hover");
+
+    await user.click(more);
+    const choices = within(await screen.findByRole("menu")).getAllByRole("menuitem");
+    expect(choices.map((choice) => choice.textContent)).toEqual(["Invite people"]);
+    const focused: EventTarget[] = [];
+    const note = (event: FocusEvent) => void focused.push(event.target!);
+    document.addEventListener("focusin", note);
+    await user.click(choices[0]!);
+    const dialog = await inviteDialog();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    const title = within(dialog).getByRole("heading", { name: "Invite people" });
+    await waitFor(() => expect(title).toHaveFocus());
+
+    await user.keyboard("{Escape}");
+    expect(dialog).not.toBeInTheDocument();
+    await waitFor(() => expect(more).toHaveFocus());
+    // The focus went from the menu straight to the list, which kept it until it closed.
+    expect(focused).toEqual([choices[0], title, more]);
+    document.removeEventListener("focusin", note);
+    expect(invite).not.toHaveBeenCalled();
+    // Neither the menu nor the list is left holding the page.
+    expect(document.body.style.pointerEvents).toBe("");
+    // And the menu opens the list again.
+    await user.click(more);
+    await user.click(await screen.findByRole("menuitem", { name: "Invite people" }));
+    expect(await inviteDialog()).toBeInTheDocument();
+  });
+
+  it("leaves the focus on More when its menu shuts with nothing chosen, and opens no list, whether or not it has opened the list before", async () => {
+    const { user } = renderView(huddle({ roomId: "direct-1" }), direct);
+    const more = screen.getByRole("button", { name: "More" });
+    const shutMenu = async () => {
+      await user.click(more);
+      await screen.findByRole("menu");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+      await waitFor(() => expect(more).toHaveFocus());
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    };
+    await shutMenu();
+
+    await user.click(more);
+    await user.click(await screen.findByRole("menuitem", { name: "Invite people" }));
+    await inviteDialog();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(more).toHaveFocus());
+    await shutMenu();
+  });
+
+  it("lists a shared room's people as its settings have them, and reports a session that's ended when that's why they didn't come", async () => {
+    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json({ room: general, canAdminister: false, people: [ada, sam, priya].map((person) => ({ ...person, member: true })) }),
+    );
+    const { user } = renderView();
+    await user.click(screen.getByRole("button", { name: "Invite people" }));
+    expect(await within(await inviteDialog()).findByRole("checkbox", { name: "Priya Patel" })).toBeInTheDocument();
+    expect(fetched).toHaveBeenCalledExactlyOnceWith("/api/rooms/general/settings", expect.anything());
+    expect(failed).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    fetched.mockImplementation(async () => Response.json({ error: "Sign in to continue" }, { status: 401 }));
+    await user.click(screen.getByRole("button", { name: "Invite people" }));
+    await waitFor(() => expect(failed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 })));
+  });
+
+  it("has neither Invite people nor More once its room isn't among this person's, which leaves nobody to list", () => {
+    renderView(huddle(), null);
+    expect(screen.queryByRole("button", { name: "Invite people" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+    expect(tools().map((tool) => tool.getAttribute("aria-label") ?? tool.textContent)).toEqual(["Mute microphone", "Microphone and speaker", "Turn on camera", "Camera", "Leave"]);
   });
 
   it("leaves on Leave, the last of its buttons", async () => {

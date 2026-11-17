@@ -64,8 +64,8 @@ import type { AppId } from "@ember/protocol/apps";
 import type { LiveHuddle } from "@ember/protocol/huddles";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
-import { messagePayload, type PushPayload } from "./push/payload";
-import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
+import { INVITATION_TTL_SECONDS, invitationPayload, messagePayload, type PushPayload } from "./push/payload";
+import { ADDRESS_TAG_PREFIX, EVERYONE, OPEN_ROOMS_ONLY, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
@@ -172,10 +172,20 @@ export interface SavedMemberfulKeys {
   sealedSecrets: string;
 }
 
-/** A Realtime SFU app's keys as the account keeps them: its ID, and its secret sealed (`seal`). */
+/**
+ * A Realtime SFU app's keys as the account keeps them: its ID, and its secret sealed (`seal`), and with
+ * them the TURN key huddles' relay goes by, or null while they have no relay.
+ */
 export interface SavedHuddles {
   appId: string;
   sealedAppSecret: string;
+  relay: SavedRelay | null;
+}
+
+/** A TURN key as the account keeps it: its ID, and its API token sealed (`seal`). */
+export interface SavedRelay {
+  keyId: string;
+  sealedApiToken: string;
 }
 
 /**
@@ -572,6 +582,8 @@ export interface SavedRoomChange {
   addedIds: UserId[];
   /** Who it took out, whose sockets there it queued closing. */
   removedIds: UserId[];
+  /** Whether it made a room open to everyone private, which queued turning away what AI apps that reach only open rooms were let send there. */
+  madePrivate: boolean;
   /** Whether the shared order ranks the room, which the sidebars of the people it put in have left out. */
   ranked: boolean;
 }
@@ -602,6 +614,14 @@ export interface MessagePush {
   deliveries: PushDelivery[];
 }
 
+/**
+ * The pushes of an invitation into a huddle, which are as a message's but for how long a push service
+ * keeps each for a browser that's away, in seconds.
+ */
+export interface InvitationPush extends MessagePush {
+  ttl: number;
+}
+
 /** One of someone's push subscriptions, with the user agent of the browser that saved it, if it sent one. */
 export interface StoredPushSubscription {
   id: number;
@@ -609,7 +629,7 @@ export interface StoredPushSubscription {
   userAgent: string | null;
 }
 
-/** A subscription a message is pushed to, and the count its push sets the app's badge to. */
+/** A subscription a message or an invitation is pushed to, and the count its push sets the app's badge to. */
 export interface PushDelivery {
   subscriptionId: number;
   endpoint: string;
@@ -1192,14 +1212,29 @@ function memberfulKeysIn(settings: Record<string, unknown> | null): SavedMemberf
 
 /**
  * The Realtime SFU app huddles run through, which the account's settings keep as `huddles`,
- * `{ app_id, app_secret }`, the secret sealed, or null while huddles are off.
+ * `{ app_id, app_secret }`, the secret sealed, or null while huddles are off. The TURN key their relay
+ * goes by is kept with it, as `relay`, so that turning huddles off forgets both.
  */
 function huddlesIn(settings: Record<string, unknown> | null): SavedHuddles | null {
   const kept = settings?.huddles;
   if (typeof kept !== "object" || kept === null) return null;
-  const { app_id: appId, app_secret: sealedAppSecret } = kept as Record<string, unknown>;
-  return typeof appId === "string" && typeof sealedAppSecret === "string" ? { appId, sealedAppSecret } : null;
+  const { app_id: appId, app_secret: sealedAppSecret, relay } = kept as Record<string, unknown>;
+  return typeof appId === "string" && typeof sealedAppSecret === "string" ? { appId, sealedAppSecret, relay: relayIn(relay) } : null;
 }
+
+/** The TURN key huddles' relay goes by, as `huddles` keeps it, `{ key_id, api_token }`, the token sealed, or null without one. */
+function relayIn(kept: unknown): SavedRelay | null {
+  if (typeof kept !== "object" || kept === null) return null;
+  const { key_id: keyId, api_token: sealedApiToken } = kept as Record<string, unknown>;
+  return typeof keyId === "string" && typeof sealedApiToken === "string" ? { keyId, sealedApiToken } : null;
+}
+
+/** `huddles` as the account's settings keep them. */
+const storedHuddles = ({ appId, sealedAppSecret, relay }: SavedHuddles) => ({
+  app_id: appId,
+  app_secret: sealedAppSecret,
+  ...(relay && { relay: { key_id: relay.keyId, api_token: relay.sealedApiToken } }),
+});
 
 /** Whether the account's settings let cameras go on in huddles, which they keep as `huddle_cameras`: unless that's stored as false, as the Cameras switch stores it. */
 const showsHuddleCameras = (settings: Record<string, unknown> | null) => settings?.huddle_cameras !== false;
@@ -1412,6 +1447,13 @@ function messagePushes(roomId: RoomId, { message }: RoomEvent, rows: PushRow[]):
   ];
 }
 
+/** An invitation's pushes, from the subscriptions `INVITATION_PUSHES` found for it: none when it found none. */
+function invitationPushes(roomId: RoomId, rows: InvitationPushRow[]): InvitationPush[] {
+  if (rows.length === 0) return [];
+  const [{ kind, name, inviter_name }] = rows as [InvitationPushRow];
+  return [{ payload: invitationPayload(roomId, { kind, name }, inviter_name), deliveries: rows.map(deliveryOf), ttl: INVITATION_TTL_SECONDS }];
+}
+
 /** Whether `ROOM_RANKED` found that the shared order ranks the room. */
 const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ranked === 1;
 
@@ -1531,6 +1573,31 @@ const KEEP_REPORT_TIME = `UPDATE rooms SET huddle_reported_at = ?2 WHERE id = ?1
 /** When the report kept of a room's huddle was made. */
 const HUDDLE_REPORTED_AT = `SELECT huddle_reported_at FROM rooms WHERE id = ?`;
 
+/**
+ * Who of the people a JSON list ?2 names an invitation into room ?1's huddle reaches: those in the room,
+ * active, who hear its @mentions of them or more, since an invitation names them as a mention does.
+ */
+export const HUDDLE_INVITEES = `SELECT memberships.user_id FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ?1 AND memberships.user_id IN (SELECT value FROM json_each(?2))
+    AND memberships.involvement IN ('everything', 'mentions') AND users.status = ${ACTIVE}`;
+
+/**
+ * Where an invitation into room ?1's huddle by ?2 is pushed: to the subscriptions of those of the
+ * people a JSON list ?3 names whom it reaches, as `HUDDLE_INVITEES` has it, in the order they were
+ * saved. Guests are left out unless ?4 says they can stay signed in. Each comes with the room, the name
+ * of whoever invites and the count its push sets the badge to, as a message's does.
+ */
+export const INVITATION_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
+    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
+    rooms.kind, rooms.name, (SELECT name FROM users AS inviters WHERE inviters.id = ?2) AS inviter_name
+  FROM rooms
+    JOIN memberships ON memberships.room_id = rooms.id
+    JOIN users ON users.id = memberships.user_id
+    JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
+  WHERE rooms.id = ?1 AND memberships.user_id IN (SELECT value FROM json_each(?3))
+    AND memberships.involvement IN ('everything', 'mentions') AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?4 = 1)
+  ORDER BY push_subscriptions.id`;
+
 /** A room's huddle, as its row keeps it. */
 const HUDDLE = `SELECT huddle_started_at, huddle_user_ids FROM rooms WHERE id = ?`;
 
@@ -1585,6 +1652,14 @@ const KEPT_SUSPENDED_MEMBERSHIP = `EXISTS (SELECT 1 FROM users JOIN rooms ON roo
  */
 export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
   SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
+  RETURNING id`;
+
+/**
+ * Queues turning away, in a room that's open to everyone as it's made private, what the AI apps that
+ * reach only open rooms were let send there (`OPEN_ROOMS_ONLY`), answering a row if it was open.
+ */
+const QUEUE_OPEN_ROOMS_ONLY_REVOCATION = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT id, ?, ?, ? FROM rooms WHERE id = ? AND kind = 'open'
   RETURNING id`;
 
 /**
@@ -1748,6 +1823,12 @@ interface PushRow extends DeliveryRow {
   kind: RoomKind;
   name: string | null;
   author_name: string;
+}
+
+interface InvitationPushRow extends DeliveryRow {
+  kind: RoomKind;
+  name: string | null;
+  inviter_name: string;
 }
 
 /**
@@ -2827,7 +2908,7 @@ export class WorkspaceStore {
       ...(memberfulKeys === undefined
         ? []
         : [statement(SET_MEMBERFUL_KEYS, JSON.stringify(memberfulKeys && { site: memberfulKeys.site, client_id: memberfulKeys.clientId, secrets: memberfulKeys.sealedSecrets }), now)]),
-      ...(huddles === undefined ? [] : [statement(SET_HUDDLES, JSON.stringify(huddles && { app_id: huddles.appId, app_secret: huddles.sealedAppSecret }), now)]),
+      ...(huddles === undefined ? [] : [statement(SET_HUDDLES, JSON.stringify(huddles && storedHuddles(huddles)), now)]),
     ]);
   }
 
@@ -3706,6 +3787,19 @@ export class WorkspaceStore {
     return { memberIds: changed.length > 0 ? userIdsOf(members) : null, outdatedBy: null };
   }
 
+  /** Who of `userIds` an invitation into room `roomId`'s huddle reaches: those in the room who hear its @mentions of them or more. */
+  async huddleInvitees(roomId: RoomId, userIds: UserId[]): Promise<UserId[]> {
+    return userIdsOf(await this.db.all<UserIdRow>(HUDDLE_INVITEES, roomId, JSON.stringify(userIds)));
+  }
+
+  /**
+   * The pushes of an invitation into room `roomId`'s huddle by `by`, to those of `userIds` it reaches
+   * who have saved a subscription, and to guests only if `guests` says they can stay signed in.
+   */
+  async invitationPushes(roomId: RoomId, by: UserId, userIds: UserId[], guests: boolean): Promise<InvitationPush[]> {
+    return invitationPushes(roomId, await this.db.all<InvitationPushRow>(INVITATION_PUSHES, roomId, by, JSON.stringify(userIds), guests ? 1 : 0));
+  }
+
   /** The huddle going on in a room, or null when none is. */
   async liveHuddle(roomId: RoomId): Promise<LiveHuddle | null> {
     const [row] = await this.db.all<HuddleRow>(HUDDLE, roomId);
@@ -3866,6 +3960,12 @@ export class WorkspaceStore {
   /** Whether `userId` is in room `roomId` and active, not banned or suspended with their membership kept. */
   async isActiveMember(roomId: RoomId, userId: UserId): Promise<boolean> {
     return (await this.db.all(ACTIVE_MEMBERSHIP, roomId, userId)).length > 0;
+  }
+
+  /** The kind of room `roomId`, a DM's too, or null when there's no such room. */
+  async roomKind(roomId: RoomId): Promise<RoomKind | null> {
+    const [row] = await this.db.all<{ kind: RoomKind }>(`SELECT kind FROM rooms WHERE id = ?`, roomId);
+    return row?.kind ?? null;
   }
 
   /** Whether room `roomId` is a direct conversation between `userId` and `otherId` alone, each an active member of it. */
@@ -4621,16 +4721,17 @@ export class WorkspaceStore {
     if (changes.kind === "open") {
       const grant = statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now);
       const [updated, added, after, rank] = (await this.db.batch([update, grant, members, ranked])) as UserIdRow[][];
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], ranked: isRanked(rank!) };
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], madePrivate: false, ranked: isRanked(rank!) };
     }
     if (changes.kind !== "closed") {
       const [updated, after] = (await this.db.batch([update, members])) as UserIdRow[][];
       // Nobody new is in it, so nobody's sidebar has left it out.
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], ranked: false };
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], madePrivate: false, ranked: false };
     }
     const memberIds = JSON.stringify(changes.memberIds);
-    // Whom it takes out is read before the room's kind changes, which says whether anyone suspended stays.
-    const [, removed, updated, added, after, rank] = (await this.db.batch([
+    // Whether it was open, and whom it takes out, are read before the room's kind changes, which says whether anyone suspended stays.
+    const [madePrivate, , removed, updated, added, after, rank] = (await this.db.batch([
+      statement(QUEUE_OPEN_ROOMS_ONLY_REVOCATION, OPEN_ROOMS_ONLY, code, dueAt, roomId),
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
       update,
@@ -4643,6 +4744,7 @@ export class WorkspaceStore {
       memberIds: userIdsOf(after!),
       addedIds: userIdsOf(added!),
       removedIds: userIdsOf(removed!),
+      madePrivate: madePrivate!.length > 0,
       ranked: isRanked(rank!),
     };
   }
