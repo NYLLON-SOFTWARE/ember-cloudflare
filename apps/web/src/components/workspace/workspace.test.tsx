@@ -2380,7 +2380,7 @@ describe("Community settings page", () => {
     expect(within(header).getByRole("heading", { level: 1, name: "Community settings" })).toBeInTheDocument();
     expect(sectionMarked()).toHaveTextContent("General");
     // Ada isn't an administrator.
-    expect(within(settingsNavigation()).getAllByRole("link").map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership"]);
+    expect(within(settingsNavigation()).getAllByRole("link").map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership", "Custom emoji"]);
     // The header, the links, then the page, as they show.
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(header, settingsNavigation())).toBe(true);

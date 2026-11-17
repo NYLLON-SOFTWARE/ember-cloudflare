@@ -1,8 +1,9 @@
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { CardAction, Me, Message, User } from "@ember/protocol";
+import { emojiSegments, type CardAction, type Me, type Message, type User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { NavArrowRight } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
+import { useCustomEmoji, type CustomEmojiByName } from "@/hooks/use-custom-emoji";
 import { PeopleContext } from "@/hooks/use-directory";
 import { messagePath, permalinkOf, threadPath } from "@/hooks/use-route";
 import { cardsQuote, dateTimeLabel, lastReplyLabel, timeLabel } from "@/lib/messages";
@@ -70,6 +71,15 @@ interface Props {
   thread?: ThreadPlace;
   /** Whether the message's thread is open beside its room, which marks it there, as Slack does. */
   open?: boolean;
+}
+
+/**
+ * Whether `text` is nothing but emoji, the workspace's custom ones by their codes included, so that it
+ * shows large, as `isAllEmoji` says of Unicode's alone.
+ */
+function isAllEmojiWith(text: string, emoji: CustomEmojiByName): boolean {
+  if (emoji.size === 0 || !text.includes(":")) return isAllEmoji(text);
+  return emojiSegments(text, (name) => emoji.get(name)).every((segment) => typeof segment !== "string" || isAllEmoji(segment));
 }
 
 /**
@@ -229,7 +239,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
     [message.body, message.cards, message.plainText, shown],
   );
   // A message's plain text holds its cards', which never show large.
-  const allEmoji = !message.cards && isAllEmoji(message.plainText);
+  const customEmoji = useCustomEmoji();
+  const allEmoji = !message.cards && isAllEmojiWith(message.plainText, customEmoji);
   // A reply says where it's from, or where else it went, under its author's name, so it never follows on
   // without one.
   const context = message.parentId !== undefined && (!thread || message.alsoSent) && <ReplyContext message={message} thread={thread} />;

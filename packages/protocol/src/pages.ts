@@ -1,3 +1,4 @@
+import { CUSTOM_EMOJI_PATH } from "./custom-emoji.ts";
 import type { RoomId, RoomKind, UserId } from "./index.ts";
 import { OUTSIDE_AUTHORIZE_PATH } from "./outside.ts";
 
@@ -40,6 +41,8 @@ export type WorkspacePage =
   | { page: "workspace-settings" }
   /** The Custom CSS page, which only administrators may open. */
   | { page: "custom-styles" }
+  /** The Custom emoji page, at `/account/emoji`, where anyone adds emoji and removes their own. */
+  | { page: "custom-emoji" }
   /** The Chat bots page, at `/account/bots`, which only administrators may open, as the next two. */
   | { page: "bots" }
   /** Add a chat bot, at `/account/bots/new`. */
@@ -114,6 +117,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === NEW_DIRECT_PATH) return { page: "new-direct" };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
+  if (pathname === CUSTOM_EMOJI_PATH) return { page: "custom-emoji" };
   if (pathname === BOTS_PATH) return { page: "bots" };
   if (pathname === NEW_BOT_PATH) return { page: "new-bot" };
   const bot = pathname.match(/^\/account\/bots\/([^/]+)\/edit$/);

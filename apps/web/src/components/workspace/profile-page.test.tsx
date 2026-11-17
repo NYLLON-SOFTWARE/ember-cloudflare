@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,6 +12,7 @@ import {
   type DirectoryUser,
   type MemberfulDisconnection,
   type MemberfulStatus,
+  type Me,
   type Platform,
   type Profile,
   type ProfileAnswer,
@@ -60,6 +61,8 @@ interface Answers {
   leveled?: (changes: YourAssistantChanges) => Response | Promise<Response>;
   /** What disconnecting your Memberful account answers, rather than the profile with none connected. */
   disconnected?: () => Response | Promise<Response>;
+  /** What choosing a skin tone answers, rather than the tone saved. */
+  toned?: () => Response | Promise<Response>;
 }
 
 /** Ada's Memberful account, as Memberful describes it, once she has connected it. */
@@ -78,6 +81,7 @@ function serve({
   uploaded = () => Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true }, transferId: SAVED_LINK } satisfies ProfileAnswer),
   leveled,
   disconnected = () => Response.json({ profile: { ...profile, memberful: NOT_CONNECTED }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+  toned,
 }: Answers = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
@@ -98,6 +102,8 @@ function serve({
         return Response.json({ profile: { ...profile, avatarUrl: "/users/t0k3n/avatar?v=3" }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       case `DELETE ${MEMBERFUL_CONNECTIONS_PATH}`:
         return disconnected();
+      case "PUT /api/users/me/skin_tone":
+        return toned ? toned() : Response.json(JSON.parse(String(init?.body)) as { skinTone: number });
       default:
         throw new Error(`Unexpected request for ${request}`);
     }
@@ -106,14 +112,21 @@ function serve({
 
 /** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
 function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
-  const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
-  const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
+  const [onSignOut, onFailed, answered, onSkinToneChanged] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+  const page = (listed: SidebarRoom[] | null, people: People = new Map(), me: Me = ada) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
         <PushContext value={{ ...PUSH_ON, platform }}>
           <FlashProvider workspace>
             <Sheet>
-              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
+              <ProfilePage
+                me={me}
+                rooms={listed}
+                askForRoom={() => answered}
+                onSkinToneChanged={onSkinToneChanged}
+                onSignOut={onSignOut}
+                onFailed={onFailed}
+              />
             </Sheet>
           </FlashProvider>
         </PushContext>
@@ -125,9 +138,11 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
     onSignOut,
     onFailed,
     answered,
+    onSkinToneChanged,
     user: userEvent.setup(),
     showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
     showPeople: (people: People) => rerender(page(rooms, people)),
+    showMe: (me: Me) => rerender(page(rooms, new Map(), me)),
   };
 }
 
@@ -608,6 +623,89 @@ describe("Connect Memberful", () => {
     showPage();
     await loaded();
     expect(memberful()).not.toBeInTheDocument();
+  });
+});
+
+describe("Skin tone on your profile", () => {
+  it("offers the default and Unicode's five tones, the default chosen until you choose another", async () => {
+    serve();
+    showPage();
+    const tones = await screen.findByRole("radiogroup", { name: "Skin tone" });
+    expect(within(tones).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Default", "Light", "Medium-light", "Medium", "Medium-dark", "Dark"]);
+    expect(within(tones).getByRole("radio", { name: "Default" })).toBeChecked();
+    expect(tones).toHaveAccessibleDescription("The skin tone of the people and hands you add as emoji by their :codes, and as quick reactions.");
+  });
+
+  it("saves a tone for your account as you choose it, and gives it to the app", async () => {
+    serve();
+    const { user, onSkinToneChanged } = showPage();
+    await user.click(await screen.findByRole("radio", { name: "Medium" }));
+    await waitFor(() => expect(onSkinToneChanged).toHaveBeenCalledWith(3));
+    const sent = vi.mocked(fetch).mock.calls.filter(([path]) => path === "/api/users/me/skin_tone").map(([, init]) => [init?.method, JSON.parse(String(init?.body))]);
+    expect(sent).toEqual([["PUT", { skinTone: 3 }]]);
+  });
+
+  it("saves one tone at a time, then only the last chosen meanwhile, so the server ends with the last", async () => {
+    const answers: Array<() => void> = [];
+    serve({
+      toned: () => new Promise<Response>((resolve) => answers.push(() => resolve(Response.json({ skinTone: answers.length })))),
+    });
+    const { user, onSkinToneChanged } = showPage();
+    const sent = () => vi.mocked(fetch).mock.calls.filter(([path]) => path === "/api/users/me/skin_tone").map(([, init]) => JSON.parse(String(init?.body)) as unknown);
+    await user.click(await screen.findByRole("radio", { name: "Light" }));
+    await user.click(screen.getByRole("radio", { name: "Medium" }));
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(sent()).toEqual([{ skinTone: 1 }]);
+    expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
+
+    answers[0]!();
+    await waitFor(() => expect(sent()).toEqual([{ skinTone: 1 }, { skinTone: 5 }]));
+    expect(onSkinToneChanged).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
+    answers[1]!();
+    await waitFor(() => expect(onSkinToneChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps a tone another tab chose while one saves here, but not this tab's own heard back", async () => {
+    const answers: Array<() => void> = [];
+    serve({ toned: () => new Promise<Response>((resolve) => answers.push(() => resolve(Response.json({ skinTone: 1 })))) });
+    const { user, onSkinToneChanged, showMe } = showPage();
+    await user.click(await screen.findByRole("radio", { name: "Light" }));
+    // The socket tells of this tab's own tone, then of Dark, chosen in another tab, before the answer comes.
+    showMe({ ...ada, skinTone: 1 });
+    showMe({ ...ada, skinTone: 5 });
+    answers[0]!();
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked());
+    expect(onSkinToneChanged).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("radio", { name: "Light" }));
+    showMe({ ...ada, skinTone: 1 });
+    answers[1]!();
+    await waitFor(() => expect(onSkinToneChanged).toHaveBeenCalledWith(1));
+  });
+
+  it("sends no tone chosen meanwhile once the profile's gone, as when someone else signs in in another tab", async () => {
+    const answers: Array<() => void> = [];
+    serve({ toned: () => new Promise<Response>((resolve) => answers.push(() => resolve(Response.json({ skinTone: 1 })))) });
+    const { user, onSkinToneChanged } = showPage();
+    const sent = () => vi.mocked(fetch).mock.calls.filter(([path]) => path === "/api/users/me/skin_tone").length;
+    await user.click(await screen.findByRole("radio", { name: "Light" }));
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+
+    cleanup();
+    answers[0]!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent()).toBe(1);
+    expect(onSkinToneChanged).not.toHaveBeenCalled();
+  });
+
+  it("shows your tone as it was again when it can't be saved", async () => {
+    serve({ toned: () => Response.json({ error: "Down for maintenance" }, { status: 503 }) });
+    const { user, onFailed, onSkinToneChanged } = showPage();
+    await user.click(await screen.findByRole("radio", { name: "Dark" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 503 })));
+    expect(screen.getByRole("radio", { name: "Default" })).toBeChecked();
+    expect(onSkinToneChanged).not.toHaveBeenCalled();
   });
 });
 

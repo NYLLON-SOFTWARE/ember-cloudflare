@@ -8,11 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount, useCamerasAllowed, useScreensAllowed } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
+import { CustomEmojiContext } from "@/hooks/use-custom-emoji";
+import { useCustomEmojiList } from "@/hooks/use-custom-emoji-list";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
 import { useSidebar } from "@/hooks/use-sidebar";
+import { SkinToneContext, withSkinToneOf } from "@/hooks/use-skin-tone";
 import { agentsToAsk } from "@/lib/agents";
 import { answerHuddleInvitation, ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
@@ -66,6 +69,7 @@ const RARE_PAGES = new Set<Route["page"]>([
   "direct-settings",
   "workspace-settings",
   "custom-styles",
+  "custom-emoji",
   "bots",
   "new-bot",
   "bot-settings",
@@ -91,7 +95,7 @@ export function loadPageAhead(pathname: string): Promise<unknown> {
 /**
  * What the rail marks on each page: the logo and Home at home, Home on a room's page and the pages that
  * go on to one, Search on search, Admin or Workspace on every page of community settings (a room's
- * forms, the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing on
+ * forms, the bot and agent pages and the Custom CSS and Custom emoji pages among them), your avatar on your profile, and nothing on
  * a DM's settings or your push subscriptions, whose addresses none of its links have, nor on New direct
  * message's, which goes on to the last room visited at once.
  */
@@ -107,6 +111,7 @@ const RAIL_PAGES = {
   "direct-settings": null,
   "workspace-settings": "workspace",
   "custom-styles": "workspace",
+  "custom-emoji": "workspace",
   bots: "workspace",
   "new-bot": "workspace",
   "bot-settings": "workspace",
@@ -278,7 +283,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const directory = useDirectory();
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  // So do the workspace's custom emoji, as it says each is added or removed.
+  const customEmoji = useCustomEmojiList();
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(
+    me,
+    onSessionChanged,
+    directory,
+    accountHeard,
+    shownRoomGone,
+    changeInvitations,
+    customEmoji,
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -774,6 +789,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ AgentSettingsPage }) => (
           <AgentSettingsPage key={route.agentId} agentId={route.agentId} me={me} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
+      case "custom-emoji":
+        return rarePage(({ CustomEmojiPage }) => <CustomEmojiPage me={me} onAdded={customEmoji.add} onRemoved={customEmoji.remove} onFailed={failed} />);
       case "new-app":
         return rarePage(({ NewAppPage }) => <NewAppPage me={me} onFailed={failed} />);
       case "app-settings":
@@ -781,7 +798,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       case "app-signed-in":
         return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
-        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
+        return rarePage(({ ProfilePage }) => (
+          <ProfilePage
+            me={me}
+            rooms={rooms}
+            askForRoom={askForRoom}
+            onSkinToneChanged={(skinTone) => onSessionChanged(withSkinToneOf(me, skinTone))}
+            onSignOut={onSignOut}
+            onFailed={failed}
+          />
+        ));
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":
@@ -1009,7 +1035,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DirectoryLoaded value={directory.loaded}>
         <SettingsLayout value={settings}>
           <OpenSearchContext value={openSearch}>
-            <HuddlesContext value={huddles}>{layout}</HuddlesContext>
+            <HuddlesContext value={huddles}>
+              <SkinToneContext value={me.skinTone ?? 0}>
+                <CustomEmojiContext value={customEmoji.emoji}>{layout}</CustomEmojiContext>
+              </SkinToneContext>
+            </HuddlesContext>
           </OpenSearchContext>
         </SettingsLayout>
       </DirectoryLoaded>

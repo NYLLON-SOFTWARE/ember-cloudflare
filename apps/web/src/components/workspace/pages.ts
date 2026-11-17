@@ -8,6 +8,7 @@ export { AppSignedInPage } from "./app-signed-in-page";
 export { AvailableAgentsDialog } from "./available-agents";
 export { BotSettingsPage, NewBotPage } from "./bot-settings-page";
 export { BotsPage } from "./bots-page";
+export { CustomEmojiPage } from "./custom-emoji-page";
 export { CustomStylesPage } from "./custom-styles-page";
 export { DirectSettingsPage } from "./direct-settings-page";
 export { EmberPage } from "./ember-settings";

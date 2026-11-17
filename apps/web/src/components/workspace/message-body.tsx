@@ -2,9 +2,11 @@ import { createElement, useContext, type ComponentProps, type ReactNode } from "
 import { isAppPage, type User, type UserId } from "@ember/protocol";
 import type { DisplayElement, DisplayNode, DisplayPreview } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
+import { NO_CUSTOM_EMOJI, useCustomEmoji } from "@/hooks/use-custom-emoji";
 import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./code-block";
+import { withEmojiDrawn } from "./custom-emoji";
 import { markedRanges, matchesIn, SearchMarks, type Matches } from "./search-marks";
 import { AvatarLink, UserAvatar } from "./user-avatar";
 
@@ -31,25 +33,36 @@ interface Props {
 
 /**
  * A message's text, built from `displayBody`'s nodes rather than set as markup, with what a search's
- * results mark in it (`SearchMarks`) marked. `.message-content` in index.css styles it.
+ * results mark in it (`SearchMarks`) marked, and the workspace's custom emoji drawn in place of their
+ * :codes, outside code. `.message-content` in index.css styles it.
  */
 export function MessageBody({ nodes, mentions, emoji = false, trailing, className }: Props) {
   const marks = useContext(SearchMarks);
+  const customEmoji = useCustomEmoji();
   const matches = marks && matchesIn(nodes, marks);
   const last = nodes.at(-1);
   const inLastParagraph = trailing !== undefined && last?.kind === "element" && last.name === "p";
-  const children = nodes.map((node, index) => nodeOf(node, mentions, inLastParagraph && index === nodes.length - 1 ? trailing : undefined, false, matches));
+  const children = nodes.map((node, index) => nodeOf(node, mentions, inLastParagraph && index === nodes.length - 1 ? trailing : undefined, false, matches, customEmoji));
   if (trailing !== undefined && !inLastParagraph) children.push(trailing);
   return createElement("div", { dir: "auto", className: cn("message-content", emoji && "text-[2.4em] leading-[1.4]", className) }, ...children);
 }
 
-/** `node` as React draws it, with `trailing` after its text, inside a link if `inLink`, and the `matches` in its text marked. */
-function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLink = false, matches: Matches | null = null): ReactNode {
-  if (node.kind === "text") return markedRanges(node.value, matches?.get(node));
+/**
+ * `node` as React draws it, with `trailing` after its text, inside a link if `inLink`, and the `matches`
+ * in its text marked, or the `emoji` whose codes it holds drawn: text a search matched keeps its codes,
+ * so that what matched shows.
+ */
+function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLink = false, matches: Matches | null = null, emoji = NO_CUSTOM_EMOJI): ReactNode {
+  if (node.kind === "text") {
+    const ranges = matches?.get(node);
+    return ranges?.length ? markedRanges(node.value, ranges) : withEmojiDrawn(node.value, emoji);
+  }
   if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions, inLink });
   if (node.kind === "preview") return createElement(LinkPreview, { preview: node, mentions, inLink });
   const shown = TABLE_PARTS.has(node.name) ? node.children.filter((child) => child.kind !== "text" || child.value.trim() !== "") : node.children;
-  const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a", matches));
+  // A code in code shows as it's written.
+  const within = node.name === "pre" || node.name === "code" ? NO_CUSTOM_EMOJI : emoji;
+  const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a", matches, within));
   if (trailing !== undefined) children.push(" ", trailing);
   const props = Object.fromEntries(Object.entries(node.attrs).map(([name, value]) => [PROP_NAMES[name] ?? name, value]));
   switch (node.name) {

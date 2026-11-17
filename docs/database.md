@@ -575,6 +575,22 @@ Objects, D1 or speed call for something else.
   statements that list people, such as the directory's and the mention prompt's, and the one that
   finds who answers a question, check it against the asker's role in SQL, so nobody is sent a person
   they aren't told of.
+- **Your skin tone for emoji is a column of the person.** Campfire has no emoji by their codes. The
+  tone someone chooses on their profile for the people and hands they type by their `:codes:` and add as
+  quick reactions, as Slack's default skin tone is, is `users.skin_tone` (workspace migration 0064),
+  0 for the emoji's own yellow and 1 to 5 for Unicode's tones. A session reads it with the person, in
+  the statement that already reads them, so it comes with who's signed in at no cost, and choosing
+  another has the Workspace read their sessions again and tell their tabs.
+- **Custom emoji are a table of names, and nothing refers to it.** Campfire has none. Each one anyone
+  adds, as in Slack, is a row of `custom_emoji` (workspace migration 0065): its name, the key R2 keeps
+  its picture at, the type its bytes said it is, and who added it and when. A message or a boost keeps
+  an emoji's `:name:` as the text it was typed as, as Slack's do, so no row of theirs changes when one
+  is added or removed, the search index and pushes carry the code as words, and the app draws the
+  picture in the code's place while the workspace has an emoji of that name. That's also why a boost
+  of one code and nothing else may be longer than `boosts.content`'s 16 characters in Campfire: a name
+  can be 32. Pictures are reserved and deleted through `pending_picture_deletions`, as avatars are,
+  and everyone's app lists every emoji, at most 2,000, loaded with the sidebar and kept current by the
+  workspace socket.
 
 ## Writing SQL here
 

@@ -3,6 +3,7 @@ import {
   CloseCode,
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
+  CUSTOM_EMOJI_API_PATH,
   EMAIL_DOMAIN_NEEDS_EMAIL,
   EMAIL_SIGN_UP_PATH,
   INVITATION_PATH,
@@ -42,6 +43,7 @@ import {
   parseRoleChange,
   parseSendingDomainCheck,
   parseRoomChanges,
+  parseSkinTone,
   parseTurnstileKeysChange,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
@@ -73,6 +75,7 @@ import {
   type SendingDomainCheck,
   type SentTestEmail,
   type Sidebar,
+  type SkinTone,
   type StartedDirect,
   type TurnstileSettings,
   type UserId,
@@ -131,6 +134,7 @@ import {
   saveAssistant,
 } from "./assistant/settings";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
+import { addCustomEmoji, customEmojiKeyOf, customEmojiNameOfPath, listCustomEmoji, removeCustomEmoji, showCustomEmoji } from "./custom-emoji";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
@@ -1046,6 +1050,20 @@ async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   return json({ favorites } satisfies { favorites: Favorites });
 }
 
+/**
+ * Gives the signed-in person the skin tone the body names for the emoji of people and hands, as their
+ * profile's Skin tone does, answering it: 400 for a body it can't read.
+ */
+async function setSkinTone(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const skinTone = parseSkinTone(await jsonBodyOf(request));
+  if (typeof skinTone === "string") return problem(400, skinTone);
+  const saved = await workspace(env).setSkinTone(credentials, skinTone);
+  if (saved === null) return problem(401, "Not signed in");
+  return json({ skinTone: saved } satisfies { skinTone: SkinTone });
+}
+
 /** What someone hears when they can't put rooms in the shared order. */
 const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for everyone, and only the rooms in their sidebar";
 
@@ -1202,6 +1220,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
+  if (pathname === "/api/users/me/skin_tone" && request.method === "PUT") return () => setSkinTone(request, env);
+  if (pathname === CUSTOM_EMOJI_API_PATH && request.method === "GET") return () => listCustomEmoji(request, env);
+  if (pathname === CUSTOM_EMOJI_API_PATH && request.method === "POST") return () => addCustomEmoji(request, env);
+  const customEmojiName = request.method === "DELETE" ? customEmojiNameOfPath(pathname) : null;
+  if (customEmojiName !== null) return () => removeCustomEmoji(request, env, customEmojiName);
   const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
   if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);
   if (ownAppSignIn && request.method === "DELETE") return () => signOutOfApp(request, env, ownAppSignIn[1]!);
@@ -1343,6 +1366,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   const avatarToken = avatarTokenOf(pathname);
   if (avatarToken !== null) return showAvatar(request, env, avatarToken);
   if (isAccountLogoPath(pathname)) return showAccountLogo(request, env);
+  const customEmojiKey = customEmojiKeyOf(pathname);
+  if (customEmojiKey !== null) return showCustomEmoji(request, env, customEmojiKey);
   const page = write ? null : workspacePageOf(pathname);
   if (page?.page === "person") return personPage(request, env, pathname, page.userId);
   if (page?.page === "bot-settings") return botPage(request, env, pathname, page.userId);

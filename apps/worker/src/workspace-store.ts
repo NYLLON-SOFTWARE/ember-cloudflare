@@ -11,6 +11,7 @@ import {
   emailDomainOf,
   isHost,
   isRoomIcon,
+  isSkinTone,
   mailboxOf,
   mailboxText,
   parseSearch,
@@ -18,6 +19,7 @@ import {
   type BotChanges,
   type BotRoom,
   type CloseCode,
+  type CustomEmoji,
   type DirectRoom,
   type EmailInvitation,
   type EmailLinkKind,
@@ -37,6 +39,7 @@ import {
   type Search,
   type SharedRoom,
   type SidebarRoom,
+  type SkinTone,
   type User,
   type UserId,
   type UserStatus,
@@ -287,6 +290,8 @@ export interface StoredSession {
   administrator: boolean;
   /** Whether the person signed in with just a name. */
   guest: boolean;
+  /** The skin tone the person chose for emoji. */
+  skinTone: SkinTone;
   /** When the session was last refreshed, in milliseconds since the epoch. */
   lastActiveAt: number;
 }
@@ -690,6 +695,7 @@ interface SessionRow {
   name: string;
   administrator: number;
   guest: number;
+  skin_tone: number;
 }
 
 const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
@@ -951,7 +957,7 @@ const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_dig
 
 /** The session a token's digest names, if its person is still active. */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
-    users.role = ${ADMINISTRATOR} AS administrator, users.guest
+    users.role = ${ADMINISTRATOR} AS administrator, users.guest, users.skin_tone
   FROM sessions JOIN users ON users.id = sessions.user_id
   WHERE sessions.token_digest = ? AND users.status = ${ACTIVE}`;
 
@@ -1462,6 +1468,7 @@ const storedSession = (row: SessionRow): StoredSession => ({
   user: { id: row.user_id, name: row.name },
   administrator: row.administrator === 1,
   guest: row.guest === 1,
+  skinTone: isSkinTone(row.skin_tone) ? row.skin_tone : 0,
   lastActiveAt: Date.parse(row.last_active_at),
 });
 
@@ -2424,6 +2431,21 @@ const QUEUE_PICTURE_DELETION = `INSERT INTO pending_picture_deletions (object_ke
 
 /** Takes a picture's reservation, now that someone has it, so R2 keeps it. */
 const KEEP_PICTURE = `DELETE FROM pending_picture_deletions WHERE object_key = ?`;
+
+interface CustomEmojiRow {
+  name: string;
+  object_key: string;
+  creator_id: string;
+  created_at: string;
+}
+
+/** A custom emoji as the app lists it: its picture's key is the last part of where R2 keeps it (src/custom-emoji.ts). */
+const customEmojiOf = (row: CustomEmojiRow): CustomEmoji => ({
+  name: row.name,
+  key: row.object_key.slice(row.object_key.lastIndexOf("/") + 1),
+  creatorId: row.creator_id,
+  createdAt: row.created_at,
+});
 
 /** Saves someone's profile and records when, keeping their password unless given a new one's digest. */
 const CHANGE_PROFILE = `UPDATE users SET name = ?, email_address = ?, bio = ?, password_digest = coalesce(?, password_digest), updated_at = ?
@@ -4533,6 +4555,11 @@ export class WorkspaceStore {
     return row ? assistantPicksOf(row) : null;
   }
 
+  /** Changes the skin tone `userId` chose for emoji to `skinTone`. */
+  async setSkinTone(userId: UserId, skinTone: SkinTone): Promise<void> {
+    await this.db.run("UPDATE users SET skin_tone = ? WHERE id = ?", skinTone, userId);
+  }
+
   /** Changes what `userId` picks of @ember's dials and its model to `changes`, keeping what they leave out. */
   async changeAssistantPicks(userId: UserId, changes: YourAssistantChanges): Promise<void> {
     await this.db.run(CHANGE_ASSISTANT_PICKS, changes.thinking ?? null, changes.length ?? null, changes.model === undefined ? 0 : 1, changes.model ?? null, userId);
@@ -4618,6 +4645,50 @@ export class WorkspaceStore {
         RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
+    ]);
+  }
+
+  /** Every custom emoji, by name. */
+  async customEmoji(): Promise<CustomEmoji[]> {
+    const rows = await this.db.all<CustomEmojiRow>(`SELECT name, object_key, creator_id, created_at FROM custom_emoji ORDER BY name`);
+    return rows.map(customEmojiOf);
+  }
+
+  /** The custom emoji named `name`, or null if there's none. */
+  async customEmojiNamed(name: string): Promise<CustomEmoji | null> {
+    const [row] = await this.db.all<CustomEmojiRow>(`SELECT name, object_key, creator_id, created_at FROM custom_emoji WHERE name = ?`, name);
+    return row ? customEmojiOf(row) : null;
+  }
+
+  /** How many custom emoji there are. */
+  async customEmojiCount(): Promise<number> {
+    const [row] = await this.db.all<{ count: number }>(`SELECT count(*) AS count FROM custom_emoji`);
+    return row?.count ?? 0;
+  }
+
+  /**
+   * Adds a custom emoji whose picture R2 has stored at `objectKey`, a key reserved for it, as the type
+   * its bytes said it is, taking the reservation, so R2 keeps the picture.
+   */
+  async addCustomEmoji(emoji: CustomEmoji, objectKey: string, contentType: string): Promise<void> {
+    await this.db.batch([
+      statement(
+        `INSERT INTO custom_emoji (name, object_key, content_type, creator_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+        emoji.name,
+        objectKey,
+        contentType,
+        emoji.creatorId,
+        emoji.createdAt,
+      ),
+      statement(KEEP_PICTURE, objectKey),
+    ]);
+  }
+
+  /** Removes the custom emoji named `name`, and queues R2 deleting its picture at `dueAt`. */
+  async removeCustomEmoji(name: string, dueAt: number): Promise<void> {
+    await this.db.batch([
+      statement(`INSERT INTO pending_picture_deletions (object_key, due_at) SELECT object_key, ? FROM custom_emoji WHERE name = ?`, dueAt, name),
+      statement(`DELETE FROM custom_emoji WHERE name = ?`, name),
     ]);
   }
 

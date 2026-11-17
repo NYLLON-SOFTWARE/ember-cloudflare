@@ -6,6 +6,7 @@ import type { AgentProfile } from "./agents.ts";
 import type { YourApp } from "./apps.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
+import { customEmojiNameIn, MAX_CUSTOM_EMOJI_NAME_LENGTH, type CustomEmoji } from "./custom-emoji.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
 import type { OutsideConnection } from "./outside.ts";
@@ -49,6 +50,31 @@ export {
   type CardPart,
   type CardTile,
 } from "./cards.ts";
+export {
+  CUSTOM_EMOJI_API_PATH,
+  CUSTOM_EMOJI_BOX,
+  CUSTOM_EMOJI_NAME_IS_STANDARD,
+  CUSTOM_EMOJI_NAME_TAKEN,
+  CUSTOM_EMOJI_PATH,
+  CUSTOM_EMOJI_TOO_LARGE,
+  CUSTOM_EMOJI_TYPES,
+  CUSTOM_EMOJI_WRONG_TYPE,
+  customEmojiApiPath,
+  customEmojiImagePath,
+  customEmojiNameIn,
+  customEmojiNameOf,
+  customEmojiNameProblem,
+  emojiCode,
+  emojiSegments,
+  MAX_CUSTOM_EMOJI,
+  MAX_CUSTOM_EMOJI_NAME_LENGTH,
+  MAX_CUSTOM_EMOJI_SIZE,
+  MIN_CUSTOM_EMOJI_NAME_LENGTH,
+  TOO_MANY_CUSTOM_EMOJI,
+  type CustomEmoji,
+  type CustomEmojiList,
+  type EmojiSegment,
+} from "./custom-emoji.ts";
 // The rest of bots.ts is imported from "@ember/protocol/bots": only the bot pages and the Worker's bot API use it,
 // and the web app's main chunk, which imports this, would otherwise cost the app one more script to load
 // (`oneAppScript` in apps/web/vite.config.ts says why).
@@ -186,6 +212,23 @@ export interface User {
 /** Who's signed in, as the app keeps them: someone, and whether they're one of the workspace's administrators. */
 export interface Me extends User {
   administrator: boolean;
+  /**
+   * The skin tone they've chosen for the emoji of people and hands they type by their :codes and add as
+   * quick reactions, as Slack's default skin tone is. Left out while it's the default, the emoji's own yellow.
+   */
+  skinTone?: SkinTone;
+}
+
+/** The emoji's own yellow, 0, then Unicode's five skin tones, light to dark, as their modifiers U+1F3FB to U+1F3FF are. */
+export type SkinTone = 0 | 1 | 2 | 3 | 4 | 5;
+
+/** Whether `value` is a skin tone. */
+export const isSkinTone = (value: unknown): value is SkinTone => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 5;
+
+/** Parses the untrusted body of a change to your skin tone, `{ skinTone }`. Returns why it's refused instead of the tone. */
+export function parseSkinTone(data: unknown): SkinTone | string {
+  const skinTone = typeof data === "object" && data !== null ? (data as Record<string, unknown>).skinTone : undefined;
+  return isSkinTone(skinTone) ? skinTone : "skinTone must be a whole number from 0 to 5";
 }
 
 /** What someone is in the workspace: Campfire's user roles (`User::Role`). */
@@ -1745,6 +1788,12 @@ export type WorkspaceServerFrame =
   | { type: "huddle.answered"; roomId: RoomId }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /** They've chosen another skin tone for emoji, in this tab or another browser. */
+  | { type: "skin_tone.changed"; skinTone: SkinTone }
+  /** Someone added a custom emoji. Sent to everyone. */
+  | { type: "emoji.added"; emoji: CustomEmoji }
+  /** Someone removed the custom emoji of this name. Sent to everyone. */
+  | { type: "emoji.removed"; name: string }
   /** They've given a room of theirs another notification level, in this tab or another. */
   | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
@@ -1824,6 +1873,11 @@ export const isMessageTooLong = (plainText: string) => plainText.length > MAX_ME
 export const MAX_MESSAGE_HTML_LENGTH = 100_000;
 /** As long as Campfire's `boosts.content` column can be (`limit: 16`, db/schema.rb). */
 export const MAX_BOOST_LENGTH = 16;
+/**
+ * Whether a boost can be `content`, trimmed: up to Campfire's 16 characters, or the code of one custom
+ * emoji and nothing else, whose name can be longer than that.
+ */
+export const isBoostLength = (content: string) => content.length <= MAX_BOOST_LENGTH || customEmojiNameIn(content) !== null;
 /**
  * Campfire's page of messages (`Message::PAGE_SIZE`): the newest a room opens on, what each page of
  * history adds before or after the timeline, and how many a permalink shows on either side of its
@@ -1956,8 +2010,8 @@ export function parseClientFrame(raw: string): ClientFrame | null {
     case "message.delete":
       return id(f.messageId) ? { type: f.type, messageId: f.messageId } : null;
     case "boost.create": {
-      const content = text(f.content, MAX_BOOST_LENGTH);
-      return id(f.messageId) && content ? { type: f.type, messageId: f.messageId, content } : null;
+      const content = text(f.content, MAX_CUSTOM_EMOJI_NAME_LENGTH + 2);
+      return id(f.messageId) && content && isBoostLength(content) ? { type: f.type, messageId: f.messageId, content } : null;
     }
     case "boost.delete":
       return id(f.boostId) ? { type: f.type, boostId: f.boostId } : null;

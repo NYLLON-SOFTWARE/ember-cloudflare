@@ -624,6 +624,53 @@ describe("Welcome card for administrators, until they dismiss it", () => {
   });
 });
 
+describe("Default skin tone", () => {
+  /** Ada's sidebar, connected, telling `onSessionChanged`. */
+  async function connected() {
+    const onSessionChanged = vi.fn();
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update: () => {}, remove: () => {} }));
+    await settle();
+    socket().connect();
+    await settle();
+    return onSessionChanged;
+  }
+
+  it("gives the page the tone Ada chose in another tab or browser, and the default again", async () => {
+    const onSessionChanged = await connected();
+    socket().receive({ type: "skin_tone.changed", skinTone: 4 });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, skinTone: 4 });
+    socket().receive({ type: "skin_tone.changed", skinTone: 0 });
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+  });
+
+  it("keeps her tone when her role changes", async () => {
+    const onSessionChanged = await connected();
+    socket().receive({ type: "skin_tone.changed", skinTone: 2 });
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true, skinTone: 2 });
+  });
+
+  it("takes a tone heard before the welcome over the welcome's, and the welcome's name and role still", async () => {
+    const onSessionChanged = vi.fn();
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update: () => {}, remove: () => {} }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "skin_tone.changed", skinTone: 3 });
+    socket().receive({ type: "welcome", you: { ...ada, name: "Ada L.", administrator: true }, account: ember });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, name: "Ada L.", administrator: true, skinTone: 3 });
+  });
+
+  it("takes a role heard before the welcome over the welcome's, and the welcome's tone still", async () => {
+    const onSessionChanged = vi.fn();
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update: () => {}, remove: () => {} }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: { ...ada, skinTone: 5 }, account: ember });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true, skinTone: 5 });
+  });
+});
+
 describe("Shared room order", () => {
   it("loads its rooms again a while after the workspace socket says the shared order changed, once for the news that comes meanwhile", async () => {
     const onReload = vi.fn(async () => {});
@@ -858,5 +905,34 @@ describe("Custom CSS", () => {
     await settle();
     socket().connect(grace);
     expect(onAccountChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("Custom emoji", () => {
+  const shipit = { name: "shipit", key: "k1", creatorId: "u2", createdAt: NOON };
+  const people = { people: new Map(), reload: async () => {}, update: () => {}, remove: () => {} };
+
+  it("loads the workspace's emoji as the sidebar loads, each time the socket connects, and hears each one added and removed", async () => {
+    const emoji = { reload: vi.fn(async () => {}), add: vi.fn(), remove: vi.fn() };
+    renderHook(() => useSidebar(ada, vi.fn(), people, undefined, undefined, undefined, emoji));
+    await settle();
+    const loads = emoji.reload.mock.calls.length;
+    socket().connect();
+    await settle();
+    expect(emoji.reload).toHaveBeenCalledTimes(loads + 1);
+
+    socket().receive({ type: "emoji.added", emoji: shipit });
+    expect(emoji.add).toHaveBeenCalledWith(shipit);
+    socket().receive({ type: "emoji.removed", name: "shipit" });
+    expect(emoji.remove).toHaveBeenCalledWith("shipit");
+  });
+
+  it("leaves the sidebar loaded when the emoji don't load", async () => {
+    const emoji = { reload: vi.fn(async () => Promise.reject(new Error("offline"))), add: vi.fn(), remove: vi.fn() };
+    const { result } = renderHook(() => useSidebar(ada, vi.fn(), people, undefined, undefined, undefined, emoji));
+    await settle();
+    socket().connect();
+    await settle();
+    expect(result.current.answered).toBe(true);
   });
 });

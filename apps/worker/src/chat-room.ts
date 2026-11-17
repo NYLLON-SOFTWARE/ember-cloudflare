@@ -4,6 +4,7 @@ import {
   CloseCode,
   HISTORY_PAGE_SIZE,
   isMessageTooLong,
+  isBoostLength,
   MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
   MESSAGE_TOO_LONG,
@@ -718,7 +719,7 @@ export class ChatRoom extends DurableObject<Env> {
       if (!(await this.findUndeleted(store, messageId))) return NOT_FOUND;
       const trimmed = content.trim();
       if (trimmed === "") return BLANK;
-      if (trimmed.length > MAX_BOOST_LENGTH) return BOOST_TOO_LONG;
+      if (!isBoostLength(trimmed)) return BOOST_TOO_LONG;
       return this.addBoost(store, messageId, bot, trimmed, now);
     });
   }
