@@ -600,6 +600,17 @@ test.describe("Formatting row", () => {
     await expect(ada.composer().locator("li")).toHaveText("Launch week plan");
   });
 
+  test("bolds what's selected as Cmd or Ctrl+B is pressed, the editor's own key, though the page has yet to tell it the selection grew", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.composer().pressSequentially("Launch week");
+    // "week" selected, then Cmd or Ctrl+B at once.
+    await pressAsSelectionMoves(ada, "extend", 4, { key: "b", code: "KeyB" });
+    await expect(ada.composer().locator("strong")).toHaveText("week");
+    await ada.composer().pressSequentially("month");
+    await expect(ada.composer().locator("strong")).toHaveText("month");
+    await expect(ada.composer()).toHaveText("Launch month");
+  });
+
   test("puts what's typed after a key where the cursor's moved to, in its text's format, though the page has yet to tell the editor", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
