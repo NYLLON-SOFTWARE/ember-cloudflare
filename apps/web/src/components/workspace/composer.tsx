@@ -377,6 +377,8 @@ export function Composer({
   // Whether nothing's written, which, with no files picked, leaves Send grey, as Slack's is.
   const [blank, setBlank] = useState(!draft);
   const [writingSnippet, setWritingSnippet] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const pendingSchedule = useRef(false);
   // Whether the editor can be written in, which Emoji and Mention someone wait for, since what they wrote before
   // would be lost.
   const [editorReady, setEditorReady] = useState(false);
@@ -488,7 +490,7 @@ export function Composer({
   };
 
   const schedule = (sendAt: string) => {
-    if (disabled || !onSchedule || picked.files.length > 0) return false;
+    if (disabled || !onSchedule || pendingSchedule.current || picked.files.length > 0) return false;
     const written = editor.current;
     if (!written || written.isBlank()) return false;
     const body = written.value();
@@ -498,7 +500,20 @@ export function Composer({
       finishSchedule(body, true);
       return true;
     }
-    void result.then((accepted) => finishSchedule(body, accepted));
+    // What's written stays in the box until the room answers, so hold off scheduling it a second time meanwhile.
+    pendingSchedule.current = true;
+    setScheduling(true);
+    void result.then(
+      (accepted) => {
+        pendingSchedule.current = false;
+        setScheduling(false);
+        finishSchedule(body, accepted);
+      },
+      () => {
+        pendingSchedule.current = false;
+        setScheduling(false);
+      },
+    );
     return true;
   };
 
@@ -656,6 +671,7 @@ export function Composer({
                 disabled={disabled}
                 scheduled={scheduled}
                 canSchedule={!blank && editorShown && picked.files.length === 0}
+                waiting={scheduling}
                 // Only what's written is scheduled, so files picked wait to be sent or removed.
                 unavailable={picked.files.length > 0 ? FILES_NOT_SCHEDULED : undefined}
                 onSchedule={schedule}

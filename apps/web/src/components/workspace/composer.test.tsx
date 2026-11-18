@@ -829,6 +829,22 @@ describe("Schedule a message", () => {
     expect(input).toHaveValue("");
     expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
   });
+
+  it("holds off scheduling again while the room's answer is pending, then lets you retry once refused", async () => {
+    let accept = (_accepted: boolean) => {};
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => new Promise<boolean>((resolve) => (accept = resolve)));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    const scheduling = screen.getByRole("button", { name: "Scheduling…" });
+    expect(scheduling).toBeDisabled();
+    await user.click(scheduling);
+    expect(onSchedule).toHaveBeenCalledOnce();
+    await act(async () => accept(false));
+    expect(screen.getByRole("button", { name: "Schedule" })).toBeEnabled();
+  });
 });
 
 describe("Reply in a thread", () => {

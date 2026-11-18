@@ -40,6 +40,8 @@ interface Props {
   scheduled: ScheduledMessage[];
   /** Whether the composer has anything to schedule. */
   canSchedule: boolean;
+  /** Whether a scheduled message is still waiting for the room's answer. */
+  waiting?: boolean;
   /** Why nothing can be scheduled now, said under the time. */
   unavailable?: string;
   /** Schedules what's written for `sendAt`, answering whether it went. */
@@ -53,7 +55,7 @@ const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center 
  * The composer's clock: pick a future send time in the reader's zone, see waiting messages, and
  * cancel one. Times go to the room as UTC.
  */
-export function ScheduleSend({ disabled, scheduled, canSchedule, unavailable, onSchedule, onCancel }: Props) {
+export function ScheduleSend({ disabled, scheduled, canSchedule, waiting = false, unavailable, onSchedule, onCancel }: Props) {
   const [open, setOpen] = useState(false);
   const [when, setWhen] = useState(() => localInputFromDate(inAnHour()));
   const [error, setError] = useState<string | null>(null);
@@ -123,12 +125,12 @@ export function ScheduleSend({ disabled, scheduled, canSchedule, unavailable, on
           )}
           <button
             type="button"
-            disabled={disabled || !canSchedule}
+            disabled={disabled || !canSchedule || waiting}
             title={unavailable}
             onClick={submit}
             className="flex h-9 cursor-pointer items-center justify-center rounded-md bg-foreground px-3 text-sm font-medium text-background hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50"
           >
-            Schedule
+            {waiting ? "Scheduling…" : "Schedule"}
           </button>
         </div>
         {scheduled.length > 0 && (
