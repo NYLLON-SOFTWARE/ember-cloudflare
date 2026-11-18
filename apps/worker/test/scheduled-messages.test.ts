@@ -5,12 +5,13 @@ import {
   ROOM_PROTOCOL,
   SCHEDULED_GONE,
   SEND_AT_IN_THE_PAST,
+  type NewWorkspace,
   type RoomId,
 } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetNow, setNow } from "../src/clock";
-import { api, connect, createRoom, freshRoom, roomSql, roomStub, settle, signIn, upgrade, workspaceSql } from "./support";
+import { api, connect, cookieOf, createRoom, freshDeploy, freshRoom, roomSql, roomStub, settle, shown, signIn, upgrade, workspaceSql } from "./support";
 
 afterEach(() => resetNow());
 
@@ -177,6 +178,31 @@ describe("Schedule a message to send later", () => {
     expect(graceSocket.pending("scheduled.cancelled")).toEqual([{ type: "scheduled.cancelled", scheduledId: scheduled.id }]);
     expect((await connect(room.id, ada)).welcome.messages).toEqual([]);
     expect(await roomSql(room.id, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room.id)).toEqual([{ n: 0 }]);
+  });
+
+  it("drops a waiting message with a word Blocked words kept out after it was scheduled, so the clock advancing posts nothing", async () => {
+    await freshDeploy();
+    const firstRun = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
+    expect(firstRun.status).toBe(201);
+    const ada = { user: shown(((await firstRun.json()) as NewWorkspace).user), cookie: cookieOf(firstRun) };
+    const [{ id: general }] = (await workspaceSql("SELECT id FROM rooms WHERE name = 'general'")) as [{ id: RoomId }];
+    const clock = freezeClock();
+    const adaSocket = await connect(general, ada);
+    const sendAt = clock.iso(clock.now() + 60_000);
+
+    adaSocket.send({ type: "message.schedule", clientMessageId: "a1", body: "<p>Oh fudge, Friday</p>", sendAt });
+    const { scheduled } = await adaSocket.next("scheduled.created");
+    const blocked = await api("/api/account", { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ blockedWords: ["fudge"] }) });
+    expect(blocked.status).toBe(200);
+
+    clock.advance(60_000);
+    await ring(general);
+    await settle(adaSocket);
+    expect(adaSocket.pending("message.created")).toEqual([]);
+    expect(adaSocket.pending("scheduled.sent")).toEqual([]);
+    expect(adaSocket.pending("scheduled.cancelled")).toEqual([{ type: "scheduled.cancelled", scheduledId: scheduled.id }]);
+    expect((await connect(general, ada)).welcome.messages).toEqual([]);
+    expect(await roomSql(general, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", general)).toEqual([{ n: 0 }]);
   });
 
   it.each([

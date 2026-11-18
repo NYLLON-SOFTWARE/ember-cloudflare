@@ -25,6 +25,7 @@ import {
   type Message,
   type NewUpload,
   type RoomId,
+  type ScheduledMessage,
   type ServerFrame,
   type TimelinePage,
   type User,
@@ -2268,14 +2269,16 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Posts every waiting message whose send time has come, as ordinary messages, and sets the alarm for
    * the next still waiting, if any. A message whose author is no longer an active member of the room,
-   * having left it or been banned or suspended since, is dropped instead.
+   * having left it or been banned or suspended since, is dropped instead, as is one with a word Blocked
+   * words has kept out since it was scheduled, checked against the list as the Workspace has it now.
    * Tests move the clock (`setNow`) and run the alarm rather than wait.
    */
   private async sendDueScheduled(roomId: RoomId): Promise<void> {
     const store = this.storeFor(roomId);
     const due = await store.dueScheduled(isoNow());
+    if (due.length > 0) this.blockedWords = await this.blockedWordsAt(Date.now());
     for (const scheduled of due) {
-      if (!(await workspace(this.env).isActiveMember(roomId, scheduled.creator.id))) {
+      if (!(await workspace(this.env).isActiveMember(roomId, scheduled.creator.id)) || (await this.hasBlockedWord(await this.scheduledWritten(scheduled)))) {
         await store.cancelScheduled(scheduled.id);
         this.sendTo(scheduled.creator.id, { type: "scheduled.cancelled", scheduledId: scheduled.id });
         continue;
@@ -2292,6 +2295,12 @@ export class ChatRoom extends DurableObject<Env> {
     const next = await store.nextSendAt();
     if (next === null) await this.ctx.storage.delete(SCHEDULED_ROOM);
     else await this.wakeForScheduled(Date.parse(next));
+  }
+
+  /** What the writer of a waiting message wrote of it, which Blocked words checks, as `prepare` reads it. */
+  private async scheduledWritten(scheduled: ScheduledMessage): Promise<string> {
+    const read = await this.readBody(scheduled.body);
+    return typeof read === "string" ? scheduled.plainText : read.written;
   }
 
   /** Sets the alarm to post waiting messages by `time`, unless it's set for sooner. */
