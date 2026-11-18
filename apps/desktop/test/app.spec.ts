@@ -93,6 +93,27 @@ test("keeps a window on its site, opening web pages elsewhere outside the app", 
   expect(opened.url()).toBe(`${fernwood.origin}/rooms/3`);
 });
 
+test("offers to copy a link's email address, as it's written where it can't be decoded", async ({ app }) => {
+  const fernwood = await fakeEmber("Fernwood");
+  await app.add(await app.electron.firstWindow(), fernwood.origin);
+
+  for (const [linkURL, copied] of [["mailto:ada%40example.com", "ada@example.com"], ["mailto:ada%zz@example.com", "ada%zz@example.com"]] as const) {
+    // A right-click on a link to the address, as Chromium tells of it, and Copy Email Address in the menu it shows.
+    const offered = await app.electron.evaluate(({ BrowserWindow, Menu }, linkURL) => {
+      let shown: Electron.Menu | undefined;
+      Menu.prototype.popup = function (this: Electron.Menu) {
+        shown = this;
+      };
+      const params = { linkURL, misspelledWord: "", dictionarySuggestions: [], mediaType: "none", srcURL: "", isEditable: false, selectionText: "", editFlags: {} };
+      BrowserWindow.getAllWindows()[0]!.webContents.emit("context-menu", {}, params);
+      shown?.items.find(({ label }) => label === "Copy Email Address")?.click();
+      return shown?.items.map(({ label }) => label);
+    }, linkURL);
+    expect(offered).toEqual(["Copy Email Address"]);
+    await expect.poll(() => app.electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(copied);
+  }
+});
+
 test("passes through the site's Memberful site to sign in there, and back", async ({ app }) => {
   const [fernwood, memberful] = [await fakeEmber("Fernwood"), await fakeMemberful()];
   fernwood.memberful = memberful.origin;
@@ -113,6 +134,24 @@ test("passes through the site's Memberful site to sign in there, and back", asyn
   await page.evaluate((oauth) => (location.href = oauth), `${memberful.origin}/oauth`);
   await expect.poll(() => app.openedOutside()).toHaveLength(3);
   expect(page.url()).toBe(`${fernwood.origin}/`);
+});
+
+test("passes through the site's Memberful site as someone connects their account there, and back", async ({ app }) => {
+  const [fernwood, memberful, another] = [await fakeEmber("Fernwood"), await fakeMemberful(), await fakeMemberful()];
+  fernwood.memberful = memberful.origin;
+  const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
+
+  // The sign-in at another Memberful site than the one the site sends Sign in with Memberful to is somewhere else.
+  const elsewhere = `${another.origin}/oauth?client_id=ember&state=2&site=${encodeURIComponent(fernwood.origin)}`;
+  await page.evaluate((url) => location.assign(url), elsewhere);
+  await expect.poll(() => app.openedOutside()).toEqual([elsewhere]);
+
+  // As the profile's Connect Memberful and the sign-in page's do, the page goes straight to the Memberful site.
+  await page.getByRole("link", { name: "Connect Memberful" }).click({ force: true, noWaitAfter: true });
+  await expect.poll(() => page.url()).toMatch(new RegExp(`^${memberful.origin}/oauth\\?`));
+  await page.getByRole("link", { name: "Allow" }).click({ force: true });
+  await expect(page.getByRole("heading")).toHaveText("Signed in at Fernwood");
+  expect(await app.openedOutside()).toEqual([elsewhere]);
 });
 
 test("lets the site's own pages use the camera and microphone, and refuses a frame from elsewhere", async ({ app }) => {
@@ -221,5 +260,45 @@ test("removes a site, forgetting its sign-in, and asks for another once there's 
   expect(app.sites()).toEqual([]);
 
   const again = await app.add(addSite, fernwood.origin);
+  await expect(again.getByRole("heading")).toHaveText("Signed out at Fernwood");
+});
+
+test("counts the windows a site's pages opened as the site's, and opens another site's in their place as it's removed", async ({ app }) => {
+  const [fernwood, birchwood] = [await fakeEmber("Fernwood"), await fakeEmber("Birchwood")];
+  const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
+  await app.clickMenu("Sites", "Add Site…");
+  await app.add(await app.electron.waitForEvent("window"), birchwood.origin);
+  await app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getTitle() === "general · Birchwood")?.close());
+  await page.goto(`${fernwood.origin}/sign-in`);
+
+  const [opened] = await Promise.all([app.electron.waitForEvent("window"), page.evaluate(() => window.open("/rooms/3"))]);
+  await opened.waitForLoadState("domcontentloaded");
+  const sitesMenu = () =>
+    app.electron.evaluate(({ BrowserWindow, Menu }) => ({
+      inFront: BrowserWindow.getFocusedWindow()?.webContents.getURL(),
+      items: Menu.getApplicationMenu()
+        ?.items.find((item) => item.label === "Sites")
+        ?.submenu?.items.filter((item) => item.type !== "separator")
+        .map(({ label, checked, enabled }) => ({ label, checked, enabled })),
+    }));
+  await expect.poll(sitesMenu).toEqual({
+    inFront: `${fernwood.origin}/rooms/3`,
+    items: [
+      { label: "Fernwood", checked: true, enabled: true },
+      { label: "Birchwood", checked: false, enabled: true },
+      { label: "Add Site…", checked: false, enabled: true },
+      { label: "Remove Fernwood…", checked: false, enabled: true },
+    ],
+  });
+
+  // Its windows were the only ones open, so Birchwood's opens as they close, rather than the app quitting.
+  await app.answer("Remove");
+  const [atBirchwood] = await Promise.all([app.electron.waitForEvent("window"), app.clickMenu("Sites", "Remove Fernwood…")]);
+  await expect(atBirchwood.getByRole("heading")).toHaveText("Signed out at Birchwood");
+  expect([page.isClosed(), opened.isClosed()]).toEqual([true, true]);
+  expect(app.sites()).toMatchObject([{ name: "Birchwood" }]);
+
+  await app.clickMenu("Sites", "Add Site…");
+  const again = await app.add(await app.electron.waitForEvent("window"), fernwood.origin);
   await expect(again.getByRole("heading")).toHaveText("Signed out at Fernwood");
 });

@@ -2,14 +2,17 @@ import { isSecure } from "./site-address.ts";
 
 // Where a site's window may go. It stays on the site, as a browser tab would for a site that's an app,
 // and opens anything elsewhere outside the app: web pages in the person's browser, and email addresses
-// in their email app. The one way off the site is Sign in with Memberful, which the site sends on to
-// its Memberful site and which comes back.
+// in their email app. The one way off the site is its Memberful site, which Sign in with Memberful, and
+// connecting an account there, go through and come back from.
 
 /** Where the site's window goes for an address: to it, outside the app, or nowhere. */
 export type Destination = "window" | "outside" | "nowhere";
 
 /** Where Ember's sign-in page sends Sign in with Memberful, which the site redirects to its Memberful site. */
 export const MEMBERFUL_SIGN_IN_PATH = "/auth/memberful";
+
+/** Where a Memberful site signs someone in for Ember, which comes back to the site with the state it went with. */
+const MEMBERFUL_OAUTH_PATH = "/oauth";
 
 /** The schemes the app opens outside itself. */
 const OUTSIDE = new Set(["http:", "https:", "mailto:"]);
@@ -42,4 +45,14 @@ export function passageOf(from: string, to: string, site: string): string | null
 export function mayBeMoving(from: string, to: string): boolean {
   const [leaving, arriving] = [URL.parse(from), URL.parse(to)];
   return leaving !== null && arriving !== null && isSecure(arriving) && leaving.origin !== arriving.origin && leaving.pathname === arriving.pathname;
+}
+
+/**
+ * Whether `url` may be the sign-in at the site's Memberful site, which its pages go straight to as someone
+ * connects their account there: Memberful's sign-in for Ember, with the state the site keeps for the round
+ * trip, at a secure address. Asking the site where it sends Sign in with Memberful says for sure.
+ */
+export function mayBeSigningIn(url: string): boolean {
+  const to = URL.parse(url);
+  return to !== null && isSecure(to) && to.pathname === MEMBERFUL_OAUTH_PATH && to.searchParams.has("state");
 }

@@ -23,11 +23,23 @@ export function sessionOf(id: string, addressOf: () => string): Session {
   return siteSession;
 }
 
-/** Forgets the site with `id`'s sign-in, storage and cache. */
+/** The forgetting of sites' sessions under way, which the app finishes before it quits. */
+const forgetting = new Set<Promise<void>>();
+
+/** Forgets the site with `id`'s sign-in, storage and cache, which the app finishes before it quits (`stillForgetting`). */
 export async function forgetSession(id: string): Promise<void> {
   sessions.delete(id);
-  await session.fromPartition(partitionOf(id)).clearData();
+  const forgotten = session.fromPartition(partitionOf(id)).clearData();
+  forgetting.add(forgotten);
+  try {
+    await forgotten;
+  } finally {
+    forgetting.delete(forgotten);
+  }
 }
+
+/** Settles once the sessions being forgotten are, or null while none is. */
+export const stillForgetting = (): Promise<unknown> | null => (forgetting.size === 0 ? null : Promise.allSettled(forgetting));
 
 /**
  * Lets the site's own pages use what `mayUse` allows, and nothing else, asking macOS first for the camera

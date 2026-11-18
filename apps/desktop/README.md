@@ -1,9 +1,9 @@
 # Ember for desktop
 
 Ember's app for Mac, Windows and Linux. It opens each Ember site's own web app in windows of its own,
-so an Ember lives in the Dock or taskbar, with menus, notifications and huddles, wherever the site is
-hosted. The app holds no Ember of its own: each site serves its pages as it does to a browser, so the
-app shows each site as up to date as the site is.
+so an Ember lives in the Dock or taskbar, with menus and huddles, wherever the site is hosted. The
+app holds no Ember of its own: each site serves its pages as it does to a browser, so the app shows
+each site as up to date as the site is.
 
 ## Using it
 
@@ -16,17 +16,18 @@ removes the one in front, which forgets its address and your sign-in there.
 - Each site keeps its sign-in, storage and permissions apart from every other site's, as a browser
   profile would, and the app remembers which windows were open, and where, as it quits.
 - A site's window stays on the site. Links elsewhere open in your browser, email addresses in your
-  email app, and Sign in with Memberful passes through the site's Memberful site and comes back. A site
-  that moves to its custom domain is followed there. A page of the site that opens in a new tab opens
-  in a window of its own.
+  email app, and Sign in with Memberful, and connecting your account there, pass through the site's
+  Memberful site and come back. A site that moves to its custom domain is followed there. A page of the
+  site that opens in a new tab opens in a window of its own, which is the site's too.
 - The site's own pages may use the camera, microphone and speakers for huddles, notifications, the
   clipboard, full screen and keeping the screen awake, and nothing else. On a Mac, macOS asks once whether Ember
   may use the camera and microphone, and the app says where in System Settings to allow them if not.
 - Downloads ask where to save, starting in your Downloads folder.
 
-Not yet: sharing a screen in a huddle, a count of unread messages on the app's icon, links that open
-the app, and updates, which wait on signing (below). Until then, a new version is downloaded and
-installed by hand.
+Not yet: notifications of new messages, which a browser gets from Ember by Web Push and Electron
+can't, so the app is to show them itself; sharing a screen in a huddle; a count of unread messages on
+the app's icon; links that open the app; and updates, which wait on signing (below). Until then, a new
+version is downloaded and installed by hand.
 
 ## Opening a build that isn't signed
 

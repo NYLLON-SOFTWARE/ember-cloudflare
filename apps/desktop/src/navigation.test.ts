@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { destinationOf, mayBeMoving, passageOf } from "./navigation.ts";
+import { destinationOf, mayBeMoving, mayBeSigningIn, passageOf } from "./navigation.ts";
 
 const SITE = "https://chat.example.com";
 const MEMBERFUL = "https://fernwood.memberful.com";
@@ -52,5 +52,19 @@ describe("mayBeMoving", () => {
     expect(mayBeMoving(`${SITE}/rooms/1`, "https://example.com/blog")).toBe(false);
     expect(mayBeMoving(`${SITE}/rooms/1`, `${SITE}/rooms/1`)).toBe(false);
     expect(mayBeMoving(`${SITE}/rooms/1`, "http://example.com/rooms/1")).toBe(false);
+  });
+});
+
+describe("mayBeSigningIn", () => {
+  it("takes Memberful's sign-in for Ember, with its state, at a secure address", () => {
+    expect(mayBeSigningIn(`${MEMBERFUL}/oauth?response_type=code&client_id=1&state=2`)).toBe(true);
+    expect(mayBeSigningIn("http://127.0.0.1:8790/oauth?state=2")).toBe(true);
+  });
+
+  it("takes another page, one without a state or an insecure one for something else", () => {
+    expect(mayBeSigningIn(`${MEMBERFUL}/account`)).toBe(false);
+    expect(mayBeSigningIn(`${MEMBERFUL}/oauth`)).toBe(false);
+    expect(mayBeSigningIn("http://fernwood.memberful.com/oauth?state=2")).toBe(false);
+    expect(mayBeSigningIn("mailto:ada@example.com")).toBe(false);
   });
 });

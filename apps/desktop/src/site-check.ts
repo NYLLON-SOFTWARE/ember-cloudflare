@@ -1,3 +1,4 @@
+import { MEMBERFUL_SIGN_IN_PATH, passageOf } from "./navigation.ts";
 import { isSecure } from "./site-address.ts";
 
 /** An Ember site, as checking its address finds it. */
@@ -13,6 +14,12 @@ export interface CheckedSite {
  * network, as the site's window does.
  */
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/**
+ * Where asking for an address redirects: the full address its answer's Location gives, or null for an
+ * answer that doesn't redirect. In the app, it asks through Chromium's network, as the site's window would.
+ */
+export type RedirectOf = (url: string, signal: AbortSignal) => Promise<string | null>;
 
 /** Why an address can't be added: nothing answered there, or something other than Ember did. */
 export type SiteProblem = "unreachable" | "not-ember";
@@ -63,4 +70,14 @@ function isBootstrap(body: unknown): body is { account: { name: string; customDo
   if ((setup !== "pending" && setup !== "complete") || typeof version !== "string" || typeof account !== "object" || account === null) return false;
   const { name, customDomain } = account as Record<string, unknown>;
   return typeof name === "string" && (customDomain === undefined || customDomain === null || typeof customDomain === "string");
+}
+
+/**
+ * The origin of the Memberful site that the site at `address` sends Sign in with Memberful to, which it
+ * says by redirecting there, or null while it sends it nowhere else: without Memberful, or unreachable.
+ */
+export async function memberfulSiteOf(address: string, redirectOf: RedirectOf): Promise<string | null> {
+  const signIn = new URL(MEMBERFUL_SIGN_IN_PATH, address).href;
+  const location = await redirectOf(signIn, AbortSignal.timeout(PATIENCE_MS)).catch(() => null);
+  return location === null ? null : passageOf(signIn, location, address);
 }

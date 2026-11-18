@@ -24,12 +24,21 @@ function spelling(contents: WebContents, { misspelledWord, dictionarySuggestions
 function link({ linkURL }: ContextMenuParams): Section {
   const url = URL.parse(linkURL);
   if (url === null) return [];
-  if (url.protocol === "mailto:") return [{ label: "Copy Email Address", click: () => clipboard.writeText(decodeURIComponent(url.pathname)) }];
+  if (url.protocol === "mailto:") return [{ label: "Copy Email Address", click: () => clipboard.writeText(decoded(url.pathname)) }];
   if (url.protocol !== "https:" && url.protocol !== "http:") return [];
   return [
     { label: "Open Link in Browser", click: () => void shell.openExternal(url.href) },
     { label: "Copy Link", click: () => clipboard.writeText(url.href) },
   ];
+}
+
+/** `text` with its escapes decoded, or as it's written where they can't be, as in an address someone mistyped. */
+function decoded(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
 }
 
 function picture(contents: WebContents, { mediaType, srcURL, x, y }: ContextMenuParams): Section {

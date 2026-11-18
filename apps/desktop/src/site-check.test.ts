@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSite, type Fetch } from "./site-check.ts";
+import { checkSite, memberfulSiteOf, type Fetch, type RedirectOf } from "./site-check.ts";
 
 /** What an Ember site's `/api/bootstrap` answers, with the account's name and custom domain given. */
 const bootstrap = (name: string, customDomain: string | null = null) => ({
@@ -69,5 +69,30 @@ describe("checkSite", () => {
     expect(await checkSite("https://ember.example.workers.dev", fetch)).toEqual({ address: "https://chat.example.com", name: "Fernwood" });
     expect(await checkSite("https://chat.example.com", fetch)).toEqual({ address: "https://chat.example.com", name: "Fernwood" });
     expect(await checkSite("https://stranded.example.workers.dev", fetch)).toEqual({ address: "https://stranded.example.workers.dev", name: "Stranded" });
+  });
+});
+
+describe("memberfulSiteOf", () => {
+  /** Where each address in `redirects` redirects; any other doesn't, and one at an origin that's down can't be reached. */
+  const redirecting =
+    (redirects: Record<string, string>, down = "https://down.example.com"): RedirectOf =>
+    async (url) => {
+      if (new URL(url).origin === down) throw new TypeError("fetch failed");
+      return redirects[url] ?? null;
+    };
+
+  it("finds the Memberful site where the site sends Sign in with Memberful", async () => {
+    const redirectOf = redirecting({ "https://chat.example.com/auth/memberful": "https://fernwood.memberful.com/oauth?response_type=code&client_id=1&state=2" });
+    expect(await memberfulSiteOf("https://chat.example.com", redirectOf)).toBe("https://fernwood.memberful.com");
+  });
+
+  it("finds none where Sign in with Memberful goes back to sign in, or nowhere, or somewhere insecure, or where the site can't be reached", async () => {
+    const redirectOf = redirecting({
+      "https://off.example.com/auth/memberful": "https://off.example.com/session/new?memberful=off",
+      "https://insecure.example.com/auth/memberful": "http://fernwood.memberful.com/oauth?state=2",
+    });
+    for (const address of ["https://off.example.com", "https://old.example.com", "https://insecure.example.com", "https://down.example.com"]) {
+      expect(await memberfulSiteOf(address, redirectOf)).toBeNull();
+    }
   });
 });

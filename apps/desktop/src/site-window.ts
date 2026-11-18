@@ -1,8 +1,8 @@
 import { BrowserWindow, dialog, nativeTheme, net, screen, shell, type WebContents } from "electron";
 import { pageAddress } from "./app-pages.ts";
 import { contextMenuOf } from "./context-menu.ts";
-import { destinationOf, mayBeMoving, passageOf } from "./navigation.ts";
-import { checkSite } from "./site-check.ts";
+import { destinationOf, mayBeMoving, mayBeSigningIn, passageOf } from "./navigation.ts";
+import { checkSite, memberfulSiteOf } from "./site-check.ts";
 import { sessionOf } from "./site-session.ts";
 import type { Bounds, Site, Sites } from "./sites.ts";
 
@@ -18,11 +18,14 @@ const ABORTED = -3;
 
 /**
  * Each site's window, which opens the site's own Ember and keeps to it, as a browser tab would, and
- * remembers where it was and whether it was open as the app quit.
+ * remembers where it was and whether it was open as the app quit, and the windows its pages open, which
+ * keep to the site too.
  */
 export class SiteWindows {
   readonly #sites: Sites;
   readonly #windows = new Map<string, BrowserWindow>();
+  /** The windows the sites' pages opened, each with the id of the site whose pages opened it. */
+  readonly #opened = new Map<BrowserWindow, string>();
   readonly #listeners = new Set<() => void>();
   #quitting = false;
 
@@ -38,15 +41,21 @@ export class SiteWindows {
     window.focus();
   }
 
-  /** Closes the site's window, if it's open, asking its page nothing. */
+  /** Closes the site's windows that are open, its own and those its pages opened, asking its pages nothing. */
   close(id: string): void {
+    for (const [window, site] of this.#opened) if (site === id) window.destroy();
     this.#windows.get(id)?.destroy();
   }
 
-  /** The site whose window `window` is, if it's one. */
+  /** The site whose window `window` is, or whose pages opened it, if it's either. */
   siteOf(window: BrowserWindow | null): Site | undefined {
-    const id = [...this.#windows].find(([, open]) => open === window)?.[0];
+    const id = window === null ? undefined : this.#idOf(window);
     return id === undefined ? undefined : this.#sites.find(id);
+  }
+
+  /** Whether any of the app's windows is open but the site with `id`'s, its own and those its pages opened. */
+  anyOpenBut(id: string): boolean {
+    return BrowserWindow.getAllWindows().some((window) => this.#idOf(window) !== id);
   }
 
   /** Remembers each window that closes from now on as open, to open it again as the app next starts. */
@@ -101,10 +110,15 @@ export class SiteWindows {
     return this.#sites.find(id)?.address ?? "";
   }
 
+  #idOf(window: BrowserWindow): string | undefined {
+    return this.#opened.get(window) ?? [...this.#windows].find(([, open]) => open === window)?.[0];
+  }
+
   /**
    * Keeps `contents`, a window of the site with `id` or one its pages opened, on the site's own pages,
-   * opening anything elsewhere outside the app, but for Sign in with Memberful, which passes through the
-   * site's Memberful site, and the site's move to a custom domain, which the window follows.
+   * opening anything elsewhere outside the app, but for the site's Memberful site, which signing in with
+   * Memberful, and connecting an account there, pass through, and the site's move to a custom domain,
+   * which the window follows.
    */
   #keepToSite(contents: WebContents, id: string): void {
     const address = () => this.#addressOf(id);
@@ -120,7 +134,10 @@ export class SiteWindows {
       const destination = destinationOf(event.url, address(), passingThrough);
       if (destination === "window") return;
       event.preventDefault();
-      if (destination === "outside") void this.#leave(contents, id, event.url);
+      if (destination !== "outside") return;
+      void this.#leave(contents, id, event.url, (memberful) => {
+        passingThrough = memberful;
+      });
     });
     contents.on("will-redirect", (event) => {
       if (!event.isMainFrame) return;
@@ -142,7 +159,11 @@ export class SiteWindows {
       if (destination === "outside") void shell.openExternal(url);
       return { action: "deny" };
     });
-    contents.on("did-create-window", (opened) => this.#keepToSite(opened.webContents, id));
+    contents.on("did-create-window", (opened) => {
+      this.#opened.set(opened, id);
+      opened.once("closed", () => this.#opened.delete(opened));
+      this.#keepToSite(opened.webContents, id);
+    });
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.on("will-prevent-unload", (event) => {
       if (askToLeave(contents)) event.preventDefault();
@@ -159,15 +180,25 @@ export class SiteWindows {
     });
   }
 
-  /** Opens `url` outside the app, unless it's where the site with `id` has moved, which the window follows. */
-  async #leave(contents: WebContents, id: string, url: string): Promise<void> {
+  /**
+   * Opens `url` outside the app, unless it's where the site with `id` has moved, which the window follows,
+   * or the sign-in at the site's Memberful site, where connecting an account there goes, which the window
+   * passes through, as it tells `passThrough`.
+   */
+  async #leave(contents: WebContents, id: string, url: string, passThrough: (memberful: string) => void): Promise<void> {
+    const { origin } = new URL(url);
     if (mayBeMoving(contents.getURL(), url)) {
       const site = await checkSite(this.#addressOf(id), net.fetch);
-      if (typeof site !== "string" && site.address === new URL(url).origin) {
+      if (typeof site !== "string" && site.address === origin) {
         this.#sites.update(id, site);
         await contents.loadURL(url);
         return;
       }
+    }
+    if (mayBeSigningIn(url) && (await memberfulSiteOf(this.#addressOf(id), redirectOf)) === origin) {
+      passThrough(origin);
+      await contents.loadURL(url);
+      return;
     }
     await shell.openExternal(url);
   }
@@ -192,6 +223,28 @@ function askToLeave(contents: WebContents): boolean {
     cancelId: 1,
   };
   return (window ? dialog.showMessageBoxSync(window, options) : dialog.showMessageBoxSync(options)) === 0;
+}
+
+/**
+ * Where asking for `url` redirects, through Chromium's network as the site's window would ask, but with
+ * no site's cookies: the address its answer's Location gives, or null for an answer that doesn't redirect.
+ */
+function redirectOf(url: string, signal: AbortSignal): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ url, redirect: "manual", credentials: "omit" });
+    const answer = (location: string | null) => {
+      resolve(location);
+      request.abort();
+    };
+    request.on("redirect", (_status, _method, location) => answer(location));
+    request.on("response", () => answer(null));
+    request.on("error", reject);
+    signal.addEventListener("abort", () => {
+      reject(signal.reason);
+      request.abort();
+    });
+    request.end();
+  });
 }
 
 /** A site's window's title: its page's, then the site's name, unless the page names it already. */

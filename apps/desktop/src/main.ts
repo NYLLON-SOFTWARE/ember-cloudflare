@@ -6,7 +6,7 @@ import { registerPagesScheme } from "./app-pages.ts";
 import { applicationMenu } from "./menu.ts";
 import { siteAddressOf } from "./site-address.ts";
 import { checkSite } from "./site-check.ts";
-import { forgetSession } from "./site-session.ts";
+import { forgetSession, stillForgetting } from "./site-session.ts";
 import { SiteWindows } from "./site-window.ts";
 import { Sites, type Site } from "./sites.ts";
 
@@ -49,8 +49,10 @@ function start(): void {
     });
     if (response !== 0) return;
     sites.remove(site.id);
-    // Add Site opens before the site's window closes, since closing the last window quits the app.
-    if (sites.list().length === 0) addSiteWindow.show();
+    // Where the site's windows are the only ones, another site's opens before they close, or Add Site once
+    // there's none, since closing the last window quits the app.
+    if (!windows.anyOpenBut(site.id)) showSites();
+    // Closed first, so that the site's pages can't keep anything in its session as it's forgotten.
     windows.close(site.id);
     await forgetSession(site.id);
   }
@@ -83,6 +85,13 @@ function start(): void {
     if (BrowserWindow.getAllWindows().length === 0) showSites();
   });
   app.on("before-quit", () => windows.quitting());
+  app.on("will-quit", (event) => {
+    // A site just removed is forgotten before the app quits, rather than left half forgotten.
+    const forgetting = stillForgetting();
+    if (forgetting === null) return;
+    event.preventDefault();
+    void forgetting.then(() => app.quit());
+  });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });

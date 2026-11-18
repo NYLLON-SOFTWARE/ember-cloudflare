@@ -59,7 +59,8 @@ const redirect = (response: http.ServerResponse, location: string, cookie?: stri
 /**
  * An Ember site whose workspace is `name`. Its pages say whether this browser is signed in, which
  * /sign-in or Sign in with Memberful do, and link to the site's next room, to a site elsewhere, to a
- * file to download, and to Sign in with Memberful.
+ * file to download, to Sign in with Memberful, and straight to the Memberful site's sign-in, as
+ * connecting an account there does.
  */
 export async function fakeEmber(name: string): Promise<FakeEmber> {
   const site: FakeEmber = Object.assign(
@@ -86,7 +87,8 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
             <a href="/rooms/2">Next room</a>
             <a href="https://example.com/elsewhere">Elsewhere</a>
             <a href="/files/report.txt" download>Download the report</a>
-            <a href="/auth/memberful">Sign in with Memberful</a>`,
+            <a href="/auth/memberful">Sign in with Memberful</a>
+            <a href="${site.memberful}/oauth?client_id=ember&state=2&site=${encodeURIComponent(url.origin)}">Connect Memberful</a>`,
           );
       }
     }),
