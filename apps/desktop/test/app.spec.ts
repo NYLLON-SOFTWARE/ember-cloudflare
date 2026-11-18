@@ -176,6 +176,25 @@ test("passes through the site's Memberful site as someone connects their account
   expect(await app.openedOutside()).toEqual([elsewhere]);
 });
 
+test("follows the site's Memberful site on to its custom domain to sign in there, and connect, and back", async ({ app }) => {
+  const [fernwood, memberful] = [await fakeEmber("Fernwood"), await fakeMemberful()];
+  // The address the site has for its Memberful site, which sends every page on to the same page at its custom domain, as Memberful does.
+  const memberfulAddress = await fakeRedirect(memberful.origin);
+  fernwood.memberful = memberfulAddress.origin;
+  const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
+
+  await page.getByRole("link", { name: "Sign in with Memberful" }).click({ force: true });
+  await expect(page).toHaveURL(new RegExp(`^${memberful.origin}/oauth\\?`));
+  await page.getByRole("link", { name: "Allow" }).click({ force: true });
+  await expect(page.getByRole("heading")).toHaveText("Signed in at Fernwood");
+
+  await page.getByRole("link", { name: "Connect Memberful" }).click({ force: true, noWaitAfter: true });
+  await expect.poll(() => page.url()).toMatch(new RegExp(`^${memberful.origin}/oauth\\?`));
+  await page.getByRole("link", { name: "Allow" }).click({ force: true });
+  await expect(page.getByRole("heading")).toHaveText("Signed in at Fernwood");
+  expect(await app.openedOutside()).toEqual([]);
+});
+
 test("drops a sign-in at Memberful once the page moves on as the site says where its own goes", async ({ app }) => {
   const [fernwood, memberful] = [await fakeEmber("Fernwood"), await fakeMemberful()];
   fernwood.memberful = memberful.origin;

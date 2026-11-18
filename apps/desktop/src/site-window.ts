@@ -1,7 +1,7 @@
 import { BrowserWindow, dialog, nativeTheme, screen, shell, type WebContents } from "electron";
 import { pageAddress } from "./app-pages.ts";
 import { contextMenuOf } from "./context-menu.ts";
-import { destinationOf, mayBeMoving, mayBeSigningIn, passageOf } from "./navigation.ts";
+import { destinationOf, mayBeMoving, mayBeSigningIn, onwardPassageOf, passageOf } from "./navigation.ts";
 import { checkSite, memberfulSiteOf } from "./site-check.ts";
 import { fetchFollowing, redirectOf } from "./site-fetch.ts";
 import { sessionOf } from "./site-session.ts";
@@ -138,9 +138,10 @@ export class SiteWindows {
 
   /**
    * Keeps `contents`, a window of the site with `id` or one its pages opened, on the site's own pages,
-   * opening anything elsewhere outside the app, but for the site's Memberful site, which signing in with
-   * Memberful, and connecting an account there, pass through, and the site's move to another address,
-   * a custom domain its pages move to or one its server redirects them to, which the window follows.
+   * opening anything elsewhere outside the app, but for the site's Memberful site, or the custom domain it
+   * sends them on to, which signing in with Memberful, and connecting an account there, pass through, and
+   * the site's move to another address, a custom domain its pages move to or one its server redirects
+   * them to, which the window follows.
    */
   #keepToSite(contents: WebContents, id: string): void {
     const address = () => this.#addressOf(id);
@@ -177,7 +178,7 @@ export class SiteWindows {
     });
     contents.on("will-redirect", (event) => {
       if (!event.isMainFrame) return;
-      passingThrough = passageOf(loading, event.url, address()) ?? passingThrough;
+      passingThrough = passageOf(loading, event.url, address()) ?? onwardPassageOf(loading, event.url, passingThrough) ?? passingThrough;
       const destination = destinationOf(event.url, address(), passingThrough);
       if (destination === "window") {
         loading = event.url;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { destinationOf, mayBeMoving, mayBeSigningIn, passageOf } from "./navigation.ts";
+import { destinationOf, mayBeMoving, mayBeSigningIn, onwardPassageOf, passageOf } from "./navigation.ts";
 
 const SITE = "https://chat.example.com";
 const MEMBERFUL = "https://fernwood.memberful.com";
@@ -40,6 +40,22 @@ describe("passageOf", () => {
     expect(passageOf(`https://example.com/auth/memberful`, `${MEMBERFUL}/oauth`, SITE)).toBeNull();
     expect(passageOf(`${SITE}/auth/memberful`, "http://fernwood.memberful.com/oauth", SITE)).toBeNull();
     expect(passageOf(`${SITE}/auth/memberful`, `${SITE}/session/new`, SITE)).toBeNull();
+  });
+});
+
+describe("onwardPassageOf", () => {
+  const SIGN_IN = "/oauth?response_type=code&client_id=1&state=2";
+
+  it("passes through the custom domain the Memberful site sends its sign-in on to, the same page there", () => {
+    expect(onwardPassageOf(`${MEMBERFUL}${SIGN_IN}`, `https://members.example.org${SIGN_IN}`, MEMBERFUL)).toBe("https://members.example.org");
+  });
+
+  it("passes through nothing new for another page, another sign-in, an insecure address, or from elsewhere", () => {
+    expect(onwardPassageOf(`${MEMBERFUL}${SIGN_IN}`, "https://members.example.org/account", MEMBERFUL)).toBeNull();
+    expect(onwardPassageOf(`${MEMBERFUL}${SIGN_IN}`, "https://members.example.org/oauth?response_type=code&client_id=1&state=3", MEMBERFUL)).toBeNull();
+    expect(onwardPassageOf(`${MEMBERFUL}${SIGN_IN}`, `http://members.example.org${SIGN_IN}`, MEMBERFUL)).toBeNull();
+    expect(onwardPassageOf(`https://example.com${SIGN_IN}`, `https://members.example.org${SIGN_IN}`, MEMBERFUL)).toBeNull();
+    expect(onwardPassageOf(`${MEMBERFUL}${SIGN_IN}`, `https://members.example.org${SIGN_IN}`, null)).toBeNull();
   });
 });
 

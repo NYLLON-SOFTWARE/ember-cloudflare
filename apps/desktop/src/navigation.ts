@@ -3,7 +3,8 @@ import { isSecure } from "./site-address.ts";
 // Where a site's window may go. It stays on the site, as a browser tab would for a site that's an app,
 // and opens anything elsewhere outside the app: web pages in the person's browser, and email addresses
 // in their email app. The one way off the site is its Memberful site, which Sign in with Memberful, and
-// connecting an account there, go through and come back from.
+// connecting an account there, go through and come back from, at the custom domain it sends them on to
+// if it has one.
 
 /** Where the site's window goes for an address: to it, outside the app, or nowhere. */
 export type Destination = "window" | "outside" | "nowhere";
@@ -36,6 +37,17 @@ export function passageOf(from: string, to: string, site: string): string | null
   const [leaving, arriving] = [URL.parse(from), URL.parse(to)];
   if (leaving?.origin !== site || leaving.pathname !== MEMBERFUL_SIGN_IN_PATH) return null;
   return arriving !== null && isSecure(arriving) && arriving.origin !== site ? arriving.origin : null;
+}
+
+/**
+ * The origin a window passing through the Memberful site at `passingThrough` passes through instead as
+ * that site redirects its page at `from` to the same page at `to`, another secure address: its custom
+ * domain, which a Memberful site with one sends its pages on to. Null for any other redirect.
+ */
+export function onwardPassageOf(from: string, to: string, passingThrough: string | null): string | null {
+  const [leaving, arriving] = [URL.parse(from), URL.parse(to)];
+  if (leaving?.origin !== passingThrough || arriving === null || arriving.search !== leaving.search) return null;
+  return mayBeMoving(from, to) ? arriving.origin : null;
 }
 
 /**
