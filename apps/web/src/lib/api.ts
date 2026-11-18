@@ -21,6 +21,7 @@ import {
   type BotChanges,
   type Bots,
   type BotSettings,
+  type ChangedBlocks,
   type ChangedPerson,
   type CustomDomainCheck,
   type CustomDomainLookup,
@@ -36,6 +37,9 @@ import {
   type EmailSettings,
   type Favorites,
   type HuddleRelaySetup,
+  type HuddleSoundChanges,
+  type HuddleSounds,
+  type HuddleSoundsChanged,
   type HuddlesForgotten,
   type HuddlesSaved,
   type HuddlesSettings,
@@ -884,6 +888,14 @@ export async function changeYourAssistant(changes: YourAssistantChanges): Promis
 }
 
 /**
+ * Turns each of a huddle's sounds that `changes` names on or off for this person, wherever they're signed
+ * in, answering which they hear then.
+ */
+export async function changeHuddleSounds(changes: HuddleSoundChanges): Promise<HuddleSounds> {
+  return (await request<HuddleSoundsChanged>("/api/users/me/huddle-sounds", { method: "PATCH", body: JSON.stringify(changes) })).sounds;
+}
+
+/**
  * Invites each of `emailAddresses`, no more than `INVITATIONS_AT_ONCE`, by email, answering what came of
  * each, in order. Fails with a 422 ApiError for a list it doesn't take, and a 403 one for anyone but an
  * administrator.
@@ -931,6 +943,14 @@ export async function banPerson(userId: UserId): Promise<DirectoryUser> {
 /** Lifts someone's ban, making them active, and answers them as `banPerson` does. */
 export async function unbanPerson(userId: UserId): Promise<DirectoryUser> {
   return (await request<ChangedPerson>(`/api/users/${encodeURIComponent(userId)}/ban`, { method: "DELETE" })).user;
+}
+
+/**
+ * Blocks someone, or unblocks them once `blocked` is false, answering whom you've blocked now and your
+ * level in your DM with them alone, when that hid it or showed it again.
+ */
+export async function changeBlock(userId: UserId, blocked: boolean): Promise<ChangedBlocks> {
+  return request<ChangedBlocks>(`/api/users/${encodeURIComponent(userId)}/block`, { method: blocked ? "POST" : "DELETE" });
 }
 
 /** A copy of someone's sidebar, and the ETag the server sent it with. */

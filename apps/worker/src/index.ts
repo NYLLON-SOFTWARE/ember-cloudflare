@@ -30,6 +30,7 @@ import {
   isPasswordTooLong,
   isReservedName,
   isRoomId,
+  notTakingDirects,
   OPEN_WITH_MEMBERFUL,
   parseAccountChanges,
   parseAccountDeletion,
@@ -54,9 +55,11 @@ import {
   SIGN_UP_PATH,
   TRANSFER_PATH,
   TURNSTILE_CHECK_PATH,
+  USERNAME_TAKEN,
   workspacePageOf,
   type Account,
   type Bootstrap,
+  type ChangedBlocks,
   type ChangedPerson,
   type CustomDomainCheck,
   type CustomDomainLookup,
@@ -83,6 +86,7 @@ import {
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
+import { parseHuddleSoundChanges, type HuddleSoundsChanged } from "@ember/protocol/huddles";
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
 import { mentionPromptItem } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
@@ -617,6 +621,23 @@ async function banPerson(request: Request, env: Env, userId: UserId): Promise<Re
   return json({ user: person } satisfies ChangedPerson);
 }
 
+/** Blocks someone, as Block on their page and in their messages' More actions does, answering whom you've blocked now. */
+async function block(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const blocked = credentials && (await workspace(env).block(credentials, userId));
+  if (!blocked) return problem(401, "Not signed in");
+  if (blocked === "not found") return problem(404, "Not found");
+  if (blocked === "yourself") return problem(422, "You can't block yourself");
+  return json(blocked satisfies ChangedBlocks);
+}
+
+/** Unblocks someone, as Unblock on their page and in Blocked people on your profile does, answering as `block` does. */
+async function unblock(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const unblocked = credentials && (await workspace(env).unblock(credentials, userId));
+  return unblocked ? json(unblocked satisfies ChangedBlocks) : problem(401, "Not signed in");
+}
+
 /** Lifts someone's ban, as Remove ban on their page does, answering them as `banPerson` does. */
 async function unbanPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -697,6 +718,7 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "email address taken") return problem(422, "That email address has an account already");
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
+  if (yours === "username taken") return problem(422, USERNAME_TAKEN);
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   return profileAnswer(yours, env, memberfulSite);
 }
@@ -871,6 +893,21 @@ async function answerHuddleInvitation(request: Request, env: Env, roomId: RoomId
 }
 
 /**
+ * `PATCH /api/users/me/huddle-sounds`, `{ music?, chimes?, ring? }`: turns a huddle's music, its sounds
+ * of someone joining and leaving, or an invitation's ring on or off for the signed-in person, as the
+ * switches on their profile do, one it leaves out staying as it is, answering which they hear then:
+ * 422 for one that's neither true nor false.
+ */
+async function changeHuddleSounds(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const changes = parseHuddleSoundChanges(await jsonBodyOf(request));
+  if (typeof changes === "string") return problem(422, changes);
+  const sounds = await workspace(env).setHuddleSounds(credentials, changes);
+  return sounds ? json({ sounds } satisfies HuddleSoundsChanged) : problem(401, "Not signed in");
+}
+
+/**
  * Everyone in the workspace, deactivated and banned people too, with their avatars' addresses, for
  * the app to show people by, but the AI agents only administrators' direct messages reach, which only
  * an administrator is listed. No cache keeps it, as none keeps the sidebar, so the app keeps its own copy.
@@ -961,7 +998,8 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
 
 /**
  * Starts a DM with the people it names, or opens the one they have, as New direct message does: 201 for
- * a new DM and 200 for one they had.
+ * a new DM and 200 for one they had, or 403 for a new one with someone who has blocked you, which says
+ * only that they aren't taking direct messages.
  */
 async function startDirect(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -969,7 +1007,9 @@ async function startDirect(request: Request, env: Env): Promise<Response> {
   const direct = parseNewDirect(await jsonBodyOf(request));
   if (typeof direct === "string") return problem(422, direct);
   const started = await workspace(env).startDirect(credentials, direct.userIds);
-  return started ? json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 }) : problem(401, "Not signed in");
+  if (!started) return problem(401, "Not signed in");
+  if ("refusedBy" in started) return problem(403, notTakingDirects(started.refusedBy));
+  return json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 });
 }
 
 /** Who New room's forms list: everyone active, by name, for anyone who may create rooms. */
@@ -1238,6 +1278,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me" && request.method === "DELETE") return () => deleteAccount(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
+  if (pathname === "/api/users/me/huddle-sounds" && request.method === "PATCH") return () => changeHuddleSounds(request, env);
   const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
   if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);
   if (ownAppSignIn && request.method === "DELETE") return () => signOutOfApp(request, env, ownAppSignIn[1]!);
@@ -1254,6 +1295,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const ban = pathname.match(/^\/api\/users\/([^/]+)\/ban$/);
   if (ban && request.method === "POST") return () => banPerson(request, env, segmentText(ban[1]!));
   if (ban && request.method === "DELETE") return () => unbanPerson(request, env, segmentText(ban[1]!));
+  const blocking = pathname.match(/^\/api\/users\/([^/]+)\/block$/);
+  if (blocking && request.method === "POST") return () => block(request, env, segmentText(blocking[1]!));
+  if (blocking && request.method === "DELETE") return () => unblock(request, env, segmentText(blocking[1]!));
   if (pathname === "/api/socket") return () => connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return () => createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return () => newRoomForm(request, env);

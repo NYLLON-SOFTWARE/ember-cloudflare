@@ -1,6 +1,7 @@
-import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceClientFrame, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AWAY_AFTER_MS } from "@/lib/presence";
 import { RELOAD_AFTER_HIDDEN_MS, RELOAD_SPREAD_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
@@ -10,7 +11,7 @@ const design = { id: "r1", name: "Design", kind: "open", icon: null, unread: fal
 const NOON = "2026-10-15T12:00:00.000Z";
 const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false, involvement: "mentions" } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
-const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {} });
+const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } });
 const ember: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
 /** Someone as the directory lists them. */
 const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
@@ -23,8 +24,9 @@ class FakeSocket {
   static all: FakeSocket[] = [];
 
   readyState = FakeSocket.CONNECTING;
-  sent: Array<Record<string, unknown>> = [];
   closedWith: number | undefined;
+  /** The frames the hook has sent, in order. */
+  sent: WorkspaceClientFrame[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
@@ -34,12 +36,12 @@ class FakeSocket {
   }
 
   send(data: string) {
-    this.sent.push(JSON.parse(data));
+    this.sent.push(JSON.parse(data) as WorkspaceClientFrame);
   }
 
   /** What the tab has said of whether it's shown, in order. */
   get shown() {
-    return this.sent.filter((frame) => frame.type === "presence.visible").map((frame) => frame.visible);
+    return this.sent.flatMap((frame) => (frame.type === "presence.visible" ? [frame.visible] : []));
   }
 
   close(code?: number) {
@@ -345,6 +347,19 @@ describe("Unread rooms", () => {
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true, unreadSince: NOON }]);
   });
+
+  it("counts the messages that have come in a DM since it was marked unread, as the workspace socket says, until it's read", async () => {
+    const withGrace = { id: "d1", kind: "direct", members: [ada, grace].map(({ id, name }) => ({ id, name })), activeAt: NOON, unread: false, involvement: "everything" } satisfies SidebarRoom;
+    server.sidebar = unstarred([withGrace]);
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.unread", roomId: withGrace.id, at: NOON, count: 1 });
+    socket().receive({ type: "room.unread", roomId: withGrace.id, at: NOON, count: 2 });
+    expect(result.current.list?.rooms).toEqual([{ ...withGrace, unread: true, unreadSince: NOON, unreadCount: 2 }]);
+    socket().receive({ type: "room.read", roomId: withGrace.id });
+    expect(result.current.list?.rooms).toEqual([withGrace]);
+  });
 });
 
 describe("Notification levels", () => {
@@ -401,6 +416,61 @@ describe("DM order", () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([design, { ...withGrace, activeAt: "2026-10-15T12:05:00.000Z" }]);
+  });
+});
+
+describe("Who's active", () => {
+  /** What the hook has said of whether the tab is in use, on the latest socket. */
+  const saidInUse = () => socket().sent.flatMap((frame) => (frame.type === "presence.active" ? [frame.active] : []));
+
+  /** Lets `ms` go by without the tab being used, the Workspace answering the socket's pings meanwhile, as it does. */
+  async function unusedFor(ms: number) {
+    for (let left = ms; left > 0; left -= 20_000) {
+      await wait(Math.min(left, 20_000));
+      socket().receive({ type: "pong" });
+    }
+  }
+
+  it("says whether the tab is in use once the Workspace lets its socket in, and again whenever that changes", async () => {
+    await showSidebar();
+    socket().open();
+    expect(saidInUse()).toEqual([]);
+    socket().receive({ type: "welcome", you: ada, account: ember });
+    expect(saidInUse()).toEqual([true]);
+
+    await unusedFor(AWAY_AFTER_MS);
+    expect(saidInUse()).toEqual([true, false]);
+    act(() => void window.dispatchEvent(new KeyboardEvent("keydown")));
+    expect(saidInUse()).toEqual([true, false, true]);
+  });
+
+  it("says it again as the next connection is let in, as the tab is then", async () => {
+    await showSidebar();
+    socket().connect();
+    await unusedFor(AWAY_AFTER_MS);
+    socket().drop();
+    await wait(60_000);
+    socket().connect();
+    expect(saidInUse()).toEqual([false]);
+  });
+
+  it("knows who's active from the first frame since the socket connected, then from the changes the frames after it tell of", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    const active = () => result.current.active.current();
+    expect(active()).toBeNull();
+    socket().receive({ type: "presence", active: [ada.id, grace.id], away: [] });
+    expect(active()).toEqual(new Set([ada.id, grace.id]));
+    socket().receive({ type: "presence", active: ["u3"], away: [grace.id] });
+    expect(active()).toEqual(new Set([ada.id, "u3"]));
+
+    // The next connection's first frame says who's active then, whoever was before.
+    socket().drop();
+    await wait(60_000);
+    socket().connect();
+    socket().receive({ type: "presence", active: [grace.id], away: [] });
+    expect(active()).toEqual(new Set([grace.id]));
   });
 });
 
@@ -507,6 +577,56 @@ describe("Huddles in your rooms", () => {
     expect(following(added.mock.calls)).toBeGreaterThan(0);
     unmount();
     expect(following(removed.mock.calls)).toBe(following(added.mock.calls));
+  });
+});
+
+describe("Huddle sounds, which each person turns on or off for themselves", () => {
+  const EVERY_SOUND = { music: true, chimes: true, ring: true };
+  const NO_MUSIC = { ...EVERY_SOUND, music: false };
+  const NO_RING = { ...EVERY_SOUND, ring: false };
+
+  it("keeps which of a huddle's sounds Ada hears as the workspace socket says one of her tabs saved them, even over a list on its way", async () => {
+    server.change({ ...unstarred([design]), huddleSounds: NO_MUSIC });
+    const { result } = await showSidebar();
+    expect(result.current.list?.huddleSounds).toEqual(NO_MUSIC);
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "huddle.sounds", sounds: NO_RING });
+    expect(result.current.list?.huddleSounds).toEqual(NO_RING);
+    await release();
+    await settle();
+    expect(result.current.list?.huddleSounds).toEqual(NO_RING);
+
+    // Once she hears them all again, the list says nothing of them, as the server's doesn't.
+    socket().receive({ type: "huddle.sounds", sounds: EVERY_SOUND });
+    expect(result.current.list).not.toHaveProperty("huddleSounds");
+    expect(result.current.list?.rooms).toEqual([design]);
+  });
+
+  it("keeps the sounds the server answers a switch with, unless the workspace socket has said which she hears since", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+
+    // Ada turns the music off, and her answer comes before the socket's word of it.
+    const saved = result.current.askForHuddleSounds();
+    act(() => saved(NO_MUSIC));
+    expect(result.current.list?.huddleSounds).toEqual(NO_MUSIC);
+    socket().receive({ type: "huddle.sounds", sounds: NO_MUSIC });
+    expect(result.current.list?.huddleSounds).toEqual(NO_MUSIC);
+
+    // She turns the ring off, and the socket brings that, then the music turned back on in another tab just after, before her answer.
+    const answered = result.current.askForHuddleSounds();
+    socket().receive({ type: "huddle.sounds", sounds: { ...NO_MUSIC, ring: false } });
+    socket().receive({ type: "huddle.sounds", sounds: NO_RING });
+    act(() => answered({ ...NO_MUSIC, ring: false }));
+    expect(result.current.list?.huddleSounds).toEqual(NO_RING);
+
+    // What the socket says of anything else leaves an answer to take its place.
+    const later = result.current.askForHuddleSounds();
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON });
+    act(() => later(EVERY_SOUND));
+    expect(result.current.list).not.toHaveProperty("huddleSounds");
   });
 });
 
@@ -637,6 +757,18 @@ describe("Star rooms", () => {
     await release();
     await settle();
     expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 1 });
+  });
+});
+
+describe("Block someone", () => {
+  it("takes the blocks made in any of Ada's tabs from the workspace socket, keeping the newest", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "blocks.changed", blocks: { userIds: ["u2"], version: 2 } });
+    expect(result.current.list?.blocks).toEqual({ userIds: ["u2"], version: 2 });
+    socket().receive({ type: "blocks.changed", blocks: { userIds: [], version: 1 } });
+    expect(result.current.list?.blocks).toEqual({ userIds: ["u2"], version: 2 });
   });
 });
 
