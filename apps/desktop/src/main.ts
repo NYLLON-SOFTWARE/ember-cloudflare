@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, net } from "electron";
+import { app, BrowserWindow, dialog, Menu } from "electron";
 import path from "node:path";
 import type { AddSiteOutcome } from "./add-site-bridge.ts";
 import { AddSiteWindow } from "./add-site-window.ts";
@@ -6,6 +6,7 @@ import { registerPagesScheme } from "./app-pages.ts";
 import { applicationMenu } from "./menu.ts";
 import { siteAddressOf } from "./site-address.ts";
 import { checkSite } from "./site-check.ts";
+import { fetchFollowing } from "./site-fetch.ts";
 import { forgetSession, stillForgetting } from "./site-session.ts";
 import { SiteWindows } from "./site-window.ts";
 import { Sites, type Site } from "./sites.ts";
@@ -32,7 +33,7 @@ function start(): void {
   async function addSite(typed: string): Promise<AddSiteOutcome> {
     const address = siteAddressOf(typed);
     if (address === null) return { problem: "address" };
-    const checked = await checkSite(address, net.fetch);
+    const checked = await checkSite(address, fetchFollowing);
     if (typeof checked === "string") return { problem: checked };
     windows.show(sites.at(checked.address) ?? sites.add(checked.address, checked.name));
     return { added: true };

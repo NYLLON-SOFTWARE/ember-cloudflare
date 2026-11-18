@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 
 // Made-up sites for the app's tests, on this computer, each at an origin of its own: Ember sites, which
 // answer `/api/bootstrap` as Ember does and show a page of what a site's window can be asked to do; a
-// Memberful site to sign in at; and a site that isn't Ember.
+// Memberful site to sign in at; a site that isn't Ember; and one that sends everything on to another.
 
 /** A made-up site, listening until it's closed. */
 export interface FakeSite {
@@ -104,6 +104,11 @@ export function fakeMemberful(): Promise<FakeSite> {
     const back = `${url.searchParams.get("site")}/auth/memberful/callback?code=1&state=${url.searchParams.get("state")}`;
     html(response, `<title>Sign in</title><h1>Sign in to Fernwood's Memberful</h1><a href="${back}">Allow</a> <a href="https://example.com/terms">Terms</a>`);
   });
+}
+
+/** A site that sends every page on to the same page at `to`, an origin, as a bare domain does to its www. */
+export function fakeRedirect(to: string): Promise<FakeSite> {
+  return serve((_request, response, url) => redirect(response, `${to}${url.pathname}${url.search}`));
 }
 
 /** A site that isn't Ember, whose pages can be framed, as a frame elsewhere in an Ember page would be. */

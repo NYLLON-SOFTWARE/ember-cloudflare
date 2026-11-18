@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fakeElsewhere, fakeEmber, fakeMemberful } from "./fake-sites.ts";
+import { fakeElsewhere, fakeEmber, fakeMemberful, fakeRedirect } from "./fake-sites.ts";
 import { expect, test } from "./fixtures.ts";
 
 // When the app keeps a page where it is, opening a link outside or nowhere, Playwright, having seen the
@@ -40,6 +40,16 @@ test("asks for a site on its first start, says why it can't add one, and opens a
     { label: "Add Site…", accelerator: null, checked: false },
     { label: "Remove Fernwood…", accelerator: null, checked: false },
   ]);
+});
+
+test("adds a site at the address its own redirects to, as a bare domain's do to its www", async ({ app }) => {
+  const fernwood = await fakeEmber("Fernwood");
+  const bare = await fakeRedirect(fernwood.origin);
+  const page = await app.add(await app.electron.firstWindow(), bare.origin);
+  await expect(page.getByRole("heading")).toHaveText("Signed out at Fernwood");
+  expect(page.url()).toBe(`${fernwood.origin}/`);
+  expect(app.sites()).toMatchObject([{ address: fernwood.origin, name: "Fernwood" }]);
+  expect(await app.openedOutside()).toEqual([]);
 });
 
 test("keeps each site's sign-in apart, and opens the windows that were open as it quit, where they were", async ({ app }) => {
@@ -232,6 +242,19 @@ test("says when a site can't be reached, and opens it once it can be", async ({ 
   await expect(page).toHaveURL(`${fernwood.origin}/`);
 });
 
+test("says when the site's Memberful site can't be reached, and tries again from the site", async ({ app }) => {
+  const [fernwood, memberful] = [await fakeEmber("Fernwood"), await fakeMemberful()];
+  fernwood.memberful = memberful.origin;
+  const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
+  await memberful.close();
+
+  await page.getByRole("link", { name: "Sign in with Memberful" }).click({ force: true });
+  await expect(page.getByRole("heading")).toHaveText(`Can't reach ${new URL(memberful.origin).host}`);
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("heading")).toHaveText("Signed out at Fernwood");
+  await expect(page).toHaveURL(`${fernwood.origin}/`);
+});
+
 test("opens a site at the custom domain it moved to, and follows it when it moves again", async ({ app }) => {
   const fernwood = await fakeEmber("Fernwood");
   fernwood.customDomain = new URL(fernwood.at("localhost")).host;
@@ -271,8 +294,12 @@ test("counts the windows a site's pages opened as the site's, and opens another 
   await app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getTitle() === "general · Birchwood")?.close());
   await page.goto(`${fernwood.origin}/sign-in`);
 
+  // A window the site's pages opened stays open as the site's own closes, as a browser's would.
   const [opened] = await Promise.all([app.electron.waitForEvent("window"), page.evaluate(() => window.open("/rooms/3"))]);
   await opened.waitForLoadState("domcontentloaded");
+  await Promise.all([page.waitForEvent("close"), app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getTitle() === "general · Fernwood")?.close())]);
+  await expect(opened.getByRole("heading")).toHaveText("Signed in at Fernwood");
+  await app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.focus());
   const sitesMenu = () =>
     app.electron.evaluate(({ BrowserWindow, Menu }) => ({
       inFront: BrowserWindow.getFocusedWindow()?.webContents.getURL(),
@@ -291,11 +318,11 @@ test("counts the windows a site's pages opened as the site's, and opens another 
     ],
   });
 
-  // Its windows were the only ones open, so Birchwood's opens as they close, rather than the app quitting.
+  // Its window was the only one open, so Birchwood's opens as it closes, rather than the app quitting.
   await app.answer("Remove");
   const [atBirchwood] = await Promise.all([app.electron.waitForEvent("window"), app.clickMenu("Sites", "Remove Fernwood…")]);
   await expect(atBirchwood.getByRole("heading")).toHaveText("Signed out at Birchwood");
-  expect([page.isClosed(), opened.isClosed()]).toEqual([true, true]);
+  expect(opened.isClosed()).toBe(true);
   expect(app.sites()).toMatchObject([{ name: "Birchwood" }]);
 
   await app.clickMenu("Sites", "Add Site…");

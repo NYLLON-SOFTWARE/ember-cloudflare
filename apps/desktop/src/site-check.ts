@@ -9,11 +9,18 @@ export interface CheckedSite {
   name: string;
 }
 
+/** What checking a site reads of an answer: where it came from, as redirects took the question, whether it's OK, and its JSON. */
+export interface Answer {
+  url: string;
+  ok: boolean;
+  json(): Promise<unknown>;
+}
+
 /**
- * What checking a site fetches with: in the app, Electron's `net.fetch`, which goes through Chromium's
- * network, as the site's window does.
+ * What checking a site fetches with: in the app, `fetchFollowing`, which asks through Chromium's network,
+ * as the site's window does.
  */
-export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
+export type Fetch = (url: string, init: RequestInit) => Promise<Answer>;
 
 /**
  * Where asking for an address redirects: the full address its answer's Location gives, or null for an
@@ -51,13 +58,13 @@ export async function checkSite(address: string, fetch: Fetch): Promise<CheckedS
 
 /** What the site at `address` says of itself, at the origin it answered from, wherever a redirect took the question. */
 async function bootstrapAt(address: string, fetch: Fetch): Promise<Bootstrap | SiteProblem> {
-  let response: Response;
+  let response: Answer;
   try {
     response = await fetch(new URL("/api/bootstrap", address).href, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(PATIENCE_MS) });
   } catch {
     return "unreachable";
   }
-  const answeredAt = URL.parse(response.url || address);
+  const answeredAt = URL.parse(response.url);
   const body: unknown = response.ok ? await response.json().catch(() => null) : null;
   if (answeredAt === null || !isSecure(answeredAt) || !isBootstrap(body)) return "not-ember";
   return { address: answeredAt.origin, name: body.account.name, customDomain: body.account.customDomain ?? null };

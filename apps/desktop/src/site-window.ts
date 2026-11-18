@@ -1,8 +1,9 @@
-import { BrowserWindow, dialog, nativeTheme, net, screen, shell, type WebContents } from "electron";
+import { BrowserWindow, dialog, nativeTheme, screen, shell, type WebContents } from "electron";
 import { pageAddress } from "./app-pages.ts";
 import { contextMenuOf } from "./context-menu.ts";
 import { destinationOf, mayBeMoving, mayBeSigningIn, passageOf } from "./navigation.ts";
 import { checkSite, memberfulSiteOf } from "./site-check.ts";
+import { fetchFollowing, redirectOf } from "./site-fetch.ts";
 import { sessionOf } from "./site-session.ts";
 import type { Bounds, Site, Sites } from "./sites.ts";
 
@@ -102,7 +103,7 @@ export class SiteWindows {
 
   /** Asks the site with `id` its name again, which its administrators can change, for the Sites menu. */
   async #rename(id: string): Promise<void> {
-    const checked = await checkSite(this.#addressOf(id), net.fetch);
+    const checked = await checkSite(this.#addressOf(id), fetchFollowing);
     if (typeof checked !== "string" && checked.name !== this.#sites.find(id)?.name) this.#sites.update(id, { name: checked.name });
   }
 
@@ -155,7 +156,8 @@ export class SiteWindows {
     });
     contents.setWindowOpenHandler(({ url }) => {
       const destination = destinationOf(url, address());
-      if (destination === "window") return { action: "allow", overrideBrowserWindowOptions: { ...SMALLEST, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } };
+      // Its window stays open as its opener's closes, as a browser's would, to ask before it leaves changes of its own.
+      if (destination === "window") return { action: "allow", outlivesOpener: true, overrideBrowserWindowOptions: { ...SMALLEST, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } };
       if (destination === "outside") void shell.openExternal(url);
       return { action: "deny" };
     });
@@ -172,8 +174,9 @@ export class SiteWindows {
     contents.on("context-menu", (_event, params) => contextMenuOf(contents, params)?.popup());
     contents.on("did-fail-load", (_event, code, _description, url, isMainFrame) => {
       if (!isMainFrame || code === ABORTED) return;
-      const problem = isCertificateError(code) ? "?problem=certificate" : "";
-      void contents.loadURL(`${pageAddress("unreachable.html")}${problem}#${encodeURIComponent(URL.parse(url)?.origin ?? address())}`);
+      // Trying again opens the site, where what failed elsewhere starts again, as signing in at its Memberful site does.
+      const query = new URLSearchParams({ site: address(), ...(isCertificateError(code) ? { problem: "certificate" } : {}) });
+      void contents.loadURL(`${pageAddress("unreachable.html")}?${query}#${encodeURIComponent(URL.parse(url)?.origin ?? address())}`);
     });
     contents.on("render-process-gone", (_event, { reason }) => {
       if (reason !== "clean-exit") contents.reload();
@@ -188,7 +191,7 @@ export class SiteWindows {
   async #leave(contents: WebContents, id: string, url: string, passThrough: (memberful: string) => void): Promise<void> {
     const { origin } = new URL(url);
     if (mayBeMoving(contents.getURL(), url)) {
-      const site = await checkSite(this.#addressOf(id), net.fetch);
+      const site = await checkSite(this.#addressOf(id), fetchFollowing);
       if (typeof site !== "string" && site.address === origin) {
         this.#sites.update(id, site);
         await contents.loadURL(url);
@@ -223,28 +226,6 @@ function askToLeave(contents: WebContents): boolean {
     cancelId: 1,
   };
   return (window ? dialog.showMessageBoxSync(window, options) : dialog.showMessageBoxSync(options)) === 0;
-}
-
-/**
- * Where asking for `url` redirects, through Chromium's network as the site's window would ask, but with
- * no site's cookies: the address its answer's Location gives, or null for an answer that doesn't redirect.
- */
-function redirectOf(url: string, signal: AbortSignal): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    const request = net.request({ url, redirect: "manual", credentials: "omit" });
-    const answer = (location: string | null) => {
-      resolve(location);
-      request.abort();
-    };
-    request.on("redirect", (_status, _method, location) => answer(location));
-    request.on("response", () => answer(null));
-    request.on("error", reject);
-    signal.addEventListener("abort", () => {
-      reject(signal.reason);
-      request.abort();
-    });
-    request.end();
-  });
 }
 
 /** A site's window's title: its page's, then the site's name, unless the page names it already. */
