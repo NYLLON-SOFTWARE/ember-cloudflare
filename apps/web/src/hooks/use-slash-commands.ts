@@ -215,7 +215,8 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       const saved = await changeMembers(room.id, { addedIds: [], removedIds: removed.map((person) => person.id) });
       answered(leaving ? { type: "gone", roomId: room.id } : { type: "saved", room: saved });
       flash("notice", `Removed ${toSentence(removed.map(nameOf))} from #${room.name}.`);
-      if (leaving) navigate("/");
+      // Home, as after /leave, unless another room's been opened meanwhile.
+      if (leaving && open.current) navigate("/");
       return true;
     },
     rename: async ({ typed }) => {

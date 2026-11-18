@@ -204,6 +204,31 @@ describe("/ commands", () => {
     expect(flash).toHaveBeenLastCalledWith("notice", "Removed Grace Hopper from #design.");
   });
 
+  it("goes home once /remove takes you out, unless you've opened another room meanwhile", async () => {
+    serve({ "GET /api/rooms/design/settings": settingsOf(design, [ada, grace]), "PATCH /api/rooms/design/members": { room: design } });
+    const inDesign = runIn(design);
+    expect(await inDesign.run(written("", `<p>/remove ${mention(ada)}</p>`))).toBe(true);
+    expect(inDesign.answers).toEqual([{ type: "gone", roomId: "design" }]);
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/");
+
+    vi.mocked(navigate).mockClear();
+    let answer!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "PATCH" ? new Promise<Response>((resolve) => (answer = resolve)) : Promise.resolve(Response.json(settingsOf(design, [ada, grace]))),
+      ),
+    );
+    const { run, answers, unmount } = runIn(design);
+    const ran = run(written("", `<p>/remove ${mention(ada)}</p>`));
+    unmount();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    answer(Response.json({ room: design }));
+    expect(await ran).toBe(true);
+    expect(answers).toEqual([{ type: "gone", roomId: "design" }]);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("leaves a private room once it's confirmed, and hides an open one, going home", async () => {
     serve({ "DELETE /api/rooms/design/membership": new Response(null, { status: 204 }), "PUT /api/rooms/general/involvement": { involvement: "invisible" } });
     const confirm = vi.fn(() => true);
