@@ -1,0 +1,110 @@
+import http from "node:http";
+import type { AddressInfo } from "node:net";
+
+// Made-up sites for the app's tests, on this computer, each at an origin of its own: Ember sites, which
+// answer `/api/bootstrap` as Ember does and show a page of what a site's window can be asked to do; a
+// Memberful site to sign in at; and a site that isn't Ember.
+
+/** A made-up site, listening until it's closed. */
+export interface FakeSite {
+  /** Its origin, such as http://127.0.0.1:50123. */
+  origin: string;
+  /** Its address with `host` in place of 127.0.0.1, as another origin for the same site. */
+  at(host: string): string;
+  /** Stops answering, as a site that's gone offline. */
+  close(): Promise<void>;
+  /** Starts answering again, at the same port. */
+  reopen(): Promise<void>;
+}
+
+/** An Ember site whose workspace is `name`, which a test can move to a custom domain. */
+export interface FakeEmber extends FakeSite {
+  name: string;
+  /** The host the site says it moved to, which its pages then move to, or null. */
+  customDomain: string | null;
+  /** Where its Sign in with Memberful sends people: a Memberful site's origin. */
+  memberful: string | null;
+}
+
+type Handler = (request: http.IncomingMessage, response: http.ServerResponse, url: URL) => void;
+
+/** A site answering with `handle`, at an address of its own. */
+async function serve(handle: Handler): Promise<FakeSite> {
+  const server = http.createServer((request, response) => handle(request, response, new URL(request.url ?? "/", `http://${request.headers.host}`)));
+  const listen = (port = 0) => new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+  await listen();
+  const { port } = server.address() as AddressInfo;
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    at: (host) => `http://${host}:${port}`,
+    close: () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+    reopen: () => listen(port),
+  };
+}
+
+const html = (response: http.ServerResponse, body: string, status = 200) => {
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+  response.end(`<!doctype html><meta charset="utf-8">${body}`);
+};
+
+const redirect = (response: http.ServerResponse, location: string, cookie?: string) => {
+  response.writeHead(302, { Location: location, ...(cookie ? { "Set-Cookie": cookie } : {}) });
+  response.end();
+};
+
+/**
+ * An Ember site whose workspace is `name`. Its pages say whether this browser is signed in, which
+ * /sign-in or Sign in with Memberful do, and link to the site's next room, to a site elsewhere, to a
+ * file to download, and to Sign in with Memberful.
+ */
+export async function fakeEmber(name: string): Promise<FakeEmber> {
+  const site: FakeEmber = Object.assign(
+    await serve((request, response, url) => {
+      const signedIn = request.headers.cookie?.includes("session=") ?? false;
+      switch (url.pathname) {
+        case "/api/bootstrap":
+          response.writeHead(200, { "Content-Type": "application/json" });
+          return response.end(JSON.stringify({ setup: "complete", version: "test", account: { name: site.name, customDomain: site.customDomain }, user: signedIn ? { name: "Ada" } : null }));
+        case "/sign-in":
+          return redirect(response, "/", "session=ada; Path=/; HttpOnly; Max-Age=86400");
+        case "/auth/memberful":
+          return redirect(response, `${site.memberful}/oauth?client_id=ember&state=1&site=${encodeURIComponent(url.origin)}`);
+        case "/auth/memberful/callback":
+          return redirect(response, "/", "session=ada-from-memberful; Path=/; HttpOnly; Max-Age=86400");
+        case "/files/report.txt":
+          response.writeHead(200, { "Content-Type": "text/plain", "Content-Disposition": 'attachment; filename="Q3 report.txt"' });
+          return response.end("Sales are up.");
+        default:
+          return html(
+            response,
+            `<title>general</title>
+            <h1>${signedIn ? "Signed in" : "Signed out"} at ${site.name}</h1>
+            <a href="/rooms/2">Next room</a>
+            <a href="https://example.com/elsewhere">Elsewhere</a>
+            <a href="/files/report.txt" download>Download the report</a>
+            <a href="/auth/memberful">Sign in with Memberful</a>`,
+          );
+      }
+    }),
+    { name, customDomain: null, memberful: null },
+  );
+  return site;
+}
+
+/** A Memberful site, whose sign-in page sends people back to the Ember site they came from, or to its terms elsewhere. */
+export function fakeMemberful(): Promise<FakeSite> {
+  return serve((_request, response, url) => {
+    if (url.pathname !== "/oauth") return html(response, "<title>Not found</title>", 404);
+    const back = `${url.searchParams.get("site")}/auth/memberful/callback?code=1&state=${url.searchParams.get("state")}`;
+    html(response, `<title>Sign in</title><h1>Sign in to Fernwood's Memberful</h1><a href="${back}">Allow</a> <a href="https://example.com/terms">Terms</a>`);
+  });
+}
+
+/** A site that isn't Ember, whose pages can be framed, as a frame elsewhere in an Ember page would be. */
+export function fakeElsewhere(): Promise<FakeSite> {
+  return serve((_request, response) => html(response, "<title>A blog</title><h1>A blog</h1>", 200));
+}

@@ -1,0 +1,69 @@
+# Ember for desktop
+
+Ember's app for Mac, Windows and Linux. It opens each Ember site's own web app in windows of its own,
+so an Ember lives in the Dock or taskbar, with menus, notifications and huddles, wherever the site is
+hosted. The app holds no Ember of its own: each site serves its pages as it does to a browser, so the
+app shows each site as up to date as the site is.
+
+## Using it
+
+The first time it opens, the app asks for the address of an Ember site, such as `chat.example.com`.
+It checks that an Ember answers there, over HTTPS (or plain HTTP on your own computer, for
+`localhost`), and opens the site's window, where you sign in as you would in a browser. **Sites**
+adds more, lists them with ⌘1 to ⌘9 (Ctrl on Windows and Linux) to bring each to the front, and
+removes the one in front, which forgets its address and your sign-in there.
+
+- Each site keeps its sign-in, storage and permissions apart from every other site's, as a browser
+  profile would, and the app remembers which windows were open, and where, as it quits.
+- A site's window stays on the site. Links elsewhere open in your browser, email addresses in your
+  email app, and Sign in with Memberful passes through the site's Memberful site and comes back. A site
+  that moves to its custom domain is followed there. A page of the site that opens in a new tab opens
+  in a window of its own.
+- The site's own pages may use the camera, microphone and speakers for huddles, notifications, the
+  clipboard, full screen and keeping the screen awake, and nothing else. On a Mac, macOS asks once whether Ember
+  may use the camera and microphone, and the app says where in System Settings to allow them if not.
+- Downloads ask where to save, starting in your Downloads folder.
+
+Not yet: sharing a screen in a huddle, a count of unread messages on the app's icon, links that open
+the app, and updates, which wait on signing (below). Until then, a new version is downloaded and
+installed by hand.
+
+## Opening a build that isn't signed
+
+Builds aren't signed or notarized yet, so each system warns before it opens one.
+
+- **Mac:** open the `.dmg` and drag Ember into Applications. The first time, Control-click Ember in
+  Applications, choose **Open**, then **Open** again. If macOS says Ember is damaged, run
+  `xattr -dr com.apple.quarantine /Applications/Ember.app` in Terminal, then open it.
+- **Windows:** run the installer, and when SmartScreen says it protected your PC, choose **More info**,
+  then **Run anyway**.
+- **Linux:** make the `.AppImage` runnable (`chmod +x Ember-*.AppImage`) and run it, or install the
+  `.deb` with `sudo apt install ./Ember-*.deb`.
+
+## Developing it
+
+The app is a project of its own, outside Ember's pnpm workspace, so that installing Ember, Workers
+Builds and Deploy to Cloudflare never download Electron. Work on it from this folder:
+
+```sh
+pnpm install          # its own lockfile, pnpm-lock.yaml here
+pnpm start            # builds it into dist/ and opens it
+pnpm typecheck
+pnpm test             # the unit tests beside the code (src/*.test.ts)
+pnpm test:app         # starts the built app with Playwright and drives it (test/)
+pnpm package          # packages it for the system you're on, into release/
+```
+
+`pnpm test:app` adds made-up Ember sites, served by the tests on your computer, and keeps each test's
+sites in a folder of its own. On Linux it needs a display: run it under `xvfb-run`, and on Ubuntu 24.04
+or later let Electron's sandbox start with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
+
+The code is in `src/`: `main.ts` starts the app, `site-window.ts` opens each site's window and keeps it
+to the site (with `navigation.ts`), `site-session.ts` keeps each site's session and what it may use
+(`permissions.ts`), `site-check.ts` checks an address is an Ember, and `pages/` holds the app's own
+pages, Add Site and the page a window shows when its site doesn't answer. Electron's security
+checklist holds throughout: every window is sandboxed with context isolation and no Node, and only Add
+Site's page has a preload, which exposes one function.
+
+GitHub Actions' **Desktop** workflow type-checks, tests and packages the app on macOS, Windows and
+Linux whenever a pull request changes it, and keeps each system's packages for a week.

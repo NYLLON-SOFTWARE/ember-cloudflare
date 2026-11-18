@@ -1,0 +1,144 @@
+/* The app's own pages, in Ember's palette (apps/web/src/index.css), as a card like Ember's sign-in page's. */
+
+:root {
+  color-scheme: light dark;
+  --background: #ffffff;
+  --foreground: #171717;
+  --surface: #fafafa;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --muted-foreground: #737373;
+  --border: #e5e5e5;
+  --negative: oklch(51% 0.2 31);
+  --error: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #171717;
+    --foreground: #f5f5f5;
+    --surface: #1c1c1c;
+    --primary: #f5f5f5;
+    --primary-foreground: #171717;
+    --muted-foreground: #a3a3a3;
+    --border: #343434;
+    --negative: oklch(73.8% 0.184 29.18);
+    --error: #fca5a5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  display: grid;
+  min-height: 100vh;
+  margin: 0;
+  place-items: center;
+  background: var(--surface);
+  color: var(--foreground);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+main {
+  width: 440px;
+  max-width: calc(100% - 32px);
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--background);
+}
+
+header {
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+header img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 20px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+header p {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+label {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+input {
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+}
+
+input:focus {
+  border-color: var(--muted-foreground);
+  outline: none;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 3px;
+}
+
+button {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 1px solid var(--primary);
+  border-radius: 9px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.problem {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--negative) 25%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--negative) 8%, var(--background));
+  color: var(--error);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

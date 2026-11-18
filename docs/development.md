@@ -11,6 +11,7 @@ and how it's tested. The [self-hosting guide](self-hosting.md) covers deploying 
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
 | `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with Campfire's headers and error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `SearchIndex`, `PasswordHasher`, `Unfurler`, `AppConnector` and `OutsideAi` Durable Objects. |
+| `apps/desktop` | `ember-desktop` | The desktop app for Mac, Windows and Linux: Electron around each Ember site's own web app. It installs, builds and is tested on its own, outside the workspace, so installing Ember never downloads Electron ([`apps/desktop/README.md`](../apps/desktop/README.md)). |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both, and the addresses of the app's pages. |
 | `packages/richtext` | `@ember/richtext` | Message bodies as Campfire's Action Text reads them: sanitizing, plain text, mentions and emoji-only bodies, golden-tested against a corpus of Campfire's Rails outputs. |
 

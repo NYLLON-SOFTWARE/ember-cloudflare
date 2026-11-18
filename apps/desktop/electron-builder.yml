@@ -1,0 +1,57 @@
+# How `pnpm package` packages the app for the system it runs on, into release/. The packages are
+# unsigned for now: signing, notarization and updates come once NYLLON LLC's Apple and Microsoft
+# accounts are settled.
+
+appId: com.nyllon.ember
+productName: Ember
+copyright: Copyright © 2026 NYLLON LLC
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+directories:
+  output: release
+  buildResources: build
+# Nothing is published, and the app doesn't update itself yet, so no package carries the files an
+# updater reads. Left unset, electron-builder would guess at GitHub releases whenever a GitHub token is
+# about.
+publish: null
+files:
+  - dist/**
+  - package.json
+icon: ../web/public/logos/app-icon.png
+
+# What would let the packaged app run as plain Node, or be inspected, is off, and it checks its own
+# files as it starts.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+
+mac:
+  category: public.app-category.social-networking
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: Ember shows your camera in huddles when you turn it on.
+    NSMicrophoneUsageDescription: Ember lets people hear you in huddles.
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+linux:
+  target: [AppImage, deb]
+  # The window's class names the app's .desktop file, so desktops show its windows as Ember's.
+  syncDesktopName: true
+  category: Network
+  maintainer: NYLLON LLC
+  synopsis: Ember's desktop app
