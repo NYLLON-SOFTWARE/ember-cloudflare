@@ -164,6 +164,23 @@ test("passes through the site's Memberful site as someone connects their account
   expect(await app.openedOutside()).toEqual([elsewhere]);
 });
 
+test("drops a sign-in at Memberful once the page moves on as the site says where its own goes", async ({ app }) => {
+  const [fernwood, memberful] = [await fakeEmber("Fernwood"), await fakeMemberful()];
+  fernwood.memberful = memberful.origin;
+  const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
+
+  const answer = fernwood.holdSignIn();
+  await page.getByRole("link", { name: "Connect Memberful" }).click({ force: true, noWaitAfter: true });
+  await expect.poll(() => fernwood.signInsAsked).toBe(1);
+  // As Ember opens another room, in the same page.
+  await page.evaluate(() => history.pushState(null, "", "/rooms/2"));
+  answer();
+  // Long enough for the window to have opened the sign-in, had it still been wanted.
+  await page.waitForTimeout(500);
+  expect(page.url()).toBe(`${fernwood.origin}/rooms/2`);
+  expect(await app.openedOutside()).toEqual([]);
+});
+
 test("lets the site's own pages use the camera and microphone, and refuses a frame from elsewhere", async ({ app }) => {
   const [fernwood, blog] = [await fakeEmber("Fernwood"), await fakeElsewhere()];
   const page = await app.add(await app.electron.firstWindow(), fernwood.origin);

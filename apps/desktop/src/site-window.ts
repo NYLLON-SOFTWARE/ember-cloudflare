@@ -17,6 +17,14 @@ const isCertificateError = (code: number) => code <= -200 && code > -300;
 /** Chromium's error for a load that something else stopped, such as a newer one. */
 const ABORTED = -3;
 
+/** What a page moving somewhere the app asks the site about first tells the app as it asks. */
+interface Leaving {
+  /** Whether the page still wants to move: it hasn't moved again, nor its window closed, since. */
+  stillWanted(): boolean;
+  /** Lets the window pass through the Memberful site at the origin `memberful` until it's back on its own site. */
+  passThrough(memberful: string): void;
+}
+
 /**
  * Each site's window, which opens the site's own Ember and keeps to it, as a browser tab would, and
  * remembers where it was and whether it was open as the app quit, and the windows its pages open, which
@@ -127,17 +135,27 @@ export class SiteWindows {
     let passingThrough: string | null = null;
     // The address the window's page is loading from, as the last redirect left it.
     let loading = "";
+    // How many times the window's page has moved, a room's link in the same page included, for a move the
+    // app asks the site about first to tell whether the page has moved again since.
+    let moves = 0;
 
     contents.on("did-start-navigation", ({ url, isMainFrame, isSameDocument }) => {
-      if (isMainFrame && !isSameDocument) loading = url;
+      if (!isMainFrame) return;
+      moves++;
+      if (!isSameDocument) loading = url;
     });
     contents.on("will-navigate", (event) => {
       const destination = destinationOf(event.url, address(), passingThrough);
       if (destination === "window") return;
       event.preventDefault();
       if (destination !== "outside") return;
-      void this.#leave(contents, id, event.url, (memberful) => {
-        passingThrough = memberful;
+      // Its move has started already, so `moves` counts it.
+      const asked = moves;
+      void this.#leave(contents, id, event.url, {
+        stillWanted: () => !contents.isDestroyed() && moves === asked,
+        passThrough: (memberful) => {
+          passingThrough = memberful;
+        },
       });
     });
     contents.on("will-redirect", (event) => {
@@ -186,22 +204,28 @@ export class SiteWindows {
   /**
    * Opens `url` outside the app, unless it's where the site with `id` has moved, which the window follows,
    * or the sign-in at the site's Memberful site, where connecting an account there goes, which the window
-   * passes through, as it tells `passThrough`.
+   * passes through, as it tells `leaving`. Should the page move again before the site answers, or its window
+   * close, the move is dropped, as a browser drops a page it was opening once another is asked for.
    */
-  async #leave(contents: WebContents, id: string, url: string, passThrough: (memberful: string) => void): Promise<void> {
+  async #leave(contents: WebContents, id: string, url: string, leaving: Leaving): Promise<void> {
     const { origin } = new URL(url);
     if (mayBeMoving(contents.getURL(), url)) {
       const site = await checkSite(this.#addressOf(id), fetchFollowing);
+      if (!leaving.stillWanted()) return;
       if (typeof site !== "string" && site.address === origin) {
         this.#sites.update(id, site);
-        await contents.loadURL(url);
+        void contents.loadURL(url);
         return;
       }
     }
-    if (mayBeSigningIn(url) && (await memberfulSiteOf(this.#addressOf(id), redirectOf)) === origin) {
-      passThrough(origin);
-      await contents.loadURL(url);
-      return;
+    if (mayBeSigningIn(url)) {
+      const memberful = await memberfulSiteOf(this.#addressOf(id), redirectOf);
+      if (!leaving.stillWanted()) return;
+      if (memberful === origin) {
+        leaving.passThrough(origin);
+        void contents.loadURL(url);
+        return;
+      }
     }
     await shell.openExternal(url);
   }

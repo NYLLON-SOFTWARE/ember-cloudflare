@@ -24,6 +24,10 @@ export interface FakeEmber extends FakeSite {
   customDomain: string | null;
   /** Where its Sign in with Memberful sends people: a Memberful site's origin. */
   memberful: string | null;
+  /** How many times it's been asked where its Sign in with Memberful goes. */
+  signInsAsked: number;
+  /** Keeps it from saying where its Sign in with Memberful goes, as a slow site would, until the function it returns is called. */
+  holdSignIn(): () => void;
 }
 
 type Handler = (request: http.IncomingMessage, response: http.ServerResponse, url: URL) => void;
@@ -63,6 +67,7 @@ const redirect = (response: http.ServerResponse, location: string, cookie?: stri
  * connecting an account there does.
  */
 export async function fakeEmber(name: string): Promise<FakeEmber> {
+  let signInHeld = Promise.resolve();
   const site: FakeEmber = Object.assign(
     await serve((request, response, url) => {
       const signedIn = request.headers.cookie?.includes("session=") ?? false;
@@ -73,7 +78,8 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
         case "/sign-in":
           return redirect(response, "/", "session=ada; Path=/; HttpOnly; Max-Age=86400");
         case "/auth/memberful":
-          return redirect(response, `${site.memberful}/oauth?client_id=ember&state=1&site=${encodeURIComponent(url.origin)}`);
+          site.signInsAsked++;
+          return void signInHeld.then(() => redirect(response, `${site.memberful}/oauth?client_id=ember&state=1&site=${encodeURIComponent(url.origin)}`));
         case "/auth/memberful/callback":
           return redirect(response, "/", "session=ada-from-memberful; Path=/; HttpOnly; Max-Age=86400");
         case "/files/report.txt":
@@ -92,7 +98,17 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
           );
       }
     }),
-    { name, customDomain: null, memberful: null },
+    {
+      name,
+      customDomain: null,
+      memberful: null,
+      signInsAsked: 0,
+      holdSignIn() {
+        let answer = () => {};
+        signInHeld = new Promise((resolve) => (answer = resolve));
+        return answer;
+      },
+    },
   );
   return site;
 }

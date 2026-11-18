@@ -7,6 +7,8 @@ import type { Site } from "../src/sites.ts";
 export { expect };
 
 const DESKTOP = path.join(import.meta.dirname, "..");
+/** Run ahead of the app, so that Playwright can't catch Node half loading a global it reads (the file says how). */
+const LAZY_GLOBALS = path.join(import.meta.dirname, "load-lazy-globals.cjs");
 
 /** The app, started with a folder of its own for its sites, as on a person's first start. */
 export interface App {
@@ -73,8 +75,10 @@ export const test = base.extend<{ app: App }>({
  */
 async function launch(folder: string): Promise<ElectronApplication> {
   const electron = await _electron.launch({
-    // Chromium's sandbox can't start as root, as in a container; on the people's computers and CI's it runs.
-    args: [...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), "--use-fake-device-for-media-stream", DESKTOP],
+    args: ["--use-fake-device-for-media-stream", "-r", LAZY_GLOBALS, DESKTOP],
+    // Chromium's sandbox, which Playwright leaves off on Linux unless asked, runs as on people's computers,
+    // but as root, as in a container, where it can't start.
+    chromiumSandbox: process.getuid?.() !== 0,
     env: { ...process.env, EMBER_DESKTOP_USER_DATA: folder },
   });
   await electron.evaluate(({ shell, systemPreferences }) => {
