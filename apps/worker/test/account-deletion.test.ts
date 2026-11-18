@@ -417,6 +417,25 @@ describe("What deleting your account deletes", () => {
     expect(await written(lobby, linus.user.id)).toEqual([answer.id]);
   });
 
+  it("drops every message of yours still waiting to send, however far off, and no one else's", async () => {
+    await setUp();
+    const member = await join(grace);
+    const lobby = await freshRoom("lobby");
+    const graceInLobby = await connect(lobby, member);
+    const linusInLobby = await connect(lobby, "Linus Torvalds");
+    const years = Date.now() + 5 * 365 * 24 * 60 * 60 * 1000;
+    graceInLobby.send({ type: "message.schedule", clientMessageId: "g1", body: "<p>Remember the moth</p>", sendAt: new Date(years).toISOString() });
+    await graceInLobby.next("scheduled.created");
+    linusInLobby.send({ type: "message.schedule", clientMessageId: "l1", body: "<p>Ship it</p>", sendAt: new Date(years).toISOString() });
+    await linusInLobby.next("scheduled.created");
+
+    await deleteGraces(member);
+    await purged();
+    expect(await roomSql(lobby, "SELECT creator_id, body FROM scheduled_messages WHERE room_id = ?", lobby)).toEqual([
+      { creator_id: linusInLobby.me.id, body: "<p>Ship it</p>" },
+    ]);
+  });
+
   it("deletes a page of messages, then of boosts, at a time, each a change of its own that tabs catch up on", async () => {
     await setUp();
     const member = await join(grace);

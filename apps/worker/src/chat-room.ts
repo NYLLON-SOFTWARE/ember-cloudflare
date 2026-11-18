@@ -618,8 +618,8 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Deletes up to `limit` of the messages here of `userId`, who deleted their account, whenever they
-   * wrote them, as `removeMessagesBy` does, then once none are left, up to `limit` of the boosts they
+   * Drops every message `userId`, who deleted their account, has waiting here, then deletes up to
+   * `limit` of the messages here they wrote, whenever they wrote them, as `removeMessagesBy` does, then once none are left, up to `limit` of the boosts they
    * gave others' messages, telling everyone in the room of each, and answers whether any of theirs are
    * left. Once none are, what's kept of their messages for their threads' replies takes the name a
    * deleted account goes by.
@@ -627,6 +627,7 @@ export class ChatRoom extends DurableObject<Env> {
   async removeEverythingBy(roomId: RoomId, userId: UserId, limit: number): Promise<boolean> {
     return this.serially(async () => {
       const store = this.storeFor(roomId);
+      await store.forgetScheduledBy(userId);
       const ids = await store.messageIdsBy(userId, limit + 1, null);
       if (ids.length > 0) {
         await this.deleteEach(store, ids.slice(0, limit));

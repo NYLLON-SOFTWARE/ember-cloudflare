@@ -962,6 +962,11 @@ export class MessageStore {
     await this.db.run(`DELETE FROM scheduled_messages WHERE room_id = ?`, this.roomId);
   }
 
+  /** Drops every waiting message here of `creatorId`, as deleting their account does. */
+  async forgetScheduledBy(creatorId: UserId): Promise<void> {
+    await this.db.run(`DELETE FROM scheduled_messages WHERE room_id = ? AND creator_id = ?`, this.roomId, creatorId);
+  }
+
   async addBoost(id: string, messageId: string, booster: User, content: string, now: string): Promise<{ boost: Boost; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
