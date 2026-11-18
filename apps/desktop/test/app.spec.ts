@@ -355,8 +355,11 @@ test("opens a site again as it starts where a window the site's pages opened was
   await app.restart();
   await expect.poll(titles).toEqual(["general · Birchwood", "general · Fernwood"]);
 
-  // Birchwood's closes too, not the last window open, which is the one Fernwood's page opened.
-  atFernwood = app.electron.windows().find((page) => page.url().startsWith(fernwood.origin))!;
+  // Birchwood's closes too, not the last window open, which is the one Fernwood's page opened. Playwright
+  // can hear where a window's page is a moment after the app has the page's title.
+  const fernwoodsPage = () => app.electron.windows().find((page) => page.url().startsWith(fernwood.origin));
+  await expect.poll(fernwoodsPage).toBeDefined();
+  atFernwood = fernwoodsPage()!;
   await openRoom();
   await close("general · Fernwood");
   await close("general · Birchwood");
