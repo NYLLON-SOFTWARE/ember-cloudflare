@@ -49,9 +49,26 @@ import recentSearchesWithFilters from "../migrations/0048_recent_searches.sql";
 import identityAccounts from "../migrations/0049_identity_accounts.sql";
 import agents from "../migrations/0050_agents.sql";
 import huddles from "../migrations/0051_huddles.sql";
+import agentPromptTemplates from "../migrations/0052_agent_prompt_templates.sql";
+import unbannedOpenRooms from "../migrations/0053_unbanned_open_rooms.sql";
+import agentThinkingLevels from "../migrations/0054_agent_thinking_levels.sql";
+import apps from "../migrations/0055_apps.sql";
+import agentTools from "../migrations/0056_agent_tools.sql";
+import waitingCalls from "../migrations/0057_waiting_calls.sql";
+import appSignIns from "../migrations/0058_app_sign_ins.sql";
+import appSignInClients from "../migrations/0059_app_sign_in_clients.sql";
+import appScopeWanted from "../migrations/0060_app_scope_wanted.sql";
+import ownAppSignIns from "../migrations/0061_own_app_sign_ins.sql";
+import outsideAi from "../migrations/0062_outside_ai.sql";
+import agentAccess from "../migrations/0063_agent_access.sql";
+import sessionTransfers from "../migrations/0064_session_transfers.sql";
+import huddleMessages from "../migrations/0066_huddle_messages.sql";
+import deletedAccounts from "../migrations/0068_deleted_accounts.sql";
+import boostsByBooster from "../migrations/0069_boosts_by_booster.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
+import searchFiltersByRoom from "../search-migrations/0004_search_filters_by_room.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -124,6 +141,22 @@ export const MIGRATIONS: Migration[] = [
   { name: "0049_identity_accounts.sql", scope: "workspace", sql: identityAccounts },
   { name: "0050_agents.sql", scope: "workspace", sql: agents },
   { name: "0051_huddles.sql", scope: "workspace", sql: huddles },
+  { name: "0052_agent_prompt_templates.sql", scope: "workspace", sql: agentPromptTemplates },
+  { name: "0053_unbanned_open_rooms.sql", scope: "workspace", sql: unbannedOpenRooms },
+  { name: "0054_agent_thinking_levels.sql", scope: "workspace", sql: agentThinkingLevels },
+  { name: "0055_apps.sql", scope: "workspace", sql: apps },
+  { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
+  { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
+  { name: "0058_app_sign_ins.sql", scope: "workspace", sql: appSignIns },
+  { name: "0059_app_sign_in_clients.sql", scope: "workspace", sql: appSignInClients },
+  { name: "0060_app_scope_wanted.sql", scope: "workspace", sql: appScopeWanted },
+  { name: "0061_own_app_sign_ins.sql", scope: "workspace", sql: ownAppSignIns },
+  { name: "0062_outside_ai.sql", scope: "workspace", sql: outsideAi },
+  { name: "0063_agent_access.sql", scope: "workspace", sql: agentAccess },
+  { name: "0064_session_transfers.sql", scope: "workspace", sql: sessionTransfers },
+  { name: "0066_huddle_messages.sql", scope: "room", sql: huddleMessages },
+  { name: "0068_deleted_accounts.sql", scope: "workspace", sql: deletedAccounts },
+  { name: "0069_boosts_by_booster.sql", scope: "room", sql: boostsByBooster },
 ];
 
 /**
@@ -136,6 +169,7 @@ export const SEARCH_MIGRATIONS: Migration[] = [
   { name: "0001_search_index.sql", scope: "search", sql: searchIndex },
   { name: "0002_search_results.sql", scope: "search", sql: searchResults },
   { name: "0003_search_filters.sql", scope: "search", sql: searchFilters },
+  { name: "0004_search_filters_by_room.sql", scope: "search", sql: searchFiltersByRoom },
 ];
 
 /**

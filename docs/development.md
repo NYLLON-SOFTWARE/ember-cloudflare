@@ -10,7 +10,7 @@ and how it's tested. The [self-hosting guide](self-hosting.md) covers deploying 
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with Campfire's headers and error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `SearchIndex`, `PasswordHasher` and `Unfurler` Durable Objects. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with Campfire's headers and error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `SearchIndex`, `PasswordHasher`, `Unfurler`, `AppConnector` and `OutsideAi` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both, and the addresses of the app's pages. |
 | `packages/richtext` | `@ember/richtext` | Message bodies as Campfire's Action Text reads them: sanitizing, plain text, mentions and emoji-only bodies, golden-tested against a corpus of Campfire's Rails outputs. |
 
@@ -80,9 +80,12 @@ pnpm screenshots    # remakes the web app manifest's screenshots
 Before the other suites start, the `first-run` project sets up the test server through the Set up
 Ember page, as its first visitor would. The `workspace-settings` suites, which change the whole
 workspace, get a second server, over HTTPS, which the same first run sets up. Their browsers have a
-made-up microphone, for the huddles spec, whose stand-in for Cloudflare's Realtime SFU
-(`e2e/tests/workspace-settings/fake-sfu.ts`) passes what each browser says on to the others through
-a page of its own, so a huddle there is heard for real.
+made-up microphone, camera and screen to share, for the huddles spec, whose stand-in for Cloudflare's
+Realtime SFU (`e2e/tests/workspace-settings/fake-sfu.ts`) passes what each browser says and shows on
+to the others through a page of its own, so a huddle there is heard and seen for real, each camera
+in whichever of its two sizes the room asks for. It answers for Cloudflare's TURN service too, with
+servers at an address where nothing listens, so the spec sees which servers each tab's connections
+go by, and nothing is relayed.
 
 The features suite (`e2e/tests/features/`) has a spec per area of the app. Each test gets rooms of
 its own, and `members.signIn` opens a browser per person, so tests can chat, react and watch
@@ -108,18 +111,29 @@ within a week ([Updating](self-hosting.md#updating)), as General settings tells 
 going by GitHub's latest release. Copies move from release to release, never to `main` between them,
 and may skip any number of releases or go back one, so:
 
-- A released migration never changes, since copies that update have applied it already: CI fails a
-  pull request that changes one. A schema change goes in a new migration.
+- A released migration never changes, a beta's included, since copies that update have applied it
+  already: CI fails a pull request that changes one. A schema change goes in a new migration.
 - A migration adds to the tables rather than takes away, so the release before still runs on what it
   leaves: drop a column or table a release after the code stops using it.
-- `.github/workflows/update-ember.yml` stays as it is, since an update can't change a copy's
-  workflows: change `apps/worker/scripts/update-ember.ts`, which updates bring, instead. Its copy
+- `.github/workflows/update-ember.yml` stays thin, since an update can't change a copy's
+  workflows: change `apps/worker/scripts/update-ember.ts`, which updates bring, instead, and add to
+  the workflow only what a copy with the one before can do without, as the box for a beta is. Its copy
   beside that script, which the deploy and General's release card offer copies without the
   workflow, as Deploy to Cloudflare's are, is the same file, as CI checks. The tests read that
   copy, never `.github`, since a copy's `.github` keeps its own workflow, or none, and a copy's
   owner may run them.
 - Ember's other workflows run only in its own repository, and `pnpm run deploy` stays the deploy
   command, which every copy's Workers Builds runs.
+
+A beta of the next release, for trying it before it's out, is a pull request that sets the version
+to that release's with `-beta.1`, such as `0.5.0-beta.1`, then `-beta.2` and so on. The Release
+workflow publishes it as a pre-release, "Ember 0.5.0 beta 1", whose notes start with a Deploy to
+Cloudflare button for it and list what's changed since the release or beta before, and no copy is
+offered it unless it asks for one, or runs an earlier beta ([Betas](self-hosting.md#betas)). The
+tests that name the release expect it named "0.5 beta 1". The release itself then sets `0.5.0`, and
+its notes list what's changed since the release before, as the copies it's offered come from there.
+Ember's version is a release's or a beta's, which the Release workflow checks, since copies tell
+them apart by their tags and know no other kind.
 
 ## Performance
 

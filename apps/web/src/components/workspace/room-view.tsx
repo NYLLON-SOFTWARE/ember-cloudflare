@@ -10,6 +10,7 @@ import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
 import { roomName } from "@/lib/directs";
 import { rememberLastRoom } from "@/lib/last-room";
+import { newestWrittenBy } from "@/lib/messages";
 import type { RoomAnswer } from "@/lib/room-list";
 import { isPending } from "@/lib/room-state";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
@@ -42,6 +43,8 @@ interface Props {
   onStarred: (favorites: Favorites) => void;
   /** This person's notification level in the room. */
   involvement: Involvement;
+  /** When the room was marked unread as of when it was opened, which the timeline draws a New line at, or null. */
+  newSince?: string | null;
   /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
@@ -57,7 +60,7 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
+export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
   const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
@@ -95,11 +98,11 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   // A thread that covers the room leaves nothing of it to reach until it's closed.
   const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined;
 
-  // Up Arrow edits your newest message, unless it's still on its way, or the timeline is reading older
-  // history and may not hold it.
+  // Up Arrow edits the newest message you wrote, unless it's still on its way, or the timeline is reading
+  // older history and may not hold it.
   const editLastMessage = () => {
     if (state.hasNewer) return;
-    const newest = state.messages.findLast((message) => message.creator.id === me.id);
+    const newest = newestWrittenBy(state.messages, me.id);
     if (newest && !isPending(newest)) editors.open(newest.id);
   };
 
@@ -110,6 +113,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
         <RoomHeader
           room={room}
           name={name}
+          meId={me.id}
           present={state.present}
           status={state.status}
           offline={state.offline}
@@ -138,6 +142,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
             onJumpToNewest={() => jump(null)}
             onDropFiles={(files) => composer.current?.addFiles(files)}
             openThread={threadId}
+            newSince={newSince}
           />
           {deleted ? (
             <RoomDeleted />
