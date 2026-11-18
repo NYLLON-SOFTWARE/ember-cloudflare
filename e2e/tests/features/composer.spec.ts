@@ -94,7 +94,7 @@ async function openRoom(member: Member, name: string) {
 }
 
 test.describe("Composer", () => {
-  test("is a card at least 108px tall, with the formatting row and the text on top and Slack's buttons below, ending in a round Send", async ({ members, browserName }) => {
+  test("is a card at least 108px tall, with the formatting row and the text on top and Slack's buttons below, in its groups, ending in a round Send", async ({ members, browserName }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const field = ada.composer();
     const send = underText(ada, "Send Message");
@@ -115,6 +115,16 @@ test.describe("Composer", () => {
       left = buttonBox.x;
     }
     expect(sendBox.x).toBeGreaterThan(left);
+    // As in Slack's, lines part the buttons' groups: + Aa emoji @ | the clips | Run shortcut, the clips and their
+    // line only where the browser records them.
+    const row = await card(ada).evaluate((card) =>
+      [...card.querySelectorAll("button, [aria-hidden=true]")]
+        .filter((el) => el.closest("[role=toolbar]") === null)
+        .filter((el) => el.tagName === "BUTTON" || el.getBoundingClientRect().width === 1)
+        .map((el) => (el.tagName === "BUTTON" ? el.getAttribute("aria-label") : "|")),
+    );
+    const groups = ["Attach", "Show formatting", "Emoji", "Mention someone", "|", ...(recordsClips(browserName) ? ["Record video clip", "Record audio clip", "|"] : []), "Run shortcut"];
+    expect(row.slice(0, groups.length)).toEqual(groups);
     expect(sendBox.width).toBe(sendBox.height);
     expect(parseFloat(await send.evaluate((el) => getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThanOrEqual(sendBox.width / 2);
   });

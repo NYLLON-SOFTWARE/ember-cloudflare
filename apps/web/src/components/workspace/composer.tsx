@@ -20,7 +20,7 @@ import { AttachMenu } from "./attach-menu";
 import { DraftsMenu, type Drafts } from "./drafts-menu";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { EmojiButton } from "./emoji-button";
-import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
+import { Divider, FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
 import { useNotifyConfirm } from "./notify-confirm";
 import { CustomTimeDialog, ScheduleMenu } from "./schedule-menu";
 import { ScheduledDialog, ScheduledLine } from "./scheduled-messages";
@@ -71,27 +71,33 @@ const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center 
 /** A button under the text but Send and Slack's +, square, and lit on hover. */
 const TOOL = cn(BUTTON, "rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover aria-expanded:bg-hover");
 
-/** Record video clip and Record audio clip, which give way on touch screens, and in a card narrower than the row's eight buttons, 270px. */
-const CLIP_BUTTON = "touch:hidden @max-[17rem]:hidden";
+/**
+ * Record video clip and Record audio clip, and the line before them, which give way on touch screens, and in a
+ * card narrower than the row's eight buttons and its two lines, 292px, or where there's no Run shortcut, as in
+ * a huddle's thread, seven buttons and a line: 247px. A line, as the formatting row's, takes 11px, and isn't
+ * drawn for fingers, whose row keeps to its buttons, as Slack's apps' does.
+ */
+const CLIP_BUTTON = "touch:hidden @max-[18.25rem]:hidden";
+const CLIP_BUTTON_WITHOUT_SHORTCUT = "touch:hidden @max-[15.4375rem]:hidden";
 
 /**
- * Manage drafts, which gives way in a card narrower than the row's nine buttons with it, 304px, or for
- * fingers, seven, 320px, and where there's no Run shortcut, as in a huddle's thread, one fewer: 270px, or
- * for fingers, 274px.
+ * Manage drafts, which gives way in a card narrower than the row's nine buttons with it and its two lines,
+ * 326px, or for fingers, seven, 320px, and where there's no Run shortcut, one button and one line fewer:
+ * 281px, or for fingers, 274px.
  */
-const DRAFTS_BUTTON = "@max-[19rem]:hidden touch:@max-[20rem]:hidden";
-const DRAFTS_BUTTON_WITHOUT_SHORTCUT = "@max-[17rem]:hidden touch:@max-[17.125rem]:hidden";
+const DRAFTS_BUTTON = "@max-[20.375rem]:hidden touch:@max-[20rem]:hidden";
+const DRAFTS_BUTTON_WITHOUT_SHORTCUT = "@max-[17.5625rem]:hidden touch:@max-[17.125rem]:hidden";
 
 /**
  * Schedule for later's chevron, joined to Send, as Slack's is, and Send beside it: it gives way on touch
- * screens, and in a card narrower than the row's nine buttons and it, 324px, or where there's no Run
- * shortcut, 290px, where + has what it does.
+ * screens, and in a card narrower than the row's nine buttons, its two lines and it, 346px, or where there's no
+ * Run shortcut, 301px, where + has what it does.
  */
 const SCHEDULE_BUTTON = "flex h-8 w-5 shrink-0 cursor-pointer items-center justify-center rounded-e-full border-s border-background/25 disabled:pointer-events-none";
-const SCHEDULE_BUTTON_SHOWN = "touch:hidden @max-[20.25rem]:hidden";
-const SCHEDULE_BUTTON_SHOWN_WITHOUT_SHORTCUT = "touch:hidden @max-[18.125rem]:hidden";
-const SEND_BESIDE_SCHEDULE = "rounded-e-none touch:rounded-e-full @max-[20.25rem]:rounded-e-full";
-const SEND_BESIDE_SCHEDULE_WITHOUT_SHORTCUT = "rounded-e-none touch:rounded-e-full @max-[18.125rem]:rounded-e-full";
+const SCHEDULE_BUTTON_SHOWN = "touch:hidden @max-[21.625rem]:hidden";
+const SCHEDULE_BUTTON_SHOWN_WITHOUT_SHORTCUT = "touch:hidden @max-[18.8125rem]:hidden";
+const SEND_BESIDE_SCHEDULE = "rounded-e-none touch:rounded-e-full @max-[21.625rem]:rounded-e-full";
+const SEND_BESIDE_SCHEDULE_WITHOUT_SHORTCUT = "rounded-e-none touch:rounded-e-full @max-[18.8125rem]:rounded-e-full";
 
 /** What's said of a / that names no command, which isn't sent. */
 const isntACommand = (name: string) => `/${name} isn't a command. To send a message that starts with /, put a space before it.`;
@@ -559,6 +565,7 @@ export function Composer({
   // The clip being recorded: a video clip in its dialog, or an audio clip over the card. Where the browser can't record one, there are no buttons for them.
   const [recordingClip, setRecordingClip] = useState<ClipKind | null>(null);
   const [clips] = useState(recordsClips);
+  const clipButton = onCommand ? CLIP_BUTTON : CLIP_BUTTON_WITHOUT_SHORTCUT;
   // The drafts put aside here, which Manage drafts lists, and whether they couldn't be kept, which leaves
   // what's written as it was. Where this browser can't keep them at all, there's no Manage drafts.
   const [keepsSaved] = useState(keepsDrafts);
@@ -1025,7 +1032,7 @@ export function Composer({
               )}
             </Suspense>
           </div>
-          <div className="flex flex-none items-center gap-0.5 @max-[33.25rem]:flex-wrap touch:@max-[34rem]:flex-wrap">
+          <div className="flex flex-none items-center gap-0.5 @max-[34.625rem]:flex-wrap">
             {/* Upload from your computer's, and Cmd or Ctrl+O's, file picker. */}
             <input
               ref={fileField}
@@ -1089,9 +1096,11 @@ export function Composer({
               </button>
             </ShortcutTooltip>
             {/* The row has no room for these on touch screens, nor in a composer too narrow for its eight buttons,
-                where + has them, as Slack's apps' + does. */}
+                where + has them, as Slack's apps' + does. A line parts each group of the row's buttons from the
+                one before, as in Slack's. */}
             {clips && (
               <>
+                <Divider className={clipButton} />
                 <ShortcutTooltip label="Record video clip">
                   <button
                     ref={videoClipButton}
@@ -1099,18 +1108,19 @@ export function Composer({
                     disabled={disabled}
                     aria-label="Record video clip"
                     onClick={() => setRecordingClip("video")}
-                    className={cn(TOOL, CLIP_BUTTON)}
+                    className={cn(TOOL, clipButton)}
                   >
                     <VideoCamera className="size-[18px] opacity-70" />
                   </button>
                 </ShortcutTooltip>
                 <ShortcutTooltip label="Record audio clip">
-                  <button type="button" disabled={disabled} aria-label="Record audio clip" onClick={() => setRecordingClip("audio")} className={cn(TOOL, CLIP_BUTTON)}>
+                  <button type="button" disabled={disabled} aria-label="Record audio clip" onClick={() => setRecordingClip("audio")} className={cn(TOOL, clipButton)}>
                     <Microphone className="size-[18px] opacity-70" />
                   </button>
                 </ShortcutTooltip>
               </>
             )}
+            {onCommand && <Divider className="touch:hidden" />}
             {onCommand && (
               <ShortcutTooltip label="Run shortcut">
                 <button
@@ -1127,13 +1137,13 @@ export function Composer({
             )}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. Where
                 the buttons would leave the label too little room, it takes a line of its own above them, with its
-                box over the middle of +: under 34rem for fingers' bigger buttons, as on a phone held upright, and
-                under 33.25rem otherwise, with the clips' two more and Schedule for later's chevron, as in a thread
-                beside its room, and a huddle's. A button added to the row takes room from the label, so these grow
-                with it, as for Manage drafts, whose room is kept while it isn't there, so the label doesn't move as
-                it comes. */}
+                box over the middle of +: under 34.625rem, with the clips' two more, the lines and Schedule for
+                later's chevron, as in a thread beside its room, and a huddle's, which leaves room for fingers'
+                bigger buttons too, as on a phone held upright. A button added to the row takes room from the
+                label, so this grows with it, as for Manage drafts, whose room is kept while it isn't there, so the
+                label doesn't move as it comes. */}
             {threadId !== undefined && (
-              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[33.25rem]:order-first @max-[33.25rem]:mr-0 @max-[33.25rem]:ml-2 @max-[33.25rem]:min-h-7 @max-[33.25rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[34rem]:order-first touch:@max-[34rem]:mr-0 touch:@max-[34rem]:basis-full">
+              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[34.625rem]:order-first @max-[34.625rem]:mr-0 @max-[34.625rem]:ml-2 @max-[34.625rem]:min-h-7 @max-[34.625rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm">
                 <input
                   type="checkbox"
                   checked={alsoSend}

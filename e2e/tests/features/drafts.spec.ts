@@ -130,8 +130,8 @@ test.describe("Manage drafts", () => {
 
   test("is in + where the composer has no room for it beside Send, as in a narrow window", async ({ members, browserName }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
-    // A card narrower than its nine buttons, 304px, with Manage drafts.
-    await ada.page.locator("form.composer").evaluate((form) => (form.style.inlineSize = "300px"));
+    // A card narrower than its nine buttons and two lines, 326px, with Manage drafts.
+    await ada.page.locator("form.composer").evaluate((form) => (form.style.inlineSize = "330px"));
     await ada.composer().fill("Narrow thought");
     await expect(underText(ada.composer(), "Manage drafts")).toBeHidden();
     // The clips keep their place, where the browser can record them.

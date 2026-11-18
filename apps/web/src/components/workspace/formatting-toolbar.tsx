@@ -117,9 +117,9 @@ function Tool({ action, icon: Icon, pressed, disabled, tabbable, onFocus, onPres
   );
 }
 
-/** Where Slack's row parts its groups of buttons. */
-function Divider() {
-  return <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border touch:h-6" />;
+/** Where Slack's rows part their groups of buttons: this one, and the one under the text. */
+export function Divider({ className }: { className?: string }) {
+  return <span aria-hidden className={cn("mx-1 h-5 w-px shrink-0 bg-border touch:h-6", className)} />;
 }
 
 /** The styles Paragraph offers, in Slack's order. */
