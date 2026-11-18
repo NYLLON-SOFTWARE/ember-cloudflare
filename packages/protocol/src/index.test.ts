@@ -61,6 +61,7 @@ import {
   onlyAddressesAt,
   othersAfterMove,
   parseAccountChanges,
+  parseAccountDeletion,
   parseClientFrame,
   parseCustomDomainCheck,
   parseCustomStyles,
@@ -85,6 +86,7 @@ import {
   parseSignUp,
   parseTurnstileKeysChange,
   parseWorkspaceClientFrame,
+  parseWorkspaceSocketParams,
   PASSWORD_RESET_CODE_NEEDED,
   PASSWORD_RESET_PATH,
   passwordResetCodeOf,
@@ -99,7 +101,6 @@ import {
   signsUpOpenly,
   signsUpWithEmailDomain,
   startingInvolvement,
-  suggestedCount,
   TAGLINE_TOO_LONG,
   TURNSTILE_FAILED,
   TURNSTILE_SECRET_KEY_REFUSED,
@@ -108,6 +109,7 @@ import {
   EMAIL_ADDRESS_TOO_LONG,
   withEmailAddress,
   withNavigationIcons,
+  workspaceSocketQuery,
   type WorkspaceServerFrame,
 } from "./index";
 
@@ -174,6 +176,13 @@ describe("Threads", () => {
       expect(parse({ type: "thread.before", parentId: bad, before: "r1" }), String(bad)).toBeNull();
       expect(parse({ type: "thread.before", parentId: "m1", before: bad }), String(bad)).toBeNull();
     }
+  });
+
+  it("says on a room socket's address that it shows a thread apart from the room's timeline, which nothing but a 1 says", () => {
+    expect(roomSocketQuery({ visible: true, apart: true })).toBe(`?visible=1&protocol=${ROOM_PROTOCOL}&apart=1`);
+    expect(read({ visible: "1", apart: "1" })).toMatchObject({ visible: true, apart: true });
+    for (const apart of ["0", "", "true", "yes"]) expect(read({ apart }).apart, apart).toBeUndefined();
+    expect(read({}).apart).toBeUndefined();
   });
 });
 
@@ -287,19 +296,34 @@ describe("Presence", () => {
 });
 
 describe("One live connection per tab outside the open room", () => {
-  it("takes only pings on the workspace socket", () => {
+  it("takes pings on the workspace socket, and whether its tab is shown, as a boolean, and nothing else", () => {
     expect(parseWorkspaceClientFrame('{"type":"ping"}')).toEqual({ type: "ping" });
     expect(parseWorkspaceClientFrame('{"type":"ping","nonce":"n1"}')).toEqual({ type: "ping" });
+    expect(parseWorkspaceClientFrame('{"type":"presence.visible","visible":false}')).toEqual({ type: "presence.visible", visible: false });
+    expect(parseWorkspaceClientFrame('{"type":"presence.visible","visible":true,"extra":1}')).toEqual({ type: "presence.visible", visible: true });
+    for (const visible of [undefined, null, 1, "true", "visible"]) {
+      expect(parseWorkspaceClientFrame(JSON.stringify({ type: "presence.visible", visible })), String(visible)).toBeNull();
+    }
     for (const raw of ['{"type":"typing.start"}', '{"type":"message.create","clientMessageId":"c1","body":"hi"}', "[]", "null", "{"]) {
       expect(parseWorkspaceClientFrame(raw), raw).toBeNull();
     }
+  });
+
+  it("carries whether a tab is shown on its workspace socket's address, which doesn't count it as shown when it doesn't say", () => {
+    expect(workspaceSocketQuery({ visible: true })).toBe("?visible=1");
+    expect(workspaceSocketQuery({ visible: false })).toBe("?visible=0");
+    const read = (params: Record<string, string>) => parseWorkspaceSocketParams({ get: (name) => params[name] ?? null });
+    expect(read({ visible: "1" })).toEqual({ visible: true });
+    expect(read({ visible: "0" })).toEqual({ visible: false });
+    expect(read({})).toEqual({ visible: false });
+    expect(read({ visible: "yes" })).toEqual({ visible: false });
   });
 
   it("reads the workspace socket's frames as the server sends them", () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -436,16 +460,6 @@ describe("Start or reopen a direct message", () => {
       expect(parseNewDirect(body), JSON.stringify(body).slice(0, 40)).toBe(refused);
     }
     expect(parseNewDirect({ userIds: tooMany.slice(1) })).not.toBeTypeOf("string");
-  });
-});
-
-describe("Suggested people", () => {
-  it("suggests 20 people less those in your DMs, you included, and one more", () => {
-    expect(suggestedCount(0)).toBe(19);
-    expect(suggestedCount(1)).toBe(18);
-    expect(suggestedCount(2)).toBe(17);
-    expect(suggestedCount(19)).toBe(0);
-    expect(suggestedCount(25)).toBe(0);
   });
 });
 
@@ -636,6 +650,14 @@ describe("Sending email", () => {
     expect(mailboxOf(text)).toBeNull();
   });
 
+  it("reads a From address with a long run of spaces in the time it takes to read it once", () => {
+    const spaces = " ".repeat(1_000_000);
+    // Minutes, were each place the name could end tried against the spaces after it.
+    expect(mailboxOf(`a${spaces}a`)).toBeNull();
+    expect(parseAccountChanges({ emailFrom: `a${spaces}a` })).toBe(EMAIL_FROM_REFUSED);
+    expect(mailboxOf(`Ember${spaces}<${spaces}ember@example.com${spaces}>`)).toEqual({ name: "Ember", address: "ember@example.com" });
+  });
+
   it("writes a From address with its name in quotes where a From line needs them", () => {
     expect(mailboxText({ name: null, address: "ember@example.com" })).toBe("ember@example.com");
     expect(mailboxText({ name: "Ember", address: "ember@example.com" })).toBe("Ember <ember@example.com>");
@@ -692,6 +714,22 @@ describe("Only administrators create rooms (setting)", () => {
       settings: { restrictRoomCreation: false, hideTranslationButtons: true },
     });
     expect(parseAccountChanges({ settings: { restrictRoomCreation: "true" } })).toBe("Must be admin to create new rooms must be true or false");
+  });
+});
+
+describe("Cameras in huddles (setting)", () => {
+  it("takes Cameras as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { huddleCameras: false } })).toEqual({ settings: { huddleCameras: false } });
+    expect(parseAccountChanges({ settings: { huddleCameras: true, restrictRoomCreation: true } })).toEqual({ settings: { huddleCameras: true, restrictRoomCreation: true } });
+    expect(parseAccountChanges({ settings: { huddleCameras: "off" } })).toBe("Cameras must be true or false");
+  });
+});
+
+describe("Screen sharing in huddles (setting)", () => {
+  it("takes Screen sharing as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { huddleScreens: false } })).toEqual({ settings: { huddleScreens: false } });
+    expect(parseAccountChanges({ settings: { huddleScreens: true, huddleCameras: false } })).toEqual({ settings: { huddleScreens: true, huddleCameras: false } });
+    expect(parseAccountChanges({ settings: { huddleScreens: 0 } })).toBe("Screen sharing must be true or false");
   });
 });
 
@@ -1080,6 +1118,24 @@ describe("Disconnect Memberful", () => {
     ["an endpoint longer than a subscription's", { pushSubscriptionEndpoint: "x".repeat(MAX_PUSH_ENDPOINT_LENGTH + 1) }, "Endpoint can't be longer than 2048 characters"],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseMemberfulDisconnection(body)).toBe(error);
+  });
+});
+
+describe("Delete my account", () => {
+  it("takes your password or your name as typed, leaving out what isn't sent", () => {
+    expect(parseAccountDeletion({ currentPassword: " compiler " })).toEqual({ currentPassword: " compiler " });
+    expect(parseAccountDeletion({ name: "Grace Hopper", pushSubscriptionEndpoint: "https://push.example" })).toEqual({ name: "Grace Hopper" });
+    expect(parseAccountDeletion({})).toEqual({});
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ name: "Grace Hopper" }], "Expected a JSON object"],
+    ["a password that isn't text", { currentPassword: 12345678 }, "Current password must be text"],
+    ["a name that isn't text", { name: ["Grace"] }, "Name must be text"],
+    ["a name longer than anyone's", { name: "x".repeat(MAX_USER_NAME_LENGTH + 1) }, "Name must be at most 100 characters"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseAccountDeletion(body)).toBe(error);
   });
 });
 

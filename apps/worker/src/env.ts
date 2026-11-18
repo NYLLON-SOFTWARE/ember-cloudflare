@@ -1,5 +1,6 @@
 import type { AppConnector } from "./apps/connector";
 import type { ChatRoom } from "./chat-room";
+import type { OutsideAi } from "./outside/endpoint";
 import type { PasswordHasher } from "./passwords";
 import type { SearchIndex } from "./search-index";
 import type { Unfurler } from "./unfurl";
@@ -15,6 +16,7 @@ export interface Env {
   UNFURLER: DurableObjectNamespace<Unfurler>;
   SEARCH_INDEX: DurableObjectNamespace<SearchIndex>;
   APP_CONNECTOR: DurableObjectNamespace<AppConnector>;
+  OUTSIDE_AI: DurableObjectNamespace<OutsideAi>;
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
   /**
@@ -62,9 +64,10 @@ export interface Env {
   EMBER_RECOVERY_TOKEN?: string;
   /**
    * The address of the Memberful site whose members may join and sign in, such as
-   * https://example.memberful.com, once an administrator turns Memberful on (memberful.ts). Without it,
-   * or either of the two keys of the site's custom app below, Memberful can't be turned on, and nobody
-   * signs in with it.
+   * https://example.memberful.com, once an administrator turns Memberful on (memberful.ts). With the two
+   * keys of the site's custom app below, it takes the place of the site and every key an administrator
+   * gives in Set up Memberful, and the API key and webhook's secret below with it. Unless all three are
+   * set, Ember has only those.
    */
   MEMBERFUL_URL?: string;
   /** The OAuth identifier of the Memberful site's custom app, a server-side one. */

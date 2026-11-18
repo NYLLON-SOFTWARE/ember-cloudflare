@@ -1,10 +1,23 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, EMAIL_LINK_GONE, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
+import {
+  CloseCode,
+  DELETION_NAME_NEEDED,
+  EMAIL_LINK_GONE,
+  SIGN_IN_REJECTED,
+  type Account,
+  type AccountChanges,
+  type AccountDeletion,
+  type Bootstrap,
+  type Message,
+  type WorkspaceSettings,
+} from "@ember/protocol";
 import type { HuddlesSetup } from "@ember/protocol/huddles";
 import { QUESTION } from "@/components/setup-huddles";
+import { ACCOUNT_DELETED } from "@/components/workspace/delete-account";
 import { flashOnNextPage } from "@/lib/flash";
+import { showHuddle } from "@/lib/huddle-store";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
 import { CHROME_MAC } from "@/test-platforms";
@@ -24,7 +37,7 @@ const EMAIL_LINK_TOKEN = "Gr-_em".repeat(7) + "D";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
 /** What the deployment's Set up Ember form suggests. */
 const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
@@ -76,7 +89,7 @@ class WorkspaceSocket extends QuietSocket {
 
   constructor(url: string) {
     super();
-    if (url.endsWith("/api/socket")) WorkspaceSocket.all.push(this);
+    if (new URL(url).pathname === "/api/socket") WorkspaceSocket.all.push(this);
   }
 
   receive(frame: object) {
@@ -142,6 +155,12 @@ function serve({
       signedIn = false;
       return new Response(null, { status: 204 });
     }
+    if (route === "DELETE /api/users/me" && signedIn) {
+      // Without a password, as the profile it serves has none, the name typed says you mean it.
+      if ((JSON.parse(String(init?.body)) as AccountDeletion).name !== me.name) return Response.json({ error: DELETION_NAME_NEEDED }, { status: 422 });
+      signedIn = false;
+      return new Response(null, { status: 204 });
+    }
     if (route === "POST /api/session/transfers") {
       const { transferId } = JSON.parse(String(init?.body)) as Record<string, string>;
       if (transferId !== TRANSFER_ID) return new Response(null, { status: 400 });
@@ -166,6 +185,7 @@ function serve({
     }
     if (!signedIn) return Response.json({ error: "Not signed in" }, { status: 401 });
     if (route === "GET /api/me") return Response.json({ user: me });
+    if (route === "POST /api/outside/asks") return Response.json({ name: "Claude", comesBackTo: "claude.example", workspace: account.name, scopes: ["read"] });
     if (route === "GET /api/account")
       return Response.json({
         account,
@@ -173,9 +193,12 @@ function serve({
         canAdminister: me.administrator,
         memberfulSite: null,
         memberfulWebhooks: false,
+        memberfulKeys: null,
+        memberfulSiteKept: null,
         turnstile: null,
         assistant: null,
         huddles: null,
+        outsideAi: false,
         cloudflareAccountId: null,
         email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
         invitations: [],
@@ -184,10 +207,10 @@ function serve({
       } satisfies WorkspaceSettings);
     if (route === "PUT /api/account/huddles") {
       account = { ...account, huddles: true };
-      return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId } });
+      return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId, relayKeyId: null } });
     }
     if (route === "GET /api/users") return Response.json({ users: [] });
-    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null, apps: [] } });
+    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null, apps: [], outsideAi: null } });
     if (route === "PATCH /api/account") {
       const { name = account.name, tagline = account.tagline, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
       account = { ...account, name, tagline, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons, customDomain };
@@ -746,6 +769,53 @@ describe("Huddles", () => {
     act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: EMBER }));
     expect(huddleButton()).not.toBeInTheDocument();
   });
+
+  it("takes the camera's switch from the preview a huddle starts from, and gives it back, as the workspace socket says cameras go off and on", async () => {
+    const withHuddles = { ...EMBER, huddles: true };
+    const cameraSwitch = () => screen.queryByRole("button", { name: "Turn on camera" });
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true, account: withHuddles });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada, withHuddles));
+    await userEvent.setup().click(huddleButton()!);
+    expect(await screen.findByRole("dialog", { name: "Start a huddle in general" })).toBeInTheDocument();
+    expect(cameraSwitch()).toBeInTheDocument();
+
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...withHuddles, huddleCameras: false } }));
+    expect(cameraSwitch()).not.toBeInTheDocument();
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: withHuddles }));
+    expect(cameraSwitch()).toBeInTheDocument();
+  });
+
+  it("takes the button that shares a screen from the bar of a huddle, and gives it back, as the workspace socket says screen sharing goes off and on", async () => {
+    const withHuddles = { ...EMBER, huddles: true };
+    const shareButton = () => screen.queryByRole("button", { name: "Share screen" });
+    // A browser that can share a screen, which jsdom's isn't.
+    Object.defineProperty(navigator, "mediaDevices", { value: { getDisplayMedia: vi.fn() }, configurable: true });
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true, account: withHuddles });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada, withHuddles));
+    // The tab is in general's huddle, minimized to its bar.
+    const controls = { leave: () => showHuddle(null), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setSmall: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(), setSticker: vi.fn(), react: vi.fn() };
+    act(() => showHuddle({ roomId: "general", connected: true, you: ada, people: [], muted: false, sticker: null, microphone: true, microphoneId: "", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: false, thread: true }, controls));
+    try {
+      expect(shareButton()).toBeInTheDocument();
+      act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...withHuddles, huddleScreens: false } }));
+      expect(shareButton()).not.toBeInTheDocument();
+      act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: withHuddles }));
+      expect(shareButton()).toBeInTheDocument();
+    } finally {
+      act(() => showHuddle(null));
+      Reflect.deleteProperty(navigator, "mediaDevices");
+    }
+  });
 });
 
 describe("Workspace logo", () => {
@@ -1032,6 +1102,30 @@ describe("Reset a forgotten password with an emailed code", () => {
   });
 });
 
+describe("Connecting an AI app", () => {
+  const REQUEST = "/oauth/authorize?response_type=code&client_id=0mgk3x2a9b4c70&state=5f2c01";
+
+  it("asks whether to connect the app whose request the address carries, in place of the workspace", async () => {
+    history.replaceState(null, "", REQUEST);
+    const fetch = serve({ signedIn: true });
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Connect Claude to Ember?" })).toBeVisible();
+    expect(fetch).toHaveBeenCalledWith("/api/outside/asks", expect.objectContaining({ method: "POST" }));
+    expect(screen.queryAllByRole("link", { name: "Your profile" })).toEqual([]);
+    expect(`${location.pathname}${location.search}`).toBe(REQUEST);
+  });
+
+  it("has someone signed out sign in first, and comes back to the request", async () => {
+    history.replaceState(null, "", REQUEST);
+    serve({ signedIn: false });
+    render(<App />);
+    await signInPage();
+    await signInAsAda();
+    expect(await screen.findByRole("heading", { level: 1, name: "Connect Claude to Ember?" })).toBeVisible();
+    expect(`${location.pathname}${location.search}`).toBe(REQUEST);
+  });
+});
+
 describe("Private sign-in link", () => {
   it("signs in with a sign-in link rather than going to sign in, then loads home as whoever it's for", async () => {
     history.replaceState(null, "", `/session/transfers#token=${TRANSFER_ID}`);
@@ -1150,6 +1244,81 @@ describe("Sign out", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" })));
     expect(screen.getByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();
     expect(loadPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("Delete my account", () => {
+  /** Deletes your account from your profile, typing `name` to say you mean it. */
+  async function deleteAccount(name = ada.name) {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Delete my account" }));
+    await user.type(screen.getByLabelText(`Type your name, ${ada.name}, to delete your account`), name);
+    await user.click(screen.getByRole("button", { name: "Delete my account" }));
+  }
+
+  it("deletes your account and loads the sign-in page, which says so, even when the workspace closes its socket first", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    history.replaceState(null, "", "/rooms/general");
+    const fetch = serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    await openYourProfile();
+    // The server deletes it at once, but its answer is held back, while the Workspace closes the socket for good.
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const server = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (input, init) => {
+      const response = await server(input, init);
+      if (`${init?.method} ${String(input)}` === "DELETE /api/users/me") await answered;
+      return response;
+    });
+
+    await deleteAccount();
+    act(() => WorkspaceSocket.all[0]!.end(CloseCode.Revoked));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/me", expect.anything()));
+    answer();
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new", { kind: "notice", text: ACCOUNT_DELETED }));
+    expect(loadPage).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem("ember:return-to")).toBeNull();
+  });
+
+  it("ends this browser's push subscription once it's deleted, which the server forgot with the rest", async () => {
+    const subscription = { endpoint: "https://fcm.googleapis.com/fcm/send/abc", unsubscribe: vi.fn(async () => true) };
+    const registration = { pushManager: { getSubscription: async () => subscription } };
+    Object.defineProperty(navigator, "serviceWorker", { value: { getRegistration: async () => registration }, configurable: true });
+    try {
+      serve({ signedIn: true });
+      render(<App />);
+      await roomHeading();
+      await openYourProfile();
+      await deleteAccount();
+      await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new", { kind: "notice", text: ACCOUNT_DELETED }));
+      expect(subscription.unsubscribe).toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(navigator, "serviceWorker");
+    }
+  });
+
+  it("stays signed in, saying why, when it's refused, and a session that ends later still goes to sign in", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    const fetch = serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    await openYourProfile();
+    await deleteAccount("Not Ada");
+    expect(await screen.findByText(DELETION_NAME_NEEDED)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();
+    expect(loadPage).not.toHaveBeenCalled();
+
+    await fetch("/api/session", { method: "DELETE" });
+    act(() => WorkspaceSocket.all[0]!.end(CloseCode.Reconnect));
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
   });
 });
 

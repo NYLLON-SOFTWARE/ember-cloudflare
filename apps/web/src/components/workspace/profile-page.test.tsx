@@ -29,13 +29,14 @@ import { CHROME_MAC, SAFARI_MAC } from "@/test-platforms";
 import { PUSH_ON } from "@/test-push";
 import { DEFAULT_MODEL_EXPLAINED } from "./answer-levels";
 import { AVATAR_CHANGED, ProfilePage } from "./profile-page";
+import { NOTHING_CONNECTED } from "./your-outside-ai";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, apps: [] };
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -44,7 +45,7 @@ const LEVELS: YourAssistant = {
   defaultModel: "@cf/zai-org/glm-4.7-flash",
   models: [{ id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" }],
 };
-const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false };
+const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
 
@@ -106,13 +107,14 @@ function serve({
 /** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
 function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
   const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
+  const onDeleteAccount = vi.fn(async () => {});
   const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
         <PushContext value={{ ...PUSH_ON, platform }}>
           <FlashProvider workspace>
             <Sheet>
-              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
+              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} onFailed={onFailed} />
             </Sheet>
           </FlashProvider>
         </PushContext>
@@ -122,6 +124,7 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
   const { rerender } = render(page(rooms));
   return {
     onSignOut,
+    onDeleteAccount,
     onFailed,
     answered,
     user: userEvent.setup(),
@@ -415,6 +418,76 @@ describe("Private sign-in link", () => {
     await user.type(field("Bio"), "!");
     await user.click(saveButton());
     await waitFor(() => expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers#token=${SAVED_LINK}`));
+  });
+});
+
+describe("Delete my account", () => {
+  const deleteButton = () => screen.queryByRole("button", { name: "Delete my account" });
+
+  it("ends with Delete my account once your profile loads, after your sign-in link", async () => {
+    showPage();
+    expect(deleteButton()).toBeNull();
+    await loaded();
+    const link = screen.getByRole("textbox", { name: "Use this link to login automatically on another device" });
+    expect(link.compareDocumentPosition(deleteButton()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("asks for your password while you have one, and deletes your account with it", async () => {
+    const { onDeleteAccount, user } = showPage();
+    await loaded();
+    await user.click(deleteButton()!);
+    await user.type(screen.getByLabelText("Your password"), "analytical engine");
+    await user.click(deleteButton()!);
+    expect(onDeleteAccount).toHaveBeenCalledExactlyOnceWith({ currentPassword: "analytical engine" });
+  });
+
+  it("asks someone without one to type their name", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, password: false }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { onDeleteAccount, user } = showPage();
+    await loaded();
+    await user.click(deleteButton()!);
+    await user.type(screen.getByLabelText("Type your name, Ada Lovelace, to delete your account"), "Ada Lovelace");
+    await user.click(deleteButton()!);
+    expect(onDeleteAccount).toHaveBeenCalledExactlyOnceWith({ name: "Ada Lovelace" });
+  });
+
+  it("asks for the name you saved last, as the server has it, before the workspace's socket brings it", async () => {
+    const without = { ...profile, password: false };
+    serve({
+      loaded: () => Response.json({ profile: without, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => Response.json({ profile: { ...without, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Ada King");
+    await user.click(saveButton());
+    await user.click(await screen.findByRole("button", { name: "Delete my account" }));
+    expect(await screen.findByLabelText("Type your name, Ada King, to delete your account")).toBeInTheDocument();
+  });
+
+  it("keeps asking for the name saved last when a photo's answer comes after it, with the name from before", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:moon");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const without = { ...profile, password: false };
+    let answerUpload = (_: Response) => {};
+    serve({
+      loaded: () => Response.json({ profile: without, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => Response.json({ profile: { ...without, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+      uploaded: () => new Promise((resolve) => (answerUpload = resolve)),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.upload(screen.getByLabelText("Upload avatar", { exact: false }), new File(["moon"], "moon.jpg", { type: "image/jpeg" }));
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Ada King");
+    await user.click(saveButton());
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Ada King"));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    await act(async () => answerUpload(Response.json({ profile: { ...without, avatarUrl: UPLOADED, avatar: true }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await user.click(screen.getByRole("button", { name: "Delete my account" }));
+    expect(await screen.findByLabelText("Type your name, Ada King, to delete your account")).toBeInTheDocument();
   });
 });
 
@@ -976,6 +1049,29 @@ describe("Custom CSS", () => {
       expect(field(label)).toHaveValue("difference engine");
       expect(field(label)).not.toHaveAttribute("value");
     }
+  });
+});
+
+describe("AI apps on your profile", () => {
+  const CLAUDE = { id: "0mgk3x2a9b4c70", name: "Claude", comesBackTo: "claude.example", scopes: ["read" as const], connectedAt: "2026-11-14T09:00:00.000Z", usedAt: null };
+
+  it("aren't shown while AI apps can't connect as you", async () => {
+    serve();
+    showPage();
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Ada Lovelace"));
+    expect(screen.queryByRole("heading", { level: 2, name: "AI apps" })).not.toBeInTheDocument();
+  });
+
+  it("lists the AI apps connected as you, as the profile loads them, and as disconnecting one leaves them", async () => {
+    const fetch = serve({ loaded: () => Response.json({ profile: { ...profile, outsideAi: [CLAUDE] }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { user } = showPage();
+
+    expect(await screen.findByRole("heading", { level: 2, name: "AI apps" })).toBeVisible();
+    fetch.mockImplementationOnce(async () => Response.json({ connections: [] }));
+    await user.click(screen.getByRole("button", { name: "Disconnect Claude" }));
+    expect(await screen.findByText(NOTHING_CONNECTED)).toBeVisible();
+    expect(fetch).toHaveBeenLastCalledWith(`/api/users/me/outside/${CLAUDE.id}`, expect.objectContaining({ method: "DELETE" }));
+    expect(screen.getByRole("heading", { level: 2, name: "AI apps" })).toBeVisible();
   });
 });
 

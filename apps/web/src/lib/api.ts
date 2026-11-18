@@ -5,8 +5,10 @@ import {
   roomSocketQuery,
   searchQuery,
   WORKSPACE_PRELOADS,
+  workspaceSocketQuery,
   type Account,
   type AccountChanges,
+  type AccountDeletion,
   type AssistantChanged,
   type AssistantChanges,
   type AssistantForgotten,
@@ -33,6 +35,7 @@ import {
   type EmailLinkSignUp,
   type EmailSettings,
   type Favorites,
+  type HuddleRelaySetup,
   type HuddlesForgotten,
   type HuddlesSaved,
   type HuddlesSettings,
@@ -89,10 +92,11 @@ import {
   type UserId,
   type WebSearchChanged,
   type WorkspaceSettings,
+  type WorkspaceSocketParams,
   type YourAssistantChanged,
   type YourAssistantChanges,
 } from "@ember/protocol";
-import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
+import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, AvailableAgent, AvailableAgents, NewAgent } from "@ember/protocol/agents";
 import type {
   AgentToolPicks,
   AgentTools,
@@ -114,6 +118,8 @@ import type {
   YourAppSignedIn,
   YourAppSignedOut,
 } from "@ember/protocol/apps";
+import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
+import type { OutsideAiSettings, OutsideAnswer, OutsideAnswered, OutsideAsk, OutsideAsked, OutsideScope, YourOutsideAi } from "@ember/protocol/outside";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -310,6 +316,15 @@ export async function signInAsGuest(name: string): Promise<Me> {
 export async function signInWithLink(transferId: string): Promise<Me> {
   const body: LinkSignIn = { transferId };
   return (await request<{ user: Me }>("/api/session/transfers", { method: "POST", body: JSON.stringify(body) })).user;
+}
+
+/**
+ * Deletes your account, as Delete my account on your profile does, saying you mean it with your password
+ * while you have one, or else your name, and signs this browser out. Fails with a 409 ApiError for the
+ * only administrator, a 422 when what's typed isn't yours, and a 429 past sign-in's limit.
+ */
+export async function deleteAccount(deletion: AccountDeletion): Promise<void> {
+  await request("/api/users/me", { method: "DELETE", body: JSON.stringify(deletion) });
 }
 
 /**
@@ -565,6 +580,15 @@ export async function forgetTurnstileKeys(): Promise<TurnstileSettings["turnstil
 }
 
 /**
+ * Gives Ember a Memberful site's address and keys, as Set up Memberful does, answering Memberful as
+ * Membership's card shows it then. Fails with a 422 ApiError on the field Ember or Memberful refuses, a
+ * 502 one when Ember couldn't ask Memberful, and a 403 one for anyone but an administrator.
+ */
+export async function saveMemberfulKeys(keys: MemberfulKeysChange): Promise<MemberfulSaved> {
+  return request<MemberfulSaved>("/api/account/memberful_keys", { method: "PUT", body: JSON.stringify(keys) });
+}
+
+/**
  * Gives Ember a Realtime SFU app's ID and secret to run huddles through, answering huddles as they are
  * then. Fails with a 422 ApiError on the field Ember or Cloudflare refuses, a 502 one when Ember couldn't
  * ask Cloudflare, and a 403 one for anyone but an administrator.
@@ -576,6 +600,24 @@ export async function saveHuddles(setup: HuddlesSetup): Promise<HuddlesSettings>
 /** Turns huddles off, forgetting the SFU app's keys Ember was given. Fails with a 403 ApiError for anyone but an administrator. */
 export async function forgetHuddles(): Promise<null> {
   return (await request<HuddlesForgotten>("/api/account/huddles", { method: "DELETE" })).huddles;
+}
+
+/**
+ * Gives Ember a TURN key's ID and API token for huddles' relay to go by, answering huddles as they are
+ * then. Fails with a 422 ApiError on the field Ember or Cloudflare refuses, a 502 one when Ember couldn't
+ * ask Cloudflare, a 409 one while huddles are off, and a 403 one for anyone but an administrator.
+ */
+export async function saveHuddleRelay(setup: HuddleRelaySetup): Promise<HuddlesSettings> {
+  return (await request<HuddlesSaved>("/api/account/huddles/relay", { method: "PUT", body: JSON.stringify(setup) })).huddles;
+}
+
+/**
+ * Takes huddles' relay away, forgetting the TURN key Ember was given, answering huddles as they are
+ * then, which is null where they've been turned off since. Fails with a 403 ApiError for anyone but an
+ * administrator.
+ */
+export async function forgetHuddleRelay(): Promise<HuddlesSettings | null> {
+  return (await request<HuddlesSaved | HuddlesForgotten>("/api/account/huddles/relay", { method: "DELETE" })).huddles;
 }
 
 /**
@@ -661,6 +703,11 @@ export async function changeWebSearch(on: boolean): Promise<WebSearchChanged> {
 /** The agents, by name. Fails with a 409 ApiError while Ember AI is off, and a 403 one for anyone but an administrator. */
 export async function fetchAgents(): Promise<Agent[]> {
   return (await request<Agents>("/api/account/agents")).agents;
+}
+
+/** The AI agents this person can ask, @ember first, then by name, with what each does and the rooms it shares with them: none while Ember AI is off. */
+export async function fetchAvailableAgents(): Promise<AvailableAgent[]> {
+  return (await request<AvailableAgents>("/api/agents")).agents;
 }
 
 /** Agent `agentId`, as its page shows it. Fails as `fetchAgents` does, and with a 404 ApiError for an id that isn't an agent's. */
@@ -754,6 +801,35 @@ export async function beginOwnAppSignIn(appId: AppId): Promise<string> {
 /** Forgets the sign-in you made to the connected app `appId` yourself, answering the apps as your profile then lists them, and whether its service took the sign-in back. Fails as `beginOwnAppSignIn` does. */
 export async function signOutOfApp(appId: AppId): Promise<YourAppSignedOut> {
   return request<YourAppSignedOut>(`/api/users/me/apps/${encodeURIComponent(appId)}/sign-in`, { method: "DELETE" });
+}
+
+/**
+ * What the page says of `ask`, an AI app's request to connect to Ember as you. Fails with a 401 ApiError
+ * once the session has ended, a 403 for someone who signed in with just a name, a 409 while outside AI
+ * is off, and a 422 for a request Ember can't answer.
+ */
+export function describeOutsideAsk(ask: OutsideAsk): Promise<OutsideAsked> {
+  return request<OutsideAsked>("/api/outside/asks", { method: "POST", body: JSON.stringify(ask) });
+}
+
+/**
+ * Answers `ask`, whether to connect its app as you, leaving out `without` of what it asks, and with
+ * `ticked` of it, which Ember gives where the page leaves its box unticked only when it's ticked,
+ * answering where to send the browser: back to the app. Fails as `describeOutsideAsk` does, and with a
+ * 409 when you have as many connected as one may.
+ */
+export async function answerOutsideAsk(ask: OutsideAsk, allow: boolean, without: OutsideScope[] = [], ticked: OutsideScope[] = []): Promise<string> {
+  return (await request<OutsideAnswered>("/api/outside/answers", { method: "POST", body: JSON.stringify({ ask, allow, without, with: ticked } satisfies OutsideAnswer) })).redirectTo;
+}
+
+/** Ends the connection `id` of yours, answering the ones you have left. Fails with a 401 ApiError once the session has ended, a 409 while outside AI is off, and a 404 once the connection has ended. */
+export function disconnectOutside(id: string): Promise<YourOutsideAi> {
+  return request<YourOutsideAi>(`/api/users/me/outside/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Lets AI apps connect to Ember, or stops them, which ends every connection, answering which. Fails with a 401 ApiError once the session has ended, and a 403 unless you're an administrator. */
+export function changeOutsideAi(on: boolean): Promise<OutsideAiSettings> {
+  return request<OutsideAiSettings>("/api/account/outside_ai", { method: "PUT", body: JSON.stringify({ on }) });
 }
 
 /** Changes app `appId`, leaving what `changes` leaves out, answering it as its page then shows it. Fails as `fetchApp` and `connectApp` do. */
@@ -877,6 +953,11 @@ export async function fetchSidebar(copy: SidebarCopy | null): Promise<SidebarCop
 /** Dismisses the welcome card for this person, for good: their sidebar, on any device, has no invitation from then on. */
 export async function dismissInvitation(): Promise<void> {
   await request("/api/sidebar/invitation", { method: "DELETE" });
+}
+
+/** Stops an invitation into room `roomId`'s huddle ringing in every tab this person has open, as joining from it or declining it does. */
+export async function answerHuddleInvitation(roomId: RoomId): Promise<void> {
+  await request(`/api/rooms/${encodeURIComponent(roomId)}/huddle/invitation`, { method: "DELETE" });
 }
 
 /** A copy of the people directory, and the ETag the server sent it with. */
@@ -1004,8 +1085,8 @@ export function socketUrl(path: string): string {
 /** The address of a room's socket, which tells the room what `params` says about the tab. */
 export const roomSocketUrl = (roomId: string, params: RoomSocketParams) => socketUrl(`/api/rooms/${encodeURIComponent(roomId)}/socket${roomSocketQuery(params)}`);
 
-/** The address of a tab's workspace socket, which carries what changes outside the room it shows. */
-export const workspaceSocketUrl = () => socketUrl("/api/socket");
+/** The address of a tab's workspace socket, which carries what changes outside the room it shows, and tells the Workspace what `params` says about the tab. */
+export const workspaceSocketUrl = (params: WorkspaceSocketParams) => socketUrl(`/api/socket${workspaceSocketQuery(params)}`);
 
 /** Forgets the session earlier versions of the app kept in localStorage, which nothing reads now. */
 export function forgetStoredSession(): void {

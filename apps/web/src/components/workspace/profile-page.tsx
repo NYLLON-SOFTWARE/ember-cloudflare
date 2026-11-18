@@ -8,6 +8,7 @@ import {
   MAX_USER_NAME_LENGTH,
   MEMBERFUL_DISCONNECTED_NOTICE,
   MIN_PASSWORD_LENGTH,
+  type AccountDeletion,
   type Me,
   type MemberfulStatus,
   type Profile,
@@ -32,6 +33,7 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AnswerLevels } from "./answer-levels";
 import { ConversationNotifications } from "./conversation-notifications";
+import { DeleteAccount } from "./delete-account";
 import { MemberfulConnection } from "./memberful-connection";
 import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
@@ -41,6 +43,7 @@ import { SignInLink } from "./sign-in-link";
 import { TranscriptDownload } from "./transcript-download";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
 import { YourApps } from "./your-apps";
+import { YourOutsideAi } from "./your-outside-ai";
 
 interface Props {
   me: Me;
@@ -50,6 +53,8 @@ interface Props {
   askForRoom: () => (answer: RoomAnswer) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
+  /** Deletes your account and goes to sign in, settling once it's deleted, or failing with why not. */
+  onDeleteAccount: (deletion: AccountDeletion) => Promise<void>;
   /** Says why loading or saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -109,11 +114,11 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
  * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
  * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
- * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
- * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
+ * link for you, a new one each time the page loads or saves, then Delete my account, and Log out in
+ * the top bar. Go Back returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
  * once, through the workspace socket, as they reach the rail.
  */
-export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, onSignOut, onDeleteAccount, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -124,6 +129,12 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [transferId, setTransferId] = useState<string | null>(null);
   /** Whether you have a password, which the form then asks for to change your email address or password. */
   const [hasPassword, setHasPassword] = useState(false);
+  /**
+   * Your name as the profile last loaded or saved it, which Delete my account asks someone without a
+   * password to type, as the server has it: a name saved while the workspace socket is down reaches
+   * `me` only once it's back. A photo's answer, which can arrive after a save, has the name from before.
+   */
+  const [savedName, setSavedName] = useState(me.name);
   /**
    * Whether you have an email address saved, which signing in with your password takes, so disconnecting
    * Memberful needs it: from loading and saving the profile alone, which change it, so a photo's answer
@@ -138,6 +149,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [assistant, setAssistant] = useState<Profile["assistant"]>(null);
   /** The connected apps you can sign in to yourself, each with your sign-in to it, if you've made one. */
   const [apps, setApps] = useState<Profile["apps"]>([]);
+  const [outsideAi, setOutsideAi] = useState<Profile["outsideAi"]>(null);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -157,6 +169,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         if (stopped) return;
         saved.current = fieldsOf(answer.profile);
         setFields(saved.current);
+        setSavedName(answer.profile.name);
         setHasEmailAddress(answer.profile.emailAddress !== null);
         showAnswer(answer);
         // Only from here and the Ember AI section's own saves, as a save of the profile or a photo can
@@ -164,6 +177,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         setAssistant(answer.profile.assistant);
         // The same goes for the Apps section, which signing out there changes.
         setApps(answer.profile.apps);
+        setOutsideAi(answer.profile.outsideAi);
       },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
@@ -244,6 +258,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         setSaving(false);
         const now = fieldsOf(answer.profile);
         saved.current = now;
+        setSavedName(answer.profile.name);
         setFields((fields) => fields && settled(fields, sent, now));
         setHasEmailAddress(answer.profile.emailAddress !== null);
         // The passwords leave their fields, unless others were typed meanwhile.
@@ -387,9 +402,11 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         )}
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {apps.length > 0 && <YourApps apps={apps} onChanged={setApps} onFailed={onFailed} />}
+        {outsideAi && <YourOutsideAi connections={outsideAi} onChanged={setOutsideAi} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         <TranscriptDownload heading="Transcript" description="Download every room and DM you're in, as Markdown or JSON. Replies stay with the message they reply to." />
         {transferId && <SignInLink transferId={transferId} mine />}
+        {fields && <DeleteAccount name={savedName} hasPassword={hasPassword} onDelete={onDeleteAccount} onFailed={onFailed} />}
       </Panel>
     </SettingsPage>
   );

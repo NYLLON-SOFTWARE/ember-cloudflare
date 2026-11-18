@@ -158,18 +158,18 @@ test.describe("Ember AI", () => {
     await expect(card).toContainText("Ember's agents answer through Cloudflare AI Gateway, each on the model you choose for it.");
     await expect(card.getByRole("switch", { name: "Ember AI" })).toBeChecked();
     // The Agents card lists @ember, on the model chosen, with a link to its page.
-    await expect(emberRow(page)).toContainText("EmberBuilt inAnswers anything people ask.Claude Haiku 5.5 · Every open room");
+    await expect(emberRow(page)).toContainText("EmberBuilt inAnswers anything people ask.Claude Haiku 5.5 · Every room");
     await expect(emberRow(page).getByRole("link", { name: "Edit Ember" })).toHaveAttribute("href", "/account/agents/ember/edit");
 
     // Ember keeps it.
     await page.reload();
-    await expect(emberRow(page)).toContainText("Claude Haiku 5.5 · Every open room");
+    await expect(emberRow(page)).toContainText("Claude Haiku 5.5 · Every room");
   });
 
   test("the administrator changes the model, keeping the API token, which Ember asks through its provider's endpoint", async ({ page, request }) => {
     await setUpAssistant(request, "openai/gpt-6.1-sol");
     const card = await openAssistant(page);
-    await expect(emberRow(page)).toContainText("GPT-6.1 Sol · Every open room");
+    await expect(emberRow(page)).toContainText("GPT-6.1 Sol · Every room");
     await card.getByRole("button", { name: "Change" }).click();
 
     const setup = page.getByRole("dialog");
@@ -187,7 +187,7 @@ test.describe("Ember AI", () => {
       body: { model: "claude-sonnet-5-5", max_tokens: expect.any(Number) as unknown },
     });
     await setup.getByRole("button", { name: "Done" }).click();
-    await expect(emberRow(page)).toContainText("Claude Sonnet 5.5 · Every open room");
+    await expect(emberRow(page)).toContainText("Claude Sonnet 5.5 · Every room");
   });
 
   test("the administrator chooses one of Workers AI's models, which Cloudflare runs, and Ember asks it through Cloudflare's REST API", async ({ page, request }) => {
@@ -217,7 +217,7 @@ test.describe("Ember AI", () => {
       body: { model: GEMMA.id },
     });
     await setup.getByRole("button", { name: "Done" }).click();
-    await expect(emberRow(page)).toContainText(`${GEMMA.name} · Every open room`);
+    await expect(emberRow(page)).toContainText(`${GEMMA.name} · Every room`);
   });
 
   test("the administrator lets @ember search the web on one of Workers AI's models, with Ember's own tool on Cloudflare's Web Search API", async ({ page, request }) => {
@@ -227,7 +227,7 @@ test.describe("Ember AI", () => {
     await webSearch.click();
     await expect(card.getByRole("status")).toHaveText(`It searched the web and said: ${FOUND}`);
     await expect(webSearch).toBeChecked();
-    // The model called Ember's tool, which searched through the default gateway, and was told what it found.
+    // The model called Ember's tool, which searched through the default gateway, and was told what it found, numbered, and the number it cites is taken out of what it said.
     const searched = gateway.asked.findLast(({ path }) => path === `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/websearch/`);
     expect(searched).toMatchObject({
       authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
@@ -236,11 +236,11 @@ test.describe("Ember AI", () => {
     const told = gateway.asked.findLast(({ path, body }) => path === CHAT_PATH && Array.isArray(body.tools))!;
     expect(told).toMatchObject({ body: { model: GEMMA.id, tools: [{ type: "function", function: { name: "web_search" } }] } });
     expect((told.body.messages as Array<{ role: string; content: string }>).at(-1)).toEqual(
-      expect.objectContaining({ role: "tool", content: expect.stringContaining(SOURCE.url) as unknown }),
+      expect.objectContaining({ role: "tool", content: expect.stringContaining(`[1] ${SOURCE.title}\n${SOURCE.url}\n${FOUND}`) as unknown }),
     );
 
     await page.getByRole("link", { name: "Go Back" }).click();
-    await expect(emberRow(page)).toContainText(`${GEMMA.name} · Searches the web · Every open room`);
+    await expect(emberRow(page)).toContainText(`${GEMMA.name} · Searches the web · Every room`);
   });
 
   test("the administrator lets @ember search the web once its model has searched for a test question", async ({ page, request }) => {
@@ -267,7 +267,7 @@ test.describe("Ember AI", () => {
     await page.reload();
     await expect(page.getByRole("region", { name: "@ember", exact: true }).getByRole("switch", { name: "Search the web" })).toBeChecked();
     await page.getByRole("link", { name: "Go Back" }).click();
-    await expect(emberRow(page)).toContainText("Claude Sonnet 5.5 · Searches the web · Every open room");
+    await expect(emberRow(page)).toContainText("Claude Sonnet 5.5 · Searches the web · Every room");
   });
 
   test("the administrator lets people pick another model, which someone picks on their profile, and @ember answers them with it", async ({ page, request }) => {
@@ -292,7 +292,7 @@ test.describe("Ember AI", () => {
     await expect(models.getByRole("radio", { name: "Claude Haiku 5.5" })).toBeChecked();
     await expect(models.getByRole("radio", { name: "Claude Sonnet 5.5" })).not.toBeChecked();
     await page.getByRole("link", { name: "Go Back" }).click();
-    await expect(emberRow(page)).toContainText("Claude Haiku 5.5, or the model each person picks · Every open room");
+    await expect(emberRow(page)).toContainText("Claude Haiku 5.5, or the model each person picks · Every room");
 
     // On their profile, they pick it, which Ember keeps.
     await page.goto("/users/me/profile");
@@ -354,7 +354,7 @@ test.describe("Ember AI", () => {
     await expect(save).toBeDisabled();
     await card.getByText("What Ember adds around them").click();
     await expect(card.locator("details")).toContainText('You are Ember, the AI assistant in the team chat');
-    await expect(card.locator("details")).toContainText("Answer the last one, which Ada Lovelace wrote, as a helpful teammate would");
+    await expect(card.locator("details")).toContainText(`Answer the last one, which "Ada Lovelace" wrote, as a helpful teammate would`);
 
     await instructions.fill("Answer in British English.");
     await save.click();
@@ -393,7 +393,7 @@ test.describe("Ember AI", () => {
 
     // Without instructions added, nor the space they'd take.
     await askEmber(page, "Colour or color?");
-    expect(gateway.asked.at(-1)!.body.system).toMatch(/^You are Ember, the scribe of [^\n]+\.\n\nYou're asked in the room "general"\. Answer Ada Lovelace in at most [\d,]+ words\.$/);
+    expect(gateway.asked.at(-1)!.body.system).toMatch(/^You are Ember, the scribe of [^\n]+\.\n\nYou're asked in the room "general"\. Answer "Ada Lovelace" in at most [\d,]+ words\.$/);
   });
 
   test("the administrator turns Ember AI off, once they're sure", async ({ page, request }) => {

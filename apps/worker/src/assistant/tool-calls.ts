@@ -18,9 +18,10 @@ export const NO_CALLS_LEFT = "Not run: this answer has made all the tool calls i
 
 /**
  * A tool Ember runs: its name, what it does and when to use it, in words its model reads, the JSON Schema
- * of the object it takes, and what a call with `input` comes to, as the model reads it. One that throws a
- * `ToolError` tells the model why; any other failure tells it only that the tool failed. One that asks
- * first runs no call until someone allows it: its answer waits at each (`resultsOf`).
+ * of the object it takes, and what a call with `input` comes to, as the model reads it, or as AI Gateway's
+ * logs mustn't keep it (`Unlogged`). One that throws a `ToolError` tells the model why; any other failure
+ * tells it only that the tool failed. One that asks first runs no call until someone allows it: its
+ * answer waits at each (`resultsOf`).
  */
 export interface EmberTool {
   name: string;
@@ -29,7 +30,17 @@ export interface EmberTool {
   asksFirst?: true;
   /** Why a call with `input` isn't one to ask anyone to allow, in words for the model, if it isn't. */
   unaskable?(input: Record<string, unknown>): string | null;
-  run(input: Record<string, unknown>): Promise<string>;
+  run(input: Record<string, unknown>): Promise<string | Unlogged>;
+}
+
+/**
+ * What a call came to that AI Gateway's logs mustn't keep, nor anything else of its answer from then on:
+ * what was said in a DM or a private room, as the room's search finds once a room an answer began in the
+ * open is made private.
+ */
+export interface Unlogged {
+  text: string;
+  unlogged: true;
 }
 
 /** Why a tool can't do what it's called for, in words for the model that called it. */
@@ -42,11 +53,37 @@ export interface ToolCall {
   input: unknown;
 }
 
-/** What a call came to: what the model reads of it, and whether that says the call failed. */
+/** What a call came to: what the model reads of it, whether that says the call failed, and whether AI Gateway's logs mustn't keep it (`Unlogged`). */
 export interface ToolResult {
   id: string;
   text: string;
   failed: boolean;
+  unlogged?: true;
+}
+
+/** A call an answer has made: the tool's name, what the model called it with, and what the call came to, as the model read it, and whether that says it failed. */
+export interface CallMade {
+  name: string;
+  input: unknown;
+  text: string;
+  failed: boolean;
+}
+
+/** What a model that's asked again without Ember's tools reads after the conversation, before what the calls its answer made of them came to. */
+export const CALLS_MADE =
+  "(You called tools to answer this, and can't call them now. What each call came to follows, and anything a call did is done. Answer with that, and say what the calls did.)";
+
+/**
+ * What a model that's asked again without Ember's tools reads of the calls its answer `made` of them,
+ * which stand, so that it doesn't answer as if a call that did something hadn't. A call that failed
+ * says so, as Messages' `is_error` did, since an app may fail one with no word of why.
+ */
+export function whatCallsCameTo(made: readonly CallMade[]): string {
+  const each = made.map(({ name, input, text, failed }, n) => {
+    const called = typeof input === "string" ? input : JSON.stringify(input ?? {});
+    return `Call ${n + 1}: ${name} with ${called}${failed ? ", which failed" : ""}\n${text}`;
+  });
+  return [CALLS_MADE, ...each].join("\n\n");
 }
 
 /** `tools` as a request in `format` lists them. */
@@ -136,7 +173,7 @@ export async function decided(tools: readonly EmberTool[], { id, name, input }: 
 /** What the call `id` of `tool` with `input` comes to. */
 const ran = (tool: EmberTool, id: string, input: Record<string, unknown>): Promise<ToolResult> =>
   tool.run(input).then(
-    (text) => ({ id, text, failed: false }),
+    (said) => (typeof said === "string" ? { id, text: said, failed: false } : { id, text: said.text, failed: false, unlogged: true }),
     (error: unknown) => ({ id, text: whyFailed(tool.name, error), failed: true }),
   );
 

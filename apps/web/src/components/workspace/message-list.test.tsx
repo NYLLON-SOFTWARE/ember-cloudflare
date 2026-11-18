@@ -338,7 +338,7 @@ describe("Welcome and invite card", () => {
 
 describe("Sign in with Memberful", () => {
   it("shows no welcome card while Memberful is members only, since its join link is off", () => {
-    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: true, memberfulSignIn: true, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false };
+    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: true, memberfulSignIn: true, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
     render(<AccountContext value={account}>{list({ messages: [], paged: false }, vi.fn(), { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" })}</AccountContext>);
     expect(screen.queryByRole("heading", { name: "Welcome to Ember" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
@@ -347,7 +347,7 @@ describe("Sign in with Memberful", () => {
 
 describe("Ways to join", () => {
   it("shows no welcome card while the join link is off, but shows it again once it's on", () => {
-    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: false, openSignUp: true, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false };
+    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: false, openSignUp: true, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
     const welcome = (joinLink: boolean) => <AccountContext value={{ ...account, joinLink }}>{list({ messages: [], paged: false }, vi.fn(), { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" })}</AccountContext>;
     const { rerender } = render(welcome(false));
     expect(screen.queryByRole("heading", { name: "Welcome to Ember" })).not.toBeInTheDocument();
@@ -670,6 +670,22 @@ describe("Stay at the newest message", () => {
     expect(log.scrollTop).toBe(780);
     rerender(list({ messages: messages(1, 9), arrivals: 1 }));
     expect(log.scrollTop).toBe(880);
+    expect(jump()).not.toBeInTheDocument();
+  });
+
+  it("stays at the newest message as it grows, though the browser scrolls the timeline on its own before that's reported", () => {
+    const { rerender } = render(list({ messages: messages(1, 8) }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    expect(log.scrollTop).toBe(400);
+    // m8 grows 300px, as a message does when its file's text loads, and before that's reported, the browser scrolls
+    // the timeline 50px, as Chrome's scroll anchoring can, which leaves its end 250px below the view.
+    heights.m8 = 400;
+    scrollTo(log, 450);
+    resize();
+    expect(log.scrollTop).toBe(700);
+    rerender(list({ messages: messages(1, 9), arrivals: 1 }));
+    expect(log.scrollTop).toBe(800);
     expect(jump()).not.toBeInTheDocument();
   });
 

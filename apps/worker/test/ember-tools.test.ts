@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NOTES, ROOM_MESSAGES_READ } from "../src/assistant/answers";
 import { ask as askModel, askOnce, askWaiting, goOn, type Asking, type Gateway, type PausedAnswer, type Question } from "../src/assistant/gateway";
 import { MAX_FOUND_LENGTH, MESSAGES_FOUND } from "../src/assistant/room-search";
-import { CALL_DECLINED, decided, goingOn, NO_CALLS_LEFT, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, ToolError, withRoom, type EmberTool } from "../src/assistant/tool-calls";
+import { CALL_DECLINED, CALLS_MADE, decided, goingOn, NO_CALLS_LEFT, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, ToolError, withRoom, type EmberTool } from "../src/assistant/tool-calls";
 import type { Env } from "../src/env";
 import { answerWithKeptModel, api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, shown, workspaceSql, type Client, type Session } from "./support";
 
@@ -20,10 +20,11 @@ const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
 const [CLAUDE, GPT, GROK, GLM] = ["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "xai/grok-4.7", "@cf/zai-org/glm-4.7-flash"];
 
-/** A request the fake AI Gateway was sent. */
+/** A request the fake AI Gateway was sent, and what it told the gateway's logs of keeping what it carried, if anything. */
 interface Asked {
   url: string;
   body: Record<string, unknown> & { tools?: unknown[]; messages?: unknown[]; input?: unknown[] };
+  logsKeep: string | null;
 }
 
 /** What a model does in a turn: calls the room's search for each of `calls`, or answers `text`. */
@@ -72,7 +73,7 @@ beforeEach(async () => {
   refusing = () => null;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
-    const sent = { url: request.url, body: (await request.json()) as Asked["body"] };
+    const sent = { url: request.url, body: (await request.json()) as Asked["body"], logsKeep: request.headers.get("cf-aig-collect-log-payload") };
     asked.push(sent);
     const refused = refusing(sent);
     if (refused) return refused;
@@ -261,13 +262,13 @@ describe("A tool Ember runs", () => {
       expect(asked.map(({ body }) => [body.max_turns, body.tool_choice])).toEqual([[5, undefined], [4, undefined]]);
     });
 
-    it("runs Grok's searches of the web in Chat Completions with the room's, through Cloudflare's Web Search API, and lists the pages they found", async () => {
+    it("runs Grok's searches of the web in Chat Completions with the room's, through Cloudflare's Web Search API, and lists the pages it cites of those they found", async () => {
       const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
       const call = (id: string, name: string, args: Record<string, string>) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
       const turn = (message: Record<string, unknown>) => ({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }], usage: { completion_tokens: 50 } });
       const answers = [
         turn({ role: "assistant", content: null, tool_calls: [call("call_1", "web_search", { query: "launch date" }), call("call_2", "search_messages", { words: "launch" })] }),
-        turn({ role: "assistant", content: "It's on March 3." }),
+        turn({ role: "assistant", content: "It's on March 3 [1]." }),
       ];
       refusing = ({ url }) => Response.json(url.endsWith("/ai/websearch/") ? { success: true, result: { items: [page] } } : answers.shift());
 
@@ -282,12 +283,12 @@ describe("A tool Ember runs", () => {
       expect((asked[0]!.body.tools as Array<{ function: { name: string } }>).map(({ function: { name } }) => name)).toEqual(["web_search", "search_messages"]);
       expect(asked[1]!.body).toMatchObject({ query: "launch date", options: { gateway: { id: "default" } } });
       expect(asked[2]!.body.messages!.slice(-2)).toEqual([
-        { role: "tool", tool_call_id: "call_1", content: expect.stringContaining(`1. Launch day\n${page.url}\nThe launch is on March 3.`) as string },
+        { role: "tool", tool_call_id: "call_1", content: `[1] Launch day\n${page.url}\nThe launch is on March 3.\n\nCite a page you use by its number in brackets, such as [1], after what you take from it.` },
         { role: "tool", tool_call_id: "call_2", content: "Nothing." },
       ]);
     });
 
-    it("asks Grok once more without Ember's tool for searching the web too, when it's refused going on from a call, listing what its searches found before", async () => {
+    it("asks Grok once more without Ember's tool for searching the web too, when it's refused going on from a call, listing what it cites of what its searches found before", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
       const searching = { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"launch"}' } }] };
@@ -295,7 +296,7 @@ describe("A tool Ember runs", () => {
       const answers = [
         () => turn(searching),
         () => Response.json({ success: false, errors: [{ code: 7001, message: "Unexpected tool message" }] }, { status: 400 }),
-        () => turn({ role: "assistant", content: "It's on March 3." }),
+        () => turn({ role: "assistant", content: "It's on March 3. [1]" }),
       ];
       refusing = ({ url }) => (url.endsWith("/ai/websearch/") ? Response.json({ success: true, result: { items: [page] } }) : answers.shift()!());
 
@@ -304,7 +305,12 @@ describe("A tool Ember runs", () => {
       expect(asked).toHaveLength(4);
       const last = asked.at(-1)!.body;
       expect(last).not.toHaveProperty("tools");
-      expect(last).toMatchObject({ max_completion_tokens: question.maxTokens - 50, messages: asked[0]!.body.messages });
+      expect(last).toMatchObject({ max_completion_tokens: question.maxTokens - 50 });
+      // What its search found comes after the conversation, as it can't search now.
+      expect(last.messages).toEqual([
+        ...asked[0]!.body.messages!,
+        { role: "user", content: `${CALLS_MADE}\n\nCall 1: web_search with {"query":"launch"}\n[1] Launch day\n${page.url}\nThe launch is on March 3.\n\nCite a page you use by its number in brackets, such as [1], after what you take from it.` },
+      ]);
     });
 
     it("leaves a model refused going on from a call the searches and tokens its turns didn't use, as it's asked again without Ember's tools", async () => {
@@ -326,7 +332,8 @@ describe("A tool Ember runs", () => {
       const last = asked.at(-1)!.body;
       expect(asked).toHaveLength(4);
       expect((last.tools as Array<{ name: string; max_uses?: number }>).map(({ name, max_uses }) => [name, max_uses])).toEqual([["web_search", 3], ["web_fetch", 3]]);
-      expect(last).toMatchObject({ max_tokens: question.maxTokens - 90, messages: asked[0]!.body.messages });
+      expect(last).toMatchObject({ max_tokens: question.maxTokens - 90 });
+      expect(last.messages).toEqual([{ role: "user", content: `when is the launch?\n\n${CALLS_MADE}\n\nCall 1: search_messages with {"words":"launch"}\nNothing.` }]);
       expect(last).not.toHaveProperty("tool_choice");
 
       // GPT, whose searches are capped by the request, is left those it didn't make.
@@ -367,7 +374,7 @@ describe("A tool Ember runs", () => {
     ]);
   });
 
-  it("is left out for the rest of an answer whose model is refused going on from a call, which is asked once more, as it was, in the tokens the answer has left", async () => {
+  it("is left out for the rest of an answer whose model is refused going on from a call, which is asked once more, as it was but for what the call came to, in the tokens the answer has left", async () => {
     const { general, inGeneral } = await setUp(CLAUDE);
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const goesOn = ({ body }: Asked) => JSON.stringify(body.messages).includes("tool_result");
@@ -381,7 +388,11 @@ describe("A tool Ember runs", () => {
       [true, true, maxTokensAt(DEFAULT_LEVELS) - 300],
       [false, true, maxTokensAt(DEFAULT_LEVELS) - 300],
     ]);
-    expect(answers()[2]!.body.messages).toEqual(answers()[0]!.body.messages);
+    // ...with what its call came to after the conversation.
+    const [first, refused, again] = answers().map(({ body }) => body.messages as Array<{ role: string; content: unknown }>);
+    const [{ content: found }] = refused!.at(-1)!.content as [{ content: string }];
+    const lastTurn = first!.at(-1) as { role: string; content: string };
+    expect(again).toEqual([...first!.slice(0, -1), { ...lastTurn, content: `${lastTurn.content}\n\n${CALLS_MADE}\n\nCall 1: search_messages with {"words":"launch"}\n${found}` }]);
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("again without Ember's tools, as it was refused going on from a call of one"));
 
     // Refused without them too, it isn't asked another way.
@@ -515,15 +526,18 @@ describe("An answer that waits at a call", () => {
     ]);
   });
 
-  it("keeps what Grok's searches of the web found before the call, in Chat Completions, and lists them under the answer once it has waited", async () => {
+  it("keeps what Grok's searches of the web found before the call, in Chat Completions, and lists those it cites under the answer once it has waited, numbering what it finds then after them", async () => {
     const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
+    const time = { url: "https://example.com/launch-time", title: "Launch time", description: "It starts at noon." };
     const call = (id: string, name: string, args: Record<string, string>) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
     const turn = (message: Record<string, unknown>) => ({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }], usage: { completion_tokens: 50 } });
     const answers = [
       turn({ role: "assistant", content: null, tool_calls: [call("call_1", "web_search", { query: "launch date" }), call("call_2", "send", { to: "ada" })] }),
-      turn({ role: "assistant", content: "Ada knows it's on March 3." }),
+      turn({ role: "assistant", content: null, tool_calls: [call("call_3", "web_search", { query: "launch time" })] }),
+      turn({ role: "assistant", content: "Ada knows it's on March 3 [1] at noon [2]." }),
     ];
-    refusing = ({ url }) => Response.json(url.endsWith("/ai/websearch/") ? { success: true, result: { items: [page] } } : answers.shift());
+    const results = [page, time];
+    refusing = ({ url }) => Response.json(url.endsWith("/ai/websearch/") ? { success: true, result: { items: [results.shift()] } } : answers.shift());
     const gateway = gatewayFor(GROK, "chat");
 
     const waiting = waitingIn(await askWaiting(bindings, gateway, { ...question, webTools: ["search"] }, 5_000));
@@ -531,11 +545,82 @@ describe("An answer that waits at a call", () => {
     expect(waiting.paused.searches).toEqual({ found: [[expect.objectContaining({ url: page.url, title: page.title })]] });
 
     const answered = await goOn(bindings, gateway, tools, kept(waiting.paused), true, 5_000);
-    expect(answered).toMatchObject({ text: "Ada knows it's on March 3.", sources: [{ url: page.url, title: page.title }] });
+    expect(answered).toMatchObject({ text: "Ada knows it's on March 3 at noon.", sources: [{ url: page.url, title: page.title }, { url: time.url, title: time.title }] });
     expect(sent).toEqual([{ to: "ada" }]);
-    // The model is still given Ember's tool for searching the web as it goes on, and wasn't asked to search again.
-    expect(asked.map(({ url }) => new URL(url).pathname.split("/ai/")[1])).toEqual(["v1/chat/completions", "websearch/", "v1/chat/completions"]);
+    // The model is still given Ember's tool for searching the web as it goes on, and what it finds then is numbered after what it found before.
+    expect(asked.map(({ url }) => new URL(url).pathname.split("/ai/")[1])).toEqual(["v1/chat/completions", "websearch/", "v1/chat/completions", "websearch/", "v1/chat/completions"]);
     expect((asked[2]!.body.tools as Array<{ function: { name: string } }>).map(({ function: { name } }) => name)).toEqual(["web_search", "look", "send"]);
+    expect(asked[4]!.body.messages!.at(-1)).toEqual({
+      role: "tool",
+      tool_call_id: "call_3",
+      content: `[2] Launch time\n${time.url}\nIt starts at noon.\n\nCite a page you use by its number in brackets, such as [2], after what you take from it.`,
+    });
+  });
+
+  it("keeps the rest of an answer out of AI Gateway's logs from a call that came to what they mustn't keep, once it has waited, and its searches of the web", async () => {
+    const call = (id: string, name: string, args: Record<string, string>) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+    const turn = (message: Record<string, unknown>) => ({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }], usage: { completion_tokens: 50 } });
+    const answers = [
+      turn({ role: "assistant", content: null, tool_calls: [call("call_1", "read_dm", {}), call("call_2", "send", { to: "ada" })] }),
+      turn({ role: "assistant", content: null, tool_calls: [call("call_3", "web_search", { query: "tangerine" })] }),
+      turn({ role: "assistant", content: "Ada knows the code." }),
+    ];
+    refusing = ({ url }) => Response.json(url.endsWith("/ai/websearch/") ? { success: true, result: { items: [] } } : answers.shift());
+    const readDm: EmberTool = { name: "read_dm", description: "Reads a DM.", takes: { type: "object" }, run: async () => ({ text: "The launch code is tangerine.", unlogged: true }) };
+    const given = [readDm, ...tools];
+    const gateway = gatewayFor(GROK, "chat");
+
+    const waiting = waitingIn(await askWaiting(bindings, gateway, { ...question, tools: given, webTools: ["search"] }, 5_000));
+    expect(waiting.asks).toEqual({ id: "call_2", name: "send", input: { to: "ada" } });
+    expect(waiting.paused.question.unlogged).toBe(true);
+    expect(await goOn(bindings, gateway, given, kept(waiting.paused), true, 5_000)).toMatchObject({ text: "Ada knows the code." });
+    // Only the first request, made before the DM was read, is kept whole.
+    expect(asked.map(({ url, logsKeep }) => [new URL(url).pathname.split("/ai/")[1], logsKeep])).toEqual([
+      ["v1/chat/completions", null],
+      ["v1/chat/completions", "false"],
+      ["websearch/", "false"],
+      ["v1/chat/completions", "false"],
+    ]);
+  });
+
+  it("tells a model refused going on once a call is allowed what every call of its answer did, as it's asked again without the tools, so that it doesn't answer as if they hadn't", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // An app that fails a call may say nothing of why, as Ember tells a model then.
+    const close: EmberTool = { name: "close", description: "Closes the issue.", takes: { type: "object" }, run: () => Promise.reject(new ToolError("(The tool answered with nothing.)")) };
+    const given = [...tools, close];
+    const use = (id: string, name: string, input: unknown) => ({ type: "tool_use", id, name, input });
+    const turn = (content: unknown[], stop_reason = "tool_use") => ({ type: "message", role: "assistant", content, stop_reason, usage: { input_tokens: 1_000, output_tokens: 100 } });
+    const answers = [
+      () => Response.json(turn([use("call_1", "look", {}), use("call_2", "close", { issue: 42 })])),
+      () => Response.json(turn([use("call_3", "send", { to: "ada" })])),
+      () => Response.json({ type: "error", error: { type: "invalid_request_error", message: "messages.4: unexpected `tool_result`" } }, { status: 400 }),
+      () => Response.json(turn([{ type: "text", text: "I've told Ada the launch is Friday." }], "end_turn")),
+    ];
+    refusing = () => answers.shift()!();
+    const gateway = gatewayFor(CLAUDE, "anthropic");
+
+    const waiting = waitingIn(await askWaiting(bindings, gateway, { ...question, tools: given }, 5_000));
+    expect(waiting.asks).toEqual({ id: "call_3", name: "send", input: { to: "ada" } });
+    expect(await goOn(bindings, gateway, given, kept(waiting.paused), true, 5_000)).toMatchObject({ text: "I've told Ada the launch is Friday." });
+    expect(sent).toEqual([{ to: "ada" }]);
+
+    // Asked once more, it reads the conversation as it was asked, then what each call came to, those before the answer waited too, and which failed.
+    expect(asked).toHaveLength(4);
+    const last = asked.at(-1)!.body;
+    expect(last).not.toHaveProperty("tools");
+    expect(last).toMatchObject({ max_tokens: 800 });
+    expect(last.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          "tell ada when the launch is",
+          CALLS_MADE,
+          "Call 1: look with {}\nLaunch is Friday.",
+          'Call 2: close with {"issue":42}, which failed\n(The tool answered with nothing.)',
+          'Call 3: send with {"to":"ada"}\nSent 1',
+        ].join("\n\n"),
+      },
+    ]);
   });
 
   it("is only for an answer something waits for: asking a model any other way throws at a tool that asks first", async () => {

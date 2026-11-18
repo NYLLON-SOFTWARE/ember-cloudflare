@@ -13,8 +13,24 @@ import {
 } from "@ember/protocol/assistant";
 import type { Env } from "../env";
 import { isLoopback } from "../loopback";
+import { citedIn } from "./citations";
 import { isMessages, isObject, isResponses } from "./formats";
-import { decided, goingOn, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, ToolError, toolsIn, withRoom, writtenIn, type EmberTool, type Round, type ToolResult } from "./tool-calls";
+import {
+  decided,
+  goingOn,
+  resultsOf,
+  TOOL_CALLS_PER_ANSWER,
+  toolCallsIn,
+  ToolError,
+  toolsIn,
+  whatCallsCameTo,
+  withRoom,
+  writtenIn,
+  type CallMade,
+  type EmberTool,
+  type Round,
+  type ToolResult,
+} from "./tool-calls";
 
 export { isObject };
 
@@ -86,7 +102,8 @@ const WEB_SEARCH_FUNCTION = {
   type: "function",
   function: {
     name: "web_search",
-    description: "Search the web for what's current, or what you don't know. It answers with the pages it finds, each with its title, address and what it says.",
+    description:
+      "Search the web for what's current, or what you don't know. It answers with the pages it finds, each numbered, with its title, address and what it says. Cite each page you use by its number in brackets, such as [1], after what you take from it: the chat names the pages you cite under your answer.",
     parameters: {
       type: "object",
       properties: { query: { type: "string", description: "What to search for, in a few words, as you'd type it into a search engine." } },
@@ -117,9 +134,9 @@ export interface Turn {
  * What to ask a model: how it should answer, the conversation, oldest first, ending with what it's asked,
  * the most tokens its answer may take, its thinking among them, how much to think first, if it's told,
  * who asked, if someone did, and who answers, @ember or an agent, if either does, whom AI Gateway's logs
- * and spend limits then know each request by (custom metadata's `user_id` and `agent_id`), what it
- * may do on the web, of what its format has tools for: nothing, unless it's told, and the tools Ember
- * runs for it, if it has any.
+ * and spend limits then know each request by (custom metadata's `user_id` and `agent_id`), whether
+ * those logs keep what's asked and answered, what it may do on the web, of what its format has tools
+ * for: nothing, unless it's told, and the tools Ember runs for it, if it has any.
  */
 export interface Question {
   instructions: string;
@@ -132,6 +149,12 @@ export interface Question {
   thinking?: ThinkingLevel;
   askerId?: string;
   agentId?: string;
+  /**
+   * Whether AI Gateway's logs keep none of what's asked or answered, only what each request was and cost,
+   * as for a question asked in a DM or a private room. An answer's requests are unlogged from the first
+   * after a call that came to what the logs mustn't keep, to its end (`Unlogged`).
+   */
+  unlogged?: true;
   webTools?: readonly WebTool[];
   tools?: readonly EmberTool[];
 }
@@ -220,14 +243,16 @@ export interface Source {
 
 /**
  * A model's answer: its text, whether it was cut short, as it took every token it could, and the pages
- * it came from, when it used the web: those it cites, then those it read, or those Ember's searches found
- * for one of Workers AI's, which can't cite them. When none of those searches found any, as Cloudflare's
- * Web Search API refused them, why it did.
+ * it came from, when it used the web: those it cites, then those it read, as its provider says, or, for
+ * Grok or one of Workers AI's, those it cites of the pages Ember's searches found (`citedIn`). Whether
+ * those searches found any, which it may cite none of, or, when none did, as Cloudflare's Web Search API
+ * refused them, why.
  */
 export interface Answered {
   text: string;
   cut?: true;
   sources?: Source[];
+  searched?: true;
   searchRefused?: GatewayRefusal;
 }
 
@@ -236,8 +261,9 @@ export interface Answered {
  * allows the call or doesn't: the model and format it's asked in, the question, as it was asked, without
  * its tools, which its room gives it again, the request the model answered `body` to, with its calls,
  * what those before the one that waits came to, and how far the answer had got: the calls it had made,
- * the tokens it had left, what Messages' model had said in the turns before, and what Grok's searches
- * of the web with Ember's own tool had found.
+ * the tokens it had left, what Messages' model had said in the turns before, what Grok's searches
+ * of the web with Ember's own tool had found, and, where it was kept, what each call of the rounds
+ * before came to.
  */
 export interface PausedAnswer {
   model: string;
@@ -250,6 +276,7 @@ export interface PausedAnswer {
   tokensLeft: number;
   saidBefore: unknown[];
   searches?: WebSearches;
+  made?: CallMade[];
 }
 
 /** What an answer's searches of the web with Ember's own tool have come to: the pages each found, and why one was refused, if one was. */
@@ -276,8 +303,9 @@ type Asked = Answered | GatewayRefusal | Asking;
  * without the one for reading pages, which AI Gateway may not have for every model, then without them,
  * told it can't use them, and last without the tools Ember runs, which every model Ember gives them
  * takes as far as its provider says. One refused only once it has called one of those isn't asked again
- * here: `askOnce` has it answer without them in what's left of the answer's tokens. None of the
- * question's tools may ask first: nothing here waits for a call to be allowed (`askWaiting`).
+ * here: `askOnce` has it answer without them, told what its calls came to, in what's left of the
+ * answer's tokens. None of the question's tools may ask first: nothing here waits for a call to be
+ * allowed (`askWaiting`).
  */
 export async function ask(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<Answered | GatewayRefusal> {
   return unasked(await askWaiting(env, gateway, question, timeoutMs));
@@ -361,7 +389,8 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
  * as many calls as an answer may make, and then told to answer. All its turns share the answer's tokens,
  * and its provider's tools the uses an answer allows, and one that calls a tool with too few tokens left
  * to go on took every token it could. One that's refused going on from a call answers without Ember's
- * tools (`withoutTools`). None of the question's tools may ask first, as for `ask`.
+ * tools, told what its calls came to (`withoutTools`). None of the question's tools may ask first, as
+ * for `ask`.
  */
 export async function askOnce(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
   return unasked(await answering(env, gateway, question, signal));
@@ -369,25 +398,28 @@ export async function askOnce(env: Env, gateway: Gateway, question: Question, si
 
 /**
  * What `askOnce` answers, or the call of a tool that asks first the answer waits at, going on `from`
- * where an answer paused, if it did: with the round of calls it waited in, as far as they're done.
+ * where an answer paused, if it did: with the round of calls it waited in, as far as they're done. The
+ * question is unlogged from the round after a call that came to what AI Gateway's logs mustn't keep, as
+ * it is then for the rest of the answer, its searches of the web too, and once it has waited.
  */
 async function answering(env: Env, gateway: Gateway, question: Question, signal: AbortSignal, from?: PausedAnswer): Promise<Asked> {
   if (gateway.format === "workers") return askWorkersAi(env, gateway, question, signal);
   const { format } = gateway;
-  const web = searchingInChat(env, gateway, question, signal, from?.searches);
+  const web = searchingInChat(env, gateway, () => question, signal, from?.searches);
   const tools = [...(question.tools ?? []), ...(web ? [web.tool] : [])];
   const answered = (said: unknown) => (web ? web.sourced(answeredIn(format, said)) : answeredIn(format, said));
   const saidBefore = [...(from?.saidBefore ?? [])];
   let request = from?.request ?? requestOf(gateway, question);
   let tokensLeft = from?.tokensLeft ?? question.maxTokens;
   let called = from?.called ?? 0;
+  const made = [...(from?.made ?? [])];
   let round = from && { body: from.body, done: from.results };
   for (;;) {
     if (!round) {
       const turn = await turnOf(env, gateway, question, request, tokensLeft, signal);
       if ("refused" in turn) {
         if (!(called > 0 && turn.refused.wrongFormat)) return turn.refused;
-        const unaided = await withoutTools(env, gateway, question, request, turn.tokensLeft, turn.refused, signal);
+        const unaided = await withoutTools(env, gateway, question, request, made, turn.tokensLeft, turn.refused, signal);
         return web ? web.sourced(unaided) : unaided;
       }
       tokensLeft = turn.tokensLeft;
@@ -401,11 +433,13 @@ async function answering(env: Env, gateway: Gateway, question: Question, signal:
     const { body } = round;
     const calls = toolCallsIn(format, body);
     const { results, asks } = await resultsOf(tools, calls, TOOL_CALLS_PER_ANSWER - called, round.done);
+    if (results.some(({ unlogged }) => unlogged)) question = { ...question, unlogged: true };
     if (asks) {
       const { tools: _, ...asked } = question;
-      return { asks, paused: { model: gateway.model, format, question: asked, request, body, results, called, tokensLeft, saidBefore, ...(web && { searches: web.searches() }) } };
+      return { asks, paused: { model: gateway.model, format, question: asked, request, body, results, called, tokensLeft, saidBefore, made, ...(web && { searches: web.searches() }) } };
     }
     called += calls.length;
+    made.push(...calls.map(({ name, input }, index) => ({ name, input, text: results[index]!.text, failed: results[index]!.failed })));
     request = withRoom(format, goingOn(format, sparing(format, request, body), body, results), tokensLeft, called >= TOOL_CALLS_PER_ANSWER);
     saidBefore.push(...listOf(body.content));
     round = undefined;
@@ -414,19 +448,20 @@ async function answering(env: Env, gateway: Gateway, question: Question, signal:
 
 /**
  * Ember's own tool for searching the web, as one of the tools it runs, for a model in Chat Completions,
- * Grok, that may search the web for `question`, what an answer comes to with the pages its searches
- * found (`withSearches`), as it can't cite them, and those searches, which an answer that waits keeps;
- * or null for one in any other format, or that may not. An answer that waited goes on from its searches
- * `before`.
+ * Grok, that may search the web for the question it's asked, `asked()` as it is by each search, what an
+ * answer comes to with the pages it cites of those its searches found (`withSearches`), and those
+ * searches, which an answer that waits keeps; or null for one in any other format, or that may not. An
+ * answer that waited goes on from its searches `before`, numbering the pages its searches find after
+ * theirs.
  */
 function searchingInChat(
   env: Env,
   gateway: Gateway,
-  question: Question,
+  asked: () => Question,
   signal: AbortSignal,
   before?: WebSearches,
 ): { tool: EmberTool; sourced: (answered: Answered | GatewayRefusal) => Answered | GatewayRefusal; searches: () => WebSearches } | null {
-  if (gateway.format !== "chat" || toolsFor(gateway.format, question.webTools).length === 0) return null;
+  if (gateway.format !== "chat" || toolsFor(gateway.format, asked().webTools).length === 0) return null;
   const found: Source[][] = [...(before?.found ?? [])];
   let searchRefused: GatewayRefusal | undefined = before?.refused;
   const { name, description, parameters } = WEB_SEARCH_FUNCTION.function;
@@ -435,16 +470,17 @@ function searchingInChat(
     description,
     takes: parameters,
     async run({ query }) {
-      const asked = typeof query === "string" ? query.trim().slice(0, MAX_QUERY_LENGTH) : "";
-      if (asked === "") throw new ToolError("Say what to search for.");
-      const result = await searchedFor(env, gateway, question, asked, signal);
+      const words = typeof query === "string" ? query.trim().slice(0, MAX_QUERY_LENGTH) : "";
+      if (words === "") throw new ToolError("Say what to search for.");
+      const result = await searchedFor(env, gateway, asked(), words, signal);
       if ("refusal" in result) {
         searchRefused ??= result;
         console.error(`${gateway.model}'s search of the web failed: ${result.refusal}`);
         throw new ToolError(SEARCH_FAILED);
       }
+      const first = found.flat().length + 1;
       found.push(result);
-      return whatWasFound(result);
+      return whatWasFound(result, first);
     },
   };
   return { tool, sourced: (answered) => withSearches(answered, found, searchRefused), searches: () => ({ found, ...(searchRefused && { refused: searchRefused }) }) };
@@ -453,29 +489,39 @@ function searchingInChat(
 /** What a model is told when Cloudflare's Web Search API refused its search. */
 const SEARCH_FAILED = "The search failed, so you can't search the web now. Answer without it, and say that you couldn't search.";
 
-/** What a model reads of the pages a search of the web found, `result`. */
-const whatWasFound = (result: (Source & { text: string })[]) =>
-  result.length > 0 ? result.map(({ url, title, text }, n) => `${n + 1}. ${title || url}\n${url}\n${text}`).join("\n\n") : "The search found nothing.";
+/**
+ * What a model reads of the pages a search of the web found, `result`: each with its number, counted on
+ * from `first`, after the pages the answer's searches found before, which it cites the page by.
+ */
+function whatWasFound(result: (Source & { text: string })[], first: number): string {
+  if (result.length === 0) return "The search found nothing.";
+  const pages = result.map(({ url, title, text }, n) => `[${first + n}] ${title || url}\n${url}\n${text}`);
+  return [...pages, `Cite a page you use by its number in brackets, such as [${first}], after what you take from it.`].join("\n\n");
+}
 
 /**
  * What the model `gateway` names answers `question` without Ember's tools, once it was `refused` going on
  * from a call of one, as a request it can't take. It took the question with everything else it asks, so
- * that's asked as it was, and only once more, with what the answer has left: `tokensLeft` of its tokens,
- * and of its provider's tools the uses `request`, the one refused, left them. `ask` asking it again other
- * ways would spend the answer's tokens and calls over, and lose it thinking and the web for nothing.
+ * that's asked as it was, with what each call its answer `made` came to after the conversation, as text,
+ * since those calls happened all the same, and only once more, with what the answer has left:
+ * `tokensLeft` of its tokens, and of its provider's tools the uses `request`, the one refused, left them.
+ * `ask` asking it again other ways would spend the answer's tokens and calls over, and lose it thinking
+ * and the web for nothing.
  */
 async function withoutTools(
   env: Env,
   gateway: Gateway,
   question: Question,
   request: Record<string, unknown>,
+  made: readonly CallMade[],
   tokensLeft: number,
   refused: GatewayRefusal,
   signal: AbortSignal,
 ): Promise<Answered | GatewayRefusal> {
   console.error(`Asking ${gateway.model} again without Ember's tools, as it was refused going on from a call of one: ${refused.refusal}`);
+  const turns: Turn[] = [...question.turns, { role: "user", text: whatCallsCameTo(made) }];
   // Ember's own tool for searching the web, in Chat Completions, is one of the tools it runs too.
-  const asked = { ...question, tools: [], maxTokens: tokensLeft, ...(gateway.format === "chat" && { webTools: [] }) };
+  const asked = { ...question, turns, tools: [], maxTokens: tokensLeft, ...(gateway.format === "chat" && { webTools: [] }) };
   const turn = await turnOf(env, gateway, asked, withUsesOf(gateway.format, requestOf(gateway, asked), request), tokensLeft, signal);
   if (!("refused" in turn)) return answeredIn(gateway.format, turn.body);
   const { wrongFormat: _, ...unanswered } = turn.refused;
@@ -574,7 +620,7 @@ const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []
  * times as it likes, which Ember runs (`searchedFor`) and answers it with what was found, until it answers
  * in words, has taken every token the answer may, thinking among them, or has searched as much as an
  * answer may, when each search it asks for after that is answered with that it can't, and it's asked once
- * more. Its sources are the pages its searches found, as it can't cite them.
+ * more. Its sources are the pages it cites of those its searches found, by the numbers Ember gives them.
  */
 async function askWorkersAi(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
   const request = requestOf(gateway, question);
@@ -610,8 +656,9 @@ async function askWorkersAi(env: Env, gateway: Gateway, question: Question, sign
         console.error(`${gateway.model}'s search of the web failed: ${result.refusal}`);
         return SEARCH_FAILED;
       }
+      const first = found.flat().length + 1;
       found.push(result);
-      return whatWasFound(result);
+      return whatWasFound(result, first);
     });
     // Each turn of calls counts as a search at least, so that calls of no search still end.
     searched += searches.filter((query) => query !== null).length || 1;
@@ -656,18 +703,18 @@ function jsonIn(text: string): unknown {
 const completionTokensIn = (body: unknown) => (isObject(body) && isObject(body.usage) && typeof body.usage.completion_tokens === "number" ? body.usage.completion_tokens : 0);
 
 /**
- * `answered`, a Workers AI model's answer, or Grok's, with the pages its searches, `found`, found, the first of each
- * search's, then the second of each, and so on, each once, no more than an answer names, or else, when
- * none found any as Cloudflare's Web Search API refused them, why, `searchRefused`.
+ * `answered`, a Workers AI model's answer, or Grok's, without the citations it writes of the pages its
+ * searches found, `found`, numbered in the order it read them, and with the pages it cites, each once,
+ * no more than an answer names (`citedIn`), saying it searched; or else, when its searches found none as
+ * Cloudflare's Web Search API refused them, why, `searchRefused`.
  */
 function withSearches(answered: Answered | GatewayRefusal, found: Source[][], searchRefused: GatewayRefusal | undefined): Answered | GatewayRefusal {
   if ("refusal" in answered) return answered;
-  const named = new Set<string>();
-  const most = Math.max(0, ...found.map((results) => results.length));
-  const sources = Array.from({ length: most }, (_, rank) => found.flatMap((results) => results[rank] ?? [])).flat();
-  const unnamed = sources.filter(({ url }) => !named.has(url) && named.add(url)).slice(0, MAX_SOURCES).map(({ url, title }) => ({ url, title }));
-  if (unnamed.length > 0) return { ...answered, sources: unnamed };
-  return searchRefused ? { ...answered, searchRefused } : answered;
+  const pages = found.flat();
+  if (pages.length === 0) return searchRefused ? { ...answered, searchRefused } : answered;
+  const { text, cited } = citedIn(answered.text, pages);
+  const sources = cited.slice(0, MAX_SOURCES).map(({ url, title }) => ({ url, title }));
+  return { ...answered, text: text.trim() || answered.text, searched: true, ...(sources.length > 0 && { sources }) };
 }
 
 /**
@@ -680,7 +727,7 @@ async function searchedFor(env: Env, { accountId, apiToken }: Gateway, question:
   try {
     response = await fetch(`${cloudflareApiOf(env)}/accounts/${accountId}/ai/websearch/`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json", ...metadataOf(question) },
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json", ...loggedAs(question) },
       body: JSON.stringify({ query, limit: RESULTS_PER_SEARCH, options: { gateway: { id: GATEWAY_ID } } }),
       signal,
     });
@@ -729,7 +776,7 @@ async function send(env: Env, gateway: Gateway, question: Question, request: Rec
         ...(provider ? { "cf-aig-authorization": `Bearer ${gateway.apiToken}` } : { Authorization: `Bearer ${gateway.apiToken}`, "cf-aig-gateway-id": GATEWAY_ID }),
         ...(provider === "anthropic" && { "anthropic-version": ANTHROPIC_VERSION }),
         "Content-Type": "application/json",
-        ...metadataOf(question),
+        ...loggedAs(question),
       },
       body: JSON.stringify(request),
       signal,
@@ -748,10 +795,18 @@ function addressOf(env: Env, { accountId, format }: Gateway): string {
   return isProviderFormat(format) ? `${providerEndpointsOf(env)}/${accountId}/${GATEWAY_ID}/${PATHS[format]}` : `${cloudflareApiOf(env)}/accounts/${accountId}/ai/v1/${PATHS[format]}`;
 }
 
-/** The custom metadata AI Gateway keeps of a request asking `question`: who asked and who answers, of those it names, if it names either. */
-function metadataOf({ askerId, agentId }: Question): Record<string, string> {
+/**
+ * The headers that have AI Gateway log a request asking `question` as it should: with the custom metadata
+ * of who asked and who answers, of those it names, if it names either, and without what's asked or
+ * answered, the request's body and the response's, when the question is `unlogged`. The log keeps its
+ * model, tokens, cost and how long it took.
+ */
+function loggedAs({ askerId, agentId, unlogged }: Question): Record<string, string> {
   const metadata = { ...(askerId !== undefined && { user_id: askerId }), ...(agentId !== undefined && { agent_id: agentId }) };
-  return Object.keys(metadata).length > 0 ? { "cf-aig-metadata": JSON.stringify(metadata) } : {};
+  return {
+    ...(Object.keys(metadata).length > 0 && { "cf-aig-metadata": JSON.stringify(metadata) }),
+    ...(unlogged && { "cf-aig-collect-log-payload": "false" }),
+  };
 }
 
 /** The answer `body` gives in `format`, or why it's none: the model said nothing, or took every token it could first. */

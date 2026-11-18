@@ -4,6 +4,7 @@ import {
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
   CloseCode,
+  DELETED_PERSON_NAME,
   domainOfEmailAddress,
   EMAILS_PER_ADDRESS,
   EMAIL_LINKS_PER_NETWORK,
@@ -17,6 +18,7 @@ import {
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
+  parseWorkspaceSocketParams,
   PASSWORD_RESET_CODE_MINUTES,
   PASSWORD_RESETS_PER_NETWORK,
   sameName,
@@ -61,17 +63,20 @@ import {
   type Room,
   type RoomChanges,
   type RoomId,
+  type RoomKind,
   type RoomSettings,
   type Search,
   type SentTestEmail,
   type SharedRoom,
   type Sidebar,
+  type SidebarRoom,
   type User,
   type UserId,
   type UserStatus,
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { MAX_OUTSIDE_CONNECTIONS, outsideScopesOf, type OutsideAiSettings, type OutsideConnection, type OutsideScope } from "@ember/protocol/outside";
 import {
   ASSISTANT_MODELS,
   DEFAULT_LEVELS,
@@ -92,8 +97,9 @@ import {
   type YourAssistant,
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
-import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
+import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
 import {
+  isAtHost,
   MAX_APP_SCOPE_LENGTH,
   MAX_APPS,
   type App,
@@ -107,6 +113,7 @@ import {
   type YourApp,
   type YourAppSignedOut,
 } from "@ember/protocol/apps";
+import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
 import type { Gateway } from "./assistant/gateway";
 import { modelsFileUrlOf, type KeptModelsFile, type KeptWorkersAiModels } from "./assistant/offered";
 import { providerMovesOf } from "./assistant/model-tests";
@@ -118,15 +125,30 @@ import { openDb, type Db } from "./db";
 import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordResetCodeEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
-import type { SfuApp } from "./huddles/sfu";
+import type { RelayKey } from "./huddles/relay";
+import type { HuddleApp, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } from "./memberful-api";
+import {
+  deployedMemberfulOf,
+  memberfulApiOf,
+  memberfulWebhooksOf,
+  membershipsOf,
+  namelessMember,
+  openMemberfulSecrets,
+  sealMemberfulSecrets,
+  type MemberfulApi,
+  type MemberfulMember,
+  type MemberfulSetup,
+} from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
-import { sessionTag } from "./revocations";
+import { urlOf } from "./request-url";
+import { OPEN_ROOMS_ONLY, sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
 import { appConnector } from "./apps/connector";
+import { ACCESS_TTL_SECONDS, CODE_TTL_MS, provesChallenge, REFRESH_TTL_MS } from "./outside/oauth";
+import { OutsideStore, type NewOutsideConnection, type OutsideClient, type OutsideTokens, type StoredOutsideConnection } from "./outside/store";
 import type { Key } from "./apps/mcp";
 import { isDue, type SignIn } from "./apps/oauth";
 import { scopesWith } from "./apps/scopes";
@@ -137,6 +159,7 @@ import { SessionCache } from "./session-cache";
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
+import { isViewing, type Viewing } from "./viewing";
 import {
   NEW_ACCOUNT_LOOKS,
   WorkspaceStore,
@@ -149,6 +172,7 @@ import {
   type AssistantPicks,
   type DirectoryEntry,
   type Disconnection,
+  type InvitationPush,
   type JoinableAccount,
   type LinkedAccount,
   type LinkedPerson,
@@ -205,6 +229,60 @@ const KEPT_WORKERS_AI_MODELS = "keptWorkersAiModels";
  * workspace in the last one, counted from the people kept, whatever the Workspace's memory forgets.
  */
 const SIGN_UP_WINDOW_MS = 60 * 60 * 1000;
+
+/** How many times an hour one IP address can register an AI app, which nothing signs in to do. */
+const OUTSIDE_REGISTRATIONS_PER_ADDRESS = 10;
+const OUTSIDE_REGISTRATION_WINDOW_MS = 60 * 60 * 1000;
+/** The most AI apps Ember keeps that registered themselves, and how long one nobody has connected is kept once there are that many. */
+export const MAX_OUTSIDE_CLIENTS = 500;
+const UNCONNECTED_CLIENT_MS = 60 * 60 * 1000;
+/** How often Ember records that a connection's app asked it something. */
+const OUTSIDE_USED_EVERY_MS = 60 * 60 * 1000;
+
+/** What an AI app's access token lets it do, and as whom: the connection it's of. */
+export interface OutsideAccess {
+  connectionId: string;
+  userId: UserId;
+  clientId: string;
+  scopes: OutsideScope[];
+  /** The address the app said it connects to, which is the only one its tokens are good at, or null when it didn't say. */
+  resource: string | null;
+}
+
+/** As whom an AI app acts, and what it's allowed, which say which rooms it reaches. */
+export type OutsideReach = Pick<OutsideAccess, "userId" | "scopes">;
+
+/** The person an AI app sends a message as, in a room they're in, as the room keeps who wrote it. */
+export interface OutsideSender {
+  user: User;
+  /** What the room turns it away for a revocation of since the Workspace checked, as a socket's tags (`outsideTagsOf`). */
+  tags: string[];
+  /** When the Workspace checked, in milliseconds since the epoch, as a room's socket has it. */
+  authorizedAt: number;
+}
+
+/** How many messages AI apps may send as one person in a minute, all their apps together. */
+export const OUTSIDE_SENDS_PER_MINUTE = 20;
+
+/** The digests of the tokens Ember gives an app next. */
+export type NextOutsideTokens = Pick<OutsideTokens, "accessDigest" | "refreshDigest">;
+
+/** `next`, with when each expires, given at `now`. */
+const outsideTokensAt = (next: NextOutsideTokens, now: number): OutsideTokens => ({
+  ...next,
+  accessExpiresAt: new Date(now + ACCESS_TTL_SECONDS * 1000).toISOString(),
+  refreshExpiresAt: new Date(now + REFRESH_TTL_MS).toISOString(),
+});
+
+/** A connection as its person's profile lists it. */
+const shownConnection = ({ id, clientName, redirectUri, scope, createdAt, usedAt }: StoredOutsideConnection): OutsideConnection => ({
+  id,
+  name: clientName,
+  comesBackTo: new URL(redirectUri).host,
+  scopes: outsideScopesOf(scope),
+  connectedAt: createdAt,
+  usedAt,
+});
 /**
  * The hour of the limits on asking Ember to email someone, a link to join at the email domains or a code
  * to reset a password: the asks from an IP address are counted in a fixed one, and the times an address
@@ -308,6 +386,8 @@ const accountOf = (
     emailDomainSignUp,
     emailDomains,
     navigationIcons,
+    huddleCameras,
+    huddleScreens,
     updatedAt,
     storedLogo,
   }: JoinableAccount,
@@ -328,6 +408,8 @@ const accountOf = (
   emailDomains: emailDomainSignUp ? emailDomains : [],
   navigationIcons,
   huddles,
+  huddleCameras,
+  huddleScreens,
 });
 
 /** The parts of the account that Ember AI's settings are made of. */
@@ -377,6 +459,19 @@ function movedIn(assistant: SavedAssistant, moves: readonly MovedModel[]): Saved
 /** The hosts Ember knows reach it, as `account` keeps them: its custom domain, where a deploy puts it, and the domains it moved away from. */
 const addressesOf = (account: Pick<JoinableAccount, "customDomain" | "deployedAddress" | "otherAddresses">): string[] =>
   [account.customDomain, account.deployedAddress, ...account.otherAddresses].filter((address) => address !== null);
+
+/** Whether a room of `kind` is private, a DM or a private room, whose people alone read what's said there. */
+const isPrivate = (kind: RoomKind | null) => kind !== "open";
+
+/** Whether an AI app connected with `scopes` reaches a room of `kind`: one open to everyone, and with "private", a DM or a private room too. */
+const reaches = (scopes: readonly OutsideScope[], kind: RoomKind | null) => !isPrivate(kind) || scopes.includes("private");
+
+/**
+ * The tags of what an AI app connected as `userId` with `scopes` sends to a room, a revocation of which
+ * there turns it away: its person's, and, unless it reaches private rooms, the room's being made private
+ * (`OPEN_ROOMS_ONLY`).
+ */
+const outsideTagsOf = (userId: UserId, scopes: readonly OutsideScope[]) => (scopes.includes("private") ? [userId] : [userId, OPEN_ROOMS_ONLY]);
 
 /** The levels someone who `picked` them has of @ember's dials, where each starts for one they haven't picked, no higher than `most`. */
 const levelsOf = (picked: AssistantPicks | null, most: AnswerLevels): AnswerLevels =>
@@ -553,7 +648,7 @@ export interface BotAccess {
  * @ember or an AI agent as a room asks Ember AI to answer a question there (`Workspace.answererIn`): how
  * Ember AI asks AI Gateway with its model, or null while its API token doesn't open, its instructions,
  * the community's name, which it's told, how much it thinks and how long it answers, what it may do on
- * the web, and Ember's own addresses, whose pages its answers don't preview.
+ * the web, Ember's own addresses, whose pages its answers don't preview, and whether it's asked in private.
  */
 export interface AssistantAccess extends BotAccess {
   gateway: Gateway | null;
@@ -571,7 +666,12 @@ export interface AssistantAccess extends BotAccess {
   webSearchOn: boolean;
   /** The hosts Ember knows reach it, as `location.host` writes them: its custom domain, where a deploy puts it, and the domains it moved away from. */
   addresses: string[];
-  /** The connected apps' tools picked for it, each as its server described it when it was picked. */
+  /**
+   * Whether it's asked in private: in a DM or a private room, whose people alone read what's said there,
+   * so that AI Gateway's logs keep none of it, and nothing of it goes to an app unless someone there allows it.
+   */
+  inPrivate: boolean;
+  /** The connected apps' tools picked for it, each as its server described it when it was picked, and as it calls them in the room. */
   appTools: PickedTool[];
 }
 
@@ -617,10 +717,11 @@ export interface ClickAccess extends WebhookAccess {
 /**
  * Why signing in with Memberful signed nobody in, or connected no account: Memberful is off for someone
  * new, the person the account is linked to was removed or banned, it has no active membership, someone
- * new would have someone's email address, or, connecting one, Memberful isn't members only, the account
- * is connected to someone else, or they're connected to another.
+ * new would have someone's email address, keys for another site took the place of the ones it signed
+ * in with meanwhile, or, connecting one, Memberful isn't members only, the account is connected to
+ * someone else, or they're connected to another.
  */
-export type MemberfulRefusal = "off" | "unneeded" | "refused" | "membership" | "taken" | "claimed" | "another";
+export type MemberfulRefusal = "off" | "unneeded" | "refused" | "membership" | "taken" | "claimed" | "another" | "failed";
 
 /** What a join link does: joins, is off while an administrator has turned it off or Memberful is members only, or isn't the join link. */
 export type JoinLink = "joins" | "off" | "memberful" | "not found";
@@ -700,6 +801,21 @@ function isCode(code: string, joinCode: string): boolean {
   const [given, expected] = [encoder.encode(code), encoder.encode(joinCode)];
   return given.length === expected.length && crypto.subtle.timingSafeEqual(given, expected);
 }
+
+/**
+ * What a workspace socket's attachment says of its tab: whether it's shown, as its address said and its
+ * `presence.visible` frames since, and when the Workspace last heard so, as a room's sockets say of theirs.
+ */
+type Shown = Pick<Viewing, "visible" | "heardAt">;
+
+/**
+ * What a socket with no attachment counts as saying, like one whose address didn't say: that its tab
+ * isn't shown. The Workspace let it in before it kept this, and a socket stays connected when the
+ * Workspace takes new code after hibernating.
+ */
+const UNSAID: Shown = { visible: false, heardAt: 0 };
+
+const shownOf = (tab: WebSocket) => (tab.deserializeAttachment() as Shown | null) ?? UNSAID;
 
 /** Sends `frame` on a workspace socket, unless it has closed since. */
 function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
@@ -895,6 +1011,7 @@ const shownApp = (app: StoredApp, everyPicks: readonly AgentToolPicks[]): App =>
 export class Workspace extends DurableObject<Env> {
   private readonly db: Db;
   private readonly store: WorkspaceStore;
+  private readonly outside: OutsideStore;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /**
    * The account once it exists. Renaming it and regenerating its join code keep this current, and
@@ -916,6 +1033,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly emailLinkAsks = new FixedWindowLimit(EMAIL_LINKS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
   private readonly passwordResetAsks = new FixedWindowLimit(PASSWORD_RESETS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
+  private readonly outsideRegistrations = new FixedWindowLimit(OUTSIDE_REGISTRATIONS_PER_ADDRESS, OUTSIDE_REGISTRATION_WINDOW_MS);
+  private readonly outsideSends = new FixedWindowLimit(OUTSIDE_SENDS_PER_MINUTE, 60_000);
   /** The probes custom domain checks send, each with its answer and when it's no longer waited for (see `expectProbe`). */
   private readonly probes = new Map<string, { answer: string; until: number }>();
   /** The access token of each app's sign-in that's being asked for now (`signInKey`). */
@@ -949,6 +1068,7 @@ export class Workspace extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     this.db = openDb(env, ctx.storage, "workspace");
     this.store = new WorkspaceStore(this.db);
+    this.outside = new OutsideStore(this.db);
     // The outbox can hold revocations with no alarm set for them: the Workspace can stop after saving a
     // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
     // whenever it starts, before answering anything. A failure is only logged; the next change that
@@ -965,7 +1085,7 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Lets in a tab's workspace socket, which the Worker sends on with the credentials of the request
    * for it, if they sign someone in. Like a room's, it's tagged with its person and its session, so
-   * signing out can find it.
+   * signing out can find it, and keeps whether its tab is shown, as its address says.
    */
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket upgrade", { status: 426 });
@@ -974,8 +1094,10 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.session(credentials);
     if (!session) return Response.json({ error: "Sign in first" }, { status: 401 });
 
+    const { visible } = parseWorkspaceSocketParams(urlOf(request).searchParams);
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server, [session.user.id, sessionTag(session.id)]);
+    server.serializeAttachment({ visible, heardAt: Date.now() } satisfies Shown);
     // On D1, signing out can end the session while the check above reads it, and close the session's
     // sockets before this one is among them. Now that it is, checking again settles it: the session
     // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
@@ -988,10 +1110,14 @@ export class Workspace extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  /** Answers a ping that the runtime doesn't, because it carries more than its type. A workspace socket sends nothing else. */
+  /**
+   * Keeps whether a tab says it's shown, and answers a ping that the runtime doesn't, because it carries
+   * more than its type. A workspace socket sends nothing else.
+   */
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     if (isTooLarge(raw, MAX_WORKSPACE_FRAME_SIZE)) return closeTooLarge(ws);
     const frame = typeof raw === "string" ? parseWorkspaceClientFrame(raw) : null;
+    if (frame?.type === "presence.visible") return ws.serializeAttachment({ visible: frame.visible, heardAt: Date.now() } satisfies Shown);
     send(ws, frame ? { type: "pong" } : { type: "error", message: "Unrecognized frame" });
   }
 
@@ -1080,10 +1206,11 @@ export class Workspace extends DurableObject<Env> {
   /**
    * What the app asks first: the account, if it's set up, who `credentials` signs in, if anyone, whether
    * the sign-in page offers Sign in with Memberful at `memberfulSite`, the deployment's Memberful site, or
-   * null without its keys (`offersMemberfulSignIn`), and whether it offers to email a code to reset a
-   * password, which it does while Ember can send email, and the site key of the Turnstile widget an
-   * administrator gave Ember, while it has one (`savedTurnstileKeys`). A page opened at `deployedAddress`,
-   * where a deploy puts Ember, which it's null anywhere else, tells Ember where that is.
+   * else at the one an administrator gave the keys of (`offersMemberfulSignIn`), and whether it offers to
+   * email a code to reset a password, which it does while Ember can send email, and the site key of the
+   * Turnstile widget an administrator gave Ember, while it has one (`savedTurnstileKeys`). A page opened
+   * at `deployedAddress`, where a deploy puts Ember, which it's null anywhere else, tells Ember where that
+   * is.
    */
   async bootstrap(
     credentials: Credentials | null,
@@ -1125,6 +1252,12 @@ export class Workspace extends DurableObject<Env> {
     return (await this.joinableAccount())?.deployedAddress ?? null;
   }
 
+  /** The hosts Ember knows reach it (`addressesOf`), none until it's set up. */
+  async ownAddresses(): Promise<string[]> {
+    const account = await this.joinableAccount();
+    return account ? addressesOf(account) : [];
+  }
+
   /** Forgets `address` as a custom domain Ember moved away from, a check having found it no longer reaches Ember. */
   async forgetOtherAddress(address: string): Promise<void> {
     await this.oneAtATime(async () => {
@@ -1136,13 +1269,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Whether Sign in with Memberful is offered at `site`, the deployment's Memberful site, or null without
-   * its keys, when it never is: while Memberful lets its members join, or anyone here is linked to an
-   * account there, since they keep signing in with it once it's off.
+   * Whether Sign in with Memberful is offered at `deployedSite`, the deployment's Memberful site, or
+   * without its keys at the one an administrator gave Ember the keys of, if they did, and else never:
+   * while Memberful lets the site's members join, or anyone here is linked to an account there, since
+   * they keep signing in with it once it's off.
    */
-  async offersMemberfulSignIn(site: string | null): Promise<boolean> {
+  async offersMemberfulSignIn(deployedSite: string | null): Promise<boolean> {
+    const account = await this.joinableAccount();
+    const site = deployedSite ?? (account && (await this.openedMemberful(account)))?.site ?? null;
     if (site === null) return false;
-    if ((await this.joinableAccount())?.memberfulJoin || this.linkedSites.has(site)) return true;
+    if (account?.memberfulJoin || this.linkedSites.has(site)) return true;
     const unlinkings = this.unlinkings;
     if (!(await this.store.anyoneLinked(site))) return false;
     // Until a new password or Disconnect unlinks the last account there (`forgetUnlinked`).
@@ -1164,11 +1300,12 @@ export class Workspace extends DurableObject<Env> {
    * Workspace settings as the person `credentials` signs in sees them: "not set up" before first run, or
    * null without a valid session. A guest isn't given the join link's code, since a member's account
    * they made with it would stay once guests are turned away, unless they're an administrator, who
-   * could make a new code anyway. The Worker adds what it knows of the Memberful site from its keys and
-   * the Cloudflare account it's deployed to, and has the deployment's Turnstile keys take the place of
-   * any an administrator gave, and the Workspace says how it sends email, since it's what sends it.
+   * could make a new code anyway. Memberful is as an administrator set it up, if they did. The Worker
+   * adds the Cloudflare account it's deployed to, and has the deployment's Memberful and Turnstile keys
+   * take the place of any an administrator gave, and the Workspace says how it sends email, since it's
+   * what sends it.
    */
-  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks" | "cloudflareAccountId"> | "not set up" | null> {
+  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "cloudflareAccountId"> | "not set up" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(session.user.id)]);
@@ -1178,6 +1315,7 @@ export class Workspace extends DurableObject<Env> {
       account: await this.shownAccount(account),
       joinCode: canAdminister || !session.guest ? account.joinCode : null,
       canAdminister,
+      ...(await this.memberfulSettings(account, canAdminister)),
       email: await this.emailSettings(account),
       turnstile: (await this.openedTurnstileKeys(account)) ? "saved" : null,
       invitations,
@@ -1185,6 +1323,7 @@ export class Workspace extends DurableObject<Env> {
       addresses: canAdminister ? { deployed: account.deployedAddress, others: account.otherAddresses } : { deployed: null, others: [] },
       assistant: canAdminister ? await this.assistantSettings(account) : null,
       huddles: canAdminister ? await this.huddlesSettings(account) : null,
+      outsideAi: canAdminister && account.outsideAi,
     };
   }
 
@@ -1204,7 +1343,7 @@ export class Workspace extends DurableObject<Env> {
   ): Promise<Account | AccountRefusal | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // Only what differs is written.
-      const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp, emailDomainSignUp } = settings ?? {};
+      const { hideTranslationButtons, restrictRoomCreation, huddleCameras, huddleScreens, joinLink, openSignUp, emailDomainSignUp } = settings ?? {};
       const memberful = memberfulChange(account, settings ?? {});
       const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
       const moving = customDomain !== undefined && customDomain !== account.customDomain;
@@ -1214,6 +1353,8 @@ export class Workspace extends DurableObject<Env> {
         ...(tagline !== undefined && tagline !== account.tagline && { tagline }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
+        ...(huddleCameras !== undefined && huddleCameras !== account.huddleCameras && { huddleCameras }),
+        ...(huddleScreens !== undefined && huddleScreens !== account.huddleScreens && { huddleScreens }),
         ...(moving && { customDomain }),
         ...(!sameDomains(otherAddresses, account.otherAddresses) && { otherAddresses }),
         ...(joinLink !== undefined && joinLink !== account.joinLink && { joinLink }),
@@ -1363,6 +1504,282 @@ export class Workspace extends DurableObject<Env> {
     return secretKey === null ? null : { siteKey: saved.siteKey, secretKey };
   }
 
+  /** The workspace's name while outside AI is on, or null while it's off, when none of its addresses answers. */
+  async outsideAi(): Promise<{ name: string } | null> {
+    const account = await this.joinableAccount();
+    return account?.outsideAi ? { name: account.name } : null;
+  }
+
+  /**
+   * Lets AI apps connect, or stops them, as the administrator `credentials` signs in, answering which:
+   * "forbidden" for anyone else, or null without a valid session. Stopping them ends every connection
+   * and forgets every app that registered, so turning it on again starts afresh.
+   */
+  async changeOutsideAi(credentials: Credentials, on: boolean): Promise<OutsideAiSettings | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      if (account.outsideAi !== on) await this.saveAccount({ ...account, outsideAi: on }, (now) => this.outside.turn(on, now));
+      return { on };
+    });
+  }
+
+  /**
+   * Keeps `client`, an AI app registering itself from the IP address `ip`, under an id of its own,
+   * which it answers with it: "off" while outside AI is, "limited" once that address has registered as
+   * many as one may in an hour, or "full" when Ember keeps as many as it does.
+   */
+  async registerOutsideClient(client: Omit<OutsideClient, "id">, ip: string | null): Promise<OutsideClient | "off" | "limited" | "full"> {
+    if (!(await this.outsideAi())) return "off";
+    if (!this.outsideRegistrations.attempt(ip ?? "unknown")) return "limited";
+    // One at a time with the switch, as `connectOutside` is, so no app is kept once turning outside AI off has forgotten them all.
+    return this.oneAtATime(async () => {
+      if (!(await this.outsideAi())) return "off";
+      const registered = { id: alphanumeric(32), ...client };
+      const now = Date.now();
+      const kept = await this.outside.register(registered, new Date(now).toISOString(), MAX_OUTSIDE_CLIENTS, new Date(now - UNCONNECTED_CLIENT_MS).toISOString());
+      return kept ? registered : "full";
+    });
+  }
+
+  /** The AI app that registered itself as `id`, or null, or "off" while outside AI is. */
+  async outsideClient(id: string): Promise<OutsideClient | "off" | null> {
+    return (await this.outsideAi()) ? this.outside.client(id) : "off";
+  }
+
+  /** The person `credentials` signs in, who may connect an AI app as themselves, with the workspace's name: "off" while outside AI is, "forbidden" for a guest, or null without a valid session. */
+  private async outsidePerson(credentials: Credentials): Promise<{ user: User; workspace: string } | "off" | "forbidden" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const on = await this.outsideAi();
+    if (!on) return "off";
+    return session.guest ? "forbidden" : { user: session.user, workspace: on.name };
+  }
+
+  /** The workspace's name, for the page that asks the person `credentials` signs in whether to connect an AI app, or why they can't, as `outsidePerson` answers. */
+  async outsideAsker(credentials: Credentials): Promise<{ workspace: string } | "off" | "forbidden" | null> {
+    const person = await this.outsidePerson(credentials);
+    return person && typeof person !== "string" ? { workspace: person.workspace } : person;
+  }
+
+  /**
+   * Begins `begun`, a connection of an AI app as the person `credentials` signs in, who has just allowed
+   * it: the app is sent back with the code whose digest it holds, good for a few minutes. "full" when
+   * they have as many connections as one may, or why they can't, as `outsidePerson` answers.
+   */
+  async connectOutside(credentials: Credentials, begun: Omit<NewOutsideConnection, "id" | "userId" | "codeExpiresAt">): Promise<true | "full" | "off" | "forbidden" | null> {
+    // One at a time with the switch, which other requests run beside on D1: a connection that began
+    // after turning outside AI off had ended them all would be there when it's turned on again.
+    return this.oneAtATime(async () => {
+      const person = await this.outsidePerson(credentials);
+      if (!person || typeof person === "string") return person;
+      const now = Date.now();
+      const connection = { ...begun, id: sortableId(), userId: person.user.id, codeExpiresAt: new Date(now + CODE_TTL_MS).toISOString() };
+      return (await this.outside.begin(connection, new Date(now).toISOString(), MAX_OUTSIDE_CONNECTIONS)) || "full";
+    });
+  }
+
+  /**
+   * Gives the AI app that presents the code with the digest `codeDigest` its first tokens, `next`, and
+   * answers what its connection allows, or null for a code that's no good: one Ember never gave, that
+   * has expired, that another app was given, whose app can't prove it began the request (PKCE), or
+   * that was asked for to connect somewhere other than the app now says. A code that comes a second
+   * time has been copied, so the connection it began ends. "off" while outside AI is.
+   */
+  async exchangeOutsideCode(
+    codeDigest: string,
+    proof: { clientId: string; redirectUri: string | null; verifier: string; resource: string | null },
+    next: NextOutsideTokens,
+  ): Promise<{ scope: string } | "off" | null> {
+    if (!(await this.outsideAi())) return "off";
+    return this.oneAtATime(async () => {
+      const connection = await this.outside.byCode(codeDigest);
+      if (!connection || connection.clientId !== proof.clientId) return null;
+      if (connection.exchanged) {
+        await this.outside.forget(connection.id);
+        return null;
+      }
+      if (proof.redirectUri !== null && proof.redirectUri !== connection.redirectUri) return null;
+      if (proof.resource !== null && connection.resource !== null && proof.resource !== connection.resource) return null;
+      if (!(await provesChallenge(proof.verifier, connection.codeChallenge))) return null;
+      const now = Date.now();
+      // An app that says only now where it connects to has its tokens bound to that.
+      const exchanged = await this.outside.exchange(connection.id, outsideTokensAt(next, now), proof.resource, new Date(now).toISOString());
+      return exchanged ? { scope: connection.scope } : null;
+    });
+  }
+
+  /**
+   * Gives the AI app `clientId`, which presents the refresh token with the digest `refreshDigest`, its
+   * next tokens, `next`, in place of the ones it has, and answers what its connection allows, or null
+   * for a refresh token that's no good. One that was used already has been copied, so its connection
+   * ends. "off" while outside AI is.
+   */
+  async refreshOutside(refreshDigest: string, clientId: string, next: NextOutsideTokens): Promise<{ scope: string } | "off" | null> {
+    if (!(await this.outsideAi())) return "off";
+    return this.oneAtATime(async () => {
+      const now = Date.now();
+      const connection = await this.outside.byRefresh(refreshDigest);
+      if (!connection) {
+        await this.outside.forgetSpent(refreshDigest, new Date(now).toISOString());
+        return null;
+      }
+      if (connection.clientId !== clientId || connection.refreshExpiresAt === null || connection.refreshExpiresAt <= new Date(now).toISOString()) return null;
+      const rotated = await this.outside.rotate(connection.id, refreshDigest, outsideTokensAt(next, now), new Date(now).toISOString());
+      return rotated ? { scope: connection.scope } : null;
+    });
+  }
+
+  /** Ends the connection of the AI app `clientId` one of whose tokens has the digest `tokenDigest`, if there is one, as the app asks when it's disconnected there. */
+  async revokeOutside(tokenDigest: string, clientId: string): Promise<void> {
+    await this.outside.forgetByToken(tokenDigest, clientId);
+  }
+
+  /**
+   * What the access token with the digest `accessDigest` lets its AI app do, and as whom, or null for
+   * one that's no good: unknown, expired, or its person's no longer active. "off" while outside AI is.
+   * It records that the app asked, to the hour.
+   */
+  async outsideAccess(accessDigest: string): Promise<OutsideAccess | "off" | null> {
+    if (!(await this.outsideAi())) return "off";
+    const now = Date.now();
+    const connection = await this.outside.byAccess(accessDigest, new Date(now).toISOString());
+    if (!connection) return null;
+    if (connection.usedAt === null || Date.parse(connection.usedAt) <= now - OUTSIDE_USED_EVERY_MS) await this.outside.touch(connection.id, new Date(now).toISOString());
+    return { connectionId: connection.id, userId: connection.userId, clientId: connection.clientId, scopes: outsideScopesOf(connection.scope), resource: connection.resource };
+  }
+
+  /** The AI apps connected as the person `userId`, newest first, as their profile lists them, or null when none can be: while outside AI is off for `account`, or for a `guest`. */
+  private async yourOutsideAi(userId: UserId, guest: boolean, account: JoinableAccount | null): Promise<OutsideConnection[] | null> {
+    if (guest || !account?.outsideAi) return null;
+    return (await this.outside.connectionsOf(userId, new Date().toISOString())).map(shownConnection);
+  }
+
+  /** Ends the connection `id` of the person `credentials` signs in, answering the ones they have left: "not found" when it isn't theirs, or why not, as `outsidePerson` answers. */
+  async disconnectOutside(credentials: Credentials, id: string): Promise<OutsideConnection[] | "not found" | "off" | "forbidden" | null> {
+    const person = await this.outsidePerson(credentials);
+    if (!person || typeof person === "string") return person;
+    if (!(await this.outside.disconnect(person.user.id, id))) return "not found";
+    return (await this.outside.connectionsOf(person.user.id, new Date().toISOString())).map(shownConnection);
+  }
+
+  /** The rooms an AI app connected as `userId` with `scopes` lists: those they're in that it reaches (`reaches`). */
+  async outsideRooms({ userId, scopes }: OutsideReach): Promise<SidebarRoom[]> {
+    return (await this.store.roomsFor(userId)).rooms.filter(({ kind }) => reaches(scopes, kind));
+  }
+
+  /**
+   * The rooms an AI app connected as `userId` with `scopes` may read and search: those it reaches
+   * (`reaches`) of the rooms they're in, the ones they've hidden too, as their own search has them.
+   */
+  async outsideReadable({ userId, scopes }: OutsideReach): Promise<Room[]> {
+    return (await this.store.searcherOf(userId, null)).rooms.filter(({ kind }) => reaches(scopes, kind));
+  }
+
+  /**
+   * The person `userId` as an AI app connected as them with `scopes` sends a message to room `roomId`,
+   * with what the room turns it away for and when this checked, as a room's socket has them: null unless
+   * they're in the room and it's one the app reaches (`reaches`), or "limited" once their apps have sent
+   * as many in a minute as they may.
+   */
+  async outsideSender({ userId, scopes }: OutsideReach, roomId: RoomId): Promise<OutsideSender | "limited" | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const [[user], { member }, kind] = await Promise.all([this.store.peopleWithIds([userId]), this.store.roomAccess(roomId, userId, null), this.store.roomKind(roomId)]);
+    if (!user || !member || !reaches(scopes, kind)) return null;
+    return this.outsideSends.attempt(userId) ? { user, tags: outsideTagsOf(userId, scopes), authorizedAt } : "limited";
+  }
+
+  /**
+   * Gives Ember `keys`, the Memberful site and keys Set up Memberful was given, which the Worker has seen
+   * Memberful take, their secrets sealed together under SESSION_SECRET (`seal`), as the person
+   * `credentials` signs in, answering Memberful as Membership's card shows it then: "forbidden" unless
+   * they're an administrator, null without a valid session, and the site Ember keeps when `keys` are for
+   * another, since people here sign in with their accounts at it (`memberfulSiteKept`). Once anyone here
+   * is linked to an account at the site, the daily check of their memberships is made due at once, as
+   * when the Workspace starts, since none may have been checked with the keys before. Only signed-in
+   * pages show the site, which they ask for, so no socket hears of it.
+   */
+  async changeMemberfulKeys(credentials: Credentials, keys: MemberfulKeysChange): Promise<MemberfulSaved | { kept: string } | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      const kept = await this.memberfulSiteKept(account);
+      if (kept !== null && kept !== keys.site) return { kept };
+      const memberfulKeys = { site: keys.site, clientId: keys.clientId, sealedSecrets: await sealMemberfulSecrets(this.env.SESSION_SECRET, keys) };
+      const saved = await this.saveAccount({ ...account, memberfulKeys }, (now) => this.store.changeAccount({ memberfulKeys }, now));
+      await this.store.startMembershipCatchUp(keys.site, Date.now());
+      await this.scheduleDelivery();
+      return this.memberfulSettings(saved, true);
+    });
+  }
+
+  /**
+   * The Memberful site and keys an administrator gave Ember in Set up Memberful, their secrets opened,
+   * which the Worker signs members in with, and hears the site's webhooks with, while the deployment has
+   * none of its own, or null while there are none, or while they don't open under SESSION_SECRET, as once
+   * that's changed, when it's as if Ember had none until an administrator gives it them again.
+   */
+  async savedMemberful(): Promise<MemberfulSetup | null> {
+    const account = await this.joinableAccount();
+    return account && this.openedMemberful(account);
+  }
+
+  /** The Memberful site and keys `account` keeps, as `savedMemberful` has them. */
+  private async openedMemberful(account: Pick<JoinableAccount, "memberfulKeys">): Promise<MemberfulSetup | null> {
+    const saved = account.memberfulKeys;
+    if (!saved) return null;
+    const secrets = await openMemberfulSecrets(this.env.SESSION_SECRET, saved.sealedSecrets);
+    if (secrets === null) console.error("The Memberful keys Ember was given don't open under SESSION_SECRET, so they aren't used.");
+    return secrets && { site: saved.site, clientId: saved.clientId, ...secrets };
+  }
+
+  /**
+   * What asking the Memberful site's admin API takes, as the Workspace checks memberships: the
+   * deployment's keys, which take the place of any others, or else those an administrator gave, while
+   * either has the API key.
+   */
+  private async memberfulApi(): Promise<MemberfulApi | null> {
+    const deployed = deployedMemberfulOf(this.env);
+    if (deployed) return memberfulApiOf(deployed);
+    const account = await this.joinableAccount();
+    return memberfulApiOf(account && (await this.openedMemberful(account)));
+  }
+
+  /**
+   * Memberful as workspace settings show `account`'s, as an administrator set it up, which the Worker has
+   * the deployment's keys take the place of, and for `administrator`, the site Set up Memberful keeps.
+   */
+  private async memberfulSettings(account: JoinableAccount, administrator: boolean): Promise<MemberfulSaved> {
+    const memberful = await this.openedMemberful(account);
+    return {
+      memberfulSite: memberful?.site ?? null,
+      memberfulWebhooks: memberfulWebhooksOf(memberful) !== null,
+      memberfulKeys: memberful ? "saved" : null,
+      memberfulSiteKept: administrator ? await this.memberfulSiteKept(account) : null,
+    };
+  }
+
+  /**
+   * The Memberful site Set up Memberful keeps, since people here sign in with their accounts at it, which
+   * are linked to them by that site and their member id there, so that another site's members never sign
+   * in as them: the site an administrator gave while anyone is linked at it, or else the site anyone is
+   * linked at, as when the deployment's secrets gave the keys, even after keys for another were given.
+   * Null while nobody is.
+   */
+  private async memberfulSiteKept(account: Pick<JoinableAccount, "memberfulKeys">): Promise<string | null> {
+    const site = account.memberfulKeys?.site;
+    if (site !== undefined && (this.linkedSites.has(site) || (await this.store.anyoneLinked(site)))) return site;
+    return this.store.linkedSite();
+  }
+
+  /**
+   * Whether an administrator has given keys for another Memberful site in place of those the Worker
+   * signed someone in at `issuer` with, while it asked Memberful who they were, the deployment having
+   * none of its own: linked then, they'd have an account nobody signs in with, at a site Set up Memberful
+   * would keep (`memberfulSiteKept`). Asked one change at a time with giving keys, so one goes first.
+   */
+  private async memberfulSiteReplaced(issuer: string): Promise<boolean> {
+    const site = deployedMemberfulOf(this.env)?.site ?? (await this.joinableAccount())?.memberfulKeys?.site;
+    return site !== undefined && site !== issuer;
+  }
+
   /**
    * Turns huddles on as the person `credentials` signs in, through the Realtime SFU app whose keys `app`
    * are, which the Worker has had Cloudflare start a session with, its secret sealed under SESSION_SECRET
@@ -1374,30 +1791,56 @@ export class Workspace extends DurableObject<Env> {
   async changeHuddles(credentials: Credentials, app: SfuApp | null): Promise<{ huddles: HuddlesSettings | null } | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       if (app === null && account.huddles === null) return { huddles: null };
-      const huddles = app && { appId: app.appId, sealedAppSecret: await seal(this.env.SESSION_SECRET, "sfu-app-secret", app.appSecret) };
+      // The relay is the account's, by a key of its own, so huddles keep it through a change of app.
+      const huddles = app && { appId: app.appId, sealedAppSecret: await seal(this.env.SESSION_SECRET, "sfu-app-secret", app.appSecret), relay: account.huddles?.relay ?? null };
       await this.publishAccount({ ...account, huddles }, (now) => this.store.changeAccount({ huddles }, now));
-      return { huddles: huddles && { appId: huddles.appId } };
+      return { huddles: await this.huddlesSettings({ huddles }) };
     });
   }
 
   /**
-   * Huddles as the Huddles card shows them: the SFU app they run through, by its ID, while `account` keeps
-   * its keys, or null while it keeps none, or while the app's secret doesn't open under SESSION_SECRET,
-   * as once that's changed, when it's as if huddles were off until an administrator sets them up again.
+   * Gives huddles a relay as the person `credentials` signs in, by the TURN key `key`, which the Worker
+   * has had Cloudflare make a relay's servers with, its API token sealed under SESSION_SECRET (`seal`),
+   * or changes the key they have one by, or takes it away with null, which forgets the key, answering
+   * huddles as the Huddles tab then shows them: "off" for a key given while huddles are off, which is
+   * kept with the app they run through, "forbidden" unless they're an administrator, or null without a
+   * valid session. A room asks what huddles run through afresh as a tab joins, so whoever joins one from
+   * then on goes by the relay, or without it. Pages show nothing of it, so no socket hears of it.
    */
-  private async huddlesSettings(account: Pick<JoinableAccount, "huddles">): Promise<HuddlesSettings | null> {
-    const app = await this.openedHuddleApp(account);
-    return app && { appId: app.appId };
+  async changeHuddleRelay(credentials: Credentials, key: RelayKey | null): Promise<{ huddles: HuddlesSettings | null } | "off" | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      const { huddles: saved } = account;
+      if (saved === null || (await this.openedHuddleApp(account)) === null) return key === null ? { huddles: null } : "off";
+      if (key === null && saved.relay === null) return { huddles: await this.huddlesSettings(account) };
+      const relay = key && { keyId: key.keyId, sealedApiToken: await seal(this.env.SESSION_SECRET, "turn-key-api-token", key.apiToken) };
+      const huddles = { ...saved, relay };
+      return { huddles: await this.huddlesSettings(await this.saveAccount({ ...account, huddles }, (now) => this.store.changeAccount({ huddles }, now))) };
+    });
   }
 
   /**
-   * The Realtime SFU app huddles run through, with its secret opened, for a room to ask the SFU as, or
-   * null while huddles are off. Rooms ask as a huddle goes on, so turning huddles off, or changing the
-   * app, ends the ones under way. The secret goes no further than the room's memory.
+   * Huddles as the Huddles tab shows them: the SFU app they run through, by its ID, while `account` keeps
+   * its keys, or null while it keeps none, or while the app's secret doesn't open under SESSION_SECRET,
+   * as once that's changed, when it's as if huddles were off until an administrator sets them up again.
+   * With it, the TURN key their relay goes by, by its ID, while its API token opens.
    */
-  async huddleApp(): Promise<SfuApp | null> {
+  private async huddlesSettings(account: Pick<JoinableAccount, "huddles">): Promise<HuddlesSettings | null> {
+    const app = await this.openedHuddleApp(account);
+    return app && { appId: app.appId, relayKeyId: (await this.openedRelay(account))?.keyId ?? null };
+  }
+
+  /**
+   * The Realtime SFU app huddles run through, with its secret opened, for a room to ask the SFU as,
+   * whether cameras may go on in them and screens be shared, and the TURN key their relay goes by, with
+   * its API token opened, for the room to ask Cloudflare for the relay's servers as, or null while
+   * huddles are off. Rooms ask as a huddle goes on, so turning huddles off, or changing the app, ends
+   * the ones under way, and turning cameras or screen sharing off takes down the ones that are on. The
+   * secret and the token go no further than the room's memory.
+   */
+  async huddleApp(): Promise<HuddleApp | null> {
     const account = await this.joinableAccount();
-    return account && this.openedHuddleApp(account);
+    const app = account && (await this.openedHuddleApp(account));
+    return account && app && { ...app, cameras: account.huddleCameras, screens: account.huddleScreens, relay: await this.openedRelay(account) };
   }
 
   /** The SFU app `account` keeps the keys of, with its secret opened, or null while it keeps none or the secret doesn't open. */
@@ -1406,6 +1849,14 @@ export class Workspace extends DurableObject<Env> {
     const appSecret = await unseal(this.env.SESSION_SECRET, "sfu-app-secret", saved.sealedAppSecret);
     if (appSecret === null) console.error("The SFU app secret Ember was given doesn't open under SESSION_SECRET, so huddles are off.");
     return appSecret === null ? null : { appId: saved.appId, appSecret };
+  }
+
+  /** The TURN key `account`'s huddles have their relay by, with its API token opened, or null while they have none or the token doesn't open. */
+  private async openedRelay({ huddles: saved }: Pick<JoinableAccount, "huddles">): Promise<RelayKey | null> {
+    if (!saved?.relay) return null;
+    const apiToken = await unseal(this.env.SESSION_SECRET, "turn-key-api-token", saved.relay.sealedApiToken);
+    if (apiToken === null) console.error("The TURN key's API token Ember was given doesn't open under SESSION_SECRET, so huddles have no relay.");
+    return apiToken === null ? null : { keyId: saved.relay.keyId, apiToken };
   }
 
   /**
@@ -1419,6 +1870,43 @@ export class Workspace extends DurableObject<Env> {
     const { memberIds, outdatedBy } = await this.store.reportHuddle(roomId, at, huddle);
     if (memberIds) this.tell(memberIds, { type: "room.huddle", roomId, huddle });
     return outdatedBy;
+  }
+
+  /**
+   * Invites into room `roomId`'s huddle the people `userIds` names, as the room says `by`, who's in it,
+   * does: each of them who's in the room, and hears its @mentions of them or more, is told on every tab
+   * they have open, where it rings. Nobody else is told, so nobody hears of a room they aren't in, and
+   * nothing is kept of an invitation. Whoever of them has Ember in view nowhere, with no tab open or
+   * none of them shown, is pushed it too, while Web Push is on: this answers their pushes, for the room
+   * to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in.
+   */
+  async inviteToHuddle(roomId: RoomId, by: UserId, userIds: UserId[]): Promise<InvitationPush[]> {
+    const invited = await this.store.huddleInvitees(roomId, userIds);
+    this.tell(invited, { type: "huddle.invited", roomId, by });
+    const away = invited.filter((userId) => !this.hasInView(userId));
+    if (away.length === 0 || !(await webPush(this.env)).on) return [];
+    return this.store.invitationPushes(roomId, by, away, guestSignIn(this.env));
+  }
+
+  /**
+   * Whether `userId` has Ember in view: a tab of theirs has said it's shown, and the Workspace has heard
+   * from it lately, as a room asks of whoever's viewing it (`isViewing`).
+   */
+  private hasInView(userId: UserId, now = Date.now()): boolean {
+    return this.ctx.getWebSockets(userId).some((tab) => tab.readyState === WebSocket.OPEN && isViewing(shownOf(tab), this.ctx.getWebSocketAutoResponseTimestamp(tab), now));
+  }
+
+  /**
+   * The person `credentials` signs in has answered an invitation into room `roomId`'s huddle, joining
+   * from it or declining it: every tab of theirs hears so, and rings no longer. Nothing is kept of an
+   * invitation, so there's none to check this against, and they alone hear of it. Answers whether they
+   * did, which they can't without a valid session.
+   */
+  async answerHuddleInvitation(credentials: Credentials, roomId: RoomId): Promise<boolean> {
+    const user = await this.authenticate(credentials);
+    if (!user) return false;
+    this.tell([user.id], { type: "huddle.answered", roomId });
+    return true;
   }
 
   /**
@@ -1921,11 +2409,13 @@ export class Workspace extends DurableObject<Env> {
       emailFrom: null,
       resendApiKey: null,
       turnstileKeys: null,
+      memberfulKeys: null,
       assistant: null,
       assistantMost: TOP_LEVELS,
       assistantInstructions: "",
       assistantPromptTemplate: null,
       huddles: null,
+      outsideAi: false,
       deployedAddress: null,
       otherAddresses: [],
     };
@@ -2156,13 +2646,13 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Signs in the person a sign-in link names, with a session of its own, unless they're no longer
    * active, or are a guest while `guests` says guests can't stay signed in, or the session that showed
-   * the link has ended, is a guest's while that's so, or is neither theirs nor an active
-   * administrator's.
+   * the link has ended, has ended the links it showed until then, is a guest's while that's so, or is
+   * neither theirs nor an active administrator's.
    */
-  async transferSession({ userId, sessionId: shownBy }: Transfer, tokenDigest: string, client: Client, guests: boolean): Promise<Me | null> {
+  async transferSession({ userId, sessionId: shownBy, shownAt }: Transfer, tokenDigest: string, client: Client, guests: boolean): Promise<Me | null> {
     // On D1 a role change can overlap it, so it's remembered only if none did.
     const session = await this.sessions.keep(tokenDigest, () =>
-      this.store.startTransferredSession(userId, shownBy, guests, sortableId(), tokenDigest, client, new Date().toISOString()),
+      this.store.startTransferredSession(userId, shownBy, shownAt, guests, sortableId(), tokenDigest, client, new Date().toISOString()),
     );
     return session && meOf(session);
   }
@@ -2196,14 +2686,16 @@ export class Workspace extends DurableObject<Env> {
    * lapsed is suspended, their sessions elsewhere ending, and one whose membership is renewed is let back.
    * Answers "off" for someone new while Memberful is off, "refused" for someone linked who has been
    * removed or banned, "membership" for anyone but an administrator, or someone they invited, without an
-   * active membership, and "taken" when someone here has the email address someone new would have, which
-   * creates nothing. Everyone's workspace sockets hear of someone new.
+   * active membership, "taken" when someone here has the email address someone new would have, which
+   * creates nothing, and "failed" once keys for another site have taken the place of the ones they signed
+   * in with (`memberfulSiteReplaced`). Everyone's workspace sockets hear of someone new.
    */
   async signInWithMemberful(issuer: string, member: MemberfulMember, readAt: number, tokenDigest: string, client: Client): Promise<Me | MemberfulRefusal> {
     // One at a time, so that two sign-ins of someone new can't both add them, none can overlap turning
-    // Memberful off, or a check of the same membership, and a suspension closes the sockets it ends
-    // before answering.
+    // Memberful off, giving it another site's keys, or a check of the same membership, and a suspension
+    // closes the sockets it ends before answering.
     return this.closingSockets(async () => {
+      if (await this.memberfulSiteReplaced(issuer)) return "failed";
       const linked = await this.store.linkedPerson(issuer, member.id);
       if (linked) {
         await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
@@ -2285,10 +2777,11 @@ export class Workspace extends DurableObject<Env> {
    * their sessions. A member needs an active membership to connect one, as to sign in with it, which an
    * administrator, or someone they invited, doesn't, and an account connected to them already signs them
    * in as signing in with it does, going by what Memberful said of its membership as of `readAt`
-   * (`settleMembership`). Answers "unneeded" unless Memberful is members only, "claimed" for an account
-   * connected to someone else, "another" when they're connected to another account at the site,
-   * "membership" for a member without an active membership, and "refused" when they've been removed or
-   * banned, or their password has changed.
+   * (`settleMembership`). Answers "unneeded" unless Memberful is members only, "failed" once keys for
+   * another site have taken the place of the ones it signed in with (`memberfulSiteReplaced`), "claimed"
+   * for an account connected to someone else, "another" when they're connected to another account at the
+   * site, "membership" for a member without an active membership, and "refused" when they've been
+   * removed or banned, or their password has changed.
    */
   async connectMemberful(
     issuer: string,
@@ -2302,6 +2795,7 @@ export class Workspace extends DurableObject<Env> {
     // One at a time, as signing in with Memberful is, so that two can't connect the same account.
     return this.closingSockets(async () => {
       if (!(await this.joinableAccount())?.memberfulSignIn) return "unneeded";
+      if (await this.memberfulSiteReplaced(issuer)) return "failed";
       const linked = await this.store.linkedPerson(issuer, member.id);
       if (linked && linked.userId !== userId) return "claimed";
       if (linked) {
@@ -2361,7 +2855,8 @@ export class Workspace extends DurableObject<Env> {
    * `pushEndpoint`, and so are the connections their browsers started and haven't finished, which could
    * connect an account again. Each statement checks that they're still connected there and still have that
    * password and an email address, so a reset ahead of it in line, or another tab's Disconnect or
-   * profile change, makes it "refused". Null without a valid session.
+   * profile change, makes it "refused". Null without a valid session. The sign-in links this session
+   * showed until now stop working too, as when it saves a new password.
    */
   async disconnectMemberful(credentials: Credentials, issuer: string, checked: string, pushEndpoint: string | null): Promise<YourProfile | "refused" | null> {
     return this.closingSockets(async () => {
@@ -2408,7 +2903,7 @@ export class Workspace extends DurableObject<Env> {
    * account there, since the check isn't kept while nobody is.
    */
   private async keepCatchingUp(dueAt: number): Promise<void> {
-    const api = memberfulApiOf(this.env);
+    const api = await this.memberfulApi();
     if (!api) return;
     await this.store.scheduleMembershipCatchUp(api.site, dueAt);
     await this.wakeAt(dueAt);
@@ -2470,15 +2965,26 @@ export class Workspace extends DurableObject<Env> {
     await this.publishPerson(userId);
   }
 
-  /** Tells every workspace socket of `userId` as the people directory now lists them. */
+  /** Tells the workspace sockets of `userId` as the people directory now lists them: every socket, or just the ones it lists them to (`publish`). */
   private async publishPerson(userId: UserId): Promise<void> {
     const person = await this.store.person(userId);
-    if (person) this.broadcast({ type: "user.updated", user: await this.directoryUser(person) });
+    if (person) await this.publish(person);
   }
 
-  /** Tells everyone's workspace sockets of every agent, as the people directory lists it. */
+  /** Tells the workspace sockets of every agent, as the people directory lists it (`publish`). */
   private async publishAgents(): Promise<void> {
-    for (const user of await directoryOf(await this.store.agentEntries(), this.env.SESSION_SECRET)) this.broadcast({ type: "user.updated", user });
+    for (const agent of await this.store.agentEntries()) await this.publish(agent);
+  }
+
+  /**
+   * Tells the workspace sockets of `person` as the people directory lists them: every socket, but of an AI
+   * agent only administrators' direct messages reach, which only administrators' sockets hear of, as only
+   * their directories list it.
+   */
+  private async publish(person: DirectoryEntry): Promise<void> {
+    const frame: WorkspaceServerFrame = { type: "user.updated", user: await this.directoryUser(person) };
+    if (person.keptFor === "admin-dms") this.tell(await this.store.administratorIds(), frame);
+    else this.broadcast(frame);
   }
 
   /**
@@ -2577,15 +3083,16 @@ export class Workspace extends DurableObject<Env> {
    * `emailAddress`, as sign-in matches it, while they're active and have a password, from the workspace's
    * From address. Asks from `ip` count against the network's limit while they're `limited`, as they are
    * while Ember lacks Turnstile's keys. It answers "asked" before anything is emailed, and whether or not
-   * anyone has the address, so that neither the answer nor how soon it comes says who has an account: the
-   * code is emailed afterwards, one at a time with the others asked for (`emailResetCode`).
+   * anyone has the address, so that neither the answer nor how soon it comes says who has an account:
+   * looking for them changes what's stored either way (`passwordToReset`), and the code is emailed
+   * afterwards, one at a time with the others asked for (`emailResetCode`).
    */
   async askForPasswordReset(ip: string, emailAddress: string, code: NewResetCode, limited: boolean): Promise<PasswordResetAsk> {
     const account = await this.joinableAccount();
     const sending = account && (await this.emailSender(account));
     if (!account || !sending) return "unsendable";
     if (limited && !this.passwordResetAsks.attempt(ip)) return "limited";
-    const person = await this.store.passwordFor(emailAddress);
+    const person = await this.store.passwordToReset(emailAddress);
     if (person) {
       const emailing = this.lastResetCode
         .then(() => this.emailResetCode(person, emailAddress, code, account.name, sending))
@@ -2660,16 +3167,16 @@ export class Workspace extends DurableObject<Env> {
   /**
    * The sidebar of the person `credentials` signs in: the rooms they're in, the ones they've starred and
    * the shared order of the rest, with the welcome card's invitation if they're an administrator in the
-   * workspace's first room who hasn't dismissed the card, the people it suggests for DMs, and the huddles
-   * going on in their rooms. Null without a valid session.
+   * workspace's first room who hasn't dismissed the card, and the huddles going on in their rooms. Null
+   * without a valid session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, sharedOrder, suggestions, huddles, invitationRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, sharedOrder, huddles, invitationRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
     const invited = invitationRoomId !== null && rooms.some((room) => room.id === invitationRoomId);
     const invitation = account && invited ? { roomId: invitationRoomId, joinCode: account.joinCode } : null;
-    return { rooms, favorites, sharedOrder, invitation, suggestions, huddles };
+    return { rooms, favorites, sharedOrder, invitation, huddles };
   }
 
   /**
@@ -2767,6 +3274,20 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
+  /** Sends `frame` on every workspace socket but those of `userIds`, whom each socket's tags name. */
+  private tellAllBut(userIds: Iterable<UserId>, frame: WorkspaceServerFrame): void {
+    const data = JSON.stringify(frame);
+    const left = new Set<string>(userIds);
+    for (const socket of this.ctx.getWebSockets()) {
+      if (this.ctx.getTags(socket).some((tag) => left.has(tag))) continue;
+      try {
+        socket.send(data);
+      } catch {
+        // It has closed since, and its close handler has nothing to clean up.
+      }
+    }
+  }
+
   /** Whether the person `credentials` signs in is an administrator now, or null without a valid session. */
   async canAdminister(credentials: Credentials): Promise<boolean | null> {
     const user = await this.authenticate(credentials);
@@ -2804,15 +3325,17 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Starts a DM as the person `credentials` signs in: the DM between them and the people `userIds` names
-   * who exist, whatever their status, or their DM with themselves when it names nobody else. A group of
-   * people has one DM, so the one they have opens again. Answers it, and whether it's new, or null
-   * without a valid session. Everyone in a new DM sees it in their sidebars at once, and nobody else
-   * hears of it.
+   * who exist, whatever their status, or their DM with themselves when it names nobody else. An AI agent
+   * kept for administrators counts as nobody to anyone else, and one only their direct messages reach to
+   * an administrator who names with it anyone who isn't one, a member or a bot, who would read what it
+   * says (`DIRECT_PEOPLE`). A group of people has one DM, so the one they have opens again. Answers it,
+   * and whether it's new, or null without a valid session. Everyone in a new DM sees it in their sidebars
+   * at once, and nobody else hears of it.
    */
   async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const people = userIds.length > 0 ? await this.store.peopleWithIds(userIds) : [];
+    const people = userIds.length > 0 ? await this.store.directPeople(userIds, user.id) : [];
     const memberIds = [user.id, ...people.map((person) => person.id)];
     const direct = await this.store.startDirect(sortableId(), user.id, memberIds, new Date().toISOString());
     if (direct.started) this.tell(direct.room.members.map((member) => member.id), { type: "room.saved", room: direct.room });
@@ -2820,8 +3343,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * What the New room forms list, everyone active, for the person `credentials` signs in: "forbidden"
-   * unless they may create rooms, or null without a valid session.
+   * What the New room forms list, everyone active who can be put in a room, for the person `credentials`
+   * signs in: "forbidden" unless they may create rooms, or null without a valid session.
    */
   async newRoomForm(credentials: Credentials): Promise<NewRoomForm | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -2831,36 +3354,41 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Whom the person `credentials` signs in can mention in room `roomId`, or anywhere when it's null:
-   * the first page of the active people there whose names contain `query`, by name. "not found" unless
-   * they're in the room, or null without a valid session.
+   * the first page of the active people there whose names contain `query`, by name, but the AI agents
+   * kept for administrators, unless they're one. "not found" unless they're in the room, or null without
+   * a valid session.
    */
   async mentionable(credentials: Credentials, roomId: RoomId | null, query: string): Promise<DirectoryEntry[] | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
-    return this.store.mentionable(query, roomId);
+    return this.store.mentionable(query, roomId, user.id);
   }
 
-  /** Everyone in the workspace, for the person `credentials` signs in, or null without a valid session. */
+  /**
+   * Everyone in the workspace, for the person `credentials` signs in, but the AI agents only
+   * administrators' direct messages reach, unless they're one, or null without a valid session.
+   */
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.directory();
+    return user && this.store.directory(user.id);
   }
 
   /**
    * Someone as their page shows them to the person `credentials` signs in, whatever their status, and
    * with their email address and sign-in link to administrators: "not found" if nobody has id `userId`,
-   * or null without a valid session.
+   * or it's an AI agent's only administrators' direct messages reach and they aren't one, or null without
+   * a valid session.
    */
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
     const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
-    if (!person) return "not found";
+    if (!person || (person.keptFor === "admin-dms" && !administrator)) return "not found";
     const agent = person.agent ? await this.store.agentProfile(userId) : null;
     if (administrator) {
       const transferable = person.status === "active" && person.role !== "bot";
-      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent };
+      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id, shownAt: Date.now() } : null, agent };
     }
     const { emailAddress, ...listed } = person;
     return { person: listed, transfer: null, agent };
@@ -2868,12 +3396,15 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * What the avatar of whoever has id `userId` is drawn from, for the person `credentials` signs in:
-   * "not found" if nobody has it, or null without a valid session.
+   * "not found" if nobody has it, or it's an AI agent's only administrators' direct messages reach and
+   * they aren't one, or null without a valid session.
    */
   async avatarOwner(credentials: Credentials, userId: UserId): Promise<AvatarOwner | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return (await this.store.avatarOwner(userId)) ?? "not found";
+    const owner = await this.store.avatarOwner(userId);
+    if (!owner || (owner.keptFor === "admin-dms" && !(await this.store.isAdministrator(user.id)))) return "not found";
+    return owner;
   }
 
   /**
@@ -2938,10 +3469,10 @@ export class Workspace extends DurableObject<Env> {
    * their sessions end, and their sockets close for good: here at once, and in every room they're in
    * through the outbox. Everyone's workspace sockets hear of it.
    */
-  private async deactivate({ id, name, bio, role, agent }: DirectoryEntry): Promise<DirectoryUser> {
+  private async deactivate({ id, name, bio, role, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
     const removedAt = new Date(now).toISOString();
-    const removed = await this.directoryUser({ id, name, bio, role, status: "deactivated", updatedAt: removedAt, agent });
+    const removed = await this.directoryUser({ id, name, bio, role, status: "deactivated", updatedAt: removedAt, agent, keptFor });
     // As when resetting a password, until the database says it queued nothing.
     let queued = true;
     try {
@@ -2956,6 +3487,80 @@ export class Workspace extends DurableObject<Env> {
     }
     this.broadcast({ type: "user.updated", user: removed });
     return removed;
+  }
+
+  /**
+   * What deleting the account of the person `credentials` signs in checks first: the digest of their
+   * password, if they have one, which the Worker checks the one typed against, counting it against
+   * sign-in's limit for `ip`: "limited" past it. "only administrator" for the only administrator, who
+   * must make someone else one first. Null without a valid session. The password itself stays in the
+   * Worker, as at sign-in.
+   */
+  async accountDeletionCheck(credentials: Credentials, ip: string): Promise<{ passwordDigest: string | null } | "limited" | "only administrator" | null> {
+    const session = await this.session(credentials);
+    const signIn = session && (await this.store.signInOf(session.user.id));
+    if (!signIn) return null;
+    if (await this.isOnlyAdministrator(session.user.id)) return "only administrator";
+    if (signIn.passwordDigest === null) return { passwordDigest: null };
+    return this.signInAttempts.attempt(ip) ? { passwordDigest: signIn.passwordDigest } : "limited";
+  }
+
+  /**
+   * Deletes the account of the person `credentials` signs in, once they've said they mean it: with their
+   * password while they have one, whose digest was `checked` as the Worker checked it, or else by typing
+   * `name`, theirs as `sameName` compares names. "password needed" when they have a password whose
+   * digest isn't `checked`, "name needed" without one when `name` isn't theirs, "only administrator" for
+   * the only administrator, or null without a valid session. Everything removing them does follows
+   * (`deactivate`), and their name, email address, password, bio and avatar go, as do the rooms they
+   * starred and the accounts elsewhere they connected. Their row stays, named as deleted accounts are,
+   * since their DMs name them. The outbox has every room they can have written in delete their messages
+   * and boosts, and R2 their avatar. Everyone's workspace sockets hear of it.
+   */
+  async deleteAccount(
+    credentials: Credentials,
+    checked: string | null,
+    name: string | undefined,
+  ): Promise<"deleted" | "password needed" | "name needed" | "only administrator" | null> {
+    return this.inALaterSecond(() =>
+      this.closingSockets(async () => {
+        const session = await this.session(credentials);
+        if (!session) return null;
+        const person = await this.store.ownProfile(session.user.id);
+        if (!person) return null;
+        // Read again here, since a reset or a change ahead of this in line can have replaced the password checked.
+        const passwordDigest = (await this.store.signInOf(person.id))?.passwordDigest ?? null;
+        if (passwordDigest !== checked) return "password needed";
+        if (passwordDigest === null && (name === undefined || !sameName(name, person.name))) return "name needed";
+        if (await this.isOnlyAdministrator(person.id)) return "only administrator";
+        const now = Date.now();
+        // Their avatar's address changes with the second they last changed in, so the one browsers keep isn't theirs anymore.
+        const tooSoon = tooSoonAfter(person.updatedAt, now);
+        if (tooSoon) return tooSoon;
+        const deletedAt = new Date(now).toISOString();
+        // As when removing someone, until the database says it queued nothing.
+        let queued = true;
+        try {
+          queued = await this.sessions.change(
+            (session) => session.user.id === person.id,
+            () => this.store.deleteAccount(person.id, person.avatar?.key ?? null, CloseCode.Revoked, now, deletedAt),
+          );
+        } finally {
+          this.closeSockets(person.id, CloseCode.Revoked);
+          if (queued) await this.revocationsQueued(now);
+          else if (person.avatar) await this.wakeAt(now);
+        }
+        if (person.accounts.length > 0) await this.forgetUnlinked();
+        const deleted = { id: person.id, name: DELETED_PERSON_NAME, bio: null, role: "member", status: "deactivated", updatedAt: deletedAt, agent: false, keptFor: null } as const;
+        this.broadcast({ type: "user.updated", user: await this.directoryUser(deleted) });
+        return "deleted";
+      }),
+    );
+  }
+
+  /** Whether `userId` is the only administrator, whom the account can't do without. */
+  private async isOnlyAdministrator(userId: UserId): Promise<boolean> {
+    const administrators = await this.store.administratorIds();
+    return administrators.length === 1 && administrators[0] === userId;
   }
 
   /** Whether `userId` is @ember's or an agent's, which go with Ember AI, on the AI assistant tab, so that removing or banning them finds nobody. */
@@ -3036,10 +3641,7 @@ export class Workspace extends DurableObject<Env> {
         await this.store.changeBot(botId, changes, new Date(now).toISOString(), avatar && { avatar, previous, dueAt: now });
         if (previous) await this.wakeAt(now);
         const changed = (await this.store.activeBot(botId))!;
-        if (changed.name !== bot.name || avatar) {
-          const { id, name, bio, role, status, updatedAt, agent } = changed;
-          this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name, bio, role, status, updatedAt, agent }) });
-        }
+        if (changed.name !== bot.name || avatar) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
         return this.shownBotSettings(changed);
       }),
     );
@@ -3119,6 +3721,20 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The agents the person `credentials` signs in can ask, as Available Agents lists them: @ember first,
+   * which is in every open room, then the others by name, each with what it does and the rooms it shares
+   * with them. None while Ember AI is off, when they're all deactivated, and only an administrator is
+   * listed the ones kept for administrators. Null without a valid session.
+   */
+  async availableAgents(credentials: Credentials): Promise<AvailableAgent[] | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const { ember, agents } = await this.store.availableAgents(user.id);
+    const builtIn = ember ? [{ ...ember, description: EMBER_DOES, access: "everyone" as const, rooms: null }] : [];
+    return directoryOf([...builtIn, ...agents], this.env.SESSION_SECRET);
+  }
+
+  /**
    * The gateway that asks the model of an agent called `name`, which the person `credentials` signs in
    * is making, or calling agent `agentId`, so that what `createAgent` or `changeAgent` would refuse
    * doesn't wait for the model first: "off", "full", "name taken", "not found", "forbidden" or null, as
@@ -3156,11 +3772,13 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes `agent` as the person `credentials` signs in, with its model as asking it found it (`asked`),
    * and `avatar`, which R2 has stored under a key `reservePicture` reserved, if it's given one: a bot
-   * without a key, in every open room or the ones `agent` picks, and everyone's workspace sockets hear of
-   * it. Answers it as its page shows it: "off" while Ember AI is off, "set up again" once Ember AI asks AI
-   * Gateway through another account or API token than the model was asked through, "full" when there
-   * are as many agents as there can be, "name taken" for a name in use (`namesInUse`, `sameName`),
-   * "forbidden" unless that's an administrator, or null without a valid session.
+   * without a key, in every open room or the ones `agent` picks, or in none if only administrators'
+   * direct messages reach it, and the workspace sockets of everyone the people directory lists it to
+   * hear of it (`publish`). Answers it as its page shows it: "off" while Ember AI is off, "set up
+   * again" once Ember AI asks AI Gateway through another account or API token than the model was asked
+   * through, "full" when there are as many agents as there can be, "name taken" for a name in use
+   * (`namesInUse`, `sameName`), "forbidden" unless that's an administrator, or null without a valid
+   * session.
    */
   async createAgent(
     credentials: Credentials,
@@ -3174,7 +3792,7 @@ export class Workspace extends DurableObject<Env> {
       if ((await this.store.namesInUse(null)).some((name) => sameName(name, agent.name))) return "name taken";
       const id = sortableId();
       const setup = setupOf({ ...agent, promptTemplate: agent.promptTemplate ?? null, levels: { thinking: agent.thinking, length: agent.length } }, asked);
-      await this.store.createAgent({ id, name: agent.name, rooms: agent.rooms, avatar, createdBy: user.id, ...setup }, new Date().toISOString());
+      await this.store.createAgent({ id, name: agent.name, access: agent.access ?? "everyone", rooms: agent.rooms, avatar, createdBy: user.id, ...setup }, new Date().toISOString());
       await this.publishPerson(id);
       return this.shownAgentSettings((await this.store.activeAgent(id))!);
     });
@@ -3185,12 +3803,15 @@ export class Workspace extends DurableObject<Env> {
    * it found it (`asked`), when the change needs that (`asksModel`), of the agent as it was when it was
    * changed at `asked.changedAt`, and gives it `avatar.picture`, which R2 has stored under a key
    * `reservePicture` reserved, or takes away the one it was given, for null, as `changeAvatar` gives
-   * someone theirs. It records who changed it, and when, once anything did, and everyone's workspace
-   * sockets hear of a new name or avatar. Answers it as its page then shows it: "off" while Ember AI is
-   * off, "changed" once the agent was changed since its model was asked, or it needs asking now, "set up
-   * again" once Ember AI asks AI Gateway through another account or API token than the model was asked
-   * through, "name taken" for a name someone else uses (`namesInUse`), "not found" unless `agentId` is
-   * an agent's, "forbidden" unless that's an administrator, or null without a valid session.
+   * someone theirs. It records who changed it, and when, once anything did, and the workspace sockets of
+   * everyone the people directory lists it to hear of a new name or avatar, or of who can ask it now
+   * (`publish`): once only administrators' direct messages reach it, it leaves every room, whatever rooms
+   * `changes` picks, and everyone else's sockets hear that it has gone. Answers it as its page then shows
+   * it: "off" while Ember AI is off, "changed" once the agent was changed since its model was asked, or
+   * it needs asking now, "set up again" once Ember AI asks AI Gateway through another account or API
+   * token than the model was asked through, "name taken" for a name someone else uses (`namesInUse`),
+   * "not found" unless `agentId` is an agent's, "forbidden" unless that's an administrator, or null
+   * without a valid session.
    */
   async changeAgent(
     credentials: Credentials,
@@ -3211,18 +3832,22 @@ export class Workspace extends DurableObject<Env> {
         const levels = { thinking: changes.thinking ?? agent.levels.thinking, length: changes.length ?? agent.levels.length };
         const promptTemplate = changes.promptTemplate === undefined ? agent.promptTemplate : changes.promptTemplate;
         const setup = setupOf({ description: changes.description ?? agent.description, instructions: changes.instructions ?? agent.instructions, promptTemplate, levels }, model);
-        const rooms = changes.rooms === undefined || sameRooms(agent.rooms, changes.rooms) ? undefined : changes.rooms;
+        const access = changes.access === undefined || changes.access === agent.access ? undefined : changes.access;
+        // One only administrators' direct messages reach is in no room, and stays in none.
+        const inNoRoom = (access ?? agent.access) === "admin-dms";
+        const rooms = inNoRoom || changes.rooms === undefined || sameRooms(agent.rooms, changes.rooms) ? undefined : changes.rooms;
         // Taking away an avatar that isn't there changes nothing.
         const picture = avatar && (avatar.picture !== null || agent.avatar !== null) ? avatar.picture : undefined;
-        if (name === undefined && rooms === undefined && picture === undefined && sameSetup(setup, agent)) return this.shownAgentSettings(agent);
+        if (name === undefined && access === undefined && rooms === undefined && picture === undefined && sameSetup(setup, agent)) return this.shownAgentSettings(agent);
         const now = Date.now();
         const tooSoon = picture !== undefined && tooSoonAfter(agent.updatedAt, now);
         if (tooSoon) return tooSoon;
         const previous = picture === undefined ? null : (agent.avatar?.key ?? null);
         const pictured = picture === undefined ? undefined : { avatar: picture, previous, dueAt: now };
-        await this.store.changeAgent(agentId, { name, setup, rooms, avatar: pictured, changedBy: user.id }, new Date(now).toISOString());
+        await this.store.changeAgent(agentId, { name, setup, access, rooms, avatar: pictured, changedBy: user.id }, new Date(now).toISOString());
         if (previous) await this.wakeAt(now);
-        if (name !== undefined || picture !== undefined) await this.publishPerson(agentId);
+        if (access === "admin-dms") this.tellAllBut(await this.store.administratorIds(), { type: "user.gone", userId: agentId });
+        if (name !== undefined || picture !== undefined || access !== undefined) await this.publishPerson(agentId);
         return this.shownAgentSettings((await this.store.activeAgent(agentId))!);
       }),
     );
@@ -3232,8 +3857,9 @@ export class Workspace extends DurableObject<Env> {
    * Deletes agent `agentId` as the person `credentials` signs in, deactivating it as deleting a bot does:
    * it leaves every room but its DMs, and its messages stay, while what made it an agent goes, so that
    * its name is free again. Answers "off" while Ember AI is off, "not found" unless `agentId` is an
-   * agent's, "forbidden" unless that's an administrator, or null without a valid session. Everyone's
-   * workspace sockets hear of it.
+   * agent's, "forbidden" unless that's an administrator, or null without a valid session. The workspace
+   * sockets of everyone the people directory lists it to hear of it (`publish`): it goes on listing one
+   * only administrators' direct messages reached to them alone.
    */
   async deleteAgent(credentials: Credentials, agentId: UserId): Promise<"deleted" | "off" | "not found" | "forbidden" | null> {
     return this.administerAgents(credentials, async () => {
@@ -3618,23 +4244,27 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The connected apps' tools `agentId` may use (`pickedTools`) answering `askerId` in room `roomId`:
-   * in their direct conversation, the two of them alone, a tool of an app `askerId` has signed in to
-   * themselves is theirs, `own`, as a call of it there goes as them, and each one asks first, whatever
-   * is always allowed, which was said of calls with Ember's sign-in. One whose sign-in has ended stays
-   * theirs until they sign out, so that nothing goes with Ember's that was to go with their own.
+   * The connected apps' tools `agentId` may use (`pickedTools`) answering `askerId` in room `roomId`.
+   * In a DM or a private room, `inPrivate`, every call asks first, whatever is always allowed, as what's
+   * said there goes to an app only when someone there allows it. In their direct conversation, the two
+   * of them alone, a tool of an app `askerId` has signed in to themselves is theirs, `own`, as a call of
+   * it there goes as them. One whose sign-in has ended stays theirs until they sign out, so that nothing
+   * goes with Ember's that was to go with their own.
    */
-  private async toolsFor(agentId: UserId, roomId: RoomId, askerId: UserId): Promise<PickedTool[]> {
+  private async toolsFor(agentId: UserId, roomId: RoomId, askerId: UserId, inPrivate: boolean): Promise<PickedTool[]> {
     const picked = await this.pickedTools(agentId);
-    if (picked.length === 0 || !(await this.store.isBetween(roomId, askerId, agentId))) return picked;
+    if (picked.length === 0 || !inPrivate) return picked;
+    const asked = picked.map((tool) => ({ ...tool, alwaysAllowed: false }));
+    if (!(await this.store.isBetween(roomId, askerId, agentId))) return asked;
     const own = new Set((await this.store.ownAppSignIns(askerId)).flatMap(({ appId, signedIn }) => (signedIn ? [appId] : [])));
-    return picked.map((tool) => (own.has(tool.appId) ? { ...tool, alwaysAllowed: false, own: true } : tool));
+    return asked.map((tool) => (own.has(tool.appId) ? { ...tool, own: true } : tool));
   }
 
   /**
    * Where a call of `tool`, a connected app's, goes for `agentId`, @ember or an agent, as the call finds
    * it when it's made: null once Ember AI is off, the app is gone, or the tool isn't picked for the
-   * agent as it was, by its fingerprint, so that what an administrator takes away stops what's waiting.
+   * agent as it was, by its fingerprint, so that what an administrator takes away stops what's waiting,
+   * and for an app at one of Ember's own addresses, which can't be connected now (apps/api.ts).
    * A call nobody was asked about, `unasked`, goes nowhere either unless the agent's calls of the tool
    * are always allowed by then. Getting a sign-in's next access token asks its authorization server,
    * which can take a while, so the tool is looked up again after that: one taken away meanwhile isn't
@@ -3675,7 +4305,7 @@ export class Workspace extends DurableObject<Env> {
     const [account, picked, app] = await Promise.all([this.joinableAccount(), this.pickedTools(agentId), this.store.app(tool.appId)]);
     const pick = picked.find(({ appId, name, fingerprint }) => appId === tool.appId && name === tool.name && fingerprint === tool.fingerprint);
     const mayRun = pick !== undefined && (!unasked || pick.alwaysAllowed);
-    return account?.assistant && app && mayRun ? app : null;
+    return account?.assistant && app && mayRun && !isAtHost(app.url, addressesOf(account)) ? app : null;
   }
 
   /**
@@ -3856,12 +4486,13 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Bans `userId`, whatever their status, as the person `credentials` signs in, answering them as the
    * people directory then lists them: "forbidden" unless that's an administrator, "not found" if nobody
-   * has the id, or it's @ember's or an agent's (`goesWithEmberAi`), or null without a valid session.
-   * Nobody can ban themselves ("yourself"), so there's always an administrator. If any IP address
-   * recorded on their sessions is one a ban can't block, it answers what's wrong with it and changes
-   * nothing. Otherwise it blocks them all, all their sessions end, their sockets close for good, here at
-   * once and in every room they're in through the outbox, and the outbox has every room they can have
-   * written in delete their messages. Everyone's workspace sockets hear of it.
+   * has the id, or it's @ember's or an agent's (`goesWithEmberAi`), or someone who deleted their
+   * account, or null without a valid session. Nobody can ban themselves ("yourself"), so there's always
+   * an administrator. If any IP address recorded on their sessions is one a ban can't block, it answers
+   * what's wrong with it and changes nothing. Otherwise it blocks them all, all their sessions end, their
+   * sockets close for good, here at once and in every room they're in through the outbox, and the outbox
+   * has every room they can have written in delete their messages. Everyone's workspace sockets hear of
+   * it.
    */
   async banPerson(
     credentials: Credentials,
@@ -3871,7 +4502,7 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
-      const person = (await this.goesWithEmberAi(userId)) ? null : await this.store.person(userId);
+      const person = (await this.goesWithEmberAi(userId)) ? null : await this.store.bannablePerson(userId);
       if (!person) return "not found";
       if (userId === user.id) return "yourself";
       const ipAddresses = await this.store.sessionIpAddresses(userId);
@@ -3918,8 +4549,9 @@ export class Workspace extends DurableObject<Env> {
     return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       // As when banning, @ember and the agents go with Ember AI, which lifting a ban would otherwise
-      // bring back, and an agent kept to the open rooms picked would be put in every one.
-      const person = (await this.goesWithEmberAi(userId)) ? null : await this.store.person(userId);
+      // bring back, and an agent kept to the open rooms picked would be put in every one. Nor does it
+      // bring back someone who deleted their account.
+      const person = (await this.goesWithEmberAi(userId)) ? null : await this.store.bannablePerson(userId);
       if (!person) return "not found";
 
       const now = Date.now();
@@ -3949,8 +4581,8 @@ export class Workspace extends DurableObject<Env> {
    * Someone as the people directory lists them, with their avatar's address, and nothing else known of
    * them, such as their email address, whatever `person` brings.
    */
-  private async directoryUser({ id, name, bio, role, status, updatedAt, agent }: DirectoryEntry): Promise<DirectoryUser> {
-    return (await directoryOf([{ id, name, bio, role, status, updatedAt, agent }], this.env.SESSION_SECRET))[0]!;
+  private async directoryUser({ id, name, bio, role, status, updatedAt, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([{ id, name, bio, role, status, updatedAt, agent, keptFor }], this.env.SESSION_SECRET))[0]!;
   }
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
@@ -3966,10 +4598,10 @@ export class Workspace extends DurableObject<Env> {
     const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
     const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
     const memberful = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, accounts: person.accounts };
-    const apps = await this.yourApps(person.id, session.guest, account);
+    const [apps, outsideAi] = await Promise.all([this.yourApps(person.id, session.guest, account), this.yourOutsideAi(person.id, session.guest, account)]);
     return {
-      transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps },
+      transfer: { userId: person.id, sessionId: session.id, shownAt: Date.now() },
+      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps, outsideAi },
       memberful,
     };
   }
@@ -4012,9 +4644,10 @@ export class Workspace extends DurableObject<Env> {
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
    * browser's, at `pushEndpoint`, and a password that replaces one they had unlinks the accounts
-   * elsewhere they connected with it. Everyone's workspace sockets hear of a new name or bio, which the
-   * people directory lists. A new name can't be @ember's ("name reserved"), or an agent's ("agent's
-   * name"), unless it was theirs before.
+   * elsewhere they connected with it. Any new password ends the sign-in links this session showed until
+   * now, too. Everyone's workspace sockets hear of a new name or bio, which the people directory lists.
+   * A new name can't be @ember's ("name reserved"), or an agent's ("agent's name"), unless it was theirs
+   * before.
    */
   async changeProfile(
     credentials: Credentials,
@@ -4176,7 +4809,7 @@ export class Workspace extends DurableObject<Env> {
       let saved: SavedRoomChange;
       try {
         saved = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
-        queued = saved.removedIds.length > 0;
+        queued = saved.removedIds.length > 0 || saved.madePrivate;
       } finally {
         if (queued) await this.revocationsQueued(now);
       }
@@ -4437,10 +5070,19 @@ export class Workspace extends DurableObject<Env> {
   /**
    * The bot `botId` that answers a question in room `roomId` that `askerId` asked, @ember or an AI agent,
    * as the question finds it when its turn comes and again before its answer is posted (`assistantIn`,
-   * `agentIn`): null once Ember AI is off, or the bot isn't in the room, so that what's on its way stops.
+   * `agentIn`): null once Ember AI is off, the bot isn't in the room, or it's an agent that doesn't answer
+   * them there, so that what's on its way stops.
    */
   async answererIn(roomId: RoomId, botId: UserId, askerId: UserId): Promise<AssistantAccess | null> {
     return botId === ASSISTANT_ID ? this.assistantIn(roomId, askerId) : this.agentIn(roomId, botId, askerId);
+  }
+
+  /**
+   * Whether room `roomId` is private by now, a DM or a private room, or gone, as an answer asks once it
+   * has searched the room, which may have been made private since the answer began (`roomSearch`).
+   */
+  async isPrivateRoom(roomId: RoomId): Promise<boolean> {
+    return isPrivate(await this.store.roomKind(roomId));
   }
 
   /**
@@ -4448,13 +5090,13 @@ export class Workspace extends DurableObject<Env> {
    * doesn't open (`assistantGateway`), with the model whoever asked, `askerId`, picked, while people can
    * pick it, the instructions administrators added and what Ember adds around them, the community's
    * name, what @ember may do on the web, with whichever model answers, of what its format has tools for,
-   * and Ember's addresses: null once Ember AI is off or @ember isn't in the room, so that turning Ember
-   * AI off, or taking @ember out of a room, stops what's on its way there.
+   * Ember's addresses, and whether the room is private: null once Ember AI is off or @ember isn't in the
+   * room, so that turning Ember AI off, or taking @ember out of a room, stops what's on its way there.
    */
   private async assistantIn(roomId: RoomId, askerId: UserId): Promise<AssistantAccess | null> {
     // Before anything is read, as `roomAccess` takes it.
     const authorizedAt = Date.now();
-    const [account, member, picks] = await Promise.all([this.joinableAccount(), this.store.isMember(roomId, ASSISTANT_ID), this.store.assistantPicks(askerId)]);
+    const [account, member, picks, kind] = await Promise.all([this.joinableAccount(), this.store.isMember(roomId, ASSISTANT_ID), this.store.assistantPicks(askerId), this.store.roomKind(roomId)]);
     if (!account?.assistant || !member) return null;
     const [opened, offered] = await Promise.all([this.openedAssistant(account), this.offeredForAnswers(account.assistant.accountId)]);
     if (opened) this.moveToProviderEndpoints(account.assistant, opened);
@@ -4468,19 +5110,21 @@ export class Workspace extends DurableObject<Env> {
     const webSearchOn = account.assistant.webTools.includes("search");
     const bot = { id: ASSISTANT_ID, name: ASSISTANT_NAME };
     const { assistantInstructions: instructions, assistantPromptTemplate: promptTemplate } = account;
-    const appTools = gateway ? await this.toolsFor(ASSISTANT_ID, roomId, askerId) : [];
-    return { bot, authorizedAt, gateway, picked: picked !== null, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn, addresses: addressesOf(account), appTools };
+    const inPrivate = isPrivate(kind);
+    const appTools = gateway ? await this.toolsFor(ASSISTANT_ID, roomId, askerId, inPrivate) : [];
+    return { bot, authorizedAt, gateway, picked: picked !== null, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn, addresses: addressesOf(account), inPrivate, appTools };
   }
 
   /**
    * Agent `agentId` in room `roomId`, as `assistantIn` finds @ember: asking AI Gateway through Ember AI's
    * account and API token, with its own model, instructions, what Ember adds around them, and levels, and
-   * what it may do on the web, of what its model's format has tools for: null once Ember AI is off, or
-   * the agent is deleted or taken out of the room.
+   * what it may do on the web, of what its model's format has tools for: null once Ember AI is off, the
+   * agent is deleted or taken out of the room, or it's kept for administrators and doesn't answer whoever
+   * asked there (`ANSWERING_AGENT`).
    */
   private async agentIn(roomId: RoomId, agentId: UserId, askerId: UserId): Promise<AssistantAccess | null> {
     const authorizedAt = Date.now();
-    const [account, agent] = await Promise.all([this.joinableAccount(), this.store.answeringAgent(roomId, agentId)]);
+    const [account, agent, kind] = await Promise.all([this.joinableAccount(), this.store.answeringAgent(roomId, agentId, askerId), this.store.roomKind(roomId)]);
     if (!account?.assistant || !agent) return null;
     const [opened, offered] = await Promise.all([this.openedAssistant(account), this.offeredForAnswers(account.assistant.accountId)]);
     if (opened) this.moveToProviderEndpoints(account.assistant, opened);
@@ -4489,8 +5133,9 @@ export class Workspace extends DurableObject<Env> {
     const webTools = agent.webTools.filter((tool) => webToolsOf(agent.model, format, offered.file).includes(tool));
     const bot = { id: agentId, name: agent.name };
     const { instructions, promptTemplate, levels } = agent;
-    const appTools = gateway ? await this.toolsFor(agentId, roomId, askerId) : [];
-    return { bot, authorizedAt, gateway, picked: false, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn: webTools.includes("search"), addresses: addressesOf(account), appTools };
+    const inPrivate = isPrivate(kind);
+    const appTools = gateway ? await this.toolsFor(agentId, roomId, askerId, inPrivate) : [];
+    return { bot, authorizedAt, gateway, picked: false, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn: webTools.includes("search"), addresses: addressesOf(account), inPrivate, appTools };
   }
 
   /**
@@ -4598,7 +5243,7 @@ export class Workspace extends DurableObject<Env> {
    * and whatever was queued is forgotten.
    */
   private async checkMemberships(): Promise<void> {
-    const api = memberfulApiOf(this.env);
+    const api = await this.memberfulApi();
     const now = Date.now();
     const due = await this.store.dueMembershipChecks(api?.site ?? null, now, now + MEMBERSHIP_CATCH_UP_MS, MEMBERSHIPS_PER_CHECK);
     if (!api || due.length === 0) return;
@@ -4666,7 +5311,8 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Asks rooms to delete the messages of the people banned since, up to `limit` rooms, each
    * `MESSAGES_PER_PURGE` at a time, and only those written before the ban was lifted, if it has been,
-   * even while it's asking. A room that has more of theirs left is asked again at once, and one that
+   * even while it's asking, and the messages and boosts of the people who deleted their accounts, all
+   * of them, as many at a time. A room that has more of theirs left is asked again at once, and one that
    * can't be reached later, as a revocation is. A room is asked only once the sockets queued to close
    * there have closed, as those delivered just before may have, so a banned person can't write through
    * one after it's done. Answers how many it read.
@@ -4680,10 +5326,13 @@ export class Workspace extends DurableObject<Env> {
     const finished: number[] = [];
     const unfinished: number[] = [];
     const failed: number[] = [];
-    await eachAtMost(due, ROOMS_AT_ONCE, async ({ id, roomId, userId, liftedAt }) => {
+    await eachAtMost(due, ROOMS_AT_ONCE, async ({ id, roomId, userId, liftedAt, deletedAccount }) => {
       try {
+        const room = this.env.CHAT_ROOM.getByName(roomId);
         const until = liftedAt ?? this.liftedBans.get(userId) ?? null;
-        const more = await this.env.CHAT_ROOM.getByName(roomId).removeMessagesBy(roomId, userId, MESSAGES_PER_PURGE, until);
+        const more = deletedAccount
+          ? await room.removeEverythingBy(roomId, userId, MESSAGES_PER_PURGE)
+          : await room.removeMessagesBy(roomId, userId, MESSAGES_PER_PURGE, until);
         (more ? unfinished : finished).push(id);
       } catch (error) {
         console.error(`Could not delete messages in room ${roomId}; trying again later`, error);
@@ -4744,7 +5393,7 @@ export class Workspace extends DurableObject<Env> {
    * key.
    */
   private async resumeDeliveries(): Promise<void> {
-    const api = memberfulApiOf(this.env);
+    const api = await this.memberfulApi();
     if (api) await this.store.startMembershipCatchUp(api.site, Date.now());
     await this.scheduleDelivery();
   }

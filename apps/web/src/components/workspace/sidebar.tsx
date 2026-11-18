@@ -1,15 +1,14 @@
-import { useContext, useId, useMemo, useState, type MouseEvent } from "react";
-import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
-import { ChatPlusIn, Headset, StarSolid } from "@/components/icons/iconoir";
+import { useContext, useId, useMemo, type MouseEvent } from "react";
+import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@ember/protocol";
+import { ChatPlusIn, Headset, NavArrowRight, StarSolid } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useAccount } from "@/hooks/use-account";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
-import { useMounted } from "@/hooks/use-mounted";
-import { leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
+import { NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { membersShown } from "@/lib/directs";
 import { inItsHuddle } from "@/lib/huddle-people";
-import { apart, inDirectOrder, inSidebarOrder, markedUnread, suggestedPeople, type DirectSidebarRoom } from "@/lib/room-list";
+import { apart, inDirectOrder, inSidebarOrder, markedUnread, type DirectSidebarRoom } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
 import { opensNewDirect } from "./new-direct-dialog";
@@ -30,12 +29,10 @@ interface Props {
   workspaceName: string;
   /** Who the sidebar is for, whose DMs name the others in them. */
   meId: UserId;
-  /** Someone's rooms and DMs, in any order. */
+  /** Someone's rooms and DMs, in the order they were put in them, which the rooms neither starred nor ranked keep. */
   rooms: SidebarRoom[];
   /** Whether their list has come, before which nothing says there's nothing in it. */
   loaded: boolean;
-  /** The people suggested for DMs, as the server last listed them. */
-  suggestions: User[];
   /** The rooms they've starred, whose rows come first, end with a star, and can be moved among themselves. */
   favorites: Favorites;
   /** The rooms the workspace's shared order ranks, which come next, in its order. */
@@ -45,11 +42,15 @@ interface Props {
   currentRoomId: string | null;
   /** Whether Activity is on, which shows only the rows marked unread. */
   unreadOnly: boolean;
+  /** How many AI agents they can ask, which Available Agents says, under the DMs, while there are any. */
+  agents: number;
+  /** Whether Available Agents is open. */
+  agentsOpen: boolean;
   onSelect: (roomId: string) => void;
   /** Opens New direct message, which the DMs heading's link does in place, from the link that opened it. */
   onNewDirect: (opener: HTMLElement) => void;
-  /** Starts the DM with someone suggested, or opens the one they have, and goes there, settling with whether it did. */
-  onStartDirect: (person: User) => Promise<boolean>;
+  /** Opens Available Agents, from the row that says how many there are. */
+  onOpenAgents: (opener: HTMLElement) => void;
   /** Called with this person's stars as the server answers them, once a new order for them is saved. */
   onStarred: (favorites: Favorites) => void;
   /** Called with null when the session has expired. */
@@ -59,28 +60,32 @@ interface Props {
 /**
  * The conversation list: rooms, then DMs, under the workspace name, and under that in small type the
  * tagline an administrator gave it, if it has one. The starred rooms come first, then the ones the
- * shared order ranks, in its order, then the rest by name, and a starred room's row ends with a star,
- * with no grip, as the project's owner chose: held, the row can be dragged among the other starred rows,
- * or moved with Alt and an arrow (`useStarOrder`). The DMs come latest active first, and a DM's row shows
- * who else is in it. People suggested for DMs follow. A room or DM marked unread is bold with a dot at
- * the end of its row, and a room with a huddle going on ends its row with who's in it. With Activity on,
- * only the unread rows show, and with none it says everything's read; with it off and nothing to list,
- * it says it found nothing.
+ * shared order ranks, in its order, then the rest in the order they were put in them, so a new room
+ * comes last, and a starred room's row ends with a star, with no grip, both as the project's owner
+ * chose: held, the row can be dragged among the other starred rows, or moved with Alt and an arrow
+ * (`useStarOrder`). The DMs follow, only the ones they're in, as the project's owner chose, rather than
+ * Campfire's people to start one with too, latest active first, and a DM's row shows who else is in it.
+ * A room or DM marked unread is bold with a dot at the end of its row, and one with a huddle going on
+ * ends its row with who's in it. With Activity on, only the unread rows show, and with none it says
+ * everything's read; with it off and nothing to list, it says it found nothing. Under them all,
+ * Available Agents says how many AI agents this person can ask, and opens the list of them, as the
+ * project's owner chose (2026-11-15), unless there are none, or Activity is on.
  */
 export function Sidebar({
   workspaceName,
   meId,
   rooms,
   loaded,
-  suggestions,
   favorites,
   sharedOrder,
   huddles,
   currentRoomId,
   unreadOnly,
+  agents,
+  agentsOpen,
   onSelect,
   onNewDirect,
-  onStartDirect,
+  onOpenAgents,
   onStarred,
   onSessionChanged,
 }: Props) {
@@ -95,27 +100,10 @@ export function Sidebar({
   const listed = useMemo(() => inSidebarOrder(shared, order, sharedOrder), [shared, order, sharedOrder]);
   const starred = useMemo(() => new Set(order), [order]);
   const directsListed = useMemo(() => inDirectOrder(directs), [directs]);
-  // Activity hides the suggestions.
-  const suggested = useMemo(() => (unreadOnly ? [] : suggestedPeople(suggestions, rooms)), [unreadOnly, suggestions, rooms]);
-  const empty = loaded && listed.length === 0 && directsListed.length === 0 && suggested.length === 0;
+  const empty = loaded && listed.length === 0 && directsListed.length === 0;
   const helpId = useId();
   const unreadId = useId();
   const huddleId = useId();
-  const mounted = useMounted();
-  // Who's suggested whose DM is starting, which another click doesn't start again.
-  const [starting, setStarting] = useState<UserId | null>(null);
-  // A suggestion starts its DM once the page's guard lets it, from a page with changes to lose.
-  const startWith = (person: User) => {
-    if (starting) return;
-    leave(async () => {
-      setStarting(person.id);
-      try {
-        return await onStartDirect(person);
-      } finally {
-        if (mounted.current) setStarting(null);
-      }
-    });
-  };
   // A row followed in place shows its room here, and one opened elsewhere, as in a new tab, leaves this page be.
   const select = (event: MouseEvent, roomId: RoomId) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -204,17 +192,42 @@ export function Sidebar({
             meId={meId}
             current={room.id === currentRoomId}
             unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
+            huddle={huddles[room.id]}
             onClick={(event) => select(event, room.id)}
           />
-        ))}
-        {suggested.map((person) => (
-          <SuggestionRow key={person.id} person={person} starting={person.id === starting} onClick={() => startWith(person)} />
         ))}
       </section>
       {empty && (
         <p className="px-[9px] text-[13px] text-muted-foreground">{unreadOnly ? "You’re all caught up. No unread conversations." : "No conversations found."}</p>
       )}
+      {agents > 0 && !unreadOnly && <AgentsRow count={agents} open={agentsOpen} onOpen={onOpenAgents} />}
     </div>
+  );
+}
+
+/**
+ * Available Agents: a heading, as the DMs' is, that's a button, with how many AI agents this person can
+ * ask on a pill, as the Agent badge's is, and an arrow, since it opens the list of them.
+ */
+function AgentsRow({ count, open, onOpen }: { count: number; open: boolean; onOpen: (opener: HTMLElement) => void }) {
+  return (
+    <section aria-label="Agents" className="flex flex-col">
+      <button
+        type="button"
+        // Named in one piece, since a browser reads a space between the parts of a row laid out as this one is.
+        aria-label={`Available Agents, ${count} to ask`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={(event) => onOpen(event.currentTarget)}
+        className="flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-lg px-[9px] text-start text-xs font-medium text-muted-foreground touch:min-h-11 hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground"
+      >
+        <span>Available Agents</span>
+        <span aria-hidden="true" className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-foreground/8 px-1.5 text-[11px] leading-none font-semibold tabular-nums text-message-muted">
+          {count}
+        </span>
+        <NavArrowRight className="ml-auto size-[15px]" />
+      </button>
+    </section>
   );
 }
 
@@ -228,9 +241,10 @@ interface HuddleMarkProps {
 }
 
 /**
- * What a room's row ends with while a huddle is going on in it, as Slack's does: the faces of the first
- * two people in it, the headphones and how many are in it, in green. Hovering it says who they are, in
- * the words that follow it, hidden, for the row to say to screen readers, which the mark is hidden from.
+ * What a room's row, or a DM's, ends with while a huddle is going on in it, as Slack's does: the faces
+ * of the first two people in it, the headphones and how many are in it, in green. Hovering it says who
+ * they are, in the words that follow it, hidden, for the row to say to screen readers, which the mark is
+ * hidden from.
  */
 function HuddleMark({ huddle, meId, wordsId, className }: HuddleMarkProps) {
   const people = useContext(PeopleContext);
@@ -263,23 +277,27 @@ interface DirectRowProps {
   current: boolean;
   /** The element saying the DM is unread, when it's marked so, or null. */
   unreadId: string | null;
+  /** The huddle going on in it, if one is. */
+  huddle: LiveHuddle | undefined;
   onClick: (event: MouseEvent) => void;
 }
 
 /**
  * A DM's row: the avatar of the one other person in it, or of up to four in a group, at 24px or 14px
  * each, then their names, or yours in a DM with yourself, and the agent badge in a DM with an AI agent
- * alone.
+ * alone. It ends with who's in its huddle while one is going on, as a room's does.
  */
-function DirectRow({ room, meId, current, unreadId, onClick }: DirectRowProps) {
+function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
   const isWithAgent = useIsWithAgent();
   const members = membersShown(room, meId);
+  // The words for who's in its huddle, which come with its mark.
+  const inHuddleId = useId();
   return (
     <a
       href={roomPath(room.id)}
       aria-current={current ? "page" : undefined}
-      aria-describedby={unreadId ?? undefined}
+      aria-describedby={[huddle && inHuddleId, unreadId].filter(Boolean).join(" ") || undefined}
       onClick={onClick}
       className={cn(ROW, unreadId && "font-[650]")}
     >
@@ -298,31 +316,8 @@ function DirectRow({ room, meId, current, unreadId, onClick }: DirectRowProps) {
         <span className="sr-only">Direct message with</span> {members.map((member) => `${nameOf(member)}${member.id === meId ? " (you)" : ""}`).join(", ")}
         {isWithAgent(room) && <AgentBadge className="ms-0.5" />}
       </span>
+      {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} />}
       {unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}
     </a>
-  );
-}
-
-interface SuggestionRowProps {
-  person: User;
-  /** Whether the DM with them is starting, which another click doesn't start again. */
-  starting: boolean;
-  onClick: () => void;
-}
-
-/**
- * Someone suggested for a DM, a person rather than a bot or an AI agent: a button in a DM row's style
- * with their avatar and name, which starts the DM with them.
- */
-function SuggestionRow({ person, starting, onClick }: SuggestionRowProps) {
-  const nameOf = useNameOf();
-  return (
-    <button type="button" aria-disabled={starting || undefined} onClick={onClick} className={cn(ROW, "w-full cursor-pointer text-start aria-disabled:cursor-default")}>
-      <UserAvatar user={person} className="size-6" />
-      {/* The space after the hidden words starts the visible line, where it doesn't show. */}
-      <span className="min-w-0 flex-1 truncate">
-        <span className="sr-only">Start a direct message with</span> {nameOf(person)}
-      </span>
-    </button>
   );
 }
