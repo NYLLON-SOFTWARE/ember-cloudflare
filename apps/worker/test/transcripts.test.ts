@@ -6,8 +6,12 @@ import {
   type Sidebar,
   type WorkspaceTranscript,
 } from "@ember/protocol";
+import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import { credentialsOf } from "../src/auth";
+import type { Env } from "../src/env";
 import { TRANSCRIPT_PAGE } from "../src/store";
+import { pagesOf } from "../src/transcripts";
 import {
   api,
   connect,
@@ -21,6 +25,7 @@ import {
   roomStub,
   shown,
   signIn,
+  workspaceSql,
   type Session,
   type Socket,
 } from "./support";
@@ -91,6 +96,37 @@ describe("Who may download a transcript", () => {
     expect((await roomTranscript(ada, "zzzzzzzzzzzzzzzz")).status).toBe(404);
     expect((await roomTranscript(ada, "not a room")).status).toBe(404);
     expect((await roomTranscript(ada, "A".repeat(20))).status).toBe(404);
+  });
+
+  it("stops between pages once the reader leaves the room or signs out, without the next page", async () => {
+    const room = await freshRoom("left");
+    const ada = await signIn("Ada");
+    await connect(room, ada);
+    for (let i = 0; i < TRANSCRIPT_PAGE + 5; i++) {
+      const id = `l${String(i).padStart(4, "0")}`;
+      await roomSql(
+        room,
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'Ada', '<p>n</p>', ?, '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z')`,
+        id,
+        room,
+        id,
+        ada.user.id,
+        `page ${i}`,
+      );
+    }
+    const credentials = (await credentialsOf(new Request("https://ember.test/", withCookie(ada.cookie)), env as unknown as Env))!;
+
+    const pages = pagesOf(env as unknown as Env, credentials, room);
+    expect((await pages.next()).value).toHaveLength(TRANSCRIPT_PAGE);
+    await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", room, ada.user.id);
+    await expect(pages.next()).rejects.toThrow();
+
+    await workspaceSql("INSERT INTO memberships (room_id, user_id, created_at, updated_at) VALUES (?, ?, '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z')", room, ada.user.id);
+    const again = pagesOf(env as unknown as Env, credentials, room);
+    expect((await again.next()).value).toHaveLength(TRANSCRIPT_PAGE);
+    await api("/api/session", { method: "DELETE", ...withCookie(ada.cookie) });
+    await expect(again.next()).rejects.toThrow();
   });
 
   it("lets a member download a private room they're in", async () => {

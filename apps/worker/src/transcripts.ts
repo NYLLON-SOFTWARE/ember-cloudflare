@@ -15,10 +15,11 @@ import { credentialsOf } from "./auth";
 import type { Env } from "./env";
 import { contentDisposition, sanitizedFilename } from "./files/filename";
 import { urlOf } from "./request-url";
-import { workspace } from "./workspace";
+import { workspace, type Credentials } from "./workspace";
 
 const NOT_SIGNED_IN = "Not signed in";
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
+const ACCESS_ENDED = "The transcript's reader can no longer read the room";
 const encoder = new TextEncoder();
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
@@ -33,12 +34,12 @@ export async function roomTranscript(request: Request, env: Env, roomId: RoomId)
   const format = parseTranscriptFormat(urlOf(request).searchParams.get("format"));
   const credentials = await credentialsOf(request, env);
   const found = credentials && (await workspace(env).roomForTranscript(credentials, roomId));
-  if (!found) return problem(401, NOT_SIGNED_IN);
+  if (!credentials || !found) return problem(401, NOT_SIGNED_IN);
   if (found === "not found") return problem(404, ROOM_NOT_FOUND);
   if (format === null) return problem(422, TRANSCRIPT_FORMAT_REFUSED);
   const exportedAt = new Date().toISOString();
   const room = transcriptRoomOf(found.room, found.user.id);
-  return fileOf(room.name, format, streamOf((write) => writeRoom(write, env, roomId, room, exportedAt, format)));
+  return fileOf(room.name, format, streamOf((write) => writeRoom(write, env, credentials, roomId, room, exportedAt, format)));
 }
 
 /**
@@ -49,10 +50,10 @@ export async function workspaceTranscript(request: Request, env: Env): Promise<R
   const format = parseTranscriptFormat(urlOf(request).searchParams.get("format"));
   const credentials = await credentialsOf(request, env);
   const found = credentials && (await workspace(env).roomsForTranscript(credentials));
-  if (!found) return problem(401, NOT_SIGNED_IN);
+  if (!credentials || !found) return problem(401, NOT_SIGNED_IN);
   if (format === null) return problem(422, TRANSCRIPT_FORMAT_REFUSED);
   const exportedAt = new Date().toISOString();
-  return fileOf("your-conversations", format, streamOf((write) => writeWorkspace(write, env, found.user, found.rooms, exportedAt, format)));
+  return fileOf("your-conversations", format, streamOf((write) => writeWorkspace(write, env, credentials, found.user, found.rooms, exportedAt, format)));
 }
 
 /** `name` as a download of `format`, written as `run` produces it. */
@@ -80,28 +81,34 @@ function streamOf(run: (write: (text: string) => void) => Promise<void>): Readab
   });
 }
 
-/** One page of `roomId`'s transcript at a time, oldest first. */
-async function* pagesOf(env: Env, roomId: RoomId): AsyncGenerator<TranscriptMessage[]> {
+/**
+ * One page of `roomId`'s transcript at a time, oldest first, for whoever `credentials` signs in. Each page
+ * is let go only once they're found still signed in and in the room after it's read, so a page never holds
+ * a message posted after they lost it. Throws, ending the download, once they have.
+ */
+export async function* pagesOf(env: Env, credentials: Credentials, roomId: RoomId): AsyncGenerator<TranscriptMessage[]> {
   let after: string | undefined;
   for (;;) {
     const page = after === undefined ? await env.CHAT_ROOM.getByName(roomId).transcriptPage(roomId) : await env.CHAT_ROOM.getByName(roomId).transcriptPage(roomId, after);
+    const still = await workspace(env).roomForTranscript(credentials, roomId);
+    if (!still || still === "not found") throw new Error(ACCESS_ENDED);
     if (page.messages.length > 0) yield page.messages;
     if (page.after === undefined) return;
     after = page.after;
   }
 }
 
-async function messagesOf(env: Env, roomId: RoomId): Promise<TranscriptMessage[]> {
+async function messagesOf(env: Env, credentials: Credentials, roomId: RoomId): Promise<TranscriptMessage[]> {
   const messages: TranscriptMessage[] = [];
-  for await (const page of pagesOf(env, roomId)) messages.push(...page);
+  for await (const page of pagesOf(env, credentials, roomId)) messages.push(...page);
   return messages;
 }
 
-async function writeRoom(write: (text: string) => void, env: Env, roomId: RoomId, room: TranscriptRoom, exportedAt: string, format: TranscriptFormat): Promise<void> {
+async function writeRoom(write: (text: string) => void, env: Env, credentials: Credentials, roomId: RoomId, room: TranscriptRoom, exportedAt: string, format: TranscriptFormat): Promise<void> {
   if (format === "json") {
     write(`{\n  "room": ${JSON.stringify(room)},\n  "exportedAt": ${JSON.stringify(exportedAt)},\n  "messages": [`);
     let first = true;
-    for await (const page of pagesOf(env, roomId)) {
+    for await (const page of pagesOf(env, credentials, roomId)) {
       for (const message of page) {
         write(first ? "\n    " : ",\n    ");
         first = false;
@@ -112,10 +119,10 @@ async function writeRoom(write: (text: string) => void, env: Env, roomId: RoomId
     return;
   }
   // Markdown groups replies under their parent, so one room is gathered after it's paged over RPC.
-  write(roomTranscriptMarkdown({ room, exportedAt, messages: await messagesOf(env, roomId) }));
+  write(roomTranscriptMarkdown({ room, exportedAt, messages: await messagesOf(env, credentials, roomId) }));
 }
 
-async function writeWorkspace(write: (text: string) => void, env: Env, user: User, rooms: Room[], exportedAt: string, format: TranscriptFormat): Promise<void> {
+async function writeWorkspace(write: (text: string) => void, env: Env, credentials: Credentials, user: User, rooms: Room[], exportedAt: string, format: TranscriptFormat): Promise<void> {
   if (format === "json") {
     write(`{\n  "exportedAt": ${JSON.stringify(exportedAt)},\n  "rooms": [`);
     let firstRoom = true;
@@ -125,7 +132,7 @@ async function writeWorkspace(write: (text: string) => void, env: Env, user: Use
       firstRoom = false;
       write(`{\n      "room": ${JSON.stringify(room)},\n      "exportedAt": ${JSON.stringify(exportedAt)},\n      "messages": [`);
       let firstMessage = true;
-      for await (const page of pagesOf(env, listed.id)) {
+      for await (const page of pagesOf(env, credentials, listed.id)) {
         for (const message of page) {
           write(firstMessage ? "\n        " : ",\n        ");
           firstMessage = false;
@@ -142,6 +149,6 @@ async function writeWorkspace(write: (text: string) => void, env: Env, user: Use
   write("\n");
   for (const [index, listed] of rooms.entries()) {
     if (index > 0) write("\n---\n\n");
-    write(roomTranscriptMarkdown({ room: transcriptRoomOf(listed, user.id), exportedAt, messages: await messagesOf(env, listed.id) }));
+    write(roomTranscriptMarkdown({ room: transcriptRoomOf(listed, user.id), exportedAt, messages: await messagesOf(env, credentials, listed.id) }));
   }
 }
