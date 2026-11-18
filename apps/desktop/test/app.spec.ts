@@ -12,6 +12,9 @@ test("asks for a site on its first start, says why it can't add one, and opens a
   const [fernwood, blog] = [await fakeEmber("Fernwood"), await fakeElsewhere()];
   const addSite = await app.electron.firstWindow();
   await expect(addSite).toHaveTitle("Add a Site");
+  // The field takes the focus as the page is first drawn, which, as the app first starts on a busy
+  // machine, can come seconds after the page has its title.
+  await addSite.evaluate(() => new Promise((drawn) => requestAnimationFrame(drawn)));
   await expect(addSite.getByLabel("Site address")).toBeFocused();
 
   const problem = addSite.getByRole("alert");
