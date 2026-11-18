@@ -19,9 +19,11 @@ import {
   type SidebarRoom,
 } from "@ember/protocol";
 import { MODEL_NOT_LISTED, type YourAssistant, type YourAssistantChanged, type YourAssistantChanges } from "@ember/protocol/assistant";
+import type { HuddleSounds, HuddleSoundsChanged } from "@ember/protocol/huddles";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
+import { BlockingContext } from "@/hooks/use-blocking";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
@@ -36,7 +38,7 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null };
+const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -104,20 +106,35 @@ function serve({
   });
 }
 
-/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
-function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
-  const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
+/**
+ * The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`,
+ * and with the huddle sounds she hears as the list has them, or none while huddles are off.
+ */
+function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, huddleSounds: HuddleSounds | null = null) {
+  const [onSignOut, onFailed, answered, soundsAnswered] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
   const onDeleteAccount = vi.fn(async () => {});
-  const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
+  const setBlocked = vi.fn(async () => true);
+  const page = (listed: SidebarRoom[] | null, people: People = new Map(), blocked: string[] = []) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
-        <PushContext value={{ ...PUSH_ON, platform }}>
-          <FlashProvider workspace>
-            <Sheet>
-              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} onFailed={onFailed} />
-            </Sheet>
-          </FlashProvider>
-        </PushContext>
+        <BlockingContext value={{ blocked: new Set(blocked), setBlocked }}>
+          <PushContext value={{ ...PUSH_ON, platform }}>
+            <FlashProvider workspace>
+              <Sheet>
+                <ProfilePage
+                  me={ada}
+                  rooms={listed}
+                  askForRoom={() => answered}
+                  huddleSounds={huddleSounds}
+                  askForHuddleSounds={() => soundsAnswered}
+                  onSignOut={onSignOut}
+                  onDeleteAccount={onDeleteAccount}
+                  onFailed={onFailed}
+                />
+              </Sheet>
+            </FlashProvider>
+          </PushContext>
+        </BlockingContext>
       </PeopleContext>
     </AccountContext>
   );
@@ -127,9 +144,12 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
     onDeleteAccount,
     onFailed,
     answered,
+    soundsAnswered,
     user: userEvent.setup(),
     showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
     showPeople: (people: People) => rerender(page(rooms, people)),
+    /** Has the sidebar list the people `blocked` names as blocked, with the people directory listing `people`. */
+    showBlocked: (blocked: string[], people: People) => rerender(page(rooms, people, blocked)),
   };
 }
 
@@ -239,6 +259,25 @@ describe("Edit your profile", () => {
     expect(field("Bio")).toHaveValue("");
     expect(field("New password")).toHaveValue("");
     expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("saves your username as Ember keeps one, in lowercase without spaces or an @, which you can leave blank", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, username: "ada" }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { user } = showPage();
+    await loaded();
+    const username = field("Username");
+    expect(username).toHaveValue("ada");
+    expect(username).not.toBeRequired();
+    expect(username).toHaveAttribute("maxlength", "21");
+    expect(username).toHaveAccessibleDescription("People find you by typing @ and your username.");
+    await user.clear(username);
+    await user.type(username, "@Ada Lovelace");
+    expect(username).toHaveValue("adalovelace");
+    await user.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(saved()).toEqual([{ username: "adalovelace" }]);
+    expect(username).toHaveValue("adalovelace");
   });
 
   it("sends only what you changed, then shows what's saved, so it doesn't undo another tab's save", async () => {
@@ -483,6 +522,24 @@ describe("Delete my account", () => {
   });
 });
 
+describe("Blocked people on your profile", () => {
+  it("lists whom you've blocked after Conversation notifications, before Delete my account, once you've blocked anyone", async () => {
+    serve();
+    const room: SidebarRoom = { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" };
+    const { showBlocked } = showPage(account, [room]);
+    await loaded();
+    expect(screen.queryByRole("region", { name: "Blocked people" })).toBeNull();
+
+    const grace: DirectoryUser = { id: "u2", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
+    showBlocked([grace.id], new Map([[grace.id, grace]]));
+    const blocked = screen.getByRole("region", { name: "Blocked people" });
+    expect(within(blocked).getByRole("button", { name: "Unblock Grace Hopper" })).toBeVisible();
+    const sections = [screen.getByRole("heading", { name: "Conversation notifications" }), blocked, screen.getByRole("region", { name: "Delete my account" })];
+    expect(sections[0]!.compareDocumentPosition(sections[1]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(sections[1]!.compareDocumentPosition(sections[2]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+});
+
 describe("Levels on your profile", () => {
   const design: SidebarRoom = { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" };
   const notifications = () => screen.queryByRole("list", { name: "Conversation notifications" });
@@ -510,6 +567,44 @@ describe("Levels on your profile", () => {
     await user.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
     expect(onFailed).toHaveBeenCalledOnce();
     expect(answered).not.toHaveBeenCalled();
+  });
+});
+
+describe("Huddle sounds on your profile", () => {
+  const design: SidebarRoom = { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" };
+  const NO_CHIMES: HuddleSounds = { music: true, chimes: false, ring: true };
+  const section = () => screen.queryByRole("region", { name: "Huddle sounds" });
+  const switched = () => within(section()!).getAllByRole("switch").map((each) => each.getAttribute("aria-checked") === "true");
+
+  it("has a switch for each of a huddle's sounds while huddles are on, between the form and your rooms' levels, each as the sidebar's list has it", async () => {
+    showPage(account, [design], CHROME_MAC, NO_CHIMES);
+    await loaded();
+    expect(switched()).toEqual([true, false, true]);
+    expect(saveButton().compareDocumentPosition(section()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(section()!.compareDocumentPosition(screen.getByRole("list", { name: "Conversation notifications" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("has none while huddles are off, or the list hasn't said which you hear", async () => {
+    showPage(account, [design]);
+    await loaded();
+    expect(section()).toBeNull();
+    expect(screen.getByRole("list", { name: "Conversation notifications" })).toBeVisible();
+  });
+
+  it("hands the sounds a switch saves to the sidebar's list, and says why one couldn't save", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input) !== "/api/users/me/huddle-sounds") return Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer);
+      return init?.body === JSON.stringify({ chimes: true }) ? Response.json({ sounds: { ...NO_CHIMES, chimes: true } } satisfies HuddleSoundsChanged) : Response.json({ error: "Something went wrong" }, { status: 500 });
+    });
+    const { soundsAnswered, onFailed, user } = showPage(account, [design], CHROME_MAC, NO_CHIMES);
+    await loaded();
+    await user.click(within(section()!).getByRole("switch", { name: "Play a sound when someone joins or leaves" }));
+    expect(soundsAnswered).toHaveBeenCalledExactlyOnceWith({ music: true, chimes: true, ring: true });
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await user.click(within(section()!).getByRole("switch", { name: "Ring when someone invites you to a huddle" }));
+    expect(onFailed).toHaveBeenCalledOnce();
+    expect(soundsAnswered).toHaveBeenCalledOnce();
   });
 });
 
