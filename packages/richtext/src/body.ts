@@ -111,6 +111,7 @@ export function withParser(parse: HtmlParser) {
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
     groupIdsIn: (markup: string) => groupIdsIn(parse, markup),
     writtenBody: (markup: string) => writtenBody(parse, markup),
+    writtenMentions: (markup: string) => writtenMentions(parse, markup),
     editableBody: (stored: string, card: (userId: string) => MentionCard | undefined, host: string, groupCard?: (groupId: string) => MentionUser | undefined) =>
       editableBody(parse, stored, card, host, groupCard),
     autoLink: (html: string) => autoLink(parse, html),

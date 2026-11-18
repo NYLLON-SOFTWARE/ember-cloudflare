@@ -35,16 +35,33 @@ interface Props {
   onFailed: (error: unknown) => void;
 }
 
+/**
+ * The server's list as it answered, with what changed while the request was out kept as it now stands:
+ * a group saved meanwhile stays, one deleted meanwhile stays gone.
+ */
+const mergeListed = (current: UserGroup[], fetched: UserGroup[]): UserGroup[] => {
+  const byId = new Map(current.map((group) => [group.id, group] as const));
+  const fetchedIds = new Set(fetched.map((group) => group.id));
+  return [...fetched.filter((group) => byId.has(group.id)).map((group) => byId.get(group.id)!), ...current.filter((group) => !fetchedIds.has(group.id))];
+};
+
 /** The User groups card: New group, then the groups, by name, each with how many it stands for and its buttons. */
 export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
   const [groups, setGroups] = useState<UserGroup[] | null>(null);
   // The group whose form is open, or "new" for one it's making, or null while the card lists only.
   const [editing, setEditing] = useState<GroupId | "new" | null>(null);
+  // The groups deleted since the card mounted, so a save that answers after its delete doesn't bring it back.
+  const removed = useRef(new Set<GroupId>());
 
   useEffect(() => {
     let stopped = false;
     fetchUserGroups().then(
-      (groups) => !stopped && setGroups(groups),
+      (fetched) => {
+        if (stopped) return;
+        // A group saved or deleted while this first list was loading stands as it now does, so it
+        // doesn't disappear under, or come back with, the older copy this answer replaces.
+        setGroups((current) => (current === null ? fetched : mergeListed(current, fetched)));
+      },
       (error: unknown) => {
         // A card gone before its groups load only reports a session that's ended, which goes to sign in.
         if (!stopped || isSignedOut(error)) onFailed(error);
@@ -55,17 +72,21 @@ export function UserGroups({ onSaved, reloadDirectory, onFailed }: Props) {
 
   /** Shows `group` as the server answers it, and says the change saved; the form whose save it was closes itself. */
   const saved = (group: UserGroup) => {
+    // A save that answers after the group's delete went doesn't bring it back.
+    if (removed.current.has(group.id)) return;
     setGroups((groups) => (groups?.some((listed) => listed.id === group.id) ? groups.map((listed) => (listed.id === group.id ? group : listed)) : [...(groups ?? []), group]));
     reloadDirectory();
     onSaved();
   };
 
-  /** Deletes `group` for good, which the list drops. */
+  /** Deletes `group` for good, which the list drops, and closes its form if it was open. */
   const remove = (group: UserGroup) => {
     if (!confirm(CONFIRM_DELETE)) return;
     deleteUserGroup(group.id).then(
       () => {
+        removed.current.add(group.id);
         setGroups((groups) => groups?.filter((listed) => listed.id !== group.id) ?? []);
+        setEditing((editing) => (editing === group.id ? null : editing));
         reloadDirectory();
       },
       // A delete that couldn't be sent says so, as a save's does, and the group stays to be tried again.
