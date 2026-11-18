@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fakeElsewhere, fakeEmber, fakeMemberful, fakeRedirect } from "./fake-sites.ts";
+import { fakeElsewhere, fakeEmber, fakeEndless, fakeMemberful, fakeRedirect } from "./fake-sites.ts";
 import { expect, test } from "./fixtures.ts";
 
 // When the app keeps a page where it is, opening a link outside or nowhere, Playwright, having seen the
@@ -50,6 +50,18 @@ test("adds a site at the address its own redirects to, as a bare domain's do to 
   expect(page.url()).toBe(`${fernwood.origin}/`);
   expect(app.sites()).toMatchObject([{ address: fernwood.origin, name: "Fernwood" }]);
   expect(await app.openedOutside()).toEqual([]);
+});
+
+test("stops reading a site's answer once it can't be Ember's, however much more the site sends", async ({ app }) => {
+  const addSite = await app.electron.firstWindow();
+  for (const status of [500, 200]) {
+    const endless = await fakeEndless(status);
+    await addSite.getByLabel("Site address").fill(endless.origin);
+    await addSite.getByRole("button", { name: "Add site" }).click();
+    // Long before the app would stop waiting for the site.
+    await expect(addSite.getByRole("alert")).toHaveText(`${new URL(endless.origin).host} isn't an Ember site. Check the address you open Ember at in your browser.`);
+    await expect.poll(() => endless.answering).toBe(0);
+  }
 });
 
 test("keeps each site's sign-in apart, and opens the windows that were open as it quit, where they were", async ({ app }) => {
@@ -301,6 +313,42 @@ test("removes a site, forgetting its sign-in, and asks for another once there's 
 
   const again = await app.add(addSite, fernwood.origin);
   await expect(again.getByRole("heading")).toHaveText("Signed out at Fernwood");
+});
+
+test("opens a site again as it starts where a window the site's pages opened was open as it quit", async ({ app }) => {
+  const [fernwood, birchwood] = [await fakeEmber("Fernwood"), await fakeEmber("Birchwood")];
+  let atFernwood = await app.add(await app.electron.firstWindow(), fernwood.origin);
+  await app.clickMenu("Sites", "Add Site…");
+  await app.add(await app.electron.waitForEvent("window"), birchwood.origin);
+  const titles = () => app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => window.getTitle()).sort());
+  const openRoom = async () => {
+    const [opened] = await Promise.all([app.electron.waitForEvent("window"), atFernwood.evaluate(() => window.open("/rooms/3"))]);
+    await opened.waitForLoadState("domcontentloaded");
+  };
+  const close = (title: string) =>
+    app.electron.evaluate(
+      ({ BrowserWindow }, title) =>
+        new Promise<void>((resolve) => {
+          const window = BrowserWindow.getAllWindows().find((window) => window.getTitle() === title)!;
+          window.once("closed", () => resolve());
+          window.close();
+        }),
+      title,
+    );
+
+  // Fernwood's own window closes while Birchwood's is open, but the window its page opened is open as the app quits.
+  await openRoom();
+  await close("general · Fernwood");
+  await app.restart();
+  await expect.poll(titles).toEqual(["general · Birchwood", "general · Fernwood"]);
+
+  // Birchwood's closes too, not the last window open, which is the one Fernwood's page opened.
+  atFernwood = app.electron.windows().find((page) => page.url().startsWith(fernwood.origin))!;
+  await openRoom();
+  await close("general · Fernwood");
+  await close("general · Birchwood");
+  await app.restart();
+  await expect.poll(titles).toEqual(["general · Fernwood"]);
 });
 
 test("counts the windows a site's pages opened as the site's, and opens another site's in their place as it's removed", async ({ app }) => {

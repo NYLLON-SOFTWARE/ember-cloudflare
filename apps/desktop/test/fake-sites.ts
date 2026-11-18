@@ -3,7 +3,8 @@ import type { AddressInfo } from "node:net";
 
 // Made-up sites for the app's tests, on this computer, each at an origin of its own: Ember sites, which
 // answer `/api/bootstrap` as Ember does and show a page of what a site's window can be asked to do; a
-// Memberful site to sign in at; a site that isn't Ember; and one that sends everything on to another.
+// Memberful site to sign in at; a site that isn't Ember; one that sends everything on to another; and one
+// that never stops answering.
 
 /** A made-up site, listening until it's closed. */
 export interface FakeSite {
@@ -125,6 +126,31 @@ export function fakeMemberful(): Promise<FakeSite> {
 /** A site that sends every page on to the same page at `to`, an origin, as a bare domain does to its www. */
 export function fakeRedirect(to: string): Promise<FakeSite> {
   return serve((_request, response, url) => redirect(response, `${to}${url.pathname}${url.search}`));
+}
+
+/** A site whose answer to everything never ends, which a test can tell has been cut off. */
+export interface FakeEndless extends FakeSite {
+  /** How many of its answers are still being sent. */
+  answering: number;
+}
+
+/** A site that answers everything with `status` and a body that never ends, as one out to fill the app's memory might. */
+export async function fakeEndless(status: number): Promise<FakeEndless> {
+  const more = Buffer.alloc(64 * 1024, " ");
+  const site: FakeEndless = Object.assign(
+    await serve((_request, response) => {
+      site.answering++;
+      response.once("close", () => site.answering--);
+      response.writeHead(status, { "Content-Type": "application/json" });
+      const send = () => {
+        while (!response.destroyed && response.write(more));
+      };
+      response.on("drain", send);
+      send();
+    }),
+    { answering: 0 },
+  );
+  return site;
 }
 
 /** A site that isn't Ember, whose pages can be framed, as a frame elsewhere in an Ember page would be. */

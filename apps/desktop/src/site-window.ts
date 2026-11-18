@@ -5,7 +5,7 @@ import { destinationOf, mayBeMoving, mayBeSigningIn, passageOf } from "./navigat
 import { checkSite, memberfulSiteOf } from "./site-check.ts";
 import { fetchFollowing, redirectOf } from "./site-fetch.ts";
 import { sessionOf } from "./site-session.ts";
-import type { Bounds, Site, Sites } from "./sites.ts";
+import type { Bounds, Site, SiteChanges, Sites } from "./sites.ts";
 
 /** How large a site's window opens the first time, and how small it can be made. */
 const FIRST_SIZE = { width: 1280, height: 860 };
@@ -94,10 +94,7 @@ export class SiteWindows {
       event.preventDefault();
       window.setTitle(windowTitleOf(title, this.#sites.find(site.id)?.name ?? site.name));
     });
-    window.on("close", () => {
-      // Closing the last window quits the app, but on a Mac, where reopening it from the Dock opens it again.
-      this.#sites.update(site.id, { bounds: window.getNormalBounds(), open: this.#quitting || this.#windows.size === 1 });
-    });
+    window.on("close", () => this.#closing(window, site.id));
     window.on("closed", () => {
       this.#windows.delete(site.id);
       this.#changed();
@@ -107,6 +104,22 @@ export class SiteWindows {
     this.#windows.set(site.id, window);
     this.#changed();
     return window;
+  }
+
+  /**
+   * Remembers, as `window`, one of the site with `id`'s, closes, where it was, if it's the site's own, and
+   * whether to open the site again as the app next starts: yes as the app quits, or as the last of the sites'
+   * windows closes, which quits it, but on a Mac, where reopening the app from the Dock opens it again; no as
+   * the site's last window closes otherwise. As one of several of the site's windows closes, the one that
+   * closes last decides.
+   */
+  #closing(window: BrowserWindow, id: string): void {
+    const changes: SiteChanges = window === this.#windows.get(id) ? { bounds: window.getNormalBounds() } : {};
+    // The site of each of the sites' windows still open, `window` among them.
+    const sitesOpen = [...this.#windows.keys(), ...this.#opened.values()];
+    if (this.#quitting || sitesOpen.length === 1) changes.open = true;
+    else if (sitesOpen.filter((site) => site === id).length === 1) changes.open = false;
+    if (Object.keys(changes).length > 0) this.#sites.update(id, changes);
   }
 
   /** Asks the site with `id` its name again, which its administrators can change, for the Sites menu. */
@@ -181,6 +194,7 @@ export class SiteWindows {
     });
     contents.on("did-create-window", (opened) => {
       this.#opened.set(opened, id);
+      opened.on("close", () => this.#closing(opened, id));
       opened.once("closed", () => this.#opened.delete(opened));
       this.#keepToSite(opened.webContents, id);
     });
