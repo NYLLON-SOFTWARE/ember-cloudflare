@@ -7,6 +7,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.ts",
+  globalSetup: "./global-setup.ts",
   // Starting the app takes a few seconds, and some tests start it twice.
   timeout: 60_000,
   fullyParallel: true,

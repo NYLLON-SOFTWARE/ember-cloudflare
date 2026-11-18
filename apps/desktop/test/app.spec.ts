@@ -52,13 +52,16 @@ test("keeps each site's sign-in apart, and opens the windows that were open as i
   await expect(atFernwood.getByRole("heading")).toHaveText("Signed in at Fernwood");
   await atBirchwood.reload();
   await expect(atBirchwood.getByRole("heading")).toHaveText("Signed out at Birchwood");
-  await app.electron.evaluate(({ BrowserWindow }, title) => BrowserWindow.getAllWindows().find((window) => window.getTitle() === title)?.setBounds({ x: 40, y: 50, width: 900, height: 700 }), "general · Fernwood");
+  // Where it fits on the small screens of CI's Macs, between the menu bar and the Dock, as macOS moves and
+  // shrinks a window that doesn't fit, and no smaller than a site's window can be.
+  const where = { x: 40, y: 80, width: 700, height: 560 };
+  await app.electron.evaluate(({ BrowserWindow }, { title, bounds }) => BrowserWindow.getAllWindows().find((window) => window.getTitle() === title)?.setBounds(bounds), { title: "general · Fernwood", bounds: where });
 
   await app.restart();
   await expect.poll(() => app.electron.windows().length).toBe(2);
   const headings = await Promise.all(app.electron.windows().map((window) => window.getByRole("heading").textContent()));
   expect(headings.sort()).toEqual(["Signed in at Fernwood", "Signed out at Birchwood"]);
-  expect(app.sites().find((site) => site.name === "Fernwood")?.bounds).toEqual({ x: 40, y: 50, width: 900, height: 700 });
+  expect(app.sites().find((site) => site.name === "Fernwood")?.bounds).toEqual(where);
 });
 
 test("keeps a window on its site, opening web pages elsewhere outside the app", async ({ app }) => {
