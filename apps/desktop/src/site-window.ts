@@ -139,8 +139,8 @@ export class SiteWindows {
   /**
    * Keeps `contents`, a window of the site with `id` or one its pages opened, on the site's own pages,
    * opening anything elsewhere outside the app, but for the site's Memberful site, which signing in with
-   * Memberful, and connecting an account there, pass through, and the site's move to a custom domain,
-   * which the window follows.
+   * Memberful, and connecting an account there, pass through, and the site's move to another address,
+   * a custom domain its pages move to or one its server redirects them to, which the window follows.
    */
   #keepToSite(contents: WebContents, id: string): void {
     const address = () => this.#addressOf(id);
@@ -157,19 +157,23 @@ export class SiteWindows {
       moves++;
       if (!isSameDocument) loading = url;
     });
-    contents.on("will-navigate", (event) => {
-      const destination = destinationOf(event.url, address(), passingThrough);
-      if (destination === "window") return;
-      event.preventDefault();
-      if (destination !== "outside") return;
+    // Leaves the site's page at `from` for `url`, elsewhere, as `#leave` says, once the site has said where it is.
+    const leave = (from: string, url: string) => {
       // Its move has started already, so `moves` counts it.
       const asked = moves;
-      void this.#leave(contents, id, event.url, {
+      void this.#leave(contents, id, from, url, {
         stillWanted: () => !contents.isDestroyed() && moves === asked,
         passThrough: (memberful) => {
           passingThrough = memberful;
         },
       });
+    };
+
+    contents.on("will-navigate", (event) => {
+      const destination = destinationOf(event.url, address(), passingThrough);
+      if (destination === "window") return;
+      event.preventDefault();
+      if (destination === "outside") leave(contents.getURL(), event.url);
     });
     contents.on("will-redirect", (event) => {
       if (!event.isMainFrame) return;
@@ -180,7 +184,7 @@ export class SiteWindows {
         return;
       }
       event.preventDefault();
-      if (destination === "outside") void shell.openExternal(event.url);
+      if (destination === "outside") leave(loading, event.url);
     });
     contents.on("did-navigate", (_event, url) => {
       if (URL.parse(url)?.origin === address()) passingThrough = null;
@@ -216,14 +220,15 @@ export class SiteWindows {
   }
 
   /**
-   * Opens `url` outside the app, unless it's where the site with `id` has moved, which the window follows,
-   * or the sign-in at the site's Memberful site, where connecting an account there goes, which the window
-   * passes through, as it tells `leaving`. Should the page move again before the site answers, or its window
-   * close, the move is dropped, as a browser drops a page it was opening once another is asked for.
+   * Opens `url`, where the page at `from` is going, outside the app, unless it's where the site with `id`
+   * has moved, which the window follows, or the sign-in at the site's Memberful site, where connecting an
+   * account there goes, which the window passes through, as it tells `leaving`. Should the page move again
+   * before the site answers, or its window close, the move is dropped, as a browser drops a page it was
+   * opening once another is asked for.
    */
-  async #leave(contents: WebContents, id: string, url: string, leaving: Leaving): Promise<void> {
+  async #leave(contents: WebContents, id: string, from: string, url: string, leaving: Leaving): Promise<void> {
     const { origin } = new URL(url);
-    if (mayBeMoving(contents.getURL(), url)) {
+    if (mayBeMoving(from, url)) {
       const site = await checkSite(this.#addressOf(id), fetchFollowing);
       if (!leaving.stillWanted()) return;
       if (typeof site !== "string" && site.address === origin) {

@@ -299,6 +299,19 @@ test("opens a site at the custom domain it moved to, and follows it when it move
   expect(await app.openedOutside()).toEqual([]);
 });
 
+test("follows a site to the address its server sends its pages on to once it's moved there", async ({ app }) => {
+  const fernwood = await fakeEmber("Fernwood");
+  const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
+  await page.goto(`${fernwood.origin}/rooms/2`);
+
+  fernwood.redirectsTo = fernwood.at("localhost");
+  await app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.reload());
+  await expect.poll(() => page.url()).toBe(`${fernwood.at("localhost")}/rooms/2`);
+  await expect(page.getByRole("heading")).toHaveText("Signed out at Fernwood");
+  expect(app.sites()).toMatchObject([{ address: fernwood.at("localhost") }]);
+  expect(await app.openedOutside()).toEqual([]);
+});
+
 test("removes a site, forgetting its sign-in, and asks for another once there's none", async ({ app }) => {
   const fernwood = await fakeEmber("Fernwood");
   const page = await app.add(await app.electron.firstWindow(), fernwood.origin);

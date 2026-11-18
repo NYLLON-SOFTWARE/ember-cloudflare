@@ -23,6 +23,8 @@ export interface FakeEmber extends FakeSite {
   name: string;
   /** The host the site says it moved to, which its pages then move to, or null. */
   customDomain: string | null;
+  /** The origin its server sends its pages at any other on to, the same page there, as a server does for a site that's moved, or null. */
+  redirectsTo: string | null;
   /** Where its Sign in with Memberful sends people: a Memberful site's origin. */
   memberful: string | null;
   /** How many times it's been asked where its Sign in with Memberful goes. */
@@ -72,6 +74,7 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
   const site: FakeEmber = Object.assign(
     await serve((request, response, url) => {
       const signedIn = request.headers.cookie?.includes("session=") ?? false;
+      if (site.redirectsTo !== null && url.origin !== site.redirectsTo) return redirect(response, `${site.redirectsTo}${url.pathname}${url.search}`);
       switch (url.pathname) {
         case "/api/bootstrap":
           response.writeHead(200, { "Content-Type": "application/json" });
@@ -102,6 +105,7 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
     {
       name,
       customDomain: null,
+      redirectsTo: null,
       memberful: null,
       signInsAsked: 0,
       holdSignIn() {
