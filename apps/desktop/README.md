@@ -33,9 +33,13 @@ version is downloaded and installed by hand.
 
 Builds aren't signed or notarized yet, so each system warns before it opens one.
 
-- **Mac:** open the `.dmg` and drag Ember into Applications. The first time, Control-click Ember in
-  Applications, choose **Open**, then **Open** again. If macOS says Ember is damaged, run
-  `xattr -dr com.apple.quarantine /Applications/Ember.app` in Terminal, then open it.
+- **Mac:** open the `.dmg` and drag Ember into Applications, then open it. The first time, macOS says
+  it couldn't verify Ember and doesn't open it. Choose **Done**, open **System Settings**, choose
+  **Privacy & Security**, scroll down, and click **Open Anyway** beside the note about Ember. Confirm
+  when macOS asks again, with your password if it asks for it, and Ember opens, as it does from then on.
+  Since macOS 15, Control-clicking Ember and choosing **Open** no longer gets past the warning. Or run
+  `xattr -dr com.apple.quarantine /Applications/Ember.app` in Terminal, then open Ember, which also works
+  when macOS says Ember is damaged.
 - **Windows:** run the installer, and when SmartScreen says it protected your PC, choose **More info**,
   then **Run anyway**.
 - **Linux:** make the `.AppImage` runnable (`chmod +x Ember-*.AppImage`) and run it, or install the
