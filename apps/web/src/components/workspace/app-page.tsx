@@ -519,11 +519,13 @@ function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onS
  * The token's field: what it's for, or why it was refused, Send no token for an app that has one, and
  * Sign in, once the server asks for a sign-in. While the form has another address than the app's
  * (`moved`), the token the app has isn't kept, as Ember sends it only to the address it was given for.
+ * Once Send no token is checked, the field reads as it will after the save, with none.
  */
 function Token({ saved, moved, fields, onChange, refusal, busy, offersSignIn, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "offersSignIn" | "onSignIn"> & { moved: boolean }) {
   const field = useSecretField(fields.token);
-  const keepsToken = saved?.hasToken === true;
-  const asksAgain = keepsToken && moved && !fields.noToken;
+  const hasToken = saved?.hasToken === true;
+  const keepsToken = hasToken && !fields.noToken;
+  const asksAgain = keepsToken && moved;
   return (
     <Field id="app_token" label="Token">
       <Input
@@ -544,7 +546,7 @@ function Token({ saved, moved, fields, onChange, refusal, busy, offersSignIn, on
       <Under id="app_token" field="token" refusal={refusal}>
         {asksAgain ? APP_TOKEN_STAYS : keepsToken ? TOKEN_KEPT : TOKEN_EXPLAINED}
       </Under>
-      {keepsToken && (
+      {hasToken && (
         <label className="flex min-h-9 cursor-pointer items-center gap-[1ch] text-[0.9em]">
           <input
             type="checkbox"

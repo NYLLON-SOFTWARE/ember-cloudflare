@@ -610,9 +610,10 @@ describe("A connected app's page", () => {
     await waitFor(() => expect(tokenField()).toBeInvalid());
     expect(requests).toEqual([{ request: `PATCH /api/account/apps/${LINEAR.id}`, body: { url: `${LINEAR.url}/v2` } }]);
 
-    // Once Send no token is checked, it no longer asks for one.
+    // Once Send no token is checked, it no longer asks for one, and reads as it will after the save.
     await user.click(screen.getByRole("checkbox", { name: "Send no token" }));
-    expect(tokenField()).not.toHaveAccessibleDescription(APP_TOKEN_STAYS);
+    expect(tokenField()).toHaveAccessibleDescription(TOKEN_EXPLAINED);
+    expect(tokenField()).toHaveAttribute("placeholder", "None");
     await user.click(screen.getByRole("checkbox", { name: "Send no token" }));
 
     // Back at the app's address, the token it has is kept.
@@ -631,6 +632,9 @@ describe("A connected app's page", () => {
     await user.click(screen.getByRole("checkbox", { name: "Send no token" }));
     expect(tokenField()).toBeDisabled();
     expect(tokenField()).toHaveValue("");
+    // It no longer says the token is kept, as saving drops it.
+    expect(tokenField()).toHaveAttribute("placeholder", "None");
+    expect(tokenField()).toHaveAccessibleDescription(TOKEN_EXPLAINED);
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(requests).toEqual([{ request: `PATCH /api/account/apps/${LINEAR.id}`, body: { token: "" } }]));
