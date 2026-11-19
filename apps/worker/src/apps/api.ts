@@ -38,7 +38,7 @@ import type { Env } from "../env";
 import { notFound } from "../error-pages";
 import { anyOtherPage, formAnswer } from "../pages";
 import { urlOf } from "../request-url";
-import { workspace, type BegunAppSignIn, type Credentials } from "../workspace";
+import { movesItsToken, workspace, type BegunAppSignIn, type Credentials } from "../workspace";
 import { appConnector } from "./connector";
 import type { ReadApp } from "./mcp";
 import { CLIENT_DOCUMENT_PATH, clientMetadataOf } from "./oauth";
@@ -266,7 +266,7 @@ export async function changeApp(request: Request, env: Env, appId: AppId): Promi
     if (url !== access.url || changes.token !== undefined) return formAnswer(signedInRefusal(url !== access.url), 422);
     return appAnswer(await ember.changeApp(credentials, appId, changes, null));
   }
-  if (url !== access.url && changes.token === undefined && access.sealedToken !== null) return formAnswer(TOKEN_STAYS, 422);
+  if (movesItsToken(access, changes)) return formAnswer(TOKEN_STAYS, 422);
   const token = changes.token === undefined ? (access.key?.token ?? null) : changes.token === "" ? null : changes.token;
   if (url === access.url && token === (access.key?.token ?? null)) return appAnswer(await ember.changeApp(credentials, appId, changes, null));
   const read = await appConnector(env).read(url, token === null ? null : { token });
@@ -340,7 +340,7 @@ async function ownAddressRefusal(request: Request, env: Env, url: string): Promi
 }
 
 /** Why a request about apps isn't done: there's no such app, agent or tool, or the person asking can't, or not now. */
-type Refusal = "off" | "full" | "changed" | "signed in" | "gone" | "not found" | "forbidden" | null;
+type Refusal = "off" | "full" | "changed" | "signed in" | "token stays" | "gone" | "not found" | "forbidden" | null;
 
 /** Why an app that's signed in to keeps its address, or else takes no token, said on that field. */
 const signedInRefusal = (moved: boolean): AppRefused => ({ error: APP_SIGNED_IN, field: moved ? "url" : "token" });
@@ -365,5 +365,6 @@ function refused(why: Refusal): Response {
   if (why === "forbidden") return problem(403, APPS_FORBIDDEN);
   if (why === "not found") return problem(404, "Not found");
   if (why === "signed in") return formAnswer(signedInRefusal(true), 422);
+  if (why === "token stays") return formAnswer(TOKEN_STAYS, 422);
   return problem(409, why === "off" ? ASSISTANT_OFF : why === "changed" ? APP_CHANGED : why === "gone" ? TOOL_GONE : APPS_FULL);
 }
