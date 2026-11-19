@@ -33,6 +33,7 @@ const profile: Profile = {
   username: "katherinejohnson",
   emailAddress: "katherine@example.com",
   bio: null,
+  mood: null,
   avatarUrl: INITIALS,
   avatar: false,
   password: false,

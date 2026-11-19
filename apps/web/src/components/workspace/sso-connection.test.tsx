@@ -17,6 +17,7 @@ const DISCONNECTED: ProfileAnswer = {
     username: null,
     emailAddress: "grace@example.com",
     bio: null,
+    mood: null,
     avatarUrl: "/users/t0k3n/avatar?v=1",
     avatar: false,
     password: true,

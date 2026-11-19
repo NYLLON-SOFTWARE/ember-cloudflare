@@ -291,6 +291,8 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   function failedMood(error: unknown) {
     savedMood.current = undefined;
     onFailed(error);
+  }
+
   /** Shows your profile as disconnecting your account at the single sign-on provider answered it, with the notice. */
   function disconnectedFromSso(answer: ProfileAnswer) {
     disconnectedSso.current = true;

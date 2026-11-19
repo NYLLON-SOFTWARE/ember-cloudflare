@@ -1,5 +1,4 @@
-import type { Account, DirectoryUser, Favorites, LiveHuddle, PersonMood, SidebarRoom, User } from "@ember/protocol";
-import type { Account, DirectoryUser, Favorites, LiveHuddle, SidebarRoom, User, UserId } from "@ember/protocol";
+import type { Account, DirectoryUser, Favorites, LiveHuddle, PersonMood, SidebarRoom, User, UserId } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";

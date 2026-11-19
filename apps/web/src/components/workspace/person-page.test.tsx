@@ -125,6 +125,8 @@ describe("Someone's profile page", () => {
     showPage(grace);
     expect(await heading()).toHaveTextContent("Grace Hopper");
     expect(screen.queryByText(/^😌/)).toBeNull();
+  });
+
   it("shows someone's @username under their name, if they have one, as the people directory lists them now", async () => {
     const amazing = { ...grace, username: "amazing.grace" };
     serve(found(amazing));

@@ -130,12 +130,9 @@ describe("Edit your profile", () => {
     const response = await api("/api/users/me/profile", { headers: as(administrator) });
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: null, mood: null, ...(await initialsOf(administrator)), password: true, membershipNeeded: false, memberful: null, assistant: null, apps: [], outsideAi: null };
+    const profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: null, mood: null, ...(await initialsOf(administrator)), password: true, membershipNeeded: false, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
     expect(await response.json()).toEqual({ profile, transferId: expect.any(String) } satisfies ProfileAnswer);
-    expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null } satisfies Profile);
-    const profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: null, ...(await initialsOf(administrator)), password: true, membershipNeeded: false, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
-    expect(await response.json()).toEqual({ profile, transferId: expect.any(String) } satisfies ProfileAnswer);
-    expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", username: null, emailAddress: null, bio: "Rear admiral", ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null } satisfies Profile);
+    expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", username: null, emailAddress: null, bio: "Rear admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null } satisfies Profile);
   });
 
   it("saves your name, email address and bio, answering your profile as it is then", async () => {
@@ -145,8 +142,7 @@ describe("Edit your profile", () => {
 
     const response = await save(grace, changed);
     expect(response.status).toBe(200);
-    const profile: Profile = { ...changed, mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null };
-    const profile: Profile = { ...changed, username: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
+    const profile: Profile = { ...changed, username: null, mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
     expect(await response.json()).toEqual({ profile, transferId: expect.any(String) } satisfies ProfileAnswer);
     expect(await profileOf(grace)).toEqual(profile);
     expect(await (await me(grace)).json()).toEqual({ user: { id: grace.user.id, name: "Grace Brewster Hopper", administrator: false } });
@@ -161,16 +157,14 @@ describe("Edit your profile", () => {
     for (const body of [{}, { name: "Grace Hopper" }, { bio: "Rear admiral", password: "" }]) {
       const response = await save(grace, body);
       expect(response.status, JSON.stringify(body)).toBe(200);
-      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", mood: null, ...initials, password: false, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
-      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Rear admiral", ...initials, password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
+      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Rear admiral", mood: null, ...initials, password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
       expect((await stored(grace.user.id)).updated_at).toBe(LONG_AGO);
     }
 
     const answer = await (await save(grace, { bio: "Admiral" })).json();
     expect((await stored(grace.user.id)).updated_at > LONG_AGO).toBe(true);
     // The avatar's address changes with it, as it's versioned by when they last changed.
-    expect(answer).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
-    expect(answer).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Admiral", ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
+    expect(answer).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
     expect((await initialsOf(grace)).avatarUrl).not.toBe(initials.avatarUrl);
   });
 
@@ -519,6 +513,9 @@ describe("Your mood", () => {
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error });
     expect(await stored(grace.user.id)).toEqual(before);
+  });
+});
+
 describe("Usernames", () => {
   /** Makes an agent called `name`, as making one leaves it once Ember AI is turned off. */
   async function agentCalled(name: string, createdBy: UserId): Promise<void> {

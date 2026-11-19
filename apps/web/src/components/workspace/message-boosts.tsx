@@ -1,7 +1,5 @@
-import { useContext, useId, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { MAX_BOOST_LENGTH, REACTIONS, type Boost, type Me, type Message } from "@ember/protocol";
 import { useContext, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
+import { MAX_BOOST_LENGTH, REACTIONS, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { ArrowUp, Emoji, Minus, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";

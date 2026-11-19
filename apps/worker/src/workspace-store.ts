@@ -637,10 +637,8 @@ export interface AvatarChange {
   dueAt: number;
 }
 
-/** What `WorkspaceStore.changeProfile` saves: someone's profile, their mood, the digest of a new password or null to keep theirs. */
-export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio" | "mood"> {
-/** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
-export interface ProfileChange extends Pick<Profile, "name" | "username" | "emailAddress" | "bio"> {
+/** What `WorkspaceStore.changeProfile` saves: someone's profile, their mood, and the digest of a new password or null to keep theirs. */
+export interface ProfileChange extends Pick<Profile, "name" | "username" | "emailAddress" | "bio" | "mood"> {
   passwordDigest: string | null;
 }
 
@@ -2739,9 +2737,7 @@ export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE
  * are, deleted agents too, whose answers stay, and whom an agent not everyone can ask is kept for
  * (migrations/0063_agent_access.sql).
  */
-const DIRECTORY_COLUMNS = `users.id, users.name, users.bio, users.mood, users.role, users.status, users.updated_at,
-  (users.role = ${BOT} AND users.bot_token IS NULL) AS agent`;
-const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, users.role, users.status, users.updated_at,
+const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, users.mood, users.role, users.status, users.updated_at,
   (users.role = ${BOT} AND users.bot_token IS NULL) AS agent, users.agent_access`;
 
 /** Everyone ?1 is told of, for the people directory: removed and banned people too, whose messages stay (`listedTo`). */
@@ -3101,16 +3097,13 @@ const QUEUE_PICTURE_DELETION = `INSERT INTO pending_picture_deletions (object_ke
 /** Takes a picture's reservation, now that someone has it, so R2 keeps it. */
 const KEEP_PICTURE = `DELETE FROM pending_picture_deletions WHERE object_key = ?`;
 
-/** Saves someone's profile and records when, keeping their password unless given a new one's digest. */
-const CHANGE_PROFILE = `UPDATE users SET name = ?, email_address = ?, bio = ?, mood = ?, password_digest = coalesce(?, password_digest), updated_at = ?
-  WHERE id = ?`;
 /**
  * Saves someone's profile and records when, keeping their password unless given a new one's digest, and
  * forgetting that they proved their email address once it's another.
  */
-const CHANGE_PROFILE = `UPDATE users SET name = ?1, username = ?2, email_address = ?3, bio = ?4, password_digest = coalesce(?5, password_digest), updated_at = ?6,
+const CHANGE_PROFILE = `UPDATE users SET name = ?1, username = ?2, email_address = ?3, bio = ?4, mood = ?5, password_digest = coalesce(?6, password_digest), updated_at = ?7,
     email_verified_at = CASE WHEN email_address IS ?3 THEN email_verified_at END
-  WHERE id = ?7`;
+  WHERE id = ?8`;
 
 /** The same, with whether each is in a room, for its settings. */
 export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
@@ -5580,10 +5573,8 @@ export class WorkspaceStore {
    * they had one and keep an email address to sign in with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it
    * queued any.
    */
-  async changeProfile(userId: UserId, { name, emailAddress, bio, mood, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
-    const change = statement(CHANGE_PROFILE, name, emailAddress, bio, mood && JSON.stringify(mood), passwordDigest, now, userId);
-  async changeProfile(userId: UserId, { name, username, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
-    const change = statement(CHANGE_PROFILE, name, username, emailAddress, bio, passwordDigest, now, userId);
+  async changeProfile(userId: UserId, { name, username, emailAddress, bio, mood, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+    const change = statement(CHANGE_PROFILE, name, username, emailAddress, bio, mood && JSON.stringify(mood), passwordDigest, now, userId);
     if (!ended) {
       await this.db.batch([change]);
       return false;

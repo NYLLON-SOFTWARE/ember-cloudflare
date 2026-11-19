@@ -4083,14 +4083,10 @@ export class Workspace extends DurableObject<Env> {
    * their sessions end, and their sockets close for good: here at once, and in every room they're in
    * through the outbox. Everyone's workspace sockets hear of it.
    */
-  private async deactivate({ id, name, bio, mood, role, agent }: DirectoryEntry): Promise<DirectoryUser> {
+  private async deactivate({ id, name, username, bio, mood, role, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
     const removedAt = new Date(now).toISOString();
-    const removed = await this.directoryUser({ id, name, bio, mood, role, status: "deactivated", updatedAt: removedAt, agent });
-  private async deactivate({ id, name, username, bio, role, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
-    const now = Date.now();
-    const removedAt = new Date(now).toISOString();
-    const removed = await this.directoryUser({ id, name, username, bio, role, status: "deactivated", updatedAt: removedAt, agent, keptFor });
+    const removed = await this.directoryUser({ id, name, username, bio, mood, role, status: "deactivated", updatedAt: removedAt, agent, keptFor });
     // As when resetting a password, until the database says it queued nothing.
     let queued = true;
     try {
@@ -4171,7 +4167,7 @@ export class Workspace extends DurableObject<Env> {
         }
         if (person.accounts.length > 0) await this.forgetUnlinked();
         for (const { userId, blocks } of deletion.blockers) this.tell([userId], { type: "blocks.changed", blocks });
-        const deleted = { id: person.id, name: DELETED_PERSON_NAME, username: null, bio: null, role: "member", status: "deactivated", updatedAt: deletedAt, agent: false, keptFor: null } as const;
+        const deleted = { id: person.id, name: DELETED_PERSON_NAME, username: null, bio: null, mood: null, role: "member", status: "deactivated", updatedAt: deletedAt, agent: false, keptFor: null } as const;
         this.broadcast({ type: "user.updated", user: await this.directoryUser(deleted) });
         // As many reports are open as before, but a Reports list loads them again on hearing so.
         if (deletion.reportsCleared) this.tellOpenReports(await this.reports.openByAdministrator());
@@ -4275,10 +4271,6 @@ export class Workspace extends DurableObject<Env> {
         }
         if (previous) await this.wakeAt(now);
         const changed = (await this.store.activeBot(botId))!;
-        if (changed.name !== bot.name || avatar) {
-          const { id, name, bio, mood, role, status, updatedAt, agent } = changed;
-          this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name, bio, mood, role, status, updatedAt, agent }) });
-        }
         if (changed.name !== bot.name || avatar) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
         return this.shownBotSettings(changed);
       }),
@@ -5251,10 +5243,8 @@ export class Workspace extends DurableObject<Env> {
    * Someone as the people directory lists them, with their avatar's address, and nothing else known of
    * them, such as their email address, whatever `person` brings.
    */
-  private async directoryUser({ id, name, bio, mood, role, status, updatedAt, agent }: DirectoryEntry): Promise<DirectoryUser> {
-    return (await directoryOf([{ id, name, bio, mood, role, status, updatedAt, agent }], this.env.SESSION_SECRET))[0]!;
-  private async directoryUser({ id, name, username, bio, role, status, updatedAt, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
-    return (await directoryOf([{ id, name, username, bio, role, status, updatedAt, agent, keptFor }], this.env.SESSION_SECRET))[0]!;
+  private async directoryUser({ id, name, username, bio, mood, role, status, updatedAt, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([{ id, name, username, bio, mood, role, status, updatedAt, agent, keptFor }], this.env.SESSION_SECRET))[0]!;
   }
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
@@ -5267,17 +5257,13 @@ export class Workspace extends DurableObject<Env> {
 
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
-    const { name, emailAddress, bio, mood, avatar, password, membershipNeeded } = person;
-    const { name, username, emailAddress, bio, avatar, password, membershipNeeded } = person;
+    const { name, username, emailAddress, bio, mood, avatar, password, membershipNeeded } = person;
     const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
     const elsewhere = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, ssoOnly: account?.ssoSignIn ?? false, accounts: person.accounts };
     const [apps, outsideAi] = await Promise.all([this.yourApps(person.id, session.guest, account), this.yourOutsideAi(person.id, session.guest, account)]);
     return {
-      transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, mood, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps, outsideAi },
-      memberful,
       transfer: { userId: person.id, sessionId: session.id, shownAt: Date.now() },
-      profile: { name, username, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps, outsideAi },
+      profile: { name, username, emailAddress, bio, mood, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps, outsideAi },
       elsewhere,
     };
   }
@@ -5322,22 +5308,8 @@ export class Workspace extends DurableObject<Env> {
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
    * browser's, at `pushEndpoint`, and a password that replaces one they had unlinks the accounts
-   * elsewhere they connected with it. Everyone's workspace sockets hear of a new name, bio or mood,
-   * which the people directory lists. A new name can't be @ember's ("name reserved"), or an agent's
-   * ("agent's name"), unless it was theirs before.
-   */
-  async changeProfile(
-    credentials: Credentials,
-    changes: Pick<ProfileChanges, "name" | "emailAddress" | "bio" | "mood">,
-   * password against (`profileCheck`), "memberful" or "sso" for a first password while Memberful signs
-   * them in at `memberfulSite`, or single sign-on does, as `profileCheck` answers too, or null without a
-   * valid session. A blank email address or bio is
-   * saved as none, so any number of people can be without one. It writes only what differs. A new
-   * password ends their other sessions: their sockets close and are told to reconnect, here at once and
-   * in every room they're in through the outbox, and their push subscriptions are forgotten but this
-   * browser's, at `pushEndpoint`, and a password that replaces one they had unlinks the accounts
    * elsewhere they connected with it. Any new password ends the sign-in links this session showed until
-   * now, too. Everyone's workspace sockets hear of a new name, username or bio, which the people
+   * now, too. Everyone's workspace sockets hear of a new name, username, bio or mood, which the people
    * directory lists. A new name can't be @ember's ("name reserved"), or an agent's ("agent's name"),
    * unless it was theirs before, and a blank username is saved as none, while one that's someone
    * else's, whatever their status, or @ember's or an agent's name, is "username taken". A new name,
@@ -5346,7 +5318,7 @@ export class Workspace extends DurableObject<Env> {
    */
   async changeProfile(
     credentials: Credentials,
-    changes: Pick<ProfileChanges, "name" | "username" | "emailAddress" | "bio">,
+    changes: Pick<ProfileChanges, "name" | "username" | "emailAddress" | "bio" | "mood">,
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
@@ -5367,8 +5339,7 @@ export class Workspace extends DurableObject<Env> {
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
         mood: changes.mood === undefined ? person.mood : changes.mood,
       };
-      const listed = profile.name !== person.name || profile.bio !== person.bio || !sameMood(profile.mood, person.mood);
-      const listed = profile.name !== person.name || profile.username !== person.username || profile.bio !== person.bio;
+      const listed = profile.name !== person.name || profile.username !== person.username || profile.bio !== person.bio || !sameMood(profile.mood, person.mood);
       if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
