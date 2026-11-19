@@ -610,6 +610,11 @@ describe("A connected app's page", () => {
     await waitFor(() => expect(tokenField()).toBeInvalid());
     expect(requests).toEqual([{ request: `PATCH /api/account/apps/${LINEAR.id}`, body: { url: `${LINEAR.url}/v2` } }]);
 
+    // Once Send no token is checked, it no longer asks for one.
+    await user.click(screen.getByRole("checkbox", { name: "Send no token" }));
+    expect(tokenField()).not.toHaveAccessibleDescription(APP_TOKEN_STAYS);
+    await user.click(screen.getByRole("checkbox", { name: "Send no token" }));
+
     // Back at the app's address, the token it has is kept.
     await user.clear(urlField());
     await user.type(urlField(), LINEAR.url);

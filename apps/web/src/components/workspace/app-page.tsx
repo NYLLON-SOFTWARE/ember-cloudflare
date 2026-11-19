@@ -536,7 +536,7 @@ function useSecretField(typed: string) {
 function Token({ saved, moved, fields, onChange, refusal, busy, offersSignIn, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "offersSignIn" | "onSignIn"> & { moved: boolean }) {
   const field = useSecretField(fields.token);
   const keepsToken = saved?.hasToken === true;
-  const asksAgain = keepsToken && moved;
+  const asksAgain = keepsToken && moved && !fields.noToken;
   return (
     <Field id="app_token" label="Token">
       <Input
