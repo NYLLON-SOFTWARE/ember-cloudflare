@@ -221,6 +221,7 @@ import {
   type StoredBotSettings,
   type StoredPushSubscription,
   type StoredSession,
+  type StoredToken,
   type Welcome,
 } from "./workspace-store";
 
@@ -732,6 +733,16 @@ export interface RoomAccess {
   authorizedAt: number;
 }
 
+/** What the Workspace says about what someone's API token may do in room `roomId`, having found them in it. */
+export interface TokenRoomAccess {
+  /** Whether a ban blocks the IP address the request came from, which lets it read but not change anything. */
+  banned: boolean;
+  /** When the Workspace checked, in milliseconds since the epoch, as the room's own check takes it. */
+  authorizedAt: number;
+  /** Ember's custom domain, which links name, or null while it has none. */
+  customDomain: string | null;
+}
+
 /** What the Workspace says about a bot API key it found an active bot in a room for. */
 export interface BotAccess {
   bot: User;
@@ -1144,6 +1155,7 @@ export class Workspace extends DurableObject<Env> {
   /** Counts the starts and ends of bans and lifted bans, so a read of the banned addresses that overlapped one isn't kept. */
   private banChanges = 0;
   private readonly signInAttempts = new AddressLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
+  private readonly failedTokenAuths = new AddressLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly signUps = new AddressLimit(SIGN_UPS_PER_ADDRESS, SIGN_UP_WINDOW_MS);
   private readonly emailLinkAsks = new AddressLimit(EMAIL_LINKS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
   private readonly passwordResetAsks = new AddressLimit(PASSWORD_RESETS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
@@ -3421,6 +3433,98 @@ export class Workspace extends DurableObject<Env> {
    */
   async authenticate(credentials: Credentials): Promise<User | null> {
     return (await this.session(credentials))?.user ?? null;
+  }
+
+  /**
+   * Makes one of the person `credentials` signs in's API tokens, whose secret is only ever given once,
+   * answering it as it's listed, or null without a valid session, or once it ends while the token is
+   * being made, as a password reset ends it (store.createApiToken keeps the two together).
+   */
+  async createApiToken(credentials: Credentials, name: string, tokenDigest: string): Promise<StoredToken | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const now = Date.now();
+    const token = { id: sortableId(), name, createdAt: now, lastUsedAt: null, revokedAt: null };
+    const kept = await this.store.createApiToken(
+      user.id,
+      token.id,
+      name,
+      tokenDigest,
+      now,
+      credentials.tokenDigest,
+      credentials.guests,
+      new Date(now - SESSION_IDLE_MS).toISOString(),
+    );
+    return kept ? token : null;
+  }
+
+  /** The API tokens of the person `credentials` signs in, newest first, or null without a valid session. */
+  async apiTokensOf(credentials: Credentials): Promise<StoredToken[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.apiTokensOf(user.id);
+  }
+
+  /**
+   * Revokes one of the person `credentials` signs in's API tokens, answering whether it still worked,
+   * "not found" if it was never theirs, or null without a valid session. The next request carrying it
+   * opens nothing.
+   */
+  async revokeApiToken(credentials: Credentials, id: string): Promise<"revoked" | "kept" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const revoked = await this.store.revokeApiToken(user.id, id, Date.now());
+    return revoked === null ? "not found" : revoked ? "revoked" : "kept";
+  }
+
+  /**
+   * Whoever a personal access token's digest opens, if it isn't revoked and its person is still active,
+   * keeping when the token was last used; "limited" once too many have failed from the one IP address,
+   * as sign-in does. What the MCP server asks with every request (src/mcp-server.ts). A guest's token
+   * opens like their sessions do: only while EMBER_GUEST_SIGN_IN lets guests stay signed in.
+   */
+  async authenticateApiToken(ip: string, tokenDigest: string): Promise<User | "limited" | null> {
+    const found = await this.store.findApiToken(tokenDigest);
+    if (!found) {
+      if (!this.failedTokenAuths.attempt(ip)) return "limited";
+      return null;
+    }
+    if (found.guest && !guestSignIn(this.env)) return null;
+    await this.store.touchApiToken(found.id, Date.now());
+    return found.user;
+  }
+
+  /**
+   * The rooms someone's API token names, with their unread marks, as their sidebar has them, hidden ones
+   * included, for listing what its person can see (src/mcp-server.ts).
+   */
+  async apiTokenRooms(userId: UserId): Promise<SidebarRoom[]> {
+    return (await this.store.roomsFor(userId)).rooms;
+  }
+
+  /**
+   * What a search by someone's API token needs: who they are, the rooms whose messages they can search,
+   * the ones they've hidden and DMs too, and Ember's custom domain, which links name, or null while it
+   * has none.
+   */
+  async apiTokenSearcher(userId: UserId): Promise<Searcher & { customDomain: string | null }> {
+    return { userId, ...(await this.store.searcherOf(userId, null)), customDomain: (await this.joinableAccount())?.customDomain ?? null };
+  }
+
+  /** Everyone in the workspace, deactivated and banned people too, for an API token's person, as the directory lists them. */
+  async apiTokenDirectory(userId: UserId): Promise<DirectoryEntry[]> {
+    return this.store.directory(userId);
+  }
+
+  /**
+   * Whether someone's API token is in room `roomId`, and whether a ban blocks the address the request
+   * came from, as of `authorizedAt`, with Ember's custom domain, which links name: null when they're
+   * not in it, whether the room is gone or was never theirs, which both refuse alike.
+   */
+  async apiTokenRoomAccess(userId: UserId, roomId: RoomId, ipAddress: string | null): Promise<TokenRoomAccess | null> {
+    // Before anything is read, as a room's check of its revocations takes it.
+    const authorizedAt = Date.now();
+    const [access, account] = await Promise.all([this.store.roomAccess(roomId, userId, ipAddress), this.joinableAccount()]);
+    return access.member ? { authorizedAt, banned: access.banned, customDomain: account?.customDomain ?? null } : null;
   }
 
   /** The same, as the app keeps them. */

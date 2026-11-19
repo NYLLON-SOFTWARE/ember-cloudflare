@@ -322,6 +322,15 @@ export interface StoredSession {
   lastActiveAt: number;
 }
 
+/** One of someone's personal access tokens, as it's kept: never its digest, which nothing reads back. */
+export interface StoredToken {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+}
+
 /** Someone as the people directory lists them, with when they last changed, which their avatar's address follows. */
 export interface DirectoryEntry extends User {
   /** The username they picked, or null while they have none. */
@@ -880,6 +889,27 @@ const INSERT_IDENTITY_SESSION = `INSERT INTO sessions (id, user_id, token_digest
 
 /** Keeps the refresh token ?3, sealed, that a single sign-on provider gave for the account at issuer ?1 with subject ?2, to ask it again with at ?4, as a sign-in that just had its word. */
 const KEEP_REFRESH_TOKEN = `UPDATE identities SET refresh_token = ?3, refresh_due_at = ?4, refresh_failing_since = NULL WHERE issuer = ?1 AND subject = ?2`;
+
+/** How long before a token's last used time is kept again, so a busy token doesn't write it with every request. */
+const TOKEN_TOUCH_MS = 60 * 1000;
+
+/** The API token a digest names, if it isn't revoked and its person is still active, with their name and whether they're a guest. */
+const API_TOKEN = `SELECT api_tokens.id, api_tokens.user_id, users.name, users.guest FROM api_tokens JOIN users ON users.id = api_tokens.user_id
+  WHERE api_tokens.token_digest = ? AND api_tokens.revoked_at IS NULL AND users.status = ${ACTIVE}`;
+
+/** Keeps when a token was last used, unless it was kept within the minute before. */
+const TOUCH_API_TOKEN = `UPDATE api_tokens SET last_used_at = ?1 WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at < ?1 - ${TOKEN_TOUCH_MS})`;
+
+/** Revokes one of someone's tokens, unless it's gone already, answering its id. */
+const REVOKE_API_TOKEN = `UPDATE api_tokens SET revoked_at = ?1 WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL RETURNING id`;
+
+/** Keeps one of someone's API tokens only while the session ?6 names is still one to sign in with, as SESSION reads it: it's theirs, its person is active, it's no guest's while ?8 says guests are away, and it isn't idle past ?7. One statement, so a password reset ending the session as the token is kept keeps no token. */
+const CREATE_API_TOKEN = `INSERT INTO api_tokens (id, user_id, name, token_digest, created_at)
+  SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (
+    SELECT 1 FROM sessions JOIN users ON users.id = sessions.user_id
+    WHERE sessions.token_digest = ?6 AND sessions.user_id = ?2 AND users.status = ${ACTIVE}
+      AND (users.guest = 0 OR ?8 = 1) AND sessions.last_active_at > ?7
+  ) RETURNING id`;
 
 /** What `email_links.kind` holds for an invitation, and for a link someone asked for with an address at the email domains. */
 const INVITATION = "'invitation'";
@@ -4203,6 +4233,48 @@ export class WorkspaceStore {
   }
 
   /**
+   * Keeps one of someone's API tokens, whose digest nothing reads back, only while the session that
+   * asked, whose digest is `sessionDigest`, is still one to sign in with: theirs, its person active,
+   * no guest's while `guests` says guests are away, and last active after `staleBefore`, the oldest
+   * `last_active_at` sign-in would keep. One read of the session and the write together, so a password
+   * reset that ends the session as this runs keeps no token behind it. Answers whether it kept one.
+   */
+  async createApiToken(userId: UserId, id: string, name: string, tokenDigest: string, now: number, sessionDigest: string, guests: boolean, staleBefore: string): Promise<boolean> {
+    const rows = await this.db.all<{ id: string }>(CREATE_API_TOKEN, id, userId, name, tokenDigest, now, sessionDigest, staleBefore, guests ? 1 : 0);
+    return rows.length > 0;
+  }
+
+  /** Someone's API tokens, newest first. */
+  async apiTokensOf(userId: UserId): Promise<StoredToken[]> {
+    return (
+      await this.db.all<{ id: string; name: string; created_at: number; last_used_at: number | null; revoked_at: number | null }>(
+        `SELECT id, name, created_at, last_used_at, revoked_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC`,
+        userId,
+      )
+    ).map(({ id, name, created_at, last_used_at, revoked_at }) => ({ id, name, createdAt: created_at, lastUsedAt: last_used_at, revokedAt: revoked_at }));
+  }
+
+  /** The API token a digest opens, if it isn't revoked and its person is still active, with their name and guestness. */
+  async findApiToken(tokenDigest: string): Promise<{ id: string; user: User; guest: boolean } | null> {
+    const [row] = await this.db.all<{ id: string; user_id: UserId; name: string; guest: number }>(API_TOKEN, tokenDigest);
+    return row ? { id: row.id, user: { id: row.user_id, name: row.name }, guest: row.guest === 1 } : null;
+  }
+
+  /** Keeps when the token was last used, which `TOUCH_API_TOKEN` writes at most once a minute. */
+  async touchApiToken(id: string, now: number): Promise<void> {
+    await this.db.run(TOUCH_API_TOKEN, now, id);
+  }
+
+  /** Revokes one of someone's API tokens, answering whether it still worked, or null if it was never theirs. */
+  async revokeApiToken(userId: UserId, id: string, now: number): Promise<boolean | null> {
+    const rows = await this.db.all<{ name: string }>(REVOKE_API_TOKEN, now, id, userId);
+    if (rows.length > 0) return true;
+    // Distinguish a token that was already revoked from one that was never theirs, which 404s.
+    const [kept] = await this.db.all<{ user_id: UserId; revoked_at: number | null }>(`SELECT user_id, revoked_at FROM api_tokens WHERE id = ?`, id);
+    return kept?.user_id === userId ? false : null;
+  }
+
+  /**
    * Whoever has exactly the email address `emailAddress`, whatever their status, and whether they're a
    * bot.
    */
@@ -4214,10 +4286,10 @@ export class WorkspaceStore {
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
    * sessions, keeping their role and status, and forgets their push subscriptions, the accounts
-   * elsewhere their old password started connecting, or connected (`UNLINK_ON_RESET`), and any
-   * code they were emailed to reset it. In the same transaction it queues closing each session's
-   * sockets with `code` in every room they're in, due at `dueAt`, as signing out does. Answers whether
-   * it queued any.
+   * elsewhere their old password started connecting, or connected (`UNLINK_ON_RESET`), any code they
+   * were emailed to reset it, and revokes their API tokens, which opened without a session. In the same
+   * transaction it queues closing each session's sockets with `code` in every room they're in, due at
+   * `dueAt`, as signing out does. Answers whether it queued any.
    */
   async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
@@ -4225,6 +4297,7 @@ export class WorkspaceStore {
       statement(UNLINK_ON_RESET, userId),
       statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(`UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, Date.parse(now), userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
       statement(`DELETE FROM password_resets WHERE user_id = ?`, userId),

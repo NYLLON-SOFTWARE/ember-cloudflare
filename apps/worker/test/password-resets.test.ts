@@ -15,6 +15,7 @@ import {
   PASSWORD_TOO_LONG,
   PASSWORD_TOO_SHORT,
   TURNSTILE_FAILED,
+  type ApiTokenCreated,
   type Bootstrap,
   type Me,
   type NewWorkspace,
@@ -26,8 +27,9 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import type { Env } from "../src/env";
 import { verifyPassword } from "../src/passwords";
 import { RECOVERY_PATH } from "../src/recovery";
-import type { Workspace } from "../src/workspace";
-import { api, apiWith, builtPages, cookieOf, countAddressesToEmail, freshDeploy, shown, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
+import { SESSION_IDLE_MS, type Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
+import { api, apiWith, builtPages, cookieOf, countAddressesToEmail, freshDeploy, signIn, shown, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler design" };
@@ -455,6 +457,63 @@ describe("Reset a forgotten password with an emailed code", () => {
 
       expect(await count("password_resets")).toBe(0);
       await expectWrong(await reset("ada@example.com", code, "another password"));
+    });
+
+    it("revokes the person's API tokens, which open nothing afterwards", async () => {
+      const administrator = await setUp();
+      const made = await api("/api/account/tokens", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name: "Deploy bot" }) });
+      expect(made.status).toBe(201);
+      const { token } = (await made.json()) as ApiTokenCreated;
+      const opens = (bearer: string) => api("/mcp", { method: "POST", headers: { Authorization: `Bearer ${bearer}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+      expect((await opens(token)).status).toBe(200);
+
+      const code = await codeFor("ada@example.com");
+      expect((await reset("ada@example.com", code)).status).toBe(201);
+      expect((await opens(token)).status).toBe(401);
+      const [revoked] = (await workspaceSql("SELECT revoked_at FROM api_tokens")) as Array<{ revoked_at: number | null }>;
+      expect(revoked!.revoked_at).not.toBeNull();
+    });
+
+    it("keeps no token made while the session asking for it is being ended, which one statement reads the session and writes together", async () => {
+      const administrator = await setUp();
+      const store = (workspace: Workspace) => (workspace as unknown as { store: WorkspaceStore }).store;
+      const now = Date.now();
+      const staleBefore = new Date(now - SESSION_IDLE_MS).toISOString();
+      const lastSessionDigest = async () =>
+        ((await workspaceSql("SELECT token_digest FROM sessions ORDER BY rowid DESC LIMIT 1")) as Array<{ token_digest: string }>)[0]!.token_digest;
+      const adaDigest = await lastSessionDigest();
+      const kept = await runInDurableObject(workspaceStub(), (workspace: Workspace) =>
+        store(workspace).createApiToken(administrator.user.id, "kept", "Deploy bot", "digest-kept", now, adaDigest, true, staleBefore));
+      expect(kept).toBe(true);
+
+      // A guest's is kept only while guests may stay signed in.
+      const hal = await signIn("Hal");
+      const halDigest = await lastSessionDigest();
+      expect(
+        await runInDurableObject(workspaceStub(), (workspace: Workspace) =>
+          store(workspace).createApiToken(hal.user.id, "kept-guest", "Deploy bot", "digest-kept-guest", now, halDigest, true, staleBefore)),
+      ).toBe(true);
+      expect(
+        await runInDurableObject(workspaceStub(), (workspace: Workspace) =>
+          store(workspace).createApiToken(hal.user.id, "guests-away", "Deploy bot", "digest-guests-away", now, halDigest, false, staleBefore)),
+      ).toBe(false);
+
+      // A session idle for exactly sign-in's limit keeps none, as sign-in itself refuses it.
+      await workspaceSql("UPDATE sessions SET last_active_at = ? WHERE token_digest = ?", staleBefore, adaDigest);
+      expect(
+        await runInDurableObject(workspaceStub(), (workspace: Workspace) =>
+          store(workspace).createApiToken(administrator.user.id, "idle", "Deploy bot", "digest-idle", now, adaDigest, true, staleBefore)),
+      ).toBe(false);
+
+      // A session the reset's batch ends, which this delete stands in for, keeps none either.
+      await workspaceSql("DELETE FROM sessions WHERE token_digest = ?", adaDigest);
+      expect(
+        await runInDurableObject(workspaceStub(), (workspace: Workspace) =>
+          store(workspace).createApiToken(administrator.user.id, "ended", "Deploy bot", "digest-ended", now, adaDigest, true, staleBefore)),
+      ).toBe(false);
+
+      const rows = (await workspaceSql("SELECT id FROM api_tokens ORDER BY id")) as Array<{ id: string }>;
+      expect(rows.map(({ id }) => id)).toEqual(["kept", "kept-guest"]);
     });
 
     it("keeps the code working when the new password can't be saved", async () => {

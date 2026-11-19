@@ -38,6 +38,7 @@ import {
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
+  parseNewApiToken,
   parseSharedOrder,
   parseNewDirect,
   parseNewRoom,
@@ -58,6 +59,8 @@ import {
   USERNAME_TAKEN,
   workspacePageOf,
   type Account,
+  type ApiTokenCreated,
+  type ApiTokens,
   type Bootstrap,
   type ChangedBlocks,
   type ChangedPerson,
@@ -119,6 +122,7 @@ import {
   isCrossSite,
   isHttps,
   isSameOriginUpgrade,
+  newApiToken,
   newSessionToken,
   sessionCookie,
   sessionToken,
@@ -167,6 +171,8 @@ import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import { guestSignIn, type Env } from "./env";
 import { failed, notFound } from "./error-pages";
+import { isMcpPath, MCP_PATH, mcpAction, mcpException } from "./mcp-server";
+import { bearerTokenOf } from "./secrets";
 import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
@@ -783,6 +789,35 @@ async function profile(request: Request, env: Env): Promise<Response> {
   if (!credentials) return problem(401, "Not signed in");
   const [yours, site] = await Promise.all([workspace(env).profile(credentials), memberfulSiteFor(env)]);
   return yours ? profileAnswer(yours, env, site) : problem(401, "Not signed in");
+}
+
+/**
+ * Makes one of the signed-in person's API tokens, as the API tokens section of their profile does,
+ * answering it with its secret, which is shown once, now, and never again.
+ */
+async function createApiToken(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const token = parseNewApiToken(await jsonBodyOf(request));
+  if (typeof token === "string") return problem(422, token);
+  const secret = newApiToken();
+  const created = await workspace(env).createApiToken(credentials, token.name, await tokenDigest(secret, env.SESSION_SECRET));
+  return created ? json({ ...created, token: secret } satisfies ApiTokenCreated, { status: 201 }) : problem(401, "Not signed in");
+}
+
+/** The API tokens of the signed-in person, newest first, as the API tokens section lists them. */
+async function listApiTokens(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const tokens = credentials && (await workspace(env).apiTokensOf(credentials));
+  return tokens ? json({ tokens } satisfies ApiTokens) : problem(401, "Not signed in");
+}
+
+/** Revokes one of the signed-in person's API tokens, as its Revoke does, answering 204. One that was never theirs is 404. */
+async function revokeApiToken(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const revoked = credentials && (await workspace(env).revokeApiToken(credentials, id));
+  if (!revoked) return problem(401, "Not signed in");
+  return revoked === "not found" ? problem(404, "Not found") : new Response(null, { status: 204 });
 }
 
 /**
@@ -1476,6 +1511,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
+  if (pathname === "/api/account/tokens" && request.method === "POST") return () => createApiToken(request, env);
+  if (pathname === "/api/account/tokens" && request.method === "GET") return () => listApiTokens(request, env);
+  // Tokens' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
+  const apiToken = pathname.match(/^\/api\/account\/tokens\/([^/]+)$/);
+  if (apiToken && request.method === "DELETE") return () => revokeApiToken(request, env, apiToken[1]!);
   if (pathname === "/api/users/me" && request.method === "DELETE") return () => deleteAccount(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
   if (pathname === "/api/users/me/huddle-sounds" && request.method === "PATCH") return () => changeHuddleSounds(request, env);
@@ -1604,6 +1644,12 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Nor is an app's authorization server, reading who Ember is.
   if (pathname === CLIENT_DOCUMENT_PATH && !write) return clientDocument(request);
   // Nor are a room's files, to whoever has the address, whatever their browser.
+  // /mcp speaks MCP twice over: while the workspace hasn't let AI apps connect, it's the personal
+  // access tokens' server (src/mcp-server.ts), which POST alone answers; while it has, it's theirs, as
+  // the apps speak it.
+  // A personal access token (pat_) speaks MCP as its person at /mcp; AI apps' own tokens answer there
+  // as the outside server says, which without one turned on answers nothing.
+  if (isMcpPath(pathname) && bearerTokenOf(request).startsWith("pat_")) return mcpAction(request, env);
   // Nor are the AI apps that connect to Ember, whose requests carry a token of their own, or nothing.
   const outside = outsideAction(request, env, pathname);
   if (outside) return write && isOutsideRegistration(pathname) && (await isFromBannedAddress(request, env)) ? tooManyRequests() : outside();
@@ -1611,7 +1657,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (file) return write ? notFound(request) : serveFile(request, env, file);
   const action = apiAction(request, env, pathname) ?? botAction(request, env, pathname);
   // First: once a route is found, so an unknown address still answers 404, a banned IP address can't
-  // change anything, sign in or join.
+  // change anything, sign in or join. The MCP server reads over POST, so only its one writing tool is
+  // theirs to lose, which refuses a banned address as the room's access says (src/mcp-server.ts).
   if (write && action && (await isFromBannedAddress(request, env))) return tooManyRequests();
   // Then: a browser too old for the app has nothing to sign in to.
   if (isFromUnsupportedBrowser(request)) return unsupportedBrowserPage(request, env);
@@ -1660,6 +1707,7 @@ function failure(request: Request, pathname: string, error: unknown): Response {
   console.error(`${request.method} ${withoutBotKeys(pathname)} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
   if (isBotPath(pathname)) return exception(500);
+  if (isMcpPath(pathname)) return mcpException();
   return failed(request);
 }
 

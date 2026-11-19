@@ -103,7 +103,8 @@ function indexSearchOf(search: Search, sort: SearchSort, cursor: number | null, 
  * The messages `hits` names, in the same order, with the words each matched, as the index last took
  * them, so a search asks no room: an edit or a boost shows, and a deleted message goes, once its room has
  * sent it, as a match does. A hit the index has no message for, from before it kept them or too big to
- * keep, is read from its room as it is now, and left out if its room no longer has it.
+ * keep, is read from its room as it is now, and left out if its room no longer has it. The MCP server's
+ * search (src/mcp-server.ts) asks for the same, its hits already kept to the rooms its token names.
  */
 export async function matchesOf(env: Env, hits: SearchHit[]): Promise<SearchMatch[]> {
   const kept = hits.flatMap(({ message }) => message ?? []);

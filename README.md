@@ -159,6 +159,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Light and dark** | ✅ | ✅ |
 | **Incoming webhooks** | ✅ Slack-compatible, with attachments and Block Kit | ✅ |
 | **Bots that answer** | ✅ through a webhook per bot | ✅ through Slack apps |
+| **An MCP server of your own** | ✅ your workspace over MCP, with personal access tokens | ✅ MCP server and directory |
 | **Ways to join** | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
 | **Single sign-on** | OpenID Connect with any provider (Zitadel, Keycloak, Okta, Entra ID, Google), with group rules and back-channel logout, and Memberful, for membership communities | Google on every plan, and SAML SSO with SCIM on Business+ |
 

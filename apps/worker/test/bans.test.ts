@@ -1,6 +1,7 @@
 import {
   CloseCode,
   ROOM_PROTOCOL,
+  type ApiTokenCreated,
   uploadsPath,
   type ChangedPerson,
   type Directory,
@@ -973,6 +974,27 @@ describe("What a ban blocks", () => {
     expect((await connect(lobby, { ...administrator, ip: banned })).welcome.type).toBe("welcome");
     expect((await openWorkspaceSocket({ ...administrator, ip: banned })).welcome.type).toBe("welcome");
     for (const method of ["POST", "PUT", "DELETE"]) expect((await api("/api/nothing", fromAddress(banned, administrator, { method }))).status, method).toBe(404);
+  });
+
+  it("still lets a banned address read through the MCP server, where only its writing tool is lost", async () => {
+    const { administrator } = await banGrace();
+    const room = await freshRoom("mcp-lobby");
+    const made = await api("/api/account/tokens", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name: "Deploy bot" }) });
+    expect(made.status).toBe(201);
+    const { token } = (await made.json()) as ApiTokenCreated;
+    // MCP is spoken over POST, so the ban can't gate the transport: the token connects, reads, and only
+    // post_message refuses it, as the room's access says (src/mcp-server.ts).
+    const mcp = (body: unknown) => api("/mcp", fromAddress(banned, null, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }));
+    expect((await mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).status).toBe(200);
+    expect((await mcp({ jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(200);
+    const history = await mcp({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_room_history", arguments: { room_id: room } } });
+    expect(history.status).toBe(200);
+
+    const posted = await mcp({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "post_message", arguments: { room_id: room, body: "not from here" } } });
+    expect(posted.status).toBe(200);
+    const answer = (await posted.json()) as { result: { isError: boolean; content: Array<{ text: string }> } };
+    expect(answer.result.isError).toBe(true);
+    expect(answer.result.content[0]!.text).toBe("A ban blocks the address this request came from.");
   });
 
   it("checks the ban before a request from another site or an old browser", async () => {
