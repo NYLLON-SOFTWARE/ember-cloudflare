@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { useOfferedModels } from "@/hooks/use-offered-models";
+import { useSecretField } from "@/hooks/use-secret-field";
 import { ApiError, isSignedOut, saveAssistant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { dashboard, FieldRefusal, ModelPicker, NOTE, Out, startingModelOf, type Refusal } from "./model-picker";
@@ -271,6 +272,7 @@ function KeysStep({
   onContinue: () => void;
   onCancel: () => void;
 }) {
+  const tokenField = useSecretField(typed.apiToken);
   const next = (event: FormEvent) => {
     event.preventDefault();
     if (accountIdOf(typed.accountId) === null) return onRefuse("accountId", ACCOUNT_ID_REFUSED);
@@ -339,7 +341,7 @@ function KeysStep({
               autoComplete="off"
               autoCapitalize="none"
               spellCheck={false}
-              value={typed.apiToken}
+              ref={tokenField}
               aria-invalid={tokenRefused}
               aria-describedby={tokenRefused ? "assistant-api-token-refusal" : hasToken ? "assistant-api-token-description" : undefined}
               onChange={(event) => onType("apiToken", event.target.value)}

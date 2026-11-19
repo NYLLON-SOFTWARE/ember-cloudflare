@@ -1026,6 +1026,13 @@ const yourApp = ({ appId, appName, signedIn }: OwnAppSignIn): YourApp => ({
 /** Whether `app` is still asked where it was `at`, as the same account: what its server answered then is still about it. */
 const isAskedAt = (app: StoredApp, at: AskedAt) => app.url === at.url && app.sealedToken === at.sealedToken && (app.signedIn?.at ?? null) === at.signedInAt;
 
+/**
+ * Whether `changes` would move `app`, which keeps a token, to another address without the token given
+ * again: a token goes only to the address it was given for, so the change is refused.
+ */
+export const movesItsToken = (app: { url: string; sealedToken: string | null }, changes: AppChanges) =>
+  changes.url !== undefined && changes.url !== app.url && changes.token === undefined && app.sealedToken !== null;
+
 /** The access token of a sign-in to an app, or null once it has ended, with when the app was signed in to as that token is its: null for an app that's gone. */
 interface SignInKey {
   key: Key | null;
@@ -4748,18 +4755,21 @@ export class Workspace extends DurableObject<Env> {
    * the server was, `askedAt`: "changed" once someone has saved another address or token meanwhile, as
    * the tools would be another server's, or the new address's token one it never took. An app that's
    * signed in to keeps its address, and takes no token, "signed in": its sign-in is to the server there.
+   * Another address without the token given again is "token stays", whatever the app was when the
+   * change was asked for (`movesItsToken`).
    */
   async changeApp(
     credentials: Credentials,
     appId: AppId,
     changes: AppChanges,
     reread: { read: StoredAppRead; askedAt: AskedAt } | null,
-  ): Promise<App | "changed" | "signed in" | "off" | "forbidden" | "not found" | null> {
+  ): Promise<App | "changed" | "signed in" | "token stays" | "off" | "forbidden" | "not found" | null> {
     return this.administerAgents(credentials, async (user) => {
       const app = await this.store.app(appId);
       if (!app) return "not found";
       if (app.signedIn && ((changes.url !== undefined && changes.url !== app.url) || changes.token !== undefined)) return "signed in";
       if (reread && !isAskedAt(app, reread.askedAt)) return "changed";
+      if (movesItsToken(app, changes)) return "token stays";
       const sealedToken = changes.token === undefined ? undefined : changes.token === "" ? null : await this.sealedAppToken(appId, changes.token);
       const read = reread && { read: reread.read, picks: picksChangedBy(appId, reread.read, await this.store.everyAgentsToolPicks()) };
       await this.store.changeApp(appId, { name: changes.name, url: changes.url, sealedToken, ...read, changedBy: user.id, now: new Date().toISOString() });
