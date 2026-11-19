@@ -18,10 +18,14 @@ const EMBER: Account = {
   openSignUp: false,
   memberfulJoin: false,
   memberfulSignIn: false,
+  ssoJoin: false,
+  ssoSignIn: false,
   emailDomainSignUp: false,
   emailDomains: [],
   navigationIcons: {},
   huddles: false,
+  huddleCameras: true,
+  huddleScreens: true,
 };
 
 /** How a new workspace sends email: with the binding wrangler.jsonc declares, from no address yet. */

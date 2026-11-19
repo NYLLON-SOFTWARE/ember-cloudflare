@@ -1,6 +1,7 @@
 import {
   ASSISTANT_ID,
   NAME_RESERVED,
+  USERNAME_TAKEN,
   type Directory,
   type DirectoryUser,
   type Me,
@@ -376,6 +377,7 @@ describe("AI agents", () => {
         description: RECAP.description,
         model: HAIKU,
         modelName: "Claude Haiku 5.5",
+        access: "everyone",
         rooms: null,
         instructions: RECAP.instructions,
         promptTemplate: null,
@@ -399,8 +401,8 @@ describe("AI agents", () => {
       expect(await workspaceSql("SELECT role, bot_token, email_address, password_digest FROM users WHERE id = ?", recap.id)).toEqual([
         { role: 2, bot_token: null, email_address: null, password_digest: null },
       ]);
-      const { id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, rooms } = recap;
-      expect(await listed(administrator)).toEqual([{ id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, rooms }]);
+      const { id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, access, rooms } = recap;
+      expect(await listed(administrator)).toEqual([{ id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, access, rooms }]);
       expect(await shownAgent(administrator, recap.id)).toEqual(recap);
       const asListed = { id, name, bio, role, status, avatarUrl, agent };
       expect(await inDirectory(administrator, recap.id)).toEqual(asListed);
@@ -837,6 +839,24 @@ describe("AI agents", () => {
       }
       expect(await inDirectory(administrator, member.user.id)).toMatchObject({ name: "Grace Hopper" });
       expect(await inDirectory(administrator, bot.id)).toMatchObject({ name: "Build Bot" });
+    });
+
+    it("are nobody's username, nor can an agent be called by someone's, as typing @ finds both", async () => {
+      const administrator = await setUp();
+      const recap = await made(administrator);
+      const member = await joinAsGrace();
+      const renamed = await api("/api/users/me/profile", { method: "PATCH", headers: as(member), body: JSON.stringify({ username: "RECAP" }) });
+      expect(await refusalOf(renamed)).toEqual([422, { error: USERNAME_TAKEN }]);
+
+      const named = await api("/api/users/me/profile", { method: "PATCH", headers: as(member), body: JSON.stringify({ username: "scout" }) });
+      expect(named.status, await named.clone().text()).toBe(200);
+      expect(await refusalOf(await makeAgent(administrator, { ...RECAP, name: "Scout" }))).toEqual([422, { error: NAME_TAKEN, field: "name" }]);
+      expect(await refusalOf(await changeAgent(administrator, recap.id, { name: "SCOUT" }))).toEqual([422, { error: NAME_TAKEN, field: "name" }]);
+
+      // Someone removed keeps their username, as lifting a ban lets back even them.
+      expect((await api(`/api/account/users/${member.user.id}`, { method: "DELETE", headers: as(administrator) })).status).toBe(200);
+      expect(await refusalOf(await makeAgent(administrator, { ...RECAP, name: "Scout" }))).toEqual([422, { error: NAME_TAKEN, field: "name" }]);
+      expect(await refusalOf(await changeAgent(administrator, recap.id, { name: "SCOUT" }))).toEqual([422, { error: NAME_TAKEN, field: "name" }]);
     });
   });
 
