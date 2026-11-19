@@ -4,7 +4,7 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, connect, cookieOf, createRoom, freshDeploy, framesOf, post, settle, shown, signIn, workspaceSql, forwardUpgrade, type Session, type Socket } from "./support";
 
-// Slash commands and bots' subscriptions to message events (migrations/0072_commands.sql): typing
+// Slash commands and bots' subscriptions to message events (migrations/0080_commands.sql): typing
 // /name text in a room the bot is in delivers what was typed to its webhook, as Slack tells a slash
 // command to a server, and what the bot answers is posted as the bot, as its answer to any delivery is.
 // A room the bot watches delivers every message written there by someone else, shaped the same way, its

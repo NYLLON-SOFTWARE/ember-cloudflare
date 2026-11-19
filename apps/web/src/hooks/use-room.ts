@@ -1,21 +1,5 @@
 import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  CloseCode,
-  COMMAND_TOO_LONG,
-  HISTORY_PAGE_SIZE,
-  isInRoom,
-  isMessageTooLong,
-  MAX_CHECKED_MESSAGES,
-  MAX_MESSAGE_HTML_LENGTH,
-  MESSAGE_TOO_LONG,
-  parseServerFrame,
-  workspacePageOf,
-  type ClientFrame,
-  type Me,
-  type Message,
-  type ServerFrame,
-  type User,
-} from "@ember/protocol";
+import { CloseCode, COMMAND_TOO_LONG, HISTORY_PAGE_SIZE, isInRoom, isMessageTooLong, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MESSAGE_TOO_LONG, parseServerFrame, workspacePageOf, type ClientFrame, type Me, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import type { AddPreview } from "@/components/workspace/composer";
 import type { MessageActions } from "@/components/workspace/message-item";
@@ -431,8 +415,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
   const givenBack = useCallback((clientMessageId: string, taken: boolean) => dispatch({ type: "given-back", clientMessageId, taken }), []);
 
-  return { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
-  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack };
+  return { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack };
 }
 
 /**

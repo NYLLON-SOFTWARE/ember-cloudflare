@@ -1,41 +1,5 @@
-import {
-  MEMBERFUL_CALLBACK_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  memberfulSignInPath,
-  type AccountSettings,
-  type Bootstrap,
-  type Directory,
-  type Me,
-  type MemberfulConnection,
-  type NewWorkspace,
-  type ProfileAnswer,
-  type Sidebar,
-  type UserId,
-  type UserStatus,
-} from "@ember/protocol";
-import {
-  ISSUER_MISMATCH,
-  ISSUER_UNREACHABLE,
-  ISSUER_UNSUPPORTED,
-  CLIENT_SECRET_REFUSED,
-  MEMBERFUL_OR_SSO_SIGN_IN_NEEDED,
-  MEMBERFUL_WITH_SSO,
-  OPEN_WITH_SSO,
-  PASSWORD_WITH_SSO,
-  SSO_CALLBACK_PATH,
-  SSO_CONNECTIONS_PATH,
-  SSO_DISCONNECT_WITHOUT_PASSWORD,
-  SSO_FORBIDDEN,
-  SSO_LOGOUT_PATH,
-  SSO_SETTINGS_PATH,
-  SSO_SETUP_NEEDED,
-  SSO_SIGN_IN_NEEDED,
-  SSO_WITH_MEMBERFUL,
-  ssoSignInPath,
-  type SsoConnection,
-  type SsoSaved,
-  type SsoSettings,
-} from "@ember/protocol/sso";
+import { MEMBERFUL_CALLBACK_PATH, MEMBERFUL_CONNECTIONS_PATH, memberfulSignInPath, type AccountSettings, type Bootstrap, type Directory, type Me, type MemberfulConnection, type NewWorkspace, type ProfileAnswer, type Sidebar, type UserId, type UserStatus } from "@ember/protocol";
+import { CLIENT_SECRET_REFUSED, ISSUER_MISMATCH, ISSUER_UNREACHABLE, ISSUER_UNSUPPORTED, MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, MEMBERFUL_WITH_SSO, OPEN_WITH_SSO, PASSWORD_WITH_SSO, SSO_CALLBACK_PATH, SSO_CONNECTIONS_PATH, SSO_DISCONNECT_WITHOUT_PASSWORD, SSO_FORBIDDEN, SSO_LOGOUT_PATH, SSO_SETTINGS_PATH, SSO_SETUP_NEEDED, SSO_SIGN_IN_NEEDED, SSO_WITH_MEMBERFUL, ssoSignInPath, type SsoConnection, type SsoSaved, type SsoSettings } from "@ember/protocol/sso";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { toBase64url } from "../src/encoding";

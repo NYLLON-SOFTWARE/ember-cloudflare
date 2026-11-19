@@ -1,26 +1,7 @@
 import { CloseCode, MAX_LISTED_USERS, type DirectRoom, type RoomId, type Sidebar, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoomEvent } from "../src/room-log";
-import {
-  api,
-  closeOf,
-  connect,
-  createRoom,
-  deactivatedPerson,
-  direct,
-  freshDeploy,
-  listedRoom,
-  openWorkspaceSocket,
-  post,
-  roomSql,
-  signIn,
-  startDirect,
-  upgrade,
-  workspaceSql,
-  workspaceStub,
-  type Session,
-  type WorkspaceSocket,
-} from "./support";
+import { api, closeOf, connect, createRoom, deactivatedPerson, direct, freshDeploy, listedRoom, openWorkspaceSocket, post, roomSql, signIn, startDirect, upgrade, workspaceSql, workspaceStub, type Session, type WorkspaceSocket } from "./support";
 
 beforeEach(freshDeploy);
 

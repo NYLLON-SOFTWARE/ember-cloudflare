@@ -1,24 +1,6 @@
 import { ASSISTANT_ID, type Me, type NewWorkspace, type UserId } from "@ember/protocol";
 import type { AgentSettings, NewAgent } from "@ember/protocol/agents";
-import {
-  AGENT_TOOLS_FULL,
-  APP_CHANGED,
-  APP_IS_EMBER,
-  APP_URL_REFUSED,
-  APPS_FORBIDDEN,
-  APPS_FULL,
-  MAX_AGENT_TOOLS,
-  MAX_APP_TOOLS,
-  MAX_APPS,
-  MAX_TOOL_DESCRIPTION_LENGTH,
-  TOOL_GONE,
-  type AgentTools,
-  type App,
-  type AppAnswer,
-  type Apps,
-  type OfferedApp,
-  type ToolPick,
-} from "@ember/protocol/apps";
+import { AGENT_TOOLS_FULL, APP_CHANGED, APP_IS_EMBER, APP_URL_REFUSED, APPS_FORBIDDEN, APPS_FULL, MAX_AGENT_TOOLS, MAX_APP_TOOLS, MAX_APPS, MAX_TOOL_DESCRIPTION_LENGTH, TOOL_GONE, type AgentTools, type App, type AppAnswer, type Apps, type OfferedApp, type ToolPick } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { evictDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

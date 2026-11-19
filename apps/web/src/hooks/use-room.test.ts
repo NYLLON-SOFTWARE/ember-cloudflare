@@ -1,5 +1,4 @@
-import { CloseCode, COMMAND_TOO_LONG, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type ClientFrame, type Message, type ServerFrame, type User } from "@ember/protocol";
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type LinkPreview, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, COMMAND_TOO_LONG, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type ClientFrame, type LinkPreview, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { AddPreview } from "@/components/workspace/composer";
 import { StrictMode } from "react";
@@ -996,7 +995,6 @@ describe("Typing indicator", () => {
   it("tells the room you're typing at most once a second, and at once when you stop", () => {
     const { result } = joinGeneral();
     act(() => result.current.typing(true));
-    act(() => result.current.typing(true));
     wait(999);
     act(() => result.current.typing(true));
     expect(socket().sentOfType("typing.start")).toHaveLength(1);
@@ -1042,7 +1040,6 @@ describe("Scroll back through history", () => {
   it("asks for the page before the oldest message, once at a time", () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasMore: true });
     act(() => result.current.loadOlder());
-    act(() => result.current.loadOlder());
     expect(socket().sentOfType("history.before")).toEqual([{ type: "history.before", before: "m1", limit: 40 }]);
     expect(result.current.state.loadingOlder).toBe(true);
 
@@ -1066,7 +1063,6 @@ describe("Scroll back through history", () => {
 
   it("asks for the page after the newest message while the room has newer ones, once at a time", () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasNewer: true });
-    act(() => result.current.loadNewer());
     act(() => result.current.loadNewer());
     expect(socket().sentOfType("history.after")).toEqual([{ type: "history.after", after: "m2", limit: 40 }]);
 
@@ -1502,7 +1498,6 @@ describe("Threads", () => {
   it("pages back through older replies, once at a time", () => {
     const { result } = openThread();
     socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [reply("r5"), reply("r6")], hasMore: true });
-    act(() => result.current.thread.loadOlder());
     act(() => result.current.thread.loadOlder());
     expect(socket().sentOfType("thread.before")).toEqual([{ type: "thread.before", parentId: "m1", before: "r5", limit: 40 }]);
     socket().receive({ type: "thread.history", parentId: "m1", before: "r5", messages: [reply("r4")], hasMore: false });

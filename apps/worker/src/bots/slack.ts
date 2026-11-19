@@ -1,19 +1,4 @@
-import {
-  isActionId,
-  MAX_ACTION_VALUE_LENGTH,
-  MAX_MESSAGE_HTML_LENGTH,
-  parseParts,
-  showsAnything,
-  type Card,
-  type CardAction,
-  type CardButton,
-  type CardColumn,
-  type CardContextItem,
-  type CardField,
-  type CardImage,
-  type CardPart,
-  type CardTile,
-} from "@ember/protocol";
+import { isActionId, MAX_ACTION_VALUE_LENGTH, MAX_MESSAGE_HTML_LENGTH, parseParts, showsAnything, type Card, type CardAction, type CardButton, type CardColumn, type CardContextItem, type CardField, type CardImage, type CardPart, type CardTile } from "@ember/protocol";
 import { cardAddress } from "@ember/richtext";
 import { markdownHtml, MAX_MARKDOWN_LENGTH } from "./markdown";
 import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plainText, plainTextHtml, utcTime, type Formatting } from "./mrkdwn";

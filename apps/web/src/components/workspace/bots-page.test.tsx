@@ -1,5 +1,4 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account, DirectoryUser, UserId } from "@ember/protocol";
 import type { Bot, Bots, Commands } from "@ember/protocol/bots";
@@ -8,6 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { BotsPage, NO_ROOMS } from "./bots-page";
+import userEvent from "@testing-library/user-event";
 
 const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
 
@@ -102,8 +102,6 @@ describe("Chat bots page", () => {
           "Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds. " +
           "Register a command for a bot, and typing /name in a room it's in sends it what was typed, its answer posted as the bot. " +
           "Or set a room to send a bot every message written there, mention or no.",
-          "Each of a bot's rooms gets two addresses, one for posting text or a file and one that takes a Slack incoming webhook's payload. " +
-          "Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Add a chat bot" })).toHaveAttribute("href", "/account/bots/new");

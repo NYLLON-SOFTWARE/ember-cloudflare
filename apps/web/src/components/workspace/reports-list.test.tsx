@@ -2,7 +2,6 @@ import { DELETED_PERSON_NAME, type Card, type DirectoryUser, type User } from "@
 import { OPEN_REPORTS_LISTED, type HandledReports, type Report, type ReportedMessage, type ReportedPerson, type Reports } from "@ember/protocol/reports";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { ApiError } from "@/lib/api";
@@ -10,6 +9,7 @@ import { dateTimeLabel } from "@/lib/messages";
 import { CONFIRM_REMOVE } from "./people-list";
 import { CONFIRM_BAN } from "./person-page";
 import { CONFIRM_DELETE, DELETED_WITH_ACCOUNT, ReportsList } from "./reports-list";
+import userEvent from "@testing-library/user-event";
 
 const listed = (user: User, changes: Partial<DirectoryUser> = {}): DirectoryUser => ({ ...user, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar`, ...changes });
 const directory = (...people: DirectoryUser[]): People => new Map(people.map((person) => [person.id, person]));

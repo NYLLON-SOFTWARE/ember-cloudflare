@@ -1,9 +1,9 @@
 import type { User } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { showHuddle, type JoinedHuddle } from "@/lib/huddle-store";
 import { CameraMenu, MicrophoneMenu } from "./huddle-device-menu";
+import userEvent from "@testing-library/user-event";
 
 const ada: User = { id: "ada", name: "Ada Lovelace" };
 const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({

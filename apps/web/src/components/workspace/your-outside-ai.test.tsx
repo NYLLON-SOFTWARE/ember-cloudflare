@@ -1,11 +1,11 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OUTSIDE_CONNECTION_GONE, type OutsideConnection } from "@ember/protocol/outside";
 import { FlashProvider } from "@/components/flash";
 import { ApiError } from "@/lib/api";
 import { dateTimeLabel } from "@/lib/messages";
 import { connectionStatus, disconnectedNotice, NOTHING_CONNECTED, OUTSIDE_AI_EXPLAINED, outsideAddress, YourOutsideAi } from "./your-outside-ai";
+import userEvent from "@testing-library/user-event";
 
 const CONNECTED = "2026-11-14T09:00:00.000Z";
 const USED = "2026-11-14T10:30:00.000Z";

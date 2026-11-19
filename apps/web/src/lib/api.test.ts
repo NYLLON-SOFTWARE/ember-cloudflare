@@ -1,29 +1,6 @@
 import { AVATAR_PATH, type NewRoom, type ProfileAnswer, type Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  ApiError,
-  changeAvatar,
-  changeBlock,
-  changeRoom,
-  createRoom,
-  fetchMe,
-  fetchNewRoomForm,
-  fetchRoomSettings,
-  fetchSidebar,
-  forgetStoredSession,
-  handleReport,
-  joinWorkspace,
-  listReports,
-  removeAvatar,
-  reportMessage,
-  reportPerson,
-  roomSocketUrl,
-  setFavorite,
-  setFavoriteOrder,
-  setUpWorkspace,
-  signOut,
-  workspaceSocketUrl,
-} from "./api";
+import { ApiError, changeAvatar, changeBlock, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, handleReport, joinWorkspace, listReports, removeAvatar, reportMessage, reportPerson, roomSocketUrl, setFavorite, setFavoriteOrder, setUpWorkspace, signOut, workspaceSocketUrl } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 

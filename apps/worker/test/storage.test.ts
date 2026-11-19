@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { openDb, statement } from "../src/db";
 import type { Env } from "../src/env";
-import { MIGRATIONS, migrate, SEARCH_MIGRATIONS, type Scope } from "../src/migrations";
+import { migrate, MIGRATIONS, SEARCH_MIGRATIONS, type Scope } from "../src/migrations";
 import { searchStatement, type IndexSearch } from "../src/search-index";
 import { WorkspaceStore } from "../src/workspace-store";
 import { apiWith, connect, freshRoom, objectSql, post, roomSql, roomStub, searchIndexStub, sharedD1, workspaceStub } from "./support";
@@ -19,9 +19,9 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "app_sign_ins",
     "apps",
     "bans",
+    "blocks",
     "bot_subscriptions",
     "commands",
-    "blocks",
     "deleted_rooms",
     "email_link_requests",
     "email_links",

@@ -1,12 +1,12 @@
 import { ASSISTANT_ID, startingInvolvement, type DirectoryUser, type Me, type SharedRoom, type SidebarRoom } from "@ember/protocol";
 import { EMBER_DOES, MAX_AGENTS, type AvailableAgent } from "@ember/protocol/agents";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { agentSettingsPath, guardLeaving, NEW_AGENT_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { AvailableAgentsDialog, directOnly, HOW_TO_ASK, NO_AGENTS } from "./available-agents";
+import userEvent from "@testing-library/user-event";
 
 /** An agent as Available Agents lists it, in every open room and for everyone to ask unless `agent` says. */
 const agent = (id: string, name: string, agent: Partial<AvailableAgent> = {}): AvailableAgent => ({

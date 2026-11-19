@@ -1,4 +1,5 @@
 import { sound } from "./huddle-sounds";
+
 // A file of its own, as the huddle's other sounds are (huddle-sounds.ts).
 import invitedUrl from "./huddle-sounds/invited.mp3?no-inline";
 

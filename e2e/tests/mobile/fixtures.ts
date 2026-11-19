@@ -1,5 +1,5 @@
 import type { CDPSession, Page } from "@playwright/test";
-import { test as app, expect } from "../../fixtures";
+import { expect, test as app } from "../../fixtures";
 import { auditScreen } from "./audits";
 
 /** Safe-area insets in CSS px, as `env(safe-area-inset-*)` reports them. */

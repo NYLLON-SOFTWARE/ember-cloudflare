@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -1865,13 +1867,10 @@ export type ServerFrame =
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
    * `clientMessageIds` the messages it was about, `clickId` the click, or `commandId` the command.
+   * `rewrite` says the room won't take a message for what it says, as one with a word Blocked words
+   * keeps out, which is its writer's to change and send again.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; failed?: ClientFrame["type"] }
-   * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
-   * take a message for what it says, as one with a word Blocked words keeps out, which is its writer's to
-   * change and send again.
-   */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; failed?: ClientFrame["type"]; rewrite?: true }
   | { type: "pong" };
 
 /**

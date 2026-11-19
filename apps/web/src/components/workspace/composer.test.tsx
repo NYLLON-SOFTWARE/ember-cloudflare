@@ -1,30 +1,19 @@
 import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
 import type { Command, Commands } from "@ember/protocol/bots";
-import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { Typist } from "@/lib/room-state";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import userEvent from "@testing-library/user-event";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
 
-async function showComposer({
-  typing = [] as User[],
-  disabled = false,
-  roomId = "r1",
-  threadId = undefined as string | undefined,
-  direct = false,
-  autoFocus = true,
-  servedCommands = null as Commands["commands"] | null,
-} = {}) {
-  const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
 // The emoji picker, without Emojibase's data, which isn't served here: one emoji to pick.
 vi.mock("./emoji-panel", () => ({
   default: ({ onPick }: { onPick: (emoji: string) => void }) => (
@@ -37,7 +26,16 @@ vi.mock("./emoji-panel", () => ({
 /** What `onSend` answers for a message that went, where nothing's to come after it. */
 const went: AddPreview = () => {};
 
-async function showComposer({ typing = [] as Typist[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, autoFocus = true, mentionsAbove = false } = {}) {
+async function showComposer({
+  typing = [] as Typist[],
+  disabled = false,
+  roomId = "r1",
+  threadId = undefined as string | undefined,
+  direct = false,
+  autoFocus = true,
+  mentionsAbove = false,
+  servedCommands = null as Commands["commands"] | null,
+} = {}) {
   // Hears a link's preview that comes once the message has gone.
   const addPreview = vi.fn((_preview: LinkPreview) => {});
   const onSend = vi.fn((_body: string, _alsoSend: boolean): AddPreview | null => addPreview);
@@ -64,8 +62,8 @@ async function showComposer({ typing = [] as Typist[], disabled = false, roomId 
     />,
   );
   // The editor loads as the first composer shows.
-  const input = await screen.findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { onSend, onSendFiles, onTyping, onRunCommand, composer, view, user: userEvent.setup(), input };
+  const input = await within(view.container).findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
+  return { onSend, addPreview, onSendFiles, onTyping, onRunCommand, composer, view, user: userEvent.setup(), input };
 }
 
 /** The workspace's commands, as the server has them, which the menu of commands offers. */
@@ -78,8 +76,6 @@ function serveCommands(commands: Command[]) {
     if (String(input).endsWith("/api/account/commands")) return Response.json({ commands, subscriptions: [] } satisfies Commands);
     throw new Error(`Unexpected request for ${String(input)}`);
   });
-  const input = await within(view.container).findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { onSend, addPreview, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
 }
 
 function touchScreen() {

@@ -1,22 +1,5 @@
 import { ASSISTANT_ID, type Me, type NewWorkspace, type ProfileAnswer, type RoomId } from "@ember/protocol";
-import {
-  APP_CHANGED,
-  APP_SIGN_IN_ENDED,
-  APP_SIGNED_IN,
-  APPS_FORBIDDEN,
-  YOUR_APP_GONE,
-  type AgentTools,
-  type App,
-  type AppAnswer,
-  type AppClient,
-  type AppRemoved,
-  type Apps,
-  type AppSignedIn,
-  type AppSignInBegun,
-  type YourApp,
-  type YourAppSignedIn,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import { APP_CHANGED, APP_SIGN_IN_ENDED, APP_SIGNED_IN, APPS_FORBIDDEN, YOUR_APP_GONE, type AgentTools, type App, type AppAnswer, type AppClient, type AppRemoved, type Apps, type AppSignedIn, type AppSignInBegun, type YourApp, type YourAppSignedIn, type YourAppSignedOut } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -598,7 +581,6 @@ describe("Signing in to an app", () => {
     const app = await signIn(administrator);
     asked = [];
 
-    expect((await readAgain(administrator, app.id)).status).toBe(200);
     expect((await readAgain(administrator, app.id)).status).toBe(200);
     expect(tokenRequests().map(({ refresh_token }) => refresh_token)).toEqual(["refresh-1", "refresh-2"]);
     expect(auth.access).toBe("access-3");

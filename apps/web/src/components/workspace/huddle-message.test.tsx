@@ -1,7 +1,6 @@
 import type { DirectoryUser, LiveHuddle, Message, User } from "@ember/protocol";
 import type { MessageHuddle } from "@ember/protocol/huddles";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
@@ -12,6 +11,7 @@ import { showHuddle, type JoinedHuddle } from "@/lib/huddle-store";
 import { timeLabel } from "@/lib/messages";
 import { HuddlesContext } from "./huddle-button";
 import { MessageItem } from "./message-item";
+import userEvent from "@testing-library/user-event";
 
 // A huddle's message as its room shows it (./huddle-message.tsx), in a message's row (./message-item.tsx).
 

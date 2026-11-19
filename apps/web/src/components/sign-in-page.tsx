@@ -1,24 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  domainsInWords,
-  EMAIL_SIGN_UP_PATH,
-  MAX_PASSWORD_LENGTH,
-  MEMBERFUL_CONNECTED,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  memberfulSignInPath,
-  PASSWORD_RESET_PATH,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  SIGN_UP_PATH,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  withEmailAddress,
-  type Me,
-} from "@ember/protocol";
+import { domainsInWords, EMAIL_SIGN_UP_PATH, MAX_PASSWORD_LENGTH, MEMBERFUL_CONNECTED, MEMBERFUL_SIGN_IN_PROBLEMS, memberfulSignInPath, PASSWORD_RESET_PATH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, SIGN_UP_PATH, signsUpOpenly, signsUpWithEmailDomain, withEmailAddress, type Me } from "@ember/protocol";
 import { DEFAULT_SSO_NAME, SSO_CONNECTED, SSO_SIGN_IN_PROBLEMS, ssoSignInPath, type ElsewhereConnection } from "@ember/protocol/sso";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
-import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
 import { GuestSignIn } from "@/components/guest-sign-in";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

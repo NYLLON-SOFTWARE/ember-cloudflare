@@ -1,17 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import {
-  EMAIL_SIGN_UP_PATH,
-  INVITATION_PATH,
-  KIND_SEGMENTS,
-  threadPath,
-  workspacePageOf,
-  type Message,
-  type RoomAccess,
-  type RoomId,
-  type RoomKind,
-  type UserId,
-  type WorkspacePage,
-} from "@ember/protocol";
+import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, KIND_SEGMENTS, threadPath, workspacePageOf, type Message, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
 
 // The app's few pages, at Campfire's addresses where it has them, which @ember/protocol lists for the
 // Worker too: a small typed router over the History API rather than a library. A page with changes to

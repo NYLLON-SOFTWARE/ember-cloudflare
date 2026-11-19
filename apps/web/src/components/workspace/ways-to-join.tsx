@@ -1,14 +1,5 @@
 import { useState, type ReactNode } from "react";
-import {
-  domainsInWords,
-  joinsWithLink,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  type AccountSettings,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { domainsInWords, joinsWithLink, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, signsUpOpenly, signsUpWithEmailDomain, type AccountSettings, type WorkspaceSettings } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";

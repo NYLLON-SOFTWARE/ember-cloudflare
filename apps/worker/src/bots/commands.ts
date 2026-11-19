@@ -15,7 +15,7 @@ import type { DeliveredMessage } from "./webhooks";
 import { railsJson } from "./rails-json";
 import { workspace } from "../workspace";
 
-// Slash commands and bots' subscriptions to message events (migrations/0072_commands.sql): what the room
+// Slash commands and bots' subscriptions to message events (migrations/0080_commands.sql): what the room
 // delivers to a bot's webhook when someone types its command, or writes a message in a room the bot
 // watches, as Slack sends a slash command and a message event to a server. A bot answers either as it
 // answers a delivery to its webhook, and a payload of blocks rides as a card, as a click's answer does

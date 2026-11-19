@@ -1,12 +1,9 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { MAX_FILE_SIZE, type User } from "@ember/protocol";
+import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
 import type { Command } from "@ember/protocol/bots";
-import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { ArrowUp, Attachment, Page, Terminal, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
-import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { AtSign, Page, Send, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
+import { ArrowUp, AtSign, Attachment, Page, Send, Terminal, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { fetchCommands, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
@@ -15,7 +12,7 @@ import type { Typist } from "@/lib/room-state";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { AttachMenu } from "./attach-menu";
-import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
+import { editorLoaded, RichTextEditor, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { EmojiButton } from "./emoji-button";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
 import { ShortcutTooltip } from "./shortcut-tooltip";
@@ -442,18 +439,10 @@ export interface ComposerHandle {
  * shows Lexxy's toolbar under the text, and a round Send button. @ offers the room's people to mention,
  * and a first "/" offers the workspace's commands to run. Files picked, pasted or dropped wait above the
  * card to go with the next message. What's written is kept as a draft until it's sent. A thread's has
- * Also send to the room before Send.
+ * Also send to the room before Send. A message the room won't take for what it says, as one with a word
+ * Blocked words keeps out, comes back to be changed, saying why above the card.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, onRunCommand, autoFocus = true, ref }: Props) {
- * The composer: a card with Slack's formatting row on top, then the editor, and below it Slack's buttons:
- * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
- * Mention someone, and a round Send button, grey until there's something to send. @ offers the room's
- * people to mention. Files picked, pasted or dropped, and snippets, wait above the card to go with the
- * next message. What's written is kept as a draft until it's sent. A thread's has Also send to the room
- * before Send. A message the room won't take for what it says, as one with a word Blocked words keeps
- * out, comes back to be changed, saying why above the card.
- */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, mentionsAbove = false, ref }: Props) {
+export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, onRunCommand, autoFocus = true, mentionsAbove = false, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const formatting = useFormatting(editor);
@@ -640,6 +629,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     if (disabled || submitting.current) return;
     submitting.current = true;
     try {
+      setRefusal(null);
       if (picked.files.length > 0) {
         onSendFiles(picked.files.map(({ file }) => file), alsoSend);
         picked.clear();
@@ -669,47 +659,23 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
             .then((went) => {
               if (!went) giveBack(written, markup);
             });
+        } else {
+          // One the room won't take, as when it's too long, stays to be cut down.
+          const addPreview = onSend(markup, alsoSend);
+          if (!addPreview) return;
+          linkPreviews.sent(markup, addPreview);
         }
-        // One the room won't take, as when it's too long, stays to be cut down.
-        else if (!onSend(markup, alsoSend)) return;
         // Everyone else stops showing you as typing when your message arrives.
         wasBlank.current = true;
         written.clear();
-        keepDraft(key, null);
+        keep(null);
         setAlsoSend(false);
       }
-      setToolbarOpen(false);
-      setToolbarForLink(false);
+      showFormatting(false);
       written.focus();
     } finally {
       submitting.current = false;
     }
-  // written unless it's blank, and focuses the editor, on touch screens too. Before the editor shows, as
-  // its code loads, only the files go. Also send to the room is unticked once anything's gone, as Slack
-  // unticks it.
-  const submit = () => {
-    if (disabled) return;
-    setRefusal(null);
-    if (picked.files.length > 0) {
-      onSendFiles(picked.files.map(({ file }) => file), alsoSend);
-      picked.clear();
-      setAlsoSend(false);
-    }
-    const written = editor.current;
-    if (!written) return;
-    if (!written.isBlank()) {
-      const body = written.value();
-      // One the room won't take, as when it's too long, stays to be cut down.
-      const addPreview = onSend(body, alsoSend);
-      if (!addPreview) return;
-      linkPreviews.sent(body, addPreview);
-      // Everyone else stops showing you as typing when your message arrives.
-      wasBlank.current = true;
-      written.clear();
-      keep(null);
-      setAlsoSend(false);
-    }
-    written.focus();
   };
 
   // Completes the command picked from the menu, as the people to mention are completed: what's written
@@ -742,13 +708,13 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
         event.preventDefault();
         return setOffered([]);
       }
-      if (pressedAlone(event, "Tab") || sendsMessage(event, { toolbarOpen })) {
+      if (pressedAlone(event, "Tab") || sendsMessage(event)) {
         event.preventDefault();
         event.stopPropagation();
         return pickedCommand(offered[highlighted]!);
       }
     }
-    if (editor.current?.hasOpenPrompt() || !sendsMessage(event, { toolbarOpen })) return;
+    if (editor.current?.hasOpenPrompt() || !sendsMessage(event)) return;
     // Enter picks from an open list, such as the people to mention.
     if (editor.current?.hasOpenPrompt()) return;
     if (breaksLine(event) && editor.current?.startNewBlock()) {

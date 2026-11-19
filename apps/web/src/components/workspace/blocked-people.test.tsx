@@ -1,10 +1,10 @@
 import type { DirectoryUser, User } from "@ember/protocol";
 import { act, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { BlockingContext } from "@/hooks/use-blocking";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { BLOCKED_PEOPLE_EXPLAINED, BlockedPeople } from "./blocked-people";
+import userEvent from "@testing-library/user-event";
 
 /** Someone as the people directory lists them. */
 const listed = (id: string, name: string, changes: Partial<DirectoryUser> = {}): DirectoryUser => ({ id, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${id}/avatar`, ...changes });

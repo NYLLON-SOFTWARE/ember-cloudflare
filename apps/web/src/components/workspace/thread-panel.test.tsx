@@ -1,9 +1,9 @@
 import type { ClientFrame, Me, Message, Room, ServerFrame } from "@ember/protocol";
 import { act, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoomFrames } from "@/hooks/use-room";
 import { ThreadPanel } from "./thread-panel";
+import userEvent from "@testing-library/user-event";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace = { id: "u2", name: "Grace" };
