@@ -4316,6 +4316,7 @@ export class WorkspaceStore {
       ...forgettingSearches(userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(`DELETE FROM favorites WHERE user_id = ?`, userId),
+      statement(`DELETE FROM profile_field_values WHERE user_id = ?`, userId),
       statement(`DELETE FROM blocks WHERE user_id = ?1 OR blocked_id = ?1`, userId),
       statement(`DELETE FROM identities WHERE user_id = ?`, userId),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),

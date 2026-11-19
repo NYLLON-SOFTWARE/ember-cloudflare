@@ -32,7 +32,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { usePush } from "@/hooks/use-push";
 import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeAvatar, changeProfile, fetchProfile, isSignedOut, removeAvatar } from "@/lib/api";
+import { ApiError, changeAvatar, changeProfile, fetchProfile, isSignedOut, removeAvatar } from "@/lib/api";
 import { avatarVariantOf } from "@/lib/previews";
 import { pushEndpoint } from "@/lib/push";
 import type { RoomAnswer } from "@/lib/room-list";
@@ -362,6 +362,18 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         if (!mounted.current && !isSignedOut(error)) return;
         setSaving(false);
         onFailed(error);
+        // A save refused because a field was deleted since this page loaded (422): ask the profile
+        // again for the fields of now, take the deleted ones out of what's typed, and keep every
+        // other edit, so saving on works with what's left.
+        if (error instanceof ApiError && error.status === 422) {
+          fetchProfile().then((answer) => {
+            if (!mounted.current) return;
+            const kept = new Set((answer.profile.fields ?? []).map(({ id }) => id));
+            setAskedFields(answer.profile.fields ?? []);
+            setFieldValues((values) => values && Object.fromEntries(Object.entries(values).filter(([id]) => kept.has(id))));
+            savedFieldValues.current = fieldValuesOf(answer.profile.fields);
+          }, onFailed);
+        }
       },
     );
   };
