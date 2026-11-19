@@ -1,26 +1,15 @@
-import {
-  useContext,
-  useEffect,
-  useEffectEvent,
-  useId,
-  useImperativeHandle,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-  type MouseEvent,
-  type ReactElement,
-  type Ref,
-  type RefObject,
-} from "react";
+import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactElement, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
+import type { Shortcut } from "@ember/protocol/bots";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
+import { Bookmark, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Sparks, Timer, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
+import { mentionedPerson, PeopleContext, useNameOf, useNameOfGroup } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useSaver } from "@/hooks/use-saves";
+import { useShortcuts } from "@/hooks/use-shortcuts";
 import { permalinkOf } from "@/hooks/use-route";
 import { copyWithSuccess } from "@/lib/clipboard";
 import { replyQuote } from "@/lib/messages";
@@ -28,6 +17,7 @@ import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
 import { UNKNOWN_PERSON } from "./message-body";
+import { RemindDialog } from "./remind-dialog";
 
 /** With a mouse, the bar overlaps its message. */
 const OVERLAPPING = "(hover: hover) and (pointer: fine)";
@@ -66,10 +56,16 @@ interface Props {
    * thread, whose own composer is there to reply in.
    */
   threadPath?: string;
+  /** Whether the message is pinned to its room, which names Unpin instead of Pin to room. */
+  pinned: boolean;
+  /** Pins or unpins the message, or is left out where its messages aren't pinned, as a thread's aren't. */
+  onPin?: () => void;
   onReact: (emoji: string) => void;
   /** Writes a reply in the composer, given the quote it starts with. */
   onQuote: (quote: string) => void;
   onEdit: () => void;
+  /** Runs one of the workspace's shortcuts on the message, as one of its items is picked. */
+  onRunShortcut: (shortcutId: string) => void;
   /** Deletes the message, from More actions, answering whether the deletion was sent. */
   onDelete: () => boolean;
   /** Opens the message's Custom reaction form, from New boost. */
@@ -100,18 +96,20 @@ export interface MessageActionsHandle {
  * order Slack's bar has them. With a mouse, hovering the message opens the bar too, laid over the message's
  * top edge at the timeline's right, with Message options pinned as its last button, and each button names
  * itself in a tooltip as the pointer reaches it. On touch screens it opens beside Message options, with
- * Quote after Reply in thread, Copy link after that, then Block or Unblock its author and Report message
- * on someone else's message. Once opened, the bar stays in the page while it's shut, so Copy link keeps
- * its color.
+ * Quote after Reply in thread, Copy link after that, and Save for later last. Once opened, the bar stays
+ * in the page while it's shut, so Copy link keeps its color.
  *
- * With a mouse, Message options then opens More actions under the bar, as Slack's does: Quote, Copy text,
- * Copy link, Block or Unblock its author and Report message on someone else's message, and on messages
- * you can change, Edit message and Delete message.
+ * With a mouse, Message options then opens More actions under the bar, as Slack's does: Pin to room, or
+ * Unpin, Save for later, Quote, Copy text, Copy link, Block or Unblock its author and Report message on
+ * someone else's message, and on messages you can change, Edit message and Delete message, then the
+ * workspace's shortcuts, each sending the message to the bot it invokes.
  */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, block, onReport, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, pinned, onPin, onReact, onQuote, onEdit, onRunShortcut, onDelete, onNewBoost, block, onReport, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  // Whether the Remind me dialog shows, which More actions' Remind me opens in the bar's place.
+  const [reminding, setReminding] = useState(false);
   const [rendered, setRendered] = useState(false);
   // Whether hovering opened the bar, which leaving then closes, unless Message options pinned it.
   const hoverOpened = useRef(false);
@@ -135,6 +133,9 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // What Copy text copies: the message's plain text, which holds a bot's cards' too. A file message has none
   // but its file's name, and a huddle's message none that it shows.
   const text = message.attachment || message.huddle ? null : message.plainText;
+  // The message's save, when the workspace has heard of one, which More actions saves or forgets.
+  const saver = useSaver();
+  const savedHere = saver?.saveOf(message.id) ?? null;
 
   const show = (byHovering: boolean) => {
     hoverOpened.current = byHovering;
@@ -174,10 +175,29 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     onEdit();
   };
 
+  // Remind me closes the bar too: the dialog it opens is modal, and takes focus as it comes.
+  const remind = () => {
+    close();
+    setReminding(true);
+  };
+
+  // A shortcut closes the menu too, and its bot answers in its own time, which the flash tells of.
+  const runShortcut = (shortcut: Shortcut) => {
+    close();
+    onRunShortcut(shortcut.id);
+  };
+
   // New boost closes the bar too, and the form it opens takes focus.
   const newBoost = () => {
     close();
     onNewBoost();
+  };
+
+  // Pinning closes the bar too, handing focus back to Message options, as a reaction does.
+  const pin = onPin === undefined ? undefined : () => {
+    close();
+    onPin();
+    trigger.current?.focus({ preventScroll: true });
   };
 
   // So do Block and Unblock, and Report message, whose dialog takes it.
@@ -196,6 +216,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     if (!confirm("Are you sure you want to delete this message?")) return;
     close();
     if (!onDelete()) trigger.current?.focus({ preventScroll: true });
+  };
+
+  // Save for later, or forget it again, closes the bar as the other items that act at once do.
+  const toggleSaved = () => {
+    if (!saver) return;
+    close();
+    if (savedHere) void saver.forget(savedHere.id);
+    else void saver.save(message.roomId, message.id);
   };
 
   const focusFirstReaction = () => {
@@ -370,7 +398,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     if (open && actionsOpen && focusingActions.current) focusFirstAction();
   }, [open, trayOpen, actionsOpen, overlapping]);
 
-  const pinned = open && overlapping;
+  const triggerPinned = open && overlapping;
 
   const options = (
     <button
@@ -390,10 +418,10 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
         // lower on a run's first message, whose text starts 4px lower in its row. With a mouse, the open bar
         // keeps room for it as its last button, which stays shaded while More actions is open, as More
         // reactions does while its tray is.
-        pinned
+        triggerPinned
           ? "fixed top-(--trigger-top) left-(--trigger-left) z-31"
           : cn("absolute right-5 max-md:right-3 touch:translate-x-1.5", threaded ? "-top-1.5 touch:-top-[11px]" : "-top-0.5 touch:-top-[7px]"),
-        pinned && actionsOpen && "bg-hover",
+        triggerPinned && actionsOpen && "bg-hover",
       )}
     >
       <MoreHoriz />
@@ -402,9 +430,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
 
   return (
     <div ref={container} className="contents">
+      {/* Remind me's dialog, which More actions opens; a portal places it over the page. */}
+      {reminding && <RemindDialog message={message} onClose={() => setReminding(false)} />}
       {/* Every message has Message options, so only a mouse, which can show its tooltip, gets one. As the bar's
           last button, the tooltip says what it opens. */}
-      {overlapping ? <ActionTooltip label={pinned ? "More actions" : "Message options"}>{options}</ActionTooltip> : options}
+      {overlapping ? <ActionTooltip label={triggerPinned ? "More actions" : "Message options"}>{options}</ActionTooltip> : options}
       {rendered && (
         <div
           ref={menu}
@@ -449,6 +479,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </PageLink>
               </ActionTooltip>
             )}
+            {/* With no More actions to hold it, a finger pins from the bar. */}
+            {!overlapping && pin !== undefined && (
+              <ActionTooltip label={pinned ? "Unpin" : "Pin to room"}>
+                <button type="button" aria-label={pinned ? "Unpin" : "Pin to room"} className={ACTION} onClick={pin}>
+                  <Pin />
+                </button>
+              </ActionTooltip>
+            )}
             {/* More actions holds Quote and Copy link with a mouse. A huddle's message has nothing of its author's to quote. */}
             {message.attachment ? (
               <FileActions file={message.attachment} />
@@ -466,6 +504,20 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               <ActionTooltip label="Copy link">
                 <button type="button" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
                   <Copy />
+                </button>
+              </ActionTooltip>
+            )}
+            {/* Save for later is in the bar for fingers, where More actions never opens. */}
+            {saver && !overlapping && (
+              <ActionTooltip label={savedHere ? "Saved" : "Save for later"}>
+                <button
+                  type="button"
+                  aria-label={savedHere ? "Saved" : "Save for later"}
+                  aria-pressed={savedHere !== null}
+                  className={cn(ACTION, "aria-pressed:bg-hover")}
+                  onClick={toggleSaved}
+                >
+                  <Bookmark />
                 </button>
               </ActionTooltip>
             )}
@@ -512,6 +564,21 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             hidden={!actionsOpen}
             className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-1 group-data-[panel-above]/menu:-order-1")}
           >
+            {/* As Slack's menu has it, pinning first, whatever kind of message it is. */}
+            {pin !== undefined && (
+              <button type="button" className={ITEM} onClick={pin}>
+                <Pin />
+                {pinned ? "Unpin" : "Pin to room"}
+              </button>
+            )}
+            {/* What the workspace keeps of someone's saves knows whether this message is one of them, so the
+                item saves it for later, or forgets it again. Where nobody's saves are kept, it's nothing. */}
+            {saver && (
+              <button type="button" aria-pressed={savedHere !== null} className={ITEM} onClick={toggleSaved}>
+                <Bookmark />
+                {savedHere ? "Saved" : "Save for later"}
+              </button>
+            )}
             {/* Quoting a file message would quote nothing, as its text is empty, and a huddle's message shows none of its own. */}
             {!message.attachment && !message.huddle && (
               <QuoteButton message={message} nodes={nodes} className={ITEM} onQuote={quote}>
@@ -528,6 +595,10 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             <button type="button" className={ITEM} onClick={(event) => void copyLink(event, message)}>
               <Copy />
               Copy link
+            </button>
+            <button type="button" className={ITEM} onClick={remind}>
+              <Timer />
+              Remind me…
             </button>
             {(block || onReport) && <hr className="my-1 border-message-border" />}
             {block && <BlockButton message={message} blocked={block.blocked} onClick={changeBlock} item />}
@@ -553,10 +624,33 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </>
             )}
+            <ShortcutItems onRun={runShortcut} />
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The workspace's message shortcuts, below the built-ins: a Sparks before each's name, as the bots'
+ * actions are, and one to a line, as the menu's other items are. Reading them asks the Worker as the
+ * menu opens, so a menu of none — none registered, none come yet, or why they couldn't be had — shows
+ * the built-ins alone.
+ */
+function ShortcutItems({ onRun }: { onRun: (shortcut: Shortcut) => void }) {
+  const shortcuts = useShortcuts();
+  if (shortcuts.length === 0) return null;
+  return (
+    <>
+      <hr className="my-1 border-message-border" />
+      {shortcuts.map((shortcut) => (
+        <button key={shortcut.id} type="button" className={ITEM} onClick={() => onRun(shortcut)}>
+          <Sparks />
+          {shortcut.name}
+        </button>
+      ))}
+    </>
   );
 }
 
@@ -649,11 +743,12 @@ interface QuoteButtonProps extends ComponentProps<"button"> {
 function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButtonProps) {
   const people = useContext(PeopleContext);
   const nameOf = useNameOf();
+  const nameOfGroup = useNameOfGroup();
   const quote = (event: MouseEvent<HTMLButtonElement>) => {
     onClick?.(event);
     const link = new URL(permalinkOf(message), document.baseURI).href;
     const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
-    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned));
+    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned, (groupId) => nameOfGroup(groupId) ?? UNKNOWN_PERSON));
   };
   return <button type="button" onClick={quote} {...props} />;
 }

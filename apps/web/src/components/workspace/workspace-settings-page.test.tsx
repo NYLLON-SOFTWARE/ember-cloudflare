@@ -1,31 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  LOGO_PATH,
-  LOGO_TOO_LARGE,
-  MAX_LOGO_SIZE,
-  MAX_TAGLINE_LENGTH,
-  NO_EMAIL_DOMAINS,
-  OPEN_WITH_MEMBERFUL,
-  TRYING_BETAS,
-  UPDATING_EMBER,
-  type Account,
-  type AccountChanges,
-  type AssistantSetup,
-  type CopyOnGitHub,
-  type DirectoryUser,
-  type EmailInvitation,
-  type Invited,
-  type Me,
-  type ReleaseCheck,
-  type RoleChange,
-  type RoomId,
-  type SidebarRoom,
-  type WorkspaceSettings,
-} from "@ember/protocol";
-import { formatOf, TOP_LEVELS, modelName, type AssistantChanges, type AssistantSettings, type NewAssistantModel } from "@ember/protocol/assistant";
+import { LOGO_PATH, LOGO_TOO_LARGE, MAX_LOGO_SIZE, MAX_TAGLINE_LENGTH, NO_EMAIL_DOMAINS, OPEN_WITH_MEMBERFUL, TRYING_BETAS, UPDATING_EMBER, type Account, type AccountChanges, type AssistantSetup, type CopyOnGitHub, type DirectoryUser, type EmailInvitation, type Invited, type Me, type ProfileField, type ProfileFieldChange, type ReleaseCheck, type RoleChange, type RoomId, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
+import { formatOf, modelName, TOP_LEVELS, type AssistantChanges, type AssistantSettings, type NewAssistantModel } from "@ember/protocol/assistant";
 import { blockedWordUnmatchable } from "@ember/protocol/blocked-words";
 import type { Agent, Agents } from "@ember/protocol/agents";
 import { RELAY_WITHOUT_HUDDLES, type HuddleRelaySetup, type HuddlesSetup } from "@ember/protocol/huddles";
@@ -39,6 +16,8 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { timeLabel } from "@/lib/messages";
+import userEvent from "@testing-library/user-event";
+
 // Ember's own Update Ember workflow, which the card offers a copy without one: the copy beside the deploy
 // script, which CI keeps the same as .github's, since a copy's .github keeps its own workflow, or none.
 import EMBERS_WORKFLOW from "../../../../worker/scripts/update-ember.yml?raw";
@@ -161,6 +140,8 @@ const RECAP: Agent = {
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
   let { account, emailDomains: keptDomains, email, turnstile, assistant, huddles, outsideAi, sso } = settings;
+  // The workspace's profile fields, as its settings change them.
+  let fields: ProfileField[] = [];
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
@@ -170,6 +151,23 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
     }
     const removing = request.match(/^DELETE \/api\/account\/users\/(.+)$/);
     if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
+    const field = request.match(/^(POST|PATCH|DELETE) \/api\/account\/profile_fields(?:\/([^/]+))?$/);
+    if (field && field[1] !== "GET") {
+      if (field[1] === "POST") {
+        const change = JSON.parse(String(init?.body)) as ProfileFieldChange;
+        fields = [...fields, { id: `field-${fields.length + 1}`, name: change.name, options: change.options ?? null }];
+      } else if (field[1] === "PATCH") {
+        const change = JSON.parse(String(init?.body)) as ProfileFieldChange;
+        fields = fields.map((listed) => (request.endsWith(listed.id) ? { ...listed, name: change.name, options: change.options ?? listed.options } : listed));
+      } else fields = fields.filter((listed) => !request.endsWith(listed.id));
+      return Response.json({ fields });
+    }
+    const reordering = request === "PUT /api/account/profile_fields/order";
+    if (reordering) {
+      const { ids } = JSON.parse(String(init?.body)) as { ids: string[] };
+      fields = ids.map((id) => fields.find((listed) => listed.id === id)!);
+      return Response.json({ fields });
+    }
     switch (request) {
       case "GET /api/account":
         return Response.json({ ...settings, account, emailDomains: keptDomains, email, turnstile, assistant, huddles, outsideAi, sso });
@@ -276,6 +274,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ assistant });
       case "GET /api/account/agents":
         return Response.json({ agents: [RECAP] } satisfies Agents);
+      case "GET /api/account/profile_fields":
+        return Response.json({ fields });
       case "GET /api/account/apps":
         return Response.json({ apps: [{ id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0, signInEnded: false, wantsAccess: false }] });
       case "PUT /api/account/outside_ai":
@@ -285,6 +285,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         const { site } = JSON.parse(String(init?.body)) as MemberfulKeysChange;
         return Response.json({ memberfulSite: site, memberfulWebhooks: true, memberfulKeys: "saved", memberfulSiteKept: settings.memberfulSiteKept } satisfies MemberfulSaved);
       }
+      case "GET /api/user_groups":
+        return Response.json({ groups: [] });
       case "PUT /api/account/huddles":
         // The relay's TURN key is the account's, so it's kept through a change of app.
         huddles = { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId, relayKeyId: huddles?.relayKeyId ?? null };

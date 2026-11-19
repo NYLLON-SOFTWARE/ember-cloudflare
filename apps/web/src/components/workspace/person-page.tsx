@@ -14,6 +14,7 @@ import { asListed, canAsk } from "@/lib/agents";
 import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AgentBadge, isAgent } from "./agent-badge";
+import { useWornMood } from "./mood";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
@@ -52,7 +53,8 @@ const DIRECT_BUTTON =
 /**
  * The page for someone, at `/users/<id>`, whatever their status, titled with their name: Go Back to the
  * page it was opened from, a pencil to Edit my profile on your own, and their avatar. Active and banned
- * people show their name and bio, with their email address for administrators, and active people a
+ * people show their name, what they wear beside it while it hasn't come off by its clear time, and their
+ * bio, with their email address for administrators and the workspace's fields they answered, and active
  * button that starts a DM with them, or opens the one you have. Removed people show their name and that
  * they're no longer on this account, and bots their avatar, with the agent badge under an AI agent's
  * and, for an agent an administrator made, what `AboutAgent` says of it, then the DM button while
@@ -147,6 +149,8 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   };
 
   const mine = userId === me.id;
+  // What they wear beside their name, which a render takes off when its clear time arrives.
+  const worn = useWornMood(person?.mood);
   const blockButton = person && !mine && (person.status === "active" || blocked) && (
     <BlockButton person={person} blocked={blocked} busy={changingBlock} onClick={changeBlock} />
   );
@@ -199,6 +203,11 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                 {/* Campfire's `.gap` with a third of its block space between rows. */}
                 <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
                   <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
+                  {worn && (
+                    <div className="text-muted-foreground">
+                      {worn.emoji} {worn.text}
+                    </div>
+                  )}
                   {person.username && <div className="text-muted-foreground">@{person.username}</div>}
                   {/* Campfire's link, left out for someone with no address. */}
                   {person.emailAddress !== undefined && (
@@ -211,6 +220,15 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                     </div>
                   )}
                   <div>{person.bio}</div>
+                  {/* The workspace's fields they answered, asked in the order the profile shows them. */}
+                  {fetched?.fields
+                    ?.filter(({ value }) => value !== "")
+                    .map(({ id, name, value }) => (
+                      <div key={id}>
+                        <div className="text-[0.8em] text-muted-foreground">{name}</div>
+                        <div>{value}</div>
+                      </div>
+                    ))}
                 </div>
                 {person.status === "active" && (
                   <>

@@ -13,15 +13,20 @@ import {
   INVITATION_DAYS,
   invitationLink,
   isReservedName,
+  MAX_GROUP_MEMBERS,
+  MAX_GROUPS,
   isRoomId,
   mailboxOf,
   mailboxUnder,
+  MAX_GUEST_NAME_LENGTH,
+  MAX_PROFILE_FIELDS,
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
   parseWorkspaceSocketParams,
   PASSWORD_RESET_CODE_MINUTES,
   PASSWORD_RESETS_PER_NETWORK,
+  sameMood,
   sameName,
   SIGN_UPS_PER_ADDRESS,
   SIGN_UPS_PER_HOUR,
@@ -46,6 +51,7 @@ import {
   type EmailLinkKind,
   type EmailSettings,
   type Favorites,
+  type GroupId,
   type HuddlesSettings,
   type LiveHuddle,
   type Mailbox,
@@ -59,16 +65,24 @@ import {
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
+  type NewUserGroup,
+  type PersonMood,
   type PersonRole,
   type Profile,
   type ProfileChanges,
+  type ProfileFieldChange,
+  type ProfileFieldEntry,
+  type ProfileField,
   type PushSubscriptionSave,
+  type Reminder,
   type ResentInvitation,
   type Room,
   type RoomChanges,
+  type RoomGuest,
   type RoomId,
   type RoomKind,
   type RoomSettings,
+  type SavedMessage,
   type Search,
   type SentTestEmail,
   type SharedRoom,
@@ -77,6 +91,8 @@ import {
   type User,
   type UserId,
   type UserStatus,
+  type UserGroup,
+  type UserGroupChanges,
   type WorkspaceServerFrame,
   type WorkspaceSettings,
   type SsoSettings,
@@ -103,6 +119,7 @@ import {
   type YourAssistant,
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
+import type { Command, Commands, NewCommand, NewShortcut, Shortcut, Shortcuts } from "@ember/protocol/bots";
 import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
 import {
   isAtHost,
@@ -155,7 +172,7 @@ import { discover, refreshTokens } from "./oidc";
 import { Presence } from "./presence";
 import { sendPushes } from "./push/delivery";
 import { webPush } from "./push/keys";
-import { reportPayload } from "./push/payload";
+import { reminderPayload, reportPayload } from "./push/payload";
 import { AddressLimit, FixedWindowLimit } from "./rate-limit";
 import { urlOf } from "./request-url";
 import { OPEN_ROOMS_ONLY, sessionTag } from "./revocations";
@@ -204,6 +221,7 @@ import {
   type ProfileEntry,
   type PushDelivery,
   type RoomEventDeliveries,
+  type StoredGroup,
   type SavedAssistant,
   type SavedModel,
   type SavedRoomChange,
@@ -219,7 +237,10 @@ import {
   type StoredAgentSettings,
   type StoredBot,
   type StoredBotSettings,
+  type StoredProfileField,
   type StoredPushSubscription,
+  type StoredReminder,
+  type StoredReminderRow,
   type StoredSession,
   type Welcome,
 } from "./workspace-store";
@@ -337,19 +358,44 @@ const PROBE_WAIT_MS = 30 * 1000;
 /** How many probes the Workspace waits for at once, of the latest checks. */
 const WAITING_PROBES = 20;
 /**
- * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
- * first, then purges, then reindexes, and how many rooms a change calls before it answers
- * (`closeQueuedSockets`). Each room it calls may count as a subrequest, of which an invocation on the
- * Free plan can make 50, its queries included.
+ * How many requests of its outbox the Workspace delivers in one run of its alarm, at most, revocations
+ * first, then purges, then reindexes, then picture deletions, then the reminders due with what's left
+ * of it, their queries counted into it like their pushes, and how many rooms a change calls before it
+ * answers (`closeQueuedSockets`). Each room it calls, push it sends or query it asks may count as a
+ * subrequest, of which an invocation on the Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
+/** How many lapsed stays of the guests of one room one run lapses, before the next takes the rest. */
+const GUEST_STAYS_LAPSED_AT_ONCE = 20;
+/**
+ * What lapsing one stay costs a run's budget, of which a run of the alarm has `DELIVERIES_PER_RUN` after
+ * its deliveries: the batch that saves it, the sessions it ends, the room it asks to close its sockets,
+ * and the person it publishes again, each a query or a call.
+ */
+const COSTS_PER_LAPSED_STAY = 5;
 /**
  * How long a change waits for the rooms to close the sockets it queued before it answers. The alarm sees
  * to a room that takes longer.
  */
 const CLOSING_SOCKETS_MS = 2_000;
+/** How long the Workspace waits to ask again what the outbox is due, when the asking failed: a minute, since what's due stays due however long the answer takes. */
+const SCHEDULING_RETRY_MS = 60_000;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
+/** How soon from now someone may ask a reminder to come back, at the soonest. */
+export const REMINDER_SOONEST_MS = 15_000;
+/** How far from now someone may ask a reminder to come back, at the latest: a year out. */
+export const REMINDER_LATEST_MS = 365 * 24 * 60 * 60 * 1000;
+/** How many characters of a message's plain text a reminder keeps of it. */
+const REMINDER_EXCERPT_LENGTH = 280;
+/** How many reminders that have come due one run of the alarm tells, at most. */
+const REMINDERS_PER_RUN = 20;
+/**
+ * How long after its time a reminder's pushes are tried again on the runs after its telling, a day: a
+ * browser that was asleep or out of reach comes back within it, and past it the pushes that kept
+ * failing are given up on, since the notice has been sitting in the person's tabs all along.
+ */
+export const REMINDER_PUSH_GRACE_MS = 24 * 60 * 60 * 1000;
 /**
  * How many memberships the alarm checks in a run, at most, asking Memberful's admin API after them all in
  * one request, a query with an alias for each, so that a run's subrequests stay well within the Free plan's.
@@ -702,6 +748,8 @@ export interface YourProfile {
 /** Someone as their page shows them to the person asking. */
 export interface ShownPerson {
   person: DirectoryEntry | ProfileEntry;
+  /** The workspace's profile fields, with what this person saved for each, "" for none. */
+  fields: ProfileFieldEntry[];
   /**
    * The sign-in link the page gives for them, by the session asking, as Campfire's gives one to
    * administrators when they're active and aren't a bot (users/show.html.erb), or null.
@@ -806,6 +854,34 @@ export interface WebhookAccess extends BotAccess {
 /** A bot's webhook as a click's delivery finds it, with who clicked, by their name now, and the room's name, or null for a DM's. */
 export interface ClickAccess extends WebhookAccess {
   clicker: User;
+  roomName: string | null;
+}
+
+/**
+ * The command `name` names, as its delivery in a room finds it: the command, or null when no command has
+ * that name; the bot that invokes it, by its name now, or null with the command; and its webhook as
+ * `WebhookAccess` is, or null once the bot isn't an active one in the room with one, with whoever typed
+ * it, by their name now, and the room's name, or null for a DM's.
+ */
+export interface CommandAccess {
+  command: { id: string; name: string } | null;
+  bot: User | null;
+  webhook: WebhookAccess | null;
+  sender: User;
+  roomName: string | null;
+}
+
+/**
+ * The shortcut `shortcutId` names, as its delivery in a room finds it: the shortcut, or null when no
+ * shortcut has that id; the bot that invokes it, by its name now, or null with the shortcut; and its
+ * webhook as `WebhookAccess` is, or null once the bot isn't an active one in the room with one, with
+ * whoever picked it, by their name now, and the room's name, or null for a DM's.
+ */
+export interface ShortcutAccess {
+  shortcut: { id: string; name: string } | null;
+  bot: User | null;
+  webhook: WebhookAccess | null;
+  sender: User;
   roomName: string | null;
 }
 
@@ -924,8 +1000,29 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
 
+/** The reminder a row keeps, as the protocol has it: its message's author named, and the time as a date's text. */
+const reminderOf = ({ id, roomId, messageId, parentId, creatorId, creatorName, excerpt, remindAt }: StoredReminderRow): Reminder => ({
+  id,
+  roomId,
+  messageId,
+  ...(parentId !== null && { parentId }),
+  creator: { id: creatorId, name: creatorName },
+  excerpt,
+  remindAt: new Date(remindAt).toISOString(),
+});
+
+/** The subscriptions a reminder's pushes have reached, as the JSON list its row keeps. */
+const deliveredIn = (delivered: string | null): number[] => (delivered === null ? [] : (JSON.parse(delivered) as number[]));
+
 /** Whether someone or a bot named `name` takes @ember's name by being renamed `rename`, which they can't, unless it was theirs already (`isReservedName`). */
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
+
+/**
+ * A group's name as it's kept: lowercased as JavaScript lowercases, as the mentions prompt lowercases
+ * its query, so a group named Équipe is found as @équipe however it's typed, and SQLite's
+ * case-sensitive UNIQUE keeps two names apart however they're capitalised.
+ */
+const groupName = (name: string) => name.toLowerCase();
 
 /**
  * What reading that `person`'s membership is `subscribed`, or not, at a way in that's `open`, changes:
@@ -1232,10 +1329,17 @@ export class Workspace extends DurableObject<Env> {
     // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
     // The welcome says who they are as this check reads them, since a change to them while the first
     // read was told only the sockets already in. It brings the workspace as it is now too, which may
-    // have changed while the tab was without a socket.
+    // have changed while the tab was without a socket, and their hush of push notifications likewise.
     const [current, account] = await Promise.all([this.session(credentials), this.account()]);
-    if (current) send(server, { type: "welcome", you: meOf(current), account: account ?? ACCOUNT_BEFORE_SETUP });
-    else this.closeSocket(server, CloseCode.Reconnect);
+    if (current) {
+      const hushedUntil = await this.store.dndUntilOf(current.user.id, Date.now());
+      send(server, {
+        type: "welcome",
+        you: meOf(current),
+        account: account ?? ACCOUNT_BEFORE_SETUP,
+        dndUntil: hushedUntil === null ? null : new Date(hushedUntil).toISOString(),
+      });
+    } else this.closeSocket(server, CloseCode.Reconnect);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -1632,6 +1736,97 @@ export class Workspace extends DurableObject<Env> {
       await this.saveAccount({ ...account, joinCode }, (now) => this.store.changeJoinCode(joinCode, now));
       return { joinCode };
     });
+  }
+
+  /**
+   * The workspace's profile fields, as its settings manage them, in the order they come in the profile:
+   * "forbidden" unless the person `credentials` signs in is an administrator, or null without a valid
+   * session.
+   */
+  async profileFields(credentials: Credentials): Promise<ProfileField[] | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return this.profileFieldList();
+  }
+
+  /**
+   * Adds a field named `change.name`, with its choices or none, as the person `credentials` signs in,
+   * answering the fields then: undefined adds nothing, once who's asking is checked, "full" once the
+   * workspace has as many fields as it can, "taken" while it has one named the same, as `sameName`
+   * compares names, "forbidden" unless they're an administrator, or null without a valid session.
+   */
+  async createProfileField(credentials: Credentials, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "full" | "taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (change === undefined) return this.profileFieldList();
+      const fields = await this.store.profileFields();
+      if (fields.length >= MAX_PROFILE_FIELDS) return "full";
+      if (fields.some((field) => sameName(field.name, change.name))) return "taken";
+      await this.store.createProfileField({ id: sortableId(), name: change.name, options: change.options }, new Date().toISOString());
+      return this.profileFieldList();
+    });
+  }
+
+  /**
+   * Saves a field's new name and choices, which its values keep, as the person `credentials` signs in,
+   * answering the fields then: undefined changes nothing, once who's asking is checked, "not found" for
+   * an id nobody has, "taken" while another field has the name the change gives, as `sameName` compares
+   * names, "forbidden" unless they're an administrator, or null without a valid session.
+   */
+  async changeProfileField(credentials: Credentials, id: string, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "not found" | "taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const fields = await this.store.profileFields();
+      if (!fields.some((field) => field.id === id)) return "not found";
+      if (change === undefined) return this.profileFieldList();
+      // Its own name is no one else's, so a field can keep it.
+      if (fields.some((field) => field.id !== id && sameName(field.name, change.name))) return "taken";
+      await this.store.changeProfileField(id, change.name, change.options, new Date().toISOString());
+      return this.profileFieldList();
+    });
+  }
+
+  /**
+   * Puts the fields in the order `ids` names them, as the person `credentials` signs in, answering the
+   * fields then: "not the fields" unless `ids` names each of them, once, "forbidden" unless they're an
+   * administrator, or null without a valid session.
+   */
+  async reorderProfileFields(credentials: Credentials, ids: string[]): Promise<ProfileField[] | "forbidden" | "not the fields" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const fields = await this.store.profileFields();
+      // The same ids, whatever their order, each once.
+      if (fields.length !== ids.length || new Set([...fields.map((field) => field.id), ...ids]).size !== fields.length) return "not the fields";
+      await this.store.reorderProfileFields(ids, new Date().toISOString());
+      return this.profileFieldList();
+    });
+  }
+
+  /**
+   * Takes the field `id` names away, with everything anyone saved for it, as the person `credentials`
+   * signs in, answering the fields then: "forbidden" unless they're an administrator, or null without a
+   * valid session.
+   */
+  async deleteProfileField(credentials: Credentials, id: string): Promise<ProfileField[] | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      await this.store.deleteProfileField(id);
+      return this.profileFieldList();
+    });
+  }
+
+  /** The workspace's profile fields, in the order they come in the profile, which is all pages tell of them. */
+  private async profileFieldList(): Promise<ProfileField[]> {
+    return (await this.store.profileFields()).map(({ id, name, options }: StoredProfileField) => ({ id, name, options }));
   }
 
   /**
@@ -2978,24 +3173,40 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Adds someone who signs in with just a name, and the session their cookie's token opens, unless
-   * Memberful is members only, or single sign-on the only way in, which answers which way people sign
-   * in, the name is an agent's, which answers "agent's name", or it has a word Blocked words keeps out,
-   * which answers "blocked words". Everyone's workspace sockets hear of them.
+   * Signs in whoever the name names, and the session their cookie's token opens. A name one of the
+   * guests of one room (`guest_stays`) stays under signs them in, while their stay hasn't ended.
+   * Otherwise someone new is added, unless Memberful is members only, or single sign-on the only way
+   * in, which answers which way people sign in, the name is an agent's, which answers "agent's name",
+   * or it has a word Blocked words keeps out, which answers "blocked words". Everyone's workspace
+   * sockets hear of someone new.
    */
-  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | OnlyWay | NameRefusal> {
+  async signInGuest(name: string, tokenDigest: string, client: Client, guests: boolean): Promise<Me | OnlyWay | NameRefusal | "off" | "ended"> {
     // One at a time, as joining is, so that none can overlap turning Members only on.
     return this.oneAtATime(async () => {
       const account = await this.joinableAccount();
       if (account && signsInElsewhereOnly(account)) return onlyWayOf(account);
       if (await this.takesAgentsName(null, name)) return "agent's name";
       if (await this.hasBlockedWord(name)) return "blocked words";
+      // Their stay is their way back in: the same name signs the same guest in again, instead of
+      // adding another who has it.
+      const stay = (await this.store.unexpiredGuestStays(Date.now())).find(({ name: stayName }) => sameName(stayName, name));
+      if (stay) return (await this.startGuestSession(stay.userId, tokenDigest, client)) ?? "ended";
+      if (!guests) return "off";
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
       await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
       this.sessions.remember(tokenDigest, session);
       await this.publishPerson(session.user.id);
       return meOf(session);
     });
+  }
+
+  /** Signs the guest `userId` in, with the session their cookie's token opens, answering null if they've stopped being active since. */
+  private async startGuestSession(userId: UserId, tokenDigest: string, client: Client): Promise<Me | null> {
+    // On D1 a stay can lapse while this signs them in, so it's remembered only if none did.
+    const session = await this.sessions.keep(tokenDigest, () =>
+      this.store.startGuestSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()),
+    );
+    return session && meOf(session);
   }
 
   /**
@@ -3393,6 +3604,30 @@ export class Workspace extends DurableObject<Env> {
     await this.publishPerson(userId);
   }
 
+  /**
+   * Tells the workspace sockets of everyone a listing may reach of `user.updated`, as the people
+   * directory lists them to everyone but the guests of one room it holds nothing for: asked as each
+   * announcing runs, a stay that has passed holds its guest from everyone, and a live one holds them
+   * to their room's people, since what happens outside their room is none of a guest's to hear, names
+   * of people included. One of the guests themselves is heard of the same way, their stay naming the
+   * room whose people they are.
+   */
+  private async announce(listed: DirectoryUser): Promise<void> {
+    const frame: WorkspaceServerFrame = { type: "user.updated", user: listed };
+    const beyond = await this.store.stayGuestsBeyond(listed.id, Date.now());
+    if (beyond.length === 0) return this.broadcast(frame);
+    const held = new Set(beyond);
+    const data = JSON.stringify(frame);
+    for (const socket of this.ctx.getWebSockets()) {
+      if (held.has(this.ctx.getTags(socket)[0]!)) continue;
+      try {
+        socket.send(data);
+      } catch {
+        // It has closed since, and its close handler has nothing to clean up.
+      }
+    }
+  }
+
   /** Tells the workspace sockets of `userId` as the people directory now lists them: every socket, or just the ones it lists them to (`publish`). */
   private async publishPerson(userId: UserId): Promise<void> {
     const person = await this.store.person(userId);
@@ -3405,19 +3640,24 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Tells the workspace sockets of `person` as the people directory lists them: every socket, but of an AI
+   * Tells the workspace sockets of `person` as the people directory now lists them: every socket, but of an AI
    * agent only administrators' direct messages reach, which only administrators' sockets hear of, as only
-   * their directories list it.
+   * their directories list it — and of anyone a guest's stay holds from hearing of others, only the sockets
+   * that stay names (`announce`).
    */
   private async publish(person: DirectoryEntry): Promise<void> {
-    const frame: WorkspaceServerFrame = { type: "user.updated", user: await this.directoryUser(person) };
-    if (person.keptFor === "admin-dms") this.tell(await this.store.administratorIds(), frame);
-    else this.broadcast(frame);
+    if (person.keptFor === "admin-dms") {
+      this.tell(await this.store.administratorIds(), { type: "user.updated", user: await this.directoryUser(person) });
+      return;
+    }
+    await this.announce(await this.directoryUser(person));
   }
 
   /**
-   * The person a session signs in, refreshing the session's last activity at most once an hour.
-   * Guests' sessions only count while `guests` says signing in with just a name is allowed.
+   * The person a session signs in, refreshing the session's last activity at most once an hour. A guest's
+   * session counts while they may stay signed in, asked of their stay as it is now, since ending or
+   * extending it changes nothing about the session: a guest of one room, until their stay ends, whoever
+   * the flag says; the open sign-in's guest, without a stay, while `guests` says so.
    */
   async authenticate(credentials: Credentials): Promise<User | null> {
     return (await this.session(credentials))?.user ?? null;
@@ -3431,8 +3671,12 @@ export class Workspace extends DurableObject<Env> {
 
   private async session({ tokenDigest, client, guests }: Credentials): Promise<StoredSession | null> {
     const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
-    if (!session || (session.guest && !guests)) return null;
+    if (!session) return null;
     const now = Date.now();
+    if (session.guest) {
+      const stay = await this.store.guestStayOf(session.user.id);
+      if (stay ? stay.untilAt <= now : !guests) return null;
+    }
     if (now - session.lastActiveAt >= SESSION_IDLE_MS) return null;
     if (now - session.lastActiveAt >= SESSION_REFRESH_MS) {
       await this.store.touchSession(session.id, client, new Date(now).toISOString());
@@ -3595,17 +3839,32 @@ export class Workspace extends DurableObject<Env> {
   /**
    * The sidebar of the person `credentials` signs in: the rooms they're in, the ones they've starred and
    * the shared order of the rest, with the welcome card's invitation if they're an administrator in the
-   * workspace's first room who hasn't dismissed the card, the huddles going on in their rooms, which of
-   * a huddle's sounds they hear, once they've turned one off, and for an administrator, how many open
-   * reports they see. Null without a valid session.
+   * workspace's first room who hasn't dismissed the card, the people it suggests for DMs, and the huddles
+   * going on in their rooms, which of a huddle's sounds they hear, once they've turned one off, and for
+   * an administrator, how many open reports they see. A guest of one room, who starts no DM, is
+   * suggested nobody, whose names would be none of theirs to have. Null without a valid session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, sharedOrder, huddles, blocks, huddleSounds, invitationRoomId, openReports }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, sharedOrder, suggestions, huddles, blocks, huddleSounds, invitationRoomId, openReports }, account, stay] = await Promise.all([
+      this.store.roomsFor(user.id),
+      this.joinableAccount(),
+      this.stayOf(user.id),
+    ]);
     const invited = invitationRoomId !== null && rooms.some((room) => room.id === invitationRoomId);
     const invitation = account && invited ? { roomId: invitationRoomId, joinCode: account.joinCode } : null;
-    return { rooms, favorites, sharedOrder, invitation, huddles, blocks, ...(!hearsAllHuddleSounds(huddleSounds) && { huddleSounds }), ...(openReports !== null && { openReports }) };
+    return {
+      rooms,
+      favorites,
+      sharedOrder,
+      invitation,
+      suggestions: stay ? [] : suggestions,
+      huddles,
+      blocks,
+      ...(!hearsAllHuddleSounds(huddleSounds) && { huddleSounds }),
+      ...(openReports !== null && { openReports }),
+    };
   }
 
   /**
@@ -3681,6 +3940,127 @@ export class Workspace extends DurableObject<Env> {
     if (!favorites) return "forbidden";
     this.starsChanged(user.id, favorites);
     return favorites;
+  }
+
+  /**
+   * Asks, for the person `credentials` signs in, that the message `messageId` of room `roomId` come back
+   * to them at `remindAt`, in milliseconds, answering the reminder: "forbidden" when they aren't in the
+   * room, "gone" when the room has no such message, "too soon" or "too late" for a time that makes no
+   * sense, or null without a valid session. The reminder keeps the message's plain text as it reads now,
+   * so it comes back whatever happens to the message after, and every tab of theirs hears of it when it
+   * comes due.
+   */
+  async setReminder(credentials: Credentials, roomId: RoomId, messageId: string, remindAt: number): Promise<Reminder | "forbidden" | "gone" | "too soon" | "too late" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.inRoom(user.id, roomId))) return "forbidden";
+    const now = Date.now();
+    if (remindAt < now + REMINDER_SOONEST_MS) return "too soon";
+    if (remindAt > now + REMINDER_LATEST_MS) return "too late";
+    // The room keeps the message, and answers as it does to search: what it read then, its author named
+    // as they were named. A message edited or deleted after this comes back as it read now.
+    const [message] = await this.env.CHAT_ROOM.getByName(roomId).messagesWithIds(roomId, [messageId]);
+    if (!message) return "gone";
+    const reminder: StoredReminder = {
+      id: sortableId(now),
+      userId: user.id,
+      roomId,
+      messageId,
+      parentId: message.parentId ?? null,
+      creatorId: message.creator.id,
+      creatorName: message.creator.name,
+      excerpt: message.plainText.slice(0, REMINDER_EXCERPT_LENGTH),
+      remindAt,
+      createdAt: now,
+    };
+    await this.store.queueReminder(reminder);
+    await this.wakeAt(remindAt);
+    return reminderOf(reminder);
+  }
+
+  /** The reminders the person `credentials` signs in hasn't dismissed yet, the one coming soonest first. */
+  async reminders(credentials: Credentials): Promise<Reminder[] | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return (await this.store.remindersFor(user.id)).map(reminderOf);
+  }
+
+  /**
+   * Dismisses the reminder `id` of the person `credentials` signs in, which is being done with one that
+   * has come due, or taking back one that hasn't, answering whether there was one to dismiss, or null
+   * without a valid session. Every tab of theirs hears it, so the notice leaves their other pages too.
+   */
+  async dismissReminder(credentials: Credentials, id: string): Promise<boolean | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const dismissed = await this.store.deleteReminder(user.id, id);
+    if (dismissed) this.tell([user.id], { type: "reminder.dismissed", id });
+    return dismissed;
+  }
+
+  /**
+   * Tells every tab of theirs each reminder that has come due and hasn't been told, reading what the
+   * message kept when they asked, and marks it told before saying it, so no run says a reminder twice:
+   * the notice is the telling. Its pushes go to their browsers the same run when they fit, and a run
+   * that doesn't get them out tries again on the runs after, for a day past the reminder's time
+   * (`REMINDER_PUSH_GRACE_MS`), until they've gone out or the day is past and they're given up on —
+   * the notice has reached their tabs all along. A try whose pushes fail is kept with the browsers it
+   * reached, which puts trying the rest off for a while (`REMINDER_PUSH_RETRY_MS`), and a browser a
+   * try has reached is sent no reminder twice: the tries after send only the rest. What the reminders
+   * spend, their queries as much as their pushes, since both are requests on D1, comes out of
+   * `requests`, and a reminder whose pushes don't fit leaves them, told or not, for the next run. Each
+   * is read again before it's told, since a push can wait long enough that the person dismisses the
+   * next reminder meanwhile. Answers how many it told.
+   */
+  private async deliverReminders(limit: number, requests: number): Promise<number> {
+    // The read of what's due and one reminder's own, at the least, before anything is worth asking.
+    if (requests < 2) return 0;
+    const now = Date.now();
+    const due = await this.store.dueReminders(now, now - REMINDER_PUSH_GRACE_MS, limit);
+    let left = requests - 1;
+    let told = 0;
+    for (const { id, userId, untold } of due) {
+      // A reminder is read again and has its subscriptions read, and one not yet told is marked told
+      // and settled: four requests before any push.
+      if (left < (untold ? 4 : 2)) break;
+      const reminder = await this.store.reminder(id);
+      left--;
+      if (reminder === null) continue;
+      const reached = deliveredIn(reminder.delivered);
+      const deliveries = (await this.store.pushDeliveriesFor(userId, guestSignIn(this.env))).filter(({ subscriptionId }) => !reached.includes(subscriptionId));
+      left--;
+      if (untold) {
+        // Marked told before it's said, so two runs can't both say it.
+        if (!(await this.store.markReminderTold(id, Date.now()))) continue;
+        left--;
+        this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
+        told++;
+      }
+      // Each push is asked after and sent, two requests, and settling the pushes — or keeping that
+      // they failed — takes one more.
+      if (deliveries.length * 2 + 1 > left) break;
+      const { gone, delivered, failed } =
+        deliveries.length > 0
+          ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id, Date.now()))
+          : { gone: [], delivered: [], failed: 0 };
+      left -= deliveries.length * 2;
+      if (gone.length > 0) {
+        await this.store.forgetPushSubscriptions(gone);
+        left--;
+      }
+      // A push that failed otherwise may still reach its browser, so the rest wait to be tried again,
+      // the browsers this try reached kept aside, unless their day past its time is spent and they're
+      // given up on.
+      const heard = JSON.stringify([...reached, ...delivered, ...gone]);
+      if (failed === 0 || reminder.remindAt <= now - REMINDER_PUSH_GRACE_MS) {
+        await this.store.markReminderPushed(id, Date.now(), heard);
+        left--;
+      } else {
+        await this.store.markReminderPushTried(id, Date.now(), heard);
+        left--;
+      }
+    }
+    return told;
   }
 
   /**
@@ -3798,8 +4178,8 @@ export class Workspace extends DurableObject<Env> {
    */
   private async pushReport(pushes: Parameters<typeof sendPushes>[1], reporterId: UserId): Promise<void> {
     try {
-      const gone = await sendPushes(this.env, pushes, (id) => this.reports.pushable(id, reporterId));
-      if (gone.length > 0) await this.forgetPushSubscriptions(gone);
+      const { gone } = await sendPushes(this.env, pushes, (id) => this.reports.pushable(id, reporterId));
+      if (gone.length > 0) await this.store.forgetPushSubscriptions(gone);
     } catch (error) {
       console.error("Could not push a report", error);
     }
@@ -3921,6 +4301,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async mayCreateRoomsAs(userId: UserId): Promise<boolean> {
+    // A guest of one room makes rooms they could never reach, so they make none.
+    if (await this.stayOf(userId)) return false;
     const account = await this.joinableAccount();
     return !account?.restrictRoomCreation || this.store.isAdministrator(userId);
   }
@@ -3948,13 +4330,20 @@ export class Workspace extends DurableObject<Env> {
    * an administrator who names with it anyone who isn't one, a member or a bot, who would read what it
    * says (`DIRECT_PEOPLE`). A group of people has one DM, so the one they have opens again, but a new one
    * is refused when someone it names has blocked them, answering the name of the first of those by name.
-   * Answers the DM, and whether it's new, or null without a valid session. Everyone in a new DM sees it in
-   * their sidebars at once, and nobody else hears of it.
+   * Answers the DM, and whether it's new, "forbidden" for a guest of one room, whose stay is the one room
+   * they reach, "unavailable" when one of the people `userIds` names is such a guest, whose stay is the
+   * one room they reach and a DM none of: it refuses before any room is made, which leaving them out
+   * would make a conversation with everyone but them, or null without a valid session. Everyone in a
+   * new DM sees it in their sidebars at once, and nobody else hears of it.
    */
-  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | { refusedBy: string } | null> {
+  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | { refusedBy: string } | "forbidden" | "unavailable" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
+    if (await this.stayOf(user.id)) return "forbidden";
     const people = userIds.length > 0 ? await this.store.directPeople(userIds, user.id) : [];
+    // Before the room is made, since the grant that fills it would leave such a guest out, and the DM
+    // would start with everyone but them.
+    if ((await this.store.heldByStays(people.map((person) => person.id))).length > 0) return "unavailable";
     const memberIds = [user.id, ...people.map((person) => person.id)];
     const direct = await this.store.startDirect(sortableId(), user.id, memberIds, new Date().toISOString());
     if ("room" in direct && direct.started) this.tell(direct.room.members.map((member) => member.id), { type: "room.saved", room: direct.room });
@@ -3973,6 +4362,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Whom the person `credentials` signs in can mention in room `roomId`, or anywhere when it's null:
+   * the first page of the active people there whose names contain `query`, by name. Anywhere is a guest
+   * of one room's own room, since that's all they reach. "not found" unless they're in the room, or
+   * null without a valid session.
    * the first page of the active people there whose names contain `query`, by name, but the AI agents
    * kept for administrators, unless they're one. "not found" unless they're in the room, or null without
    * a valid session.
@@ -3981,16 +4373,136 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
+    if (roomId === null) roomId = (await this.stayOf(user.id))?.roomId ?? null;
     return this.store.mentionable(query, roomId, user.id);
   }
 
   /**
    * Everyone in the workspace, for the person `credentials` signs in, but the AI agents only
    * administrators' direct messages reach, unless they're one, or null without a valid session.
+   * A guest of one room sees the people of their room alone, who are all they reach.
    */
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.directory(user.id);
+    if (!user) return null;
+    const stay = await this.stayOf(user.id);
+    return stay ? this.store.roomPeople(stay.roomId) : this.store.directory(user.id);
+  }
+
+  /**
+   * The groups of `ids` that exist, each with the people in it, for a room saying whom a group's mention
+   * stands for, as `mentionedPeople` says whom a person's does.
+   */
+  async mentionedGroups(ids: GroupId[]): Promise<StoredGroup[]> {
+    return this.store.mentionedGroups(ids);
+  }
+
+  /**
+   * The workspace's groups, by name, for the people directory and the settings' list, to the person
+   * `credentials` signs in, or null without a valid session.
+   */
+  async userGroups(credentials: Credentials): Promise<UserGroup[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.userGroups();
+  }
+
+  /**
+   * Makes `group` as the person `credentials` signs in: named `name`, with the active people `memberIds`
+   * names, bots left out, as the settings' form lists none. Answers it as it then is: "forbidden" unless
+   * that's an administrator, "full" once the workspace keeps as many groups as it can, "too big" past
+   * `MAX_GROUP_MEMBERS`, "member unknown" for a member who isn't an active person, or "name taken" for a
+   * name another group has, however it's capitalised, or null without a valid session.
+   */
+  async createUserGroup(
+    credentials: Credentials,
+    group: NewUserGroup,
+  ): Promise<UserGroup | "forbidden" | "full" | "too big" | "member unknown" | "name taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const name = groupName(group.name);
+      const memberIds = await this.keptMembers(group.memberIds);
+      if (memberIds === "member unknown") return "member unknown";
+      if (memberIds.length > MAX_GROUP_MEMBERS) return "too big";
+      if (await this.store.groupNamed(name)) return "name taken";
+      if ((await this.store.userGroups()).length >= MAX_GROUPS) return "full";
+      const id = sortableId();
+      await this.store.createUserGroup({ id, name, memberIds, createdBy: user.id }, new Date().toISOString());
+      return this.shownGroup(id);
+    });
+  }
+
+  /**
+   * Changes the group `groupId` as the person `credentials` signs in, renaming it or making the active
+   * people `changes.memberIds` names its only members, bots left out, as they're sent, together in one
+   * save. Answers it as it then is: "forbidden" unless that's an administrator, "not found" unless
+   * `groupId` names one, then "too big", "member unknown" or "name taken" as making one is, or null
+   * without a valid session.
+   */
+  async changeUserGroup(
+    credentials: Credentials,
+    groupId: GroupId,
+    changes: UserGroupChanges,
+  ): Promise<UserGroup | "forbidden" | "not found" | "too big" | "member unknown" | "name taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.userGroupWithId(groupId))) return "not found";
+      let memberIds: UserId[] | undefined;
+      if (changes.memberIds !== undefined) {
+        const kept = await this.keptMembers(changes.memberIds);
+        if (kept === "member unknown") return "member unknown";
+        if (kept.length > MAX_GROUP_MEMBERS) return "too big";
+        memberIds = kept;
+      }
+      const name = changes.name === undefined ? undefined : groupName(changes.name);
+      if (name !== undefined) {
+        const taken = await this.store.groupNamed(name);
+        if (taken !== null && taken !== groupId) return "name taken";
+      }
+      await this.store.changeUserGroup(groupId, { name, memberIds }, new Date().toISOString());
+      return this.shownGroup(groupId);
+    });
+  }
+
+  /**
+   * Deletes the group `groupId` as the person `credentials` signs in, and everyone in it with it.
+   * Answers "forbidden" unless that's an administrator, "not found" unless `groupId` names one, or null
+   * without a valid session.
+   */
+  async deleteUserGroup(credentials: Credentials, groupId: GroupId): Promise<"deleted" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.userGroupWithId(groupId))) return "not found";
+      await this.store.deleteUserGroup(groupId);
+      return "deleted";
+    });
+  }
+
+  /**
+   * The people of `ids` a group keeps, once each: active people, with bots left out, as the settings'
+   * form lists none — or "member unknown" while an id names no active person.
+   */
+  private async keptMembers(ids: UserId[]): Promise<UserId[] | "member unknown"> {
+    const unique = [...new Set(ids)];
+    const active = new Map((await this.store.activePeopleWithIds(unique)).map((person) => [person.id, person.bot]));
+    const members: UserId[] = [];
+    for (const id of unique) {
+      const bot = active.get(id);
+      if (bot === undefined) return "member unknown";
+      if (!bot) members.push(id);
+    }
+    return members;
+  }
+
+  /** The group `groupId` as it then is, or null unless it's one. */
+  private async shownGroup(groupId: GroupId): Promise<UserGroup | null> {
+    const [group] = await this.store.mentionedGroups([groupId]);
+    return group ? { id: group.id, name: group.name, memberIds: group.members.map((member) => member.id) } : null;
   }
 
   /**
@@ -4002,15 +4514,19 @@ export class Workspace extends DurableObject<Env> {
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
-    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
+    const [person, administrator, fields] = await Promise.all([
+      this.store.personWithProfile(userId),
+      this.store.isAdministrator(session.user.id),
+      this.store.profileFieldsWithValues(userId),
+    ]);
     if (!person || (person.keptFor === "admin-dms" && !administrator)) return "not found";
     const agent = person.agent ? await this.store.agentProfile(userId) : null;
     if (administrator) {
       const transferable = person.status === "active" && person.role !== "bot";
-      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id, shownAt: Date.now() } : null, agent };
+      return { person, fields, transfer: transferable ? { userId: person.id, sessionId: session.id, shownAt: Date.now() } : null, agent };
     }
     const { emailAddress, ...listed } = person;
-    return { person: listed, transfer: null, agent };
+    return { person: listed, fields, transfer: null, agent };
   }
 
   /**
@@ -4057,7 +4573,7 @@ export class Workspace extends DurableObject<Env> {
         (session) => session.user.id === userId,
         () => this.store.changeRole(userId, role, now),
       );
-      this.broadcast({ type: "user.updated", user: changed });
+      await this.announce(changed);
       return changed;
     });
   }
@@ -4088,10 +4604,10 @@ export class Workspace extends DurableObject<Env> {
    * their sessions end, and their sockets close for good: here at once, and in every room they're in
    * through the outbox. Everyone's workspace sockets hear of it.
    */
-  private async deactivate({ id, name, username, bio, role, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
+  private async deactivate({ id, name, username, bio, mood, role, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
     const removedAt = new Date(now).toISOString();
-    const removed = await this.directoryUser({ id, name, username, bio, role, status: "deactivated", updatedAt: removedAt, agent, keptFor });
+    const removed = await this.directoryUser({ id, name, username, bio, mood, role, status: "deactivated", updatedAt: removedAt, agent, keptFor });
     // As when resetting a password, until the database says it queued nothing.
     let queued = true;
     try {
@@ -4104,7 +4620,7 @@ export class Workspace extends DurableObject<Env> {
       this.closeSockets(id, CloseCode.Revoked);
       if (queued) await this.revocationsQueued(now);
     }
-    this.broadcast({ type: "user.updated", user: removed });
+    await this.announce(removed);
     return removed;
   }
 
@@ -4172,7 +4688,7 @@ export class Workspace extends DurableObject<Env> {
         }
         if (person.accounts.length > 0) await this.forgetUnlinked();
         for (const { userId, blocks } of deletion.blockers) this.tell([userId], { type: "blocks.changed", blocks });
-        const deleted = { id: person.id, name: DELETED_PERSON_NAME, username: null, bio: null, role: "member", status: "deactivated", updatedAt: deletedAt, agent: false, keptFor: null } as const;
+        const deleted = { id: person.id, name: DELETED_PERSON_NAME, username: null, bio: null, mood: null, role: "member", status: "deactivated", updatedAt: deletedAt, agent: false, keptFor: null } as const;
         this.broadcast({ type: "user.updated", user: await this.directoryUser(deleted) });
         // As many reports are open as before, but a Reports list loads them again on hearing so.
         if (deletion.reportsCleared) this.tellOpenReports(await this.reports.openByAdministrator());
@@ -4320,6 +4836,124 @@ export class Workspace extends DurableObject<Env> {
   private async botSettings(botId: UserId): Promise<BotSettings | null> {
     const bot = await this.store.activeBot(botId);
     return bot && this.shownBotSettings(bot);
+  }
+
+  /**
+   * The workspace's commands, each with its bot, and which of the bots are on which rooms' message
+   * events, for the person `credentials` signs in: they're what the composer's menu offers and the bots
+   * page ticks, which everyone signed in reads, though only administrators change them. The
+   * subscriptions name rooms, which not everyone may read, so an administrator's are all of them, and
+   * anyone else's only those of their own rooms — the composer needs the commands alone. Null without a
+   * valid session.
+   */
+  async commands(credentials: Credentials): Promise<Commands | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.store.commands(user.id, await this.store.isAdministrator(user.id));
+  }
+
+  /**
+   * Registers a command with `name` and what it's for, invoking the active bot `botId`, as the person
+   * `credentials` signs in asks. Answers it as the bots page lists it: "forbidden" unless that's an
+   * administrator, "not found" unless `botId` is an active bot, "taken" for a name one of the
+   * workspace's commands has already, or null without a valid session.
+   */
+  async registerCommand(credentials: Credentials, botId: UserId, { name, description }: NewCommand): Promise<Command | "forbidden" | "not found" | "taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.activeBot(botId))) return "not found";
+      if (await this.store.commandTaken(name)) return "taken";
+      const id = sortableId();
+      await this.store.registerCommand({ id, name, description: description ?? null, botId }, new Date().toISOString());
+      return (await this.store.command(id))!;
+    });
+  }
+
+  /**
+   * Forgets the command `id`, whose name is free again, as the person `credentials` signs in asks:
+   * "forbidden" unless they're an administrator, "not found" unless there is one, or null without a
+   * valid session.
+   */
+  async removeCommand(credentials: Credentials, commandId: string): Promise<"removed" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return (await this.store.removeCommand(commandId)) ? "removed" : "not found";
+  }
+
+  /**
+   * The workspace's shortcuts, each with its bot, for the person `credentials` signs in: they're what a
+   * message's More actions offers, which everyone signed in reads, though only administrators change
+   * them, as bots are. Null without a valid session.
+   */
+  async shortcuts(credentials: Credentials): Promise<Shortcuts | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return { shortcuts: await this.store.shortcuts() };
+  }
+
+  /**
+   * Registers a shortcut with `name` and what it's for, invoking the active bot `botId`, as the person
+   * `credentials` signs in asks. Answers it as the bots page lists it: "forbidden" unless that's an
+   * administrator, "not found" unless `botId` is an active bot, "taken" for a name one of the
+   * workspace's shortcuts has already, or null without a valid session.
+   */
+  async registerShortcut(credentials: Credentials, botId: UserId, { name, description }: NewShortcut): Promise<Shortcut | "forbidden" | "not found" | "taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.activeBot(botId))) return "not found";
+      if (await this.store.shortcutTaken(name)) return "taken";
+      const id = sortableId();
+      await this.store.registerShortcut({ id, name, description: description ?? null, botId }, new Date().toISOString());
+      return (await this.store.shortcut(id))!;
+    });
+  }
+
+  /**
+   * Forgets the shortcut `id`, whose name is free again, as the person `credentials` signs in asks:
+   * "forbidden" unless they're an administrator, "not found" unless there is one, or null without a
+   * valid session.
+   */
+  async removeShortcut(credentials: Credentials, shortcutId: string): Promise<"removed" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return (await this.store.removeShortcut(shortcutId)) ? "removed" : "not found";
+  }
+
+  /**
+   * Puts the active bot `botId` on room `roomId`'s message events, as the person `credentials` signs in
+   * ticks it: every message written in the room by someone else is delivered to the bot's webhook, as a
+   * command's delivery is. Answers "subscribed", or that again for a tick of one it's on already:
+   * "forbidden" unless that's an administrator, "not found" unless `botId` is an active bot, "not in
+   * room" unless the room has it, or null without a valid session.
+   */
+  async subscribeToMessages(credentials: Credentials, botId: UserId, roomId: RoomId): Promise<"subscribed" | "forbidden" | "not found" | "not in room" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    if (!(await this.store.activeBot(botId))) return "not found";
+    // A subscription is for the messages a room sends the bot, which it hears of only in the room.
+    if (!(await this.store.isMember(roomId, botId))) return "not in room";
+    await this.store.subscribeToMessages(botId, roomId, new Date().toISOString());
+    return "subscribed";
+  }
+
+  /**
+   * Takes the bot `botId` off room `roomId`'s message events, as the person `credentials` signs in
+   * unticks it, answering whether it did: "forbidden" unless that's an administrator, or null without a
+   * valid session. Off when it wasn't on them, as lifting a hush is when there's none.
+   */
+  async unsubscribeFromMessages(credentials: Credentials, botId: UserId, roomId: RoomId): Promise<"unsubscribed" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    await this.store.unsubscribeFromMessages(botId, roomId);
+    return "unsubscribed";
   }
 
   /** Bots as administrators see them: with their avatars' addresses, and their keys in place of their tokens. */
@@ -5201,7 +5835,7 @@ export class Workspace extends DurableObject<Env> {
         if (queued) await this.revocationsQueued(now);
       }
       const listed = await this.directoryUser(banned ?? person);
-      if (banned) this.broadcast({ type: "user.updated", user: listed });
+      if (banned) await this.announce(listed);
       return listed;
     });
   }
@@ -5242,7 +5876,7 @@ export class Workspace extends DurableObject<Env> {
         if (queued) await this.revocationsQueued(now);
       }
       const listed = await this.directoryUser(unbanned ?? person);
-      if (unbanned) this.broadcast({ type: "user.updated", user: listed });
+      if (unbanned) await this.announce(listed);
       return listed;
     });
   }
@@ -5251,8 +5885,8 @@ export class Workspace extends DurableObject<Env> {
    * Someone as the people directory lists them, with their avatar's address, and nothing else known of
    * them, such as their email address, whatever `person` brings.
    */
-  private async directoryUser({ id, name, username, bio, role, status, updatedAt, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
-    return (await directoryOf([{ id, name, username, bio, role, status, updatedAt, agent, keptFor }], this.env.SESSION_SECRET))[0]!;
+  private async directoryUser({ id, name, username, bio, mood, role, status, updatedAt, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([{ id, name, username, bio, mood, role, status, updatedAt, agent, keptFor }], this.env.SESSION_SECRET))[0]!;
   }
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
@@ -5265,15 +5899,50 @@ export class Workspace extends DurableObject<Env> {
 
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
-    const { name, username, emailAddress, bio, avatar, password, membershipNeeded } = person;
-    const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
+    const { name, username, emailAddress, bio, mood, avatar, password, membershipNeeded } = person;
+    const [{ avatarUrl }, account, hushedUntil, fields] = await Promise.all([
+      this.directoryUser(person),
+      this.joinableAccount(),
+      this.store.dndUntilOf(person.id, Date.now()),
+      this.store.profileFieldsWithValues(person.id),
+    ]);
     const elsewhere = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, ssoOnly: account?.ssoSignIn ?? false, accounts: person.accounts };
     const [apps, outsideAi] = await Promise.all([this.yourApps(person.id, session.guest, account), this.yourOutsideAi(person.id, session.guest, account)]);
     return {
       transfer: { userId: person.id, sessionId: session.id, shownAt: Date.now() },
-      profile: { name, username, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps, outsideAi },
+      profile: { name, username, emailAddress, bio, mood, avatarUrl, avatar: avatar !== null, password, membershipNeeded, dndUntil: hushedUntil === null ? null : new Date(hushedUntil).toISOString(), assistant: yourAssistantOf(account, person.picks), fields, apps, outsideAi },
       elsewhere,
     };
+  }
+
+  /**
+   * Hushes the push notifications of the person `credentials` signs in until `until`, an ISO time,
+   * answering when they're heard again, as the server keeps it, overwriting any hush they had, and
+   * telling their other tabs, which lay the crescent on their avatar. It hushes push notifications
+   * alone: their involvement in rooms, unread marks, the app's badge and banners in the app carry on.
+   * "passed" for a time that isn't ahead of now, by this clock, and null without a valid session.
+   */
+  async setDnd(credentials: Credentials, until: string): Promise<string | "passed" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const untilAt = Date.parse(until);
+    if (!(untilAt > Date.now())) return "passed";
+    const hushedUntil = new Date(untilAt).toISOString();
+    await this.store.setDnd(session.user.id, untilAt);
+    this.tell([session.user.id], { type: "dnd.changed", dndUntil: hushedUntil });
+    return hushedUntil;
+  }
+
+  /**
+   * Lifts the hush on the push notifications of the person `credentials` signs in, answering whether
+   * it did: false without a valid session. Their other tabs hear of it, and take the crescent away.
+   */
+  async clearDnd(credentials: Credentials): Promise<boolean> {
+    const session = await this.session(credentials);
+    if (!session) return false;
+    await this.store.clearDnd(session.user.id);
+    this.tell([session.user.id], { type: "dnd.changed", dndUntil: null });
+    return true;
   }
 
   /**
@@ -5310,27 +5979,30 @@ export class Workspace extends DurableObject<Env> {
    * and they have a password whose digest isn't `checked`, the one the Worker checked their current
    * password against (`profileCheck`), "memberful" or "sso" for a first password while Memberful signs
    * them in at `memberfulSite`, or single sign-on does, as `profileCheck` answers too, or null without a
-   * valid session. A blank email address or bio is
-   * saved as none, so any number of people can be without one. It writes only what differs. A new
-   * password ends their other sessions: their sockets close and are told to reconnect, here at once and
-   * in every room they're in through the outbox, and their push subscriptions are forgotten but this
-   * browser's, at `pushEndpoint`, and a password that replaces one they had unlinks the accounts
-   * elsewhere they connected with it. Any new password ends the sign-in links this session showed until
-   * now, too. Everyone's workspace sockets hear of a new name, username or bio, which the people
-   * directory lists. A new name can't be @ember's ("name reserved"), or an agent's ("agent's name"),
-   * unless it was theirs before, and a blank username is saved as none, while one that's someone
-   * else's, whatever their status, or @ember's or an agent's name, is "username taken". A new name,
-   * username or bio with a word Blocked words keeps out is "blocked words", though one kept from before
-   * the word was blocked can stay.
+   * valid session. A blank email address, username or bio is saved as none, so any number of people can
+   * be without one. A mood comes as none or as the one they wear: its emoji, a few words and when it
+   * comes off by itself, which the workspace sets no alarm for, so one whose time has passed is the
+   * pages' to leave out. It writes only what differs. A new password ends their other sessions: their
+   * sockets close and are told to reconnect, here at once and in every room they're in through the
+   * outbox, and their push subscriptions are forgotten but this browser's, at `pushEndpoint`, and a
+   * password that replaces one they had unlinks the accounts elsewhere they connected with it. Any new
+   * password ends the sign-in links this session showed until now, too. Everyone's workspace sockets
+   * hear of a new name, username, bio or mood, which the people directory lists. A new name can't be
+   * @ember's ("name reserved"), an agent's ("agent's name"), or, for a guest of one room, another
+   * guest's, whose stay signs them in by it too ("another guest's name") and, while their stay holds
+   * them, one longer than signing in with just a name takes ("guest's name too long"), unless it was
+   * theirs before. A new name, username or bio with a word Blocked words keeps out is "blocked words",
+   * though one kept from before the word was blocked can stay; a username that's someone else's,
+   * whatever their status, or @ember's or an agent's name, is "username taken".
    */
   async changeProfile(
     credentials: Credentials,
-    changes: Pick<ProfileChanges, "name" | "username" | "emailAddress" | "bio">,
+    changes: Pick<ProfileChanges, "name" | "username" | "emailAddress" | "bio" | "mood" | "fieldValues">,
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
     memberfulSite: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | SignInElsewhere | "name reserved" | NameRefusal | "username taken" | null> {
+  ): Promise<YourProfile | "email address taken" | "password needed" | SignInElsewhere | "name reserved" | NameRefusal | "username taken" | "unknown field" | "not a choice" | "another guest's name" | "guest's name too long" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -5344,11 +6016,30 @@ export class Workspace extends DurableObject<Env> {
         username: changes.username === undefined ? person.username : changes.username || null,
         emailAddress: changes.emailAddress === undefined ? person.emailAddress : changes.emailAddress || null,
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
+        mood: changes.mood === undefined ? person.mood : changes.mood,
       };
-      const listed = profile.name !== person.name || profile.username !== person.username || profile.bio !== person.bio;
-      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
+      // What they gave the fields, checked against them as they are then: every field named must still
+      // be there, and a filled value must be one of its choices, which it has if it has any.
+      const fieldValues = await this.checkedFieldValues(changes.fieldValues);
+      if (typeof fieldValues === "string") return fieldValues;
+      const listed = profile.name !== person.name || profile.username !== person.username || profile.bio !== person.bio || !sameMood(profile.mood, person.mood);
+      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) {
+        if (fieldValues) await this.store.changeProfileFieldValues(user.id, fieldValues);
+        return this.yourProfile(person, session);
+      }
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
+      // A guest of one room signs in by their name, so it takes no more characters than the sign-in form
+      // gives it: a longer one, and neither it nor any other would sign them back in once saved.
+      if (session.guest && profile.name.length > MAX_GUEST_NAME_LENGTH && (await this.stayOf(user.id))) return "guest's name too long";
+      // A guest of one room signs in by their name, so theirs is the only stay under it, as adding one
+      // can't take another's either. Renaming keeps it, and one they alone hold, while the stays last.
+      if (
+        session.guest &&
+        profile.name !== person.name &&
+        (await this.store.unexpiredGuestStays(Date.now())).some(({ userId, name }) => userId !== user.id && sameName(name, profile.name))
+      )
+        return "another guest's name";
       if (await this.hasBlockedWord(...(["name", "username", "bio"] as const).filter((field) => profile[field] !== person[field]).map((field) => profile[field]))) return "blocked words";
       if (profile.username !== person.username && profile.username !== null && (await this.usernameTaken(profile.username, user.id))) return "username taken";
       // Read again here, since a reset ahead of this in line, or another change, can have replaced the password checked.
@@ -5371,10 +6062,11 @@ export class Workspace extends DurableObject<Env> {
       // As when a password is reset, until the database says it queued nothing.
       let queued = ended !== null;
       try {
-        // Their sessions are read again, so they're signed in by the name they have now.
+        // Their sessions are read again, so they're signed in by the name they have now, and what they
+        // gave the fields saves with the rest, so the lot lands or none of it does.
         queued = await this.sessions.change(
           (session) => session.user.id === user.id,
-          () => this.store.changeProfile(user.id, { ...profile, passwordDigest }, at, ended),
+          () => this.store.changeProfile(user.id, { ...profile, passwordDigest, fieldValues }, at, ended),
         );
       } finally {
         // Whether or not it saved: the sockets of sessions that didn't end are let in again, and the sites
@@ -5384,9 +6076,28 @@ export class Workspace extends DurableObject<Env> {
         if (unlinked) await this.forgetUnlinked();
       }
       const changed = { ...person, ...profile, password: person.password || passwordDigest !== null, accounts: unlinked ? [] : person.accounts, updatedAt: at };
-      if (listed) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
+      if (listed) await this.announce(await this.directoryUser(changed));
       return this.yourProfile(changed, session);
     });
+  }
+
+  /**
+   * What saving `values` for the workspace's profile fields would save, null for nothing, or why it's
+   * refused: a field nobody has anymore ("unknown field"), or a value one of its choices isn't ("not a
+   * choice"), for a field that has choices. Nothing is saved for a field named with "".
+   */
+  private async checkedFieldValues(values: Record<string, string> | undefined): Promise<Record<string, string> | null | "unknown field" | "not a choice"> {
+    if (values === undefined || Object.keys(values).length === 0) return null;
+    const fields = await this.store.profileFields();
+    const byId = new Map(fields.map((field) => [field.id, field]));
+    const checked: Record<string, string> = {};
+    for (const [id, value] of Object.entries(values)) {
+      const field = byId.get(id);
+      if (!field) return "unknown field";
+      if (value !== "" && field.options !== null && !field.options.includes(value)) return "not a choice";
+      checked[id] = value;
+    }
+    return checked;
   }
 
   /**
@@ -5424,7 +6135,7 @@ export class Workspace extends DurableObject<Env> {
         await this.store.changeAvatar(user.id, avatar, previous, updatedAt, now);
         if (previous) await this.wakeAt(now);
         const changed = { ...person, avatar, updatedAt };
-        this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
+        await this.announce(await this.directoryUser(changed));
         return this.yourProfile(changed, session);
       }),
     );
@@ -5494,13 +6205,106 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Adds a guest of room `roomId`, named `name`, whose stay ends at `until`, for whoever `credentials`
+   * signs in as: "not found" as for its settings, "forbidden" unless they can change the room, "taken"
+   * for a name one of its guests stays under already, "agent's name" for a name that's an agent's, as
+   * signing in with just a name hears it, or null without a valid session. The guest is in that room
+   * and nothing else, and signs in by their stay's name with just a name, until their stay ends,
+   * whatever the sign-in's flag says. Everyone's workspace sockets hear of them.
+   */
+  async addGuest(credentials: Credentials, roomId: RoomId, name: string, until: string): Promise<RoomGuest | "not found" | "forbidden" | "taken" | "agent's name" | "passed" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      const found = await this.store.roomToChange(roomId, user.id);
+      if (!found) return "not found";
+      if (!found.canAdminister) return "forbidden";
+      // Their stay is the guest's way in, so two of them can't stay under one name, and an agent's
+      // name would pass for the agent, as signing in with just a name can't take.
+      if (await this.takesAgentsName(null, name)) return "agent's name";
+      const now = Date.now();
+      const untilAt = Date.parse(until);
+      if (!(untilAt > now)) return "passed";
+      if ((await this.store.unexpiredGuestStays(now)).some(({ name: stayName }) => sameName(stayName, name))) return "taken";
+      const guest = { id: sortableId(), name };
+      await this.store.addGuest(guest, roomId, untilAt, new Date(now).toISOString());
+      await this.publishPerson(guest.id);
+      // The alarm lapses the stay when it ends, which the next delivery is set for here.
+      await this.scheduleDelivery();
+      return { userId: guest.id, name, untilAt: new Date(untilAt).toISOString() };
+    });
+  }
+
+  /**
+   * Extends the stay of guest `userId` in room `roomId`, whose settings `credentials` signs in to, to
+   * end at `until` instead: "not found" unless they can change the room and the guest's stay is in it
+   * and hasn't ended, for whose person has been removed, or null without a valid session. Everyone's
+   * workspace sockets hear of it.
+   */
+  async extendGuestStay(credentials: Credentials, roomId: RoomId, userId: UserId, until: string): Promise<RoomGuest | "not found" | "forbidden" | "passed" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.roomToChange(roomId, user.id))?.canAdminister) return "forbidden";
+      const now = Date.now();
+      const untilAt = Date.parse(until);
+      if (!(untilAt > now)) return "passed";
+      // A stay whose time has passed is none to extend, its name free for another guest to take, so
+      // extending it would sign one of them in as the other: it answers as one nobody has.
+      if (!(await this.store.extendGuestStay(userId, roomId, untilAt, now))) return "not found";
+      const person = await this.store.person(userId);
+      // The alarm lapses the stay when its new end passes, which the next delivery is set for here.
+      await this.scheduleDelivery();
+      await this.publishPerson(userId);
+      return person && { userId, name: person.name, untilAt: new Date(untilAt).toISOString() };
+    });
+  }
+
+  /**
+   * Ends the stay of guest `userId` in room `roomId`, whose settings `credentials` signs in to, now: as
+   * their expiry does, their sessions end, their sockets close for good, here at once and in every room
+   * they're in through the outbox, and the row their directory keeps says they were removed. "not found"
+   * unless whoever asks can change the room and their stay is in it, or null without a valid session.
+   */
+  async endGuestStay(credentials: Credentials, roomId: RoomId, userId: UserId): Promise<"ended" | "not found" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.afterQueuing(async () => {
+      if (!(await this.store.roomToChange(roomId, user.id))?.canAdminister) return "forbidden";
+      // A stay that has passed, or that was in another room, is not theirs to end here.
+      const stay = await this.store.guestStayOf(userId);
+      if (stay?.roomId !== roomId || stay.untilAt <= Date.now()) return "not found";
+      const now = Date.now();
+      // As when a stay lapses, until the database says it queued nothing.
+      let queued = true;
+      try {
+        queued = await this.sessions.change(
+          (session) => session.user.id === userId,
+          () => this.store.endGuestStay(userId, roomId, now, CloseCode.Revoked, now, new Date(now).toISOString()),
+        );
+      } finally {
+        // Whether or not it saved: the app connects them again if they're still signed in.
+        this.closeSockets(userId, CloseCode.Revoked);
+        if (queued) await this.revocationsQueued(now);
+      }
+      await this.publishPerson(userId);
+      return "ended";
+    });
+  }
+
+  /** The stay of the person `userId` as one of the guests of one room, which bounds what they reach, or null while they have none. */
+  private async stayOf(userId: UserId): Promise<{ roomId: RoomId } | null> {
+    return this.store.guestStayOf(userId);
+  }
+
+  /**
    * Takes the person `credentials` signs in out of private room `roomId`, by their own choice: "not
    * found" as for its settings, "open" for an open room, which takes in everyone, "can change" for whoever
    * can change it, whose settings take them out, and who may be the last who can, "last" when nobody else
    * could open it then, or null without a valid session. Their sockets there are told to reconnect, and
    * find it gone, and it leaves their sidebars.
    */
-  async leaveRoom(credentials: Credentials, roomId: RoomId): Promise<"left" | "not found" | "open" | "can change" | "last" | null> {
+  async leaveRoom(credentials: Credentials, roomId: RoomId): Promise<"left" | "not found" | "open" | "can change" | "guest" | "last" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
@@ -5508,6 +6312,8 @@ export class Workspace extends DurableObject<Env> {
       if (!found) return "not found";
       if (found.room.kind !== "closed") return "open";
       if (found.canAdminister) return "can change";
+      // A guest of one room leaving it would strand their stay, which is what they reach.
+      if (await this.stayOf(user.id)) return "guest";
       if (!(await this.store.anotherPersonInRoom(roomId, user.id))) return "last";
       const now = Date.now();
       try {
@@ -5595,11 +6401,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Whether push subscription `id` is still saved, for someone still active, as a room asks just before
-   * sending a push that waited its turn, so that one banned, removed or suspended meanwhile gets none.
+   * Whether push subscription `id` is still saved, for someone still active whose stay, if they're a
+   * guest of one room, hasn't ended yet, as a room asks just before sending a push that waited its turn,
+   * so that one banned, removed, suspended or whose stay has passed meanwhile gets none.
    */
   async pushable(id: number): Promise<boolean> {
-    return this.store.pushable(id);
+    return this.store.pushable(id, Date.now());
   }
 
   /**
@@ -5609,6 +6416,35 @@ export class Workspace extends DurableObject<Env> {
   async forgetPushSubscriptions(ids: number[]): Promise<void> {
     for (const id of ids) console.log(`Destroying push subscription: ${id}`);
     await this.store.forgetPushSubscriptions(ids);
+  }
+
+  /**
+   * Saves the message `messageId` of room `roomId` for later for the person `credentials` signs in,
+   * answering the save, "saved already" once they have it saved, "forbidden" when they aren't in the
+   * room, or null without a valid session.
+   */
+  async saveMessage(credentials: Credentials, roomId: RoomId, messageId: string): Promise<SavedMessage | "saved already" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isMember(roomId, user.id))) return "forbidden";
+    return (await this.store.saveMessage(user.id, roomId, messageId, Date.now())) ?? "saved already";
+  }
+
+  /** The messages the person `credentials` signs in has saved for later, newest save first, or null without a valid session. */
+  async saves(credentials: Credentials): Promise<SavedMessage[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.savesOf(user.id);
+  }
+
+  /** Deletes the save `id` of the person `credentials` signs in, answering whether it was theirs, or false without a valid session. */
+  async forgetSave(credentials: Credentials, id: string): Promise<boolean | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.forgetSave(user.id, id);
+  }
+
+  /** Forgets the saves with `ids`, which an answer about someone's saves has dropped, so the table cleans itself as the pane does. */
+  async forgetSaves(ids: string[]): Promise<void> {
+    await this.store.forgetSaves(ids);
   }
 
   /**
@@ -5738,6 +6574,54 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The command `name` names, as its delivery in room `roomId` by `senderId` finds it, when its turn
+   * comes: null once whoever typed it isn't an active member of the room, so that a command waiting its
+   * turn goes nowhere once they're taken out. Within that, the command null once no command has the
+   * name, and the webhook null as `botWebhook` answers it, so that deleting a bot, taking it out of the
+   * room or removing its webhook stops what's on its way to it, and a new URL or key takes effect at
+   * once.
+   */
+  async commandWebhook(roomId: RoomId, senderId: UserId, name: string): Promise<CommandAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.commandWebhook(roomId, senderId, name);
+    if (!found) return null;
+    const { command, bot, sender, roomName, webhook } = found;
+    const access =
+      webhook && {
+        bot: webhook.bot,
+        url: webhook.url,
+        key: botKeyOf(webhook.bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, webhook.bot.id, webhook)),
+        authorizedAt,
+      };
+    return { command, bot, webhook: access || null, sender, roomName };
+  }
+
+  /**
+   * The shortcut `shortcutId` names, as its delivery in room `roomId` by `senderId` finds it, when its
+   * turn comes: null once whoever picked it isn't an active member of the room, so that a shortcut
+   * waiting its turn goes nowhere once they're taken out. Within that, the shortcut null once no
+   * shortcut has the id, and the webhook null as `botWebhook` answers it, so that deleting a bot, taking
+   * it out of the room or removing its webhook stops what's on its way to it, and a new URL or key takes
+   * effect at once.
+   */
+  async shortcutWebhook(roomId: RoomId, senderId: UserId, shortcutId: string): Promise<ShortcutAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.shortcutWebhook(roomId, senderId, shortcutId);
+    if (!found) return null;
+    const { shortcut, bot, sender, roomName, webhook } = found;
+    const access =
+      webhook && {
+        bot: webhook.bot,
+        url: webhook.url,
+        key: botKeyOf(webhook.bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, webhook.bot.id, webhook)),
+        authorizedAt,
+      };
+    return { shortcut, bot, webhook: access || null, sender, roomName };
+  }
+
+  /**
    * The bot `botId` that answers a question in room `roomId` that `askerId` asked, @ember or an AI agent,
    * as the question finds it when its turn comes and again before its answer is posted (`assistantIn`,
    * `agentIn`): null once Ember AI is off, the bot isn't in the room, or it's an agent that doesn't answer
@@ -5859,6 +6743,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Who `credentials` signs in, with their session, whether they're in room `roomId` and whether a ban
+   * blocks the IP address they come from, as of `authorizedAt`, or null without a valid session. A stay
+   * of a guest of one room is the room they reach, so no membership beyond it lets them in, however it
+   * came to be saved.
    * blocks the IP address they come from, as of `authorizedAt`, or null without a valid session. The
    * session is recorded as coming from the address the room tags its socket or upload with, so that
    * banning the address, or lifting the ban, reaches the room.
@@ -5869,6 +6756,8 @@ export class Workspace extends DurableObject<Env> {
     const authorizedAt = Date.now();
     const session = await this.session(credentials);
     if (!session) return null;
+    const stay = await this.store.guestStayOf(session.user.id);
+    if (stay && stay.roomId !== roomId) return { user: session.user, sessionId: session.id, member: false, banned: false, authorizedAt };
     // From the database rather than what `isBanned` keeps, which a ban saving now hasn't changed yet.
     const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip, session.id);
     return { user: session.user, sessionId: session.id, member, banned, authorizedAt };
@@ -5893,10 +6782,26 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` rows, revocations first, then checks
-   * the memberships due, and sets the alarm for whatever is due next.
+   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` requests in all, revocations first,
+   * then purges, then reindexes, then picture deletions, then the reminders due with what's left, then
+   * checks the memberships due, and sets the alarm for whatever is due next, whether the deliveries
+   * before it went out or not: a delivery that fails, or a query the run can't get an answer to, leaves
+   * what it owes due for the next run, and the alarm is set all the same.
    */
   override async alarm(): Promise<void> {
+    try {
+      const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
+      const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
+      const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
+      const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
+      await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
+      await this.checkMemberships();
+      // What the sweep lapses keeps within the run's budget, its deliveries accounted for, so a crowd of
+      // stays ending at once can't spend past what the plan allows an invocation.
+      await this.lapseDueGuestStays(DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
+    } catch (error) {
+      console.error("Could not deliver everything due; trying again later", error);
+    }
     const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
@@ -5906,6 +6811,21 @@ export class Workspace extends DurableObject<Env> {
     await this.scheduleDelivery();
   }
 
+  /**
+   * Lapses the stays of the guests of one room whose time has passed, at most one run's worth
+   * (`GUEST_STAYS_LAPSED_AT_ONCE`), and only while the run's budget (`budget`, its deliveries already
+   * spent) covers what each lapse costs (`COSTS_PER_LAPSED_STAY`), so their sessions end, their sockets
+   * close and their rows say they were removed. Any left wait for the next run: the alarm is set for the
+   * stay that ends next, whose time has passed already, so it wakes at once for the rest.
+   */
+  private async lapseDueGuestStays(budget: number): Promise<void> {
+    await this.oneAtATime(async () => {
+      const most = Math.min(GUEST_STAYS_LAPSED_AT_ONCE, Math.floor(budget / COSTS_PER_LAPSED_STAY));
+      if (most <= 0) return;
+      const due = await this.store.lapsedGuestStays(Date.now(), most);
+      for (const userId of due) await this.lapseGuestStay(userId);
+    });
+  }
   /**
    * Asks the single sign-on provider again about the accounts linked at it that are due, as many as a run
    * asks about, with the refresh token each sign-in kept: one it no longer takes, as once someone has been
@@ -6015,6 +6935,28 @@ export class Workspace extends DurableObject<Env> {
         throw error;
       }
     });
+  }
+
+  /**
+   * Lapses the stay of guest `userId`, whose time has passed or which an administrator has just ended:
+   * all their sessions end, and their sockets close for good, here at once and in every room they're in
+   * through the outbox, as removing them closes them. Everyone's workspace sockets hear of it.
+   */
+  private async lapseGuestStay(userId: UserId): Promise<void> {
+    const now = Date.now();
+    // As when removing someone, until the database says it queued nothing.
+    let queued = true;
+    try {
+      queued = await this.sessions.change(
+        (session) => session.user.id === userId,
+        () => this.store.lapseGuestStay(userId, CloseCode.Revoked, now, new Date(now).toISOString()),
+      );
+    } finally {
+      // Whether or not it saved: the app connects them again if they're still signed in.
+      this.closeSockets(userId, CloseCode.Revoked);
+      if (queued) await this.revocationsQueued(now);
+    }
+    await this.publishPerson(userId);
   }
 
   /**
@@ -6190,12 +7132,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Has R2 delete the pictures due now, up to `limit` of them, with their variants, in one call: the
    * avatars and logos people replaced or removed, and those nobody was given once their reservations ran out.
-   * When R2 fails, they're tried again later, as a revocation is.
+   * When R2 fails, they're tried again later, as a revocation is. Answers how many it read.
    */
-  private async deletePictures(limit: number): Promise<void> {
-    if (limit <= 0) return;
+  private async deletePictures(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
     const due = await this.store.duePictureDeletions(Date.now(), limit);
-    if (due.length === 0) return;
+    if (due.length === 0) return 0;
     try {
       if (!this.env.FILES) throw new Error("No R2 bucket is bound as FILES");
       await this.env.FILES.delete(due.flatMap(pictureObjects));
@@ -6204,6 +7146,7 @@ export class Workspace extends DurableObject<Env> {
       console.error("Could not delete pictures from R2; trying again later", error);
       await this.store.settlePictureDeletions([], due, Date.now());
     }
+    return due.length;
   }
 
   /**
@@ -6218,10 +7161,18 @@ export class Workspace extends DurableObject<Env> {
     await this.scheduleDelivery();
   }
 
-  /** Sets the alarm for the outbox's next delivery due, if any is waiting. */
+  /**
+   * Sets the alarm for the outbox's next delivery due, if any is waiting, or, when the asking failed,
+   * for a minute on: what's due stays due, and the run that asks again then finds it.
+   */
   private async scheduleDelivery(): Promise<void> {
-    const next = await this.store.nextDeliveryDue();
-    if (next !== null) await this.wakeAt(next);
+    try {
+      const next = await this.store.nextDeliveryDue();
+      if (next !== null) await this.wakeAt(next);
+    } catch (error) {
+      console.error("Could not ask what's due next; waking again shortly", error);
+      await this.wakeAt(Date.now() + SCHEDULING_RETRY_MS);
+    }
   }
 
   /**

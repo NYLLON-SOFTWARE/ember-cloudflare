@@ -187,6 +187,13 @@ describe("Sign in with a display name", () => {
     expect(screen.queryByRole("button", { name: "Join with just a name" })).not.toBeInTheDocument();
   });
 
+  it("asks a guest sent by their link for their name, which is theirs to sign in with", () => {
+    history.replaceState(null, "", "/session/new?guest=1");
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("heading", { name: "Welcome to Ember" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Your name")).toHaveFocus();
+  });
+
   it("keeps either card from switching while it's signing in, so only one sign-in is on its way", async () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
     const user = userEvent.setup();

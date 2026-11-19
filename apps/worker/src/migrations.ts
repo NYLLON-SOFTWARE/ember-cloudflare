@@ -60,6 +60,18 @@ import appSignInClients from "../migrations/0059_app_sign_in_clients.sql";
 import appScopeWanted from "../migrations/0060_app_scope_wanted.sql";
 import ownAppSignIns from "../migrations/0061_own_app_sign_ins.sql";
 import outsideAi from "../migrations/0062_outside_ai.sql";
+import pins from "../migrations/0080_pins.sql";
+import userGroups from "../migrations/0081_user_groups.sql";
+import dnd from "../migrations/0082_dnd.sql";
+import profileFields from "../migrations/0083_profile_fields.sql";
+import reminders from "../migrations/0084_reminders.sql";
+import reminderPushRetries from "../migrations/0085_reminder_push_retries.sql";
+import statuses from "../migrations/0086_statuses.sql";
+import saves from "../migrations/0087_saves.sql";
+import guests from "../migrations/0088_guests.sql";
+import commands from "../migrations/0089_commands.sql";
+import reminderPushes from "../migrations/0090_reminder_pushes.sql";
+import shortcuts from "../migrations/0091_shortcuts.sql";
 import agentAccess from "../migrations/0063_agent_access.sql";
 import sessionTransfers from "../migrations/0064_session_transfers.sql";
 import newcomersAndUnreadCounts from "../migrations/0065_newcomers_and_unread_counts.sql";
@@ -181,6 +193,18 @@ export const MIGRATIONS: Migration[] = [
   { name: "0077_bot_rooms.sql", scope: "workspace", sql: botRooms },
   { name: "0078_cleared_reports.sql", scope: "workspace", sql: clearedReports },
   { name: "0079_sso.sql", scope: "workspace", sql: sso },
+  { name: "0080_pins.sql", scope: "room", sql: pins },
+  { name: "0081_user_groups.sql", scope: "workspace", sql: userGroups },
+  { name: "0082_dnd.sql", scope: "workspace", sql: dnd },
+  { name: "0083_profile_fields.sql", scope: "workspace", sql: profileFields },
+  { name: "0084_reminders.sql", scope: "workspace", sql: reminders },
+  { name: "0085_reminder_push_retries.sql", scope: "workspace", sql: reminderPushRetries },
+  { name: "0086_statuses.sql", scope: "workspace", sql: statuses },
+  { name: "0087_saves.sql", scope: "workspace", sql: saves },
+  { name: "0088_guests.sql", scope: "workspace", sql: guests },
+  { name: "0089_commands.sql", scope: "workspace", sql: commands },
+  { name: "0090_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
+  { name: "0091_shortcuts.sql", scope: "workspace", sql: shortcuts },
 ];
 
 /**
@@ -207,6 +231,31 @@ export function migrate(storage: DurableObjectStorage, scope: Scope): void {
     name TEXT UNIQUE,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`);
+  // The fork's deploys numbered these files before upstream took the slots they sat in, so a storage
+  // that ran one under its old name keeps the tables it made and the record moves with them: renamed
+  // before the check below, it applies no migration twice.
+  for (const [was, now] of [
+    ["0057_pins.sql", "0080_pins.sql"],
+    ["0058_user_groups.sql", "0081_user_groups.sql"],
+    ["0059_dnd.sql", "0082_dnd.sql"],
+    ["0060_profile_fields.sql", "0083_profile_fields.sql"],
+    ["0061_reminders.sql", "0084_reminders.sql"],
+    ["0062_statuses.sql", "0086_statuses.sql"],
+    ["0063_saves.sql", "0087_saves.sql"],
+    ["0064_guests.sql", "0088_guests.sql"],
+    ["0065_commands.sql", "0089_commands.sql"],
+    ["0066_tokens.sql", "0073_tokens.sql"],
+    ["0073_reminder_push_retries.sql", "0085_reminder_push_retries.sql"],
+    ["0062_reminder_pushes.sql", "0090_reminder_pushes.sql"],
+    ["0072_reminder_pushes.sql", "0090_reminder_pushes.sql"],
+  ] as const) {
+    storage.sql.exec(
+      "UPDATE d1_migrations SET name = ? WHERE name = ? AND NOT EXISTS (SELECT 1 FROM (SELECT name FROM d1_migrations WHERE name = ?) AS there)",
+      now,
+      was,
+      now,
+    );
+  }
   const applied = new Set(storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations").toArray().map((row) => row.name));
   for (const migration of scope === "search" ? SEARCH_MIGRATIONS : MIGRATIONS) {
     if (migration.scope !== scope || applied.has(migration.name)) continue;

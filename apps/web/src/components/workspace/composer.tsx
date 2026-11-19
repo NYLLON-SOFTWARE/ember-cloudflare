@@ -1,16 +1,18 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
+import { flushSync } from "react-dom";
+import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
+import type { Command } from "@ember/protocol/bots";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { AtSign, Page, Send, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
+import { ArrowUp, AtSign, Attachment, Page, Send, Terminal, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
-import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
+import { fetchCommands, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
 import { breaksLine, hasTouchKeyboard, pressedAlone, sendsMessage, uploadsFiles, writesSnippet } from "@/lib/keyboard";
 import type { Typist } from "@/lib/room-state";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { AttachMenu } from "./attach-menu";
-import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
+import { editorLoaded, RichTextEditor, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { EmojiButton } from "./emoji-button";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
 import { ShortcutTooltip } from "./shortcut-tooltip";
@@ -340,6 +342,40 @@ function focusStayedOn(element: Element | null): boolean {
   return !focused || focused === element || focused === document.body;
 }
 
+/**
+ * The name of the command being typed, when a line of `text` begins with "/": the word after it, without
+ * its case, or "" while there's nothing after yet. Null for anything else, whose slash is someone's text.
+ */
+export const commandFragmentOf = (text: string): string | null => {
+  const line = text.split("\n", 1)[0] ?? "";
+  if (!line.startsWith("/")) return null;
+  const after = line.slice(1);
+  const space = after.search(/\s/);
+  return (space === -1 ? after : after.slice(0, space)).toLowerCase();
+};
+
+/**
+ * The commands `commands` offers for `fragment`: those whose names it starts, all of them for "" — but
+ * none once it's one command's name whole, longer names that start with it included, since the menu is
+ * there to find one, and Enter sends one found rather than completing it over what's typed after.
+ */
+export const commandsMatching = (commands: Command[], fragment: string): Command[] => {
+  const matching = commands.filter(({ name }) => name.startsWith(fragment));
+  return commands.some(({ name }) => name === fragment) ? [] : matching;
+};
+
+/**
+ * The command `text` invokes, when it begins with one of `commands`: the one its first word names, by one
+ * case, and whatever was typed after it, its spaces at either end spared.
+ */
+export const commandInvocationOf = (text: string, commands: Command[]): { command: Command; text: string } | null => {
+  const fragment = commandFragmentOf(text);
+  const command = fragment !== null ? commands.find(({ name }) => name === fragment) : undefined;
+  if (!command) return null;
+  const after = text.slice(text.indexOf("/") + 1 + command.name.length);
+  return { command, text: after.trim() };
+};
+
 interface Props {
   roomId: string;
   /** The room's name as the writer reads it, which a DM's names the others in it. */
@@ -372,6 +408,11 @@ interface Props {
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
+  /**
+   * Runs `/name text` as an invocation, answering once the bot has heard it, while the room says why one
+   * it refused. Without one, as in a thread, what's typed goes as a message, whatever it starts with.
+   */
+  onRunCommand?: (name: string, text: string) => Promise<boolean>;
   /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
   autoFocus?: boolean;
   /** Whether the people @ lists show above the text with a mouse too, as on touch screens: for a composer with something under it that would cut the list off. */
@@ -394,15 +435,14 @@ export interface ComposerHandle {
 }
 
 /**
- * The composer: a card with Slack's formatting row on top, then the editor, and below it Slack's buttons:
- * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
- * Mention someone, and a round Send button, grey until there's something to send. @ offers the room's
- * people to mention. Files picked, pasted or dropped, and snippets, wait above the card to go with the
- * next message. What's written is kept as a draft until it's sent. A thread's has Also send to the room
- * before Send. A message the room won't take for what it says, as one with a word Blocked words keeps
- * out, comes back to be changed, saying why above the card.
+ * The composer: a card with the editor on top, and below it Attach files, Formatting options, which
+ * shows Lexxy's toolbar under the text, and a round Send button. @ offers the room's people to mention,
+ * and a first "/" offers the workspace's commands to run. Files picked, pasted or dropped wait above the
+ * card to go with the next message. What's written is kept as a draft until it's sent. A thread's has
+ * Also send to the room before Send. A message the room won't take for what it says, as one with a word
+ * Blocked words keeps out, comes back to be changed, saying why above the card.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, mentionsAbove = false, ref }: Props) {
+export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, onRunCommand, autoFocus = true, mentionsAbove = false, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const formatting = useFormatting(editor);
@@ -437,6 +477,34 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   const [refusal, setRefusal] = useState<{ key: string; why: string } | null>(null);
   const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct ? "" : "#"}${roomName}`;
 
+  // The workspace's commands, fetched once what's written first begins with a "/": until then, the
+  // composer of every room and thread has no use for them. One that couldn't be had is asked for again
+  // at the next slash.
+  const [commands, setCommands] = useState<Command[] | null>(null);
+  // The ask for them on its way, which whoever is waiting on it joins, and which one that failed leaves
+  // to be asked again.
+  const asking = useRef<Promise<Command[] | null> | null>(null);
+  const needCommands = (): Promise<Command[] | null> => {
+    if (commands) return Promise.resolve(commands);
+    asking.current ??= fetchCommands().then(
+      (loaded) => {
+        setCommands(loaded.commands);
+        return loaded.commands;
+      },
+      () => {
+        asking.current = null;
+        return null;
+      },
+    );
+    return asking.current;
+  };
+  // What the menu of commands shows: those `fragment` starts, and the one it highlights, which Enter and
+  // the arrows move among. Empty once nothing matches, so a slash that's no command is sent as written.
+  const [offered, setOffered] = useState<Command[]>([]);
+  const [highlighted, setHighlighted] = useState(0);
+
+  // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept,
+  // and a command being typed, if the workspace has commands, is looked for.
   const keep = (body: string | null) => {
     if (keepDraft(key, body)) kept.current = body;
   };
@@ -446,6 +514,12 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     if (body !== null) onTyping(true);
     else if (!wasBlank.current) onTyping(false);
     wasBlank.current = body === null;
+    keepDraft(key, body);
+    const fragment = body !== null && onRunCommand !== undefined ? commandFragmentOf(writtenBody(body).plainText) : null;
+    if (fragment === null) return setOffered([]);
+    needCommands();
+    setOffered(commands ? commandsMatching(commands, fragment) : []);
+    setHighlighted(0);
     setBlank(body === null);
     keep(body);
   };
@@ -485,6 +559,14 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     },
   }));
 
+  // What's written when the commands arrive was typed before there were any to match, so the menu is
+  // looked for once more, as the next keystroke would.
+  useEffect(() => {
+    if (commands === null || !editor.current || editor.current.isBlank()) return;
+    const fragment = commandFragmentOf(writtenBody(editor.current.value()).plainText);
+    if (fragment !== null) setOffered(commandsMatching(commands, fragment));
+  }, [commands]);
+
   // Up Arrow, with nothing written, edits your newest message. It's taken only from the composer or the
   // page itself, not from other fields or the editor of another message.
   const editLastMessage = useEffectEvent((event: KeyboardEvent) => {
@@ -504,34 +586,79 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 
   const changed = () => wrote(editor.current!.isBlank() ? null : editor.current!.value());
 
-  // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
-  // written unless it's blank, and focuses the editor, on touch screens too. Before the editor shows, as
-  // its code loads, only the files go. Also send to the room is unticked once anything's gone, as Slack
-  // unticks it.
-  const submit = () => {
-    if (disabled) return;
-    setRefusal(null);
-    if (picked.files.length > 0) {
-      onSendFiles(picked.files.map(({ file }) => file), alsoSend);
-      picked.clear();
-      setAlsoSend(false);
-    }
-    const written = editor.current;
-    if (!written) return;
-    if (!written.isBlank()) {
-      const body = written.value();
-      // One the room won't take, as when it's too long, stays to be cut down.
-      const addPreview = onSend(body, alsoSend);
-      if (!addPreview) return;
-      linkPreviews.sent(body, addPreview);
-      // Everyone else stops showing you as typing when your message arrives.
-      wasBlank.current = true;
-      written.clear();
-      keep(null);
-      setAlsoSend(false);
-    }
+  // One submit of the composer's at a time, that Enter and Send pressed while the commands are asked
+  // for don't start a second one over what's still written, one command run twice, or newer writing
+  // lost.
+  const submitting = useRef(false);
+
+  // Writes back what the room wouldn't run as a command, for it to be sent again, so long as nothing
+  // else has been written by then, as a message the room wouldn't take stays written where it was.
+  const giveBack = useEffectEvent((written: RichTextEditorHandle, markup: string) => {
+    if (!written.isBlank()) return;
+    written.replace(markup);
     written.focus();
+  });
+
+  // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
+  // written unless it's blank, closes the toolbar and focuses the editor, on touch screens too. Before
+  // the editor shows, as its code loads, only the files go. Also send to the room is unticked once
+  // anything's gone, as Slack unticks it. What's written that begins with one of the workspace's
+  // commands goes as an invocation, which the room answers, and not as a message — and what begins with
+  // a slash waits for the commands to be had first, that a registered one isn't posted to the room while
+  // they're on their way. One that couldn't be had keeps what's written to be sent again, and what's
+  // written by the time they arrive is what goes, so writing that waited with it is kept.
+  const submit = async () => {
+    if (disabled || submitting.current) return;
+    submitting.current = true;
+    try {
+      setRefusal(null);
+      if (picked.files.length > 0) {
+        onSendFiles(picked.files.map(({ file }) => file), alsoSend);
+        picked.clear();
+        setAlsoSend(false);
+      }
+      const written = editor.current;
+      if (!written) return;
+      if (!written.isBlank()) {
+        const asWritten = () => writtenBody(written.value()).plainText;
+        const fragment = onRunCommand !== undefined ? commandFragmentOf(asWritten()) : null;
+        const had = fragment !== null ? await needCommands() : commands;
+        if (fragment !== null && !had) return;
+        // Emptied while the commands were on their way is nothing to send.
+        if (written.isBlank()) return;
+        const invocation = had && onRunCommand ? commandInvocationOf(asWritten(), had) : null;
+        const markup = written.value();
+        if (invocation && onRunCommand) {
+          // What the room wouldn't run, as when its queue is full or the bot refused it, comes back to
+          // be sent again.
+          onRunCommand(invocation.command.name, invocation.text)
+            .catch(() => false)
+            .then((went) => {
+              if (!went) giveBack(written, markup);
+            });
+        } else {
+          // One the room won't take, as when it's too long, stays to be cut down.
+          const addPreview = onSend(markup, alsoSend);
+          if (!addPreview) return;
+          linkPreviews.sent(markup, addPreview);
+        }
+        // Everyone else stops showing you as typing when your message arrives.
+        wasBlank.current = true;
+        written.clear();
+        keep(null);
+        setAlsoSend(false);
+      }
+      showFormatting(false);
+      written.focus();
+    } finally {
+      submitting.current = false;
+    }
   };
+
+  // Completes the command picked from the menu, as the people to mention are completed: what's written
+  // becomes it, with a space after it for what it's to be told, and the change closes the menu, since
+  // its name is typed whole then.
+  const pickedCommand = (command: Command) => editor.current?.replace(`<p>/${command.name} </p>`);
 
   const keyDown = (event: KeyboardEvent) => {
     if (formatting.keyDown(event)) return;
@@ -543,6 +670,28 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
       else setWritingSnippet(true);
       return;
     }
+    // Enter picks from an open list, such as the people to mention, and so does the menu of commands,
+    // which the arrows move in and Escape shuts.
+    if (!editor.current?.hasOpenPrompt() && offered.length > 0) {
+      if (pressedAlone(event, "ArrowDown")) {
+        event.preventDefault();
+        return void setHighlighted((at) => (at + 1) % offered.length);
+      }
+      if (pressedAlone(event, "ArrowUp")) {
+        event.preventDefault();
+        return void setHighlighted((at) => (at + offered.length - 1) % offered.length);
+      }
+      if (pressedAlone(event, "Escape")) {
+        event.preventDefault();
+        return setOffered([]);
+      }
+      if (pressedAlone(event, "Tab") || sendsMessage(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return pickedCommand(offered[highlighted]!);
+      }
+    }
+    if (editor.current?.hasOpenPrompt() || !sendsMessage(event)) return;
     // Enter picks from an open list, such as the people to mention.
     if (editor.current?.hasOpenPrompt()) return;
     if (breaksLine(event) && editor.current?.startNewBlock()) {
@@ -577,6 +726,32 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
         {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
+        {/* The commands what's written begins with, each with its bot's name, what it's for, and the
+            picture of a prompt its kind uses. In the flow, where the files picked wait, since covering
+            the room's messages would hide what a command's answer replies to. */}
+        {offered.length > 0 && (
+          <div role="listbox" aria-label="Commands" className="flex max-h-[50vh] flex-col overflow-y-auto rounded-[12px] border bg-surface pb-1">
+            {offered.map((command, at) => (
+              <button
+                key={command.id}
+                type="button"
+                role="option"
+                aria-selected={at === highlighted}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => pickedCommand(command)}
+                className={cn(
+                  "flex w-full cursor-pointer items-baseline gap-x-[1ch] px-4 py-1.5 text-start text-[14px] leading-5 touch:min-h-11 touch:items-center touch:py-0",
+                  at === highlighted ? "bg-hover" : "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover",
+                )}
+              >
+                <Terminal className="size-5 shrink-0 self-center opacity-70" />
+                <span className="shrink-0 font-semibold text-message-ink">/{command.name}</span>
+                {command.description !== null && <span className="truncate text-muted-foreground">{command.description}</span>}
+                <span className="ms-auto shrink-0 text-muted-foreground">{command.bot.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {/* The files picked, and those too large to send. */}
         <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0) && "pb-2")}>
           {picked.files.map(({ key, file }) => (

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useState, useSyncExternalStore } from "react";
-import type { DirectoryUser, User, UserId } from "@ember/protocol";
+import type { DirectoryUser, GroupId, User, UserGroup, UserId } from "@ember/protocol";
 import { fetchDirectory, type DirectoryCopy } from "@/lib/api";
 import { NOT_HEARD, type ActiveStore } from "@/lib/presence";
 import { oneAtATime } from "./use-sidebar";
@@ -7,8 +7,14 @@ import { oneAtATime } from "./use-sidebar";
 /** Everyone in the workspace by id, as the people directory last listed them. */
 export type People = ReadonlyMap<UserId, DirectoryUser>;
 
+/** The workspace's groups by id, as the people directory last listed them. */
+export type Groups = ReadonlyMap<GroupId, UserGroup>;
+
 /** The people directory, for avatars to find their images in. Empty until it loads. */
 export const PeopleContext = createContext<People>(new Map());
+
+/** The groups of the people directory, for a mention of one to say whom it stands for. Empty until it loads. */
+export const GroupsContext = createContext<Groups>(new Map());
 
 /**
  * Whether the people directory has loaded, and so lists everyone. Until then it lists no one, or only
@@ -16,6 +22,14 @@ export const PeopleContext = createContext<People>(new Map());
  */
 export const DirectoryLoaded = createContext(false);
 
+/** Whether the people directory is loading again, which a load it has asked for and not yet settled has it do. */
+export const DirectoryReloading = createContext(false);
+
+/** Whether the people directory's last load failed, which leaves it listing people as it did before it, until a load comes. */
+export const DirectoryStale = createContext(false);
+
+/** Loads the people directory again, for a message's editor that found it doesn't know a group the message names. A no-op until the workspace has it. */
+export const ReloadDirectory = createContext<() => Promise<void>>(() => Promise.resolve());
 /** Who's active in the workspace, as the workspace socket last said (`activeStore`). */
 export const ActivePeople = createContext<ActiveStore>(NOT_HEARD);
 
@@ -43,6 +57,15 @@ export function useNameOf(): (user: User) => string {
 }
 
 /**
+ * A group's name as the people directory lists it now, or null while it lists none of it, as it doesn't
+ * once the group is gone.
+ */
+export function useNameOfGroup(): (groupId: GroupId) => string | null {
+  const groups = useContext(GroupsContext);
+  return useCallback((groupId: GroupId) => groups.get(groupId)?.name ?? null, [groups]);
+}
+
+/**
  * Someone a message mentions: as the people directory lists them now, or as the message named them
  * (`mentions`) until the directory lists them, or no one, where neither knows them. A message from
  * before messages named the people they mention knows them by id alone, with no name.
@@ -66,29 +89,51 @@ function withChanges(people: People, changes: Change[]): People {
 
 /**
  * The people directory, which `reload` loads again, one load at a time, settling once a load asked for
- * since has come or failed, `update` changes someone in, as the workspace socket or a change made
+ * since has come or failed, and `update` changes someone in, as the workspace socket or a change made
  * here says they are now, and `remove` takes someone out of, once the socket says this person is no
  * longer told of them. The people stay as they were when a load fails or the server says they haven't
- * changed. It has `loaded` once a load has come.
+ * changed. It has `loaded` once a load has come, `reloading` while one it has asked for is
+ * still to settle, and `stale` since a load last failed, until a load comes.
  */
-export function useDirectory(): { people: People; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void; remove: (userId: UserId) => void } {
+export function useDirectory(): {
+  people: People;
+  groups: Groups;
+  loaded: boolean;
+  reloading: boolean;
+  stale: boolean;
+  reload: () => Promise<void>;
+  update: (user: DirectoryUser) => void;
+  remove: (userId: UserId) => void;
+} {
   const [people, setPeople] = useState<People>(() => new Map());
+  const [groups, setGroups] = useState<Groups>(() => new Map());
   const [loaded, setLoaded] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [stale, setStale] = useState(false);
   const [directory] = useState(() => {
     // The last directory the server sent, which it says is still current rather than send again.
     let copy: DirectoryCopy | null = null;
     // What became of people while a load was on its way, which may have read them before it did.
     let changedSince: Change[] | null = null;
     const load = oneAtATime(async () => {
+      setReloading(true);
       const changed: Change[] = (changedSince = []);
       try {
         const loaded = await fetchDirectory(copy);
+        // An answer that has come, whether it has said the copy is still current or sent another.
+        setStale(false);
         if (loaded === copy) return;
         copy = loaded;
         setPeople(withChanges(new Map(loaded.directory.users.map((user) => [user.id, user])), changed));
+        setGroups(new Map(loaded.directory.groups.map((group) => [group.id, group])));
         setLoaded(true);
+      } catch (error) {
+        // What it lists stays as it was, which may not be who's in the workspace now.
+        setStale(true);
+        throw error;
       } finally {
         changedSince = null;
+        setReloading(false);
       }
     });
     const make = (change: Change) => {
@@ -97,5 +142,5 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
     };
     return { reload: load, update: (user: DirectoryUser) => make(user), remove: (userId: UserId) => make(userId) };
   });
-  return { people, loaded, ...directory };
+  return { people, groups, loaded, reloading, stale, ...directory };
 }

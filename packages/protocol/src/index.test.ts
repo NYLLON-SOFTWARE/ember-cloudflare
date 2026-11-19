@@ -44,6 +44,7 @@ import {
   MAX_MESSAGE_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_PUSH_ENDPOINT_LENGTH,
+  MAX_GUEST_NAME_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
   MAX_TAGLINE_LENGTH,
@@ -71,14 +72,19 @@ import {
   parseInvitationRequest,
   parseEmailLinkSignUp,
   parseInvolvementChange,
+  parseGuestChange,
   parseNewDirect,
+  parseNewGuest,
   parseNewRoom,
   parseOpenSignUp,
   parsePasswordReset,
   parsePasswordResetRequest,
   parsePasswordResetWithCode,
   parseMemberfulDisconnection,
+  parseDndChange,
   parseProfileChanges,
+  parseProfileFieldChange,
+  parseProfileFieldOrder,
   usernameFrom,
   usernameOf,
   USERNAME_REFUSED,
@@ -96,6 +102,9 @@ import {
   PASSWORD_RESET_PATH,
   passwordResetCodeOf,
   PASSWORD_TOO_SHORT,
+  PROFILE_FIELD_NAME_REFUSED,
+  PROFILE_FIELD_OPTIONS_REFUSED,
+  PROFILE_FIELD_VALUES_REFUSED,
   RESEND_API_KEY_REFUSED,
   resendApiKeyOf,
   ROOM_ICON_NAMES,
@@ -153,7 +162,7 @@ describe("Send a message", () => {
   });
 
   it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {
-    expect(ROOM_PROTOCOL).toBe(4);
+    expect(ROOM_PROTOCOL).toBe(5);
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
@@ -221,6 +230,18 @@ describe("Custom reactions", () => {
   it("limits reactions to the stored column width", () => {
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH) })).not.toBeNull();
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH + 1) })).toBeNull();
+  });
+});
+
+describe("Pin a message", () => {
+  it("takes the message a pin is of, and asks for the room's pins without anything else", () => {
+    expect(parse({ type: "pin.create", messageId: "m1" })).toEqual({ type: "pin.create", messageId: "m1" });
+    expect(parse({ type: "pin.delete", messageId: "m1" })).toEqual({ type: "pin.delete", messageId: "m1" });
+    expect(parse({ type: "pins.list" })).toEqual({ type: "pins.list" });
+    for (const bad of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ type: "pin.create", messageId: bad }), String(bad)).toBeNull();
+      expect(parse({ type: "pin.delete", messageId: bad }), String(bad)).toBeNull();
+    }
   });
 });
 
@@ -412,6 +433,39 @@ describe("Room icons", () => {
     const refused = 'Icon must be one of the room icons, or "" for the default';
     expect(parseNewRoom({ kind: "open", name: "Design", icon })).toBe(refused);
     expect(parseRoomChanges({ name: "Design", icon })).toBe(refused);
+  });
+});
+
+describe("Guests", () => {
+  const inAWeek = "2026-11-21T09:00:00.000Z";
+
+  it("takes a guest's name as typed and their stay's end", () => {
+    expect(parseNewGuest({ name: "  Pat Doe  ", until: inAWeek })).toEqual({ name: "Pat Doe", until: inAWeek });
+    expect(parseNewGuest({ name: "x".repeat(MAX_GUEST_NAME_LENGTH), until: inAWeek })).toEqual({ name: "x".repeat(MAX_GUEST_NAME_LENGTH), until: inAWeek });
+    expect(parseGuestChange({ until: inAWeek })).toEqual({ until: inAWeek });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [], "Expected a JSON object"],
+    ["no name", { until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["a blank name", { name: "   ", until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["a name that isn't text", { name: 42, until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["a name too long", { name: "x".repeat(MAX_GUEST_NAME_LENGTH + 1), until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["@ember's name", { name: "ember", until: inAWeek }, NAME_RESERVED],
+    ["no time", { name: "Pat" }, "Until must be a time"],
+    ["a blank time", { name: "Pat", until: "" }, "Until must be a time"],
+    ["a time that isn't one", { name: "Pat", until: "soon" }, "Until must be a time"],
+    ["a time that isn't text", { name: "Pat", until: 1 }, "Until must be a time"],
+  ])("refuses a guest with %s", (_, body, refused) => {
+    expect(parseNewGuest(body)).toBe(refused);
+  });
+
+  it("refuses a change to a stay that isn't an object, or whose time isn't one", () => {
+    expect(parseGuestChange(null)).toBe("Expected a JSON object");
+    expect(parseGuestChange([])).toBe("Expected a JSON object");
+    expect(parseGuestChange({})).toBe("Until must be a time");
+    expect(parseGuestChange({ until: "soon" })).toBe("Until must be a time");
   });
 });
 
@@ -1109,6 +1163,25 @@ describe("Make or revoke administrators", () => {
   });
 });
 
+describe("Do not disturb", () => {
+  it("takes a time to hush push notifications until", () => {
+    expect(parseDndChange({ until: "2026-11-14T09:00:00.000Z" })).toEqual({ until: "2026-11-14T09:00:00.000Z" });
+    expect(parseDndChange({ until: "2026-11-14T09:00" })).toEqual({ until: "2026-11-14T09:00" });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ until: "2026-11-14T09:00" }], "Expected a JSON object"],
+    ["text", "2026-11-14T09:00", "Expected a JSON object"],
+    ["an object without a time", {}, "Until must be a time"],
+    ["a blank time", { until: "  " }, "Until must be a time"],
+    ["something else", { until: 1 }, "Until must be a time"],
+    ["a time that isn't one", { until: "soon" }, "Until must be a time"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseDndChange(body)).toBe(error);
+  });
+});
+
 describe("Notification levels", () => {
   it("takes exactly one of the four levels", () => {
     expect(INVOLVEMENTS).toEqual(["mentions", "everything", "nothing", "invisible"]);
@@ -1174,6 +1247,9 @@ describe("Edit your profile", () => {
     ["a current password that isn't text", { currentPassword: 12345678 }, "Current password must be text"],
     ["an endpoint that isn't text", { pushSubscriptionEndpoint: {} }, "Push subscription endpoint must be text"],
     ["an endpoint longer than a subscription's", { pushSubscriptionEndpoint: "x".repeat(MAX_PUSH_ENDPOINT_LENGTH + 1) }, "Endpoint can't be longer than 2048 characters"],
+    ["field values that aren't an object", { fieldValues: ["Countess"] }, PROFILE_FIELD_VALUES_REFUSED],
+    ["a field value that isn't text", { fieldValues: { "field-1": 1 } }, PROFILE_FIELD_VALUES_REFUSED],
+    ["a field value longer than the form takes", { fieldValues: { "field-1": "x".repeat(201) } }, PROFILE_FIELD_VALUES_REFUSED],
     ["a username that isn't text", { username: 7 }, "Username must be text"],
     ["a username that starts with a period", { username: ".ada" }, USERNAME_REFUSED],
     ["a username with a letter that isn't ASCII's", { username: "adá" }, USERNAME_REFUSED],
@@ -1183,12 +1259,50 @@ describe("Edit your profile", () => {
     expect(parseProfileChanges(body)).toBe(error);
   });
 
+  it("takes what's given for the fields, which the server checks against them as they are", () => {
+    expect(parseProfileChanges({ fieldValues: { "field-1": "Countess", "field-2": "" } })).toEqual({ fieldValues: { "field-1": "Countess", "field-2": "" } });
+    expect(parseProfileChanges({ fieldValues: {} })).toEqual({ fieldValues: {} });
+  });
   it("keeps a username in lowercase, without spaces or the @ before it, in ASCII for fullwidth letters, and a blank one as none", () => {
     expect(parseProfileChanges({ username: " @Ada.Lovelace_1815 " })).toEqual({ username: "ada.lovelace_1815" });
     expect(parseProfileChanges({ username: "@@ａｄａ" })).toEqual({ username: "ada" });
     expect(parseProfileChanges({ username: "ada love-lace" })).toEqual({ username: "adalove-lace" });
     expect(parseProfileChanges({ username: " " })).toEqual({ username: "" });
     expect(parseProfileChanges({ username: "a".repeat(MAX_USERNAME_LENGTH) })).toEqual({ username: "a".repeat(MAX_USERNAME_LENGTH) });
+  });
+
+});
+
+describe("Profile fields", () => {
+  it("takes a name as typed without the spaces at its ends, with its choices or none", () => {
+    expect(parseProfileFieldChange({ name: " Title ", options: ["  she/her ", "they/them"] })).toEqual({ name: "Title", options: ["she/her", "they/them"] });
+    expect(parseProfileFieldChange({ name: "Title" })).toEqual({ name: "Title", options: null });
+    expect(parseProfileFieldChange({ name: "Title", options: null })).toEqual({ name: "Title", options: null });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ name: "Title" }], "Expected a JSON object"],
+    ["a name without anything in it", { name: "  " }, PROFILE_FIELD_NAME_REFUSED],
+    ["a name longer than it can keep", { name: "x".repeat(101) }, PROFILE_FIELD_NAME_REFUSED],
+    ["a name that isn't text", { name: 1 }, PROFILE_FIELD_NAME_REFUSED],
+    ["choices that aren't a list", { name: "Title", options: "Free text" }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["an empty list of choices", { name: "Title", options: [] }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["a choice that isn't text", { name: "Title", options: ["she/her", 2] }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["a choice without anything in it", { name: "Title", options: ["she/her", "  "] }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["a choice longer than a value can be", { name: "Title", options: ["x".repeat(201)] }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["more choices than a field can take", { name: "Title", options: Array.from({ length: 11 }, (_, n) => `Choice ${n}`) }, PROFILE_FIELD_OPTIONS_REFUSED],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseProfileFieldChange(body)).toBe(error);
+  });
+
+  it("takes the fields' ids in the order given, and refuses anything else", () => {
+    expect(parseProfileFieldOrder({ ids: ["field-2", "field-1"] })).toEqual(["field-2", "field-1"]);
+    expect(parseProfileFieldOrder({ ids: [] })).toEqual([]);
+    expect(parseProfileFieldOrder({})).toBe("Field order must be a list of the fields' ids");
+    expect(parseProfileFieldOrder({ ids: "field-1" })).toBe("Field order must be a list of the fields' ids");
+    expect(parseProfileFieldOrder({ ids: [1] })).toBe("Field order must be a list of the fields' ids");
+    expect(parseProfileFieldOrder({ ids: ["field-1", "field-1"] })).toBe("Field order must be a list of the fields' ids");
   });
 });
 

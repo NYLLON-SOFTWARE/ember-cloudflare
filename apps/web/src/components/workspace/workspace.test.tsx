@@ -1,7 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Reminder, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings, AvailableAgent } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { ALL_HUDDLE_SOUNDS, CAMERAS_OFF, SCREENS_OFF, type HuddleSoundsChanged, type PastHuddle } from "@ember/protocol/huddles";
@@ -9,7 +8,7 @@ import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { SHIPPED_MODELS } from "@/hooks/use-offered-models";
 import { PushContext } from "@/hooks/use-push";
-import { navigate } from "@/hooks/use-route";
+import { guardLeaving, navigate } from "@/hooks/use-route";
 import { joinHuddle } from "@/lib/huddle";
 import { INVITATION_RINGS_MS } from "@/lib/huddle-invitations";
 import { ringForHuddle } from "@/lib/huddle-ring";
@@ -18,7 +17,8 @@ import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
-import { Workspace, loadPageAhead } from "./workspace";
+import { loadPageAhead, Workspace } from "./workspace";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 // A huddle's own tests join one. Here joining shows the tab as in the huddle, as a test has it.
@@ -80,7 +80,9 @@ const workspaceSettings: WorkspaceSettings = {
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
-    "GET /api/users": () => Response.json({ users: [] }),
+    "GET /api/account/profile_fields": () => Response.json({ fields: [] }),
+    "GET /api/reminders": () => Response.json({ reminders: [] }),
+    "GET /api/users": () => Response.json({ users: [], groups: [] }),
     "GET /api/reports": () => Response.json({ open: [], handled: [] }),
     ...responses,
   };
@@ -134,15 +136,18 @@ function goneRoom(roomId: string, messages: Message[] = []) {
 /** The workspace socket, which welcomes Ada, then brings what a test has it bring. */
 class WorkspaceSocket extends QuietSocket {
   static last: WorkspaceSocket | null = null;
+  /** When Ada's push notifications are hushed until, as the welcome says, or null while they aren't. */
+  static dndUntil: string | null = null;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
   constructor(url: string) {
     super();
     if (!url.includes("/api/socket")) return;
     WorkspaceSocket.last = this;
     setTimeout(() => {
       this.onopen?.();
-      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
+      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: WorkspaceSocket.dndUntil }) });
     });
   }
 }
@@ -208,6 +213,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  WorkspaceSocket.dndUntil = null;
   history.replaceState(null, "", "/");
 });
 
@@ -639,6 +645,51 @@ describe("Link to a message", () => {
   });
 });
 
+describe("The Pinned panel", () => {
+  /** The room's socket, which keeps what it's sent, and which the test lets in, then has list its pins. */
+  class RoomSocket {
+    static readonly OPEN = 1;
+    static last: RoomSocket | null = null;
+    readyState = 0;
+    sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(readonly url: string) {
+      if (url.includes("/api/rooms/")) RoomSocket.last = this;
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {}
+    letIn(page: Partial<TimelinePage> = {}) {
+      act(() => {
+        this.readyState = RoomSocket.OPEN;
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, ...page }) });
+      });
+    }
+  }
+
+  it("takes the column the layout makes room for beside the room from 1180px wide, as the thread's", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    room.letIn();
+    const pinned: Message = { id: "m1", clientMessageId: "c1", roomId: "general", creator: ada, body: "<p>Worth keeping</p>", plainText: "Worth keeping", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "pins.list" }));
+    act(() => room.onmessage?.({ data: JSON.stringify({ type: "pins.listed", pins: [{ message: pinned, by: ada, at: NOON }] }) }));
+
+    await user.click(screen.getByRole("button", { name: "Pinned messages (1)" }));
+    const panel = screen.getByRole("complementary", { name: "Pinned messages" });
+    expect(panel).toHaveAttribute("data-pins");
+    // The layout's fourth column, which the rule naming a thread, the panel or the Saved pane names the room for too.
+    expect(panel.parentElement!.parentElement).toHaveClass(
+      "min-[1180px]:has-[[data-thread],[data-pins],[data-saved]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
+    );
+  });
+});
+
 describe("Group DMs and DM names", () => {
   it("names a DM for the others in it, in its header, the tab, its messages and the composer", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
@@ -727,7 +778,7 @@ describe("New direct message dialog", () => {
   const newDirect = () => screen.queryByRole("dialog", { name: "New direct message" });
   const dms = () => within(screen.getByRole("navigation", { name: "Workspace", hidden: true })).getByRole("link", { name: "DMs", hidden: true });
 
-  beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
+  beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people, groups: [] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
 
   it("opens over the page from the rail's DMs and the sidebar's New direct message, turning Activity off, and closes back on the link", async () => {
     const { user } = showWorkspace("/rooms/general");
@@ -793,7 +844,7 @@ describe("New direct message dialog", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
-      "GET /api/users": () => Response.json({ users: people }),
+      "GET /api/users": () => Response.json({ users: people, groups: [] }),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/d1");
@@ -810,7 +861,7 @@ describe("New direct message dialog", () => {
   it("tells an administrator that a DM started without an agent only available in admin DMs, which was picked with someone who isn't one", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     const steward: DirectoryUser = { id: "a9", name: "Steward", bio: null, role: "bot", status: "active", avatarUrl: "/users/a9/avatar", agent: true, adminsOnly: true };
-    serve({ "GET /api/users": () => Response.json({ users: [...people, steward] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) });
+    serve({ "GET /api/users": () => Response.json({ users: [...people, steward], groups: [] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) });
     const { user } = showWorkspace("/rooms/general", { ...ada, administrator: true });
     await roomHeading();
     await user.click(dms());
@@ -824,7 +875,7 @@ describe("New direct message dialog", () => {
 
   it("asks before leaving a room's unsaved settings for the DM, keeping the people picked to come back to", async () => {
     serve({
-      "GET /api/users": () => Response.json({ users: people }),
+      "GET /api/users": () => Response.json({ users: people, groups: [] }),
       "GET /api/rooms/general/settings": () => Response.json(generalSettings),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
@@ -860,7 +911,7 @@ describe("Available Agents", () => {
 
   beforeEach(() =>
     serve({
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap, herald] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap, herald], groups: [] }),
       "GET /api/agents": () => Response.json({ agents: [available(ember), available(recap)] }),
       "POST /api/directs": () => Response.json({ room: withRecap }, { status: 201 }),
     }),
@@ -891,14 +942,14 @@ describe("Available Agents", () => {
   });
 
   it("has no row while there's no agent to ask, as while Ember AI is off, nor while Activity shows only what's unread", async () => {
-    serve({ "GET /api/users": () => Response.json({ users: [grace, { ...ember, status: "deactivated" }, { ...recap, status: "deactivated" }] }) });
+    serve({ "GET /api/users": () => Response.json({ users: [grace, { ...ember, status: "deactivated" }, { ...recap, status: "deactivated" }], groups: [] }) });
     const { user, unmount } = showWorkspace("/rooms/general");
     await roomHeading();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/users")).toBe(true));
     expect(row()).not.toBeInTheDocument();
     unmount();
 
-    serve({ "GET /api/users": () => Response.json({ users: [grace, ember, recap] }) });
+    serve({ "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }) });
     showWorkspace("/rooms/general");
     await waitFor(() => expect(row()).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Activity" }));
@@ -953,7 +1004,7 @@ describe("Available Agents", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withRecap])),
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }),
       "GET /api/agents": () => Response.json({ agents: [available(ember), available(recap)] }),
       "POST /api/directs": () => Response.json({ room: withRecap }, { status: 201 }),
     });
@@ -971,7 +1022,7 @@ describe("Available Agents", () => {
 
   it("closes, saying why, when its agents can't load", async () => {
     serve({
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }),
       "GET /api/agents": () => Promise.reject(new TypeError("Failed to fetch")),
     });
     const { user } = showWorkspace("/rooms/general");
@@ -979,6 +1030,7 @@ describe("Available Agents", () => {
     await waitFor(() => expect(row()).toBeInTheDocument());
     await user.click(row()!);
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
+    expect(location.pathname).toBe("/rooms/general");
     await waitFor(() => expect(list()).not.toBeInTheDocument());
   });
 });
@@ -1041,6 +1093,268 @@ describe("Rail", () => {
     expect(railCurrent()).toEqual(["Home"]);
     await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
     expect(railCurrent()).toEqual(["Workspace"]);
+  });
+});
+
+describe("Do not disturb", () => {
+  const HUSHED = new Date(Date.now() + 60 * 60_000).toISOString();
+  const profileLink = () => screen.getByRole("link", { name: "Your profile" });
+
+  it("lays the crescent on your avatar when you reload straight into a room with your hush on", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = HUSHED;
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // The welcome brought the hush, which the rail shows by the crescent on your avatar.
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+  });
+
+  it("drops the crescent of a hush ending further out than a timer may wait, once its time has come", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = new Date(Date.now() + 40 * 24 * 60 * 60_000).toISOString();
+    showWorkspace("/rooms/random");
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Under the test's own timers, the welcome says the hush again, 50 days out, which arms its lapse anew.
+    vi.useFakeTimers();
+    try {
+      const later = new Date(Date.now() + 50 * 24 * 60 * 60_000).toISOString();
+      act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: later }) }));
+      const avatar = profileLink();
+      // The timer fires at the most a delay may be, about 24.8 days out, and arms again, the crescent staying.
+      act(() => vi.advanceTimersByTime(2_147_483_647));
+      expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed");
+      // Its time has come, and the crescent goes without a reload.
+      act(() => vi.advanceTimersByTime(2_147_483_647 + 24 * 60 * 60_000));
+      expect(avatar).toHaveAttribute("title", "Ada");
+      expect(avatar.querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lays the crescent on and takes it off as the socket says a tab of yours hushed and unhushed", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps a hush saved here when a welcome brings what it read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, fields: [], apps: [], outsideAi: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => Response.json({ dndUntil: HUSHED }),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // A welcome that read before the save, arriving after its answer, doesn't undo it.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: null }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The next welcome, which read after it, is heard again.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: HUSHED }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("keeps a hush heard while the profile was loading over what the page's answer read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({ "GET /api/users/me/profile": () => new Promise((resolve) => (answer = resolve)) });
+    showWorkspace("/users/me/profile");
+    // Another tab hushes while the page's profile is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The page's answer read before that, and doesn't take the hush back off.
+    await act(async () => answer(Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: null, fields: [], apps: [], outsideAi: null } })));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("shows the hush as a connection's welcome brings it back, over what the one before it heard", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // A tab of yours hushes, which the rail shows, and the connection drops before another lifts the
+    // hush, which this tab misses.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    act(() => WorkspaceSocket.last!.onclose?.({ code: 1006 }));
+    // The connection comes back, and its welcome reads over what the last one heard: the hush is lifted.
+    WorkspaceSocket.dndUntil = null;
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada"), { timeout: 4000 });
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps the hush the socket brought while a save was on its way over what the save's answer says", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, fields: [], apps: [], outsideAi: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => new Promise((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Another tab lifts the hush while this save is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    // The save's answer read before that, and doesn't hush the rail again.
+    await act(async () => answer(Response.json({ dndUntil: HUSHED })));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(hush).not.toBeDisabled();
+  });
+});
+
+describe("Saved pane", () => {
+  const grace = { id: "u2", name: "Grace" };
+  const said: Message = { id: "m1", clientMessageId: "m1", roomId: "general", creator: grace, body: "For later", plainText: "For later", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
+  /** A room's socket, which keeps what it's sent, and which the test lets in. */
+  class RoomSocket {
+    static readonly OPEN = 1;
+    static last: RoomSocket | null = null;
+    readyState = 0;
+    sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(readonly url: string) {
+      if (url.includes("/api/rooms/")) RoomSocket.last = this;
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {}
+    letIn(page: Partial<TimelinePage> = {}) {
+      act(() => {
+        this.readyState = RoomSocket.OPEN;
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, ...page }) });
+      });
+    }
+  }
+  /** Where the pane covers the room instead of sitting beside it. */
+  const coversRoom = () =>
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));
+
+  it("opens beside the room, and closes when a Jump is followed, which covers the message below 1180px wide", async () => {
+    serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    await user.click(within(pane).getByRole("link", { name: "Jump" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
+    expect(location.pathname).toBe("/rooms/general/@m1");
+  });
+
+  it("takes focus when it opens, and leaves nothing of the room to reach behind it where it covers it", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/rooms/general");
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).not.toHaveAttribute("inert");
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(within(pane).getByRole("button", { name: "Close saved messages" })).toHaveFocus();
+    const composer = screen.getByRole("textbox", { name: "Write a message" });
+    expect(composer.closest("[inert]")).not.toBeNull();
+    // Closing it gives the room back.
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
+    expect(composer.closest("[inert]")).toBeNull();
+  });
+
+  it("opens the room it goes on to without reading it while the pane covers it, and reads it once it closes", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/account/edit");
+    expect(await communitySettings()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(location.pathname).toBe("/rooms/general");
+    const room = RoomSocket.last!;
+    // The pane covers the room, which opens as a hidden tab's would: reading nothing, counting as away.
+    expect(room.url).toContain("visible=0");
+    room.letIn();
+    // The room asked for its pins as it opened, which is no reading of it.
+    expect(room.sent).toEqual([{ type: "pins.list" }]);
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "presence.visible", visible: true }));
+    expect(room.sent).not.toContainEqual({ type: "presence.visible", visible: false });
+  });
+
+  it("opens again with one press from a page it doesn't show on, where the pane went with the room it was open beside", async () => {
+    serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    // Off to workspace settings, which the pane doesn't show on: it leaves, and Saved counts as closed.
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    expect(await communitySettings()).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    expect(screen.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("takes a thread's place as it opens, which closes the thread and has its replies reach this person as pushes again", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    room.letIn();
+    act(() => navigate("/rooms/general/threads/m1"));
+    expect(await screen.findByRole("complementary", { name: "Thread" })).toBeInTheDocument();
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" }));
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    // The thread is gone with its address, which the room hears of as its replies reaching this person again.
+    expect(screen.queryByRole("complementary", { name: "Thread" })).not.toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.close", parentId: "m1" }));
+  });
+
+  it("counts the room it covers as unread still, in the sidebar and Activity both", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    coversRoom();
+    const markedGeneral: SidebarRoom = { ...rooms[0]!, unread: true, involvement: "mentions" };
+    const badges = badgeTheApp();
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([markedGeneral, rooms[1]!])),
+      "GET /api/saves": () => Response.json({ saves: [] }),
+    });
+    const { user } = showWorkspace("/account/edit");
+    expect(await communitySettings()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    // The pane went on to the last room and covers it, which counts as unread still, though its address is the page's.
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    const roomsListed = within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" });
+    const general = within(roomsListed).getByRole("link", { name: /general/ });
+    expect(general).toHaveAttribute("aria-current", "page");
+    expect(general).toHaveAccessibleDescription(/Unread/);
+    expect(general).toHaveClass("font-[650]");
+    expect(screen.getByRole("button", { name: "Activity" })).toHaveAccessibleDescription("1 unread");
+    await waitFor(() => expect(badges).toEqual([1]));
   });
 });
 
@@ -1325,7 +1639,7 @@ describe("Search box", () => {
 
 describe("Edit your profile", () => {
   it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null, fields: [] } }) });
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
     await user.click(screen.getByRole("link", { name: "Your profile" }));
@@ -1338,8 +1652,18 @@ describe("Edit your profile", () => {
     expect(await roomHeading()).toHaveTextContent("random");
   });
 
+  it("drops the rail's crescent the moment your hush lapses, without a reload", async () => {
+    const hushedUntil = new Date(Date.now() + 300).toISOString();
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: hushedUntil, fields: [], apps: [], outsideAi: null } }) });
+    showWorkspace("/users/me/profile");
+    const avatar = screen.getByRole("link", { name: "Your profile" });
+    await waitFor(() => expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // The hush ends of its own accord, and the crescent goes with it.
+    await waitFor(() => expect(avatar).toHaveAttribute("title", "Ada"), { timeout: 2_000 });
+  });
+
   it("logs out from your profile", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null, fields: [] } }) });
     const { onSignOut, user } = showWorkspace("/users/me/profile");
     await user.click(screen.getByRole("button", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
@@ -1351,7 +1675,7 @@ describe("Connect Memberful", () => {
 
   it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
     const memberful = { membersOnly: true, connected: { name: "Ada Lovelace", emailAddress: "ada@example.com" } };
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [], outsideAi: null, fields: [] } }) });
     const { unmount } = showWorkspace("/users/me/profile?memberful=connected#top");
     expect(await screen.findByRole("alert")).toHaveTextContent("Your Memberful account is connected.");
     expect(address()).toBe("/users/me/profile#top");
@@ -3452,5 +3776,50 @@ describe("Huddles", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
       expect(await pageHeading()).toBeInTheDocument();
     });
+  });
+});
+
+describe("Reminders", () => {
+  it("is done with a due reminder only once the page its Open goes to has been shown", async () => {
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: NOON };
+    const deletes = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/reminders/r1" && init?.method === "DELETE").length;
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [due] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    // A page holding unsaved changes, which holds the navigation Open asks for.
+    let proceed: (() => unknown) | null = null;
+    const unguard = guardLeaving((_path, go) => ((proceed = go), true));
+    try {
+      const { user, unmount } = showWorkspace("/");
+      const notice = await screen.findByRole("alert");
+      expect(notice).toHaveTextContent("Grace");
+      await user.click(within(notice).getByRole("button", { name: "Open" }));
+      // Held, nothing is dismissed: the person may yet keep editing.
+      expect(deletes()).toBe(0);
+      await act(async () => void (await proceed?.()));
+      expect(location.pathname).toBe("/rooms/general/@m1");
+      await waitFor(() => expect(deletes()).toBe(1));
+      unmount();
+    } finally {
+      unguard();
+    }
+  });
+
+  it("is done with a due reminder when it's done with", async () => {
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: NOON };
+    const deletes = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/reminders/r1" && init?.method === "DELETE").length;
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [due] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    const { user, unmount } = showWorkspace("/");
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("The deploy is at noon");
+    await user.click(within(notice).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(deletes()).toBe(1));
+    // Dismissed, the notice leaves the page at once.
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    unmount();
   });
 });

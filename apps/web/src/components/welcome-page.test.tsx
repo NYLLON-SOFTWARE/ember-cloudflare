@@ -42,6 +42,9 @@ const profile: Profile = {
   assistant: null,
   apps: [],
   outsideAi: null,
+  dndUntil: null,
+  mood: null,
+  fields: [],
 };
 const answer = (profile: Profile) => Response.json({ profile, transferId: "u2.t" } satisfies ProfileAnswer);
 

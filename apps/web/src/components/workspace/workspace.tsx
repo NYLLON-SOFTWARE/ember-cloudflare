@@ -8,18 +8,21 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount, useCamerasAllowed, useScreensAllowed } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
+import { ActivePeople, DirectoryLoaded, DirectoryReloading, DirectoryStale, GroupsContext, PeopleContext, ReloadDirectory, useDirectory } from "@/hooks/use-directory";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
-import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
-import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/use-reporting";
+import { DismissReminder, isDue, useReminders } from "@/hooks/use-reminders";
 import { useSidebar } from "@/hooks/use-sidebar";
-import { agentsToAsk } from "@/lib/agents";
+import { SavesContext, useSaves } from "@/hooks/use-saves";
 import { answerHuddleInvitation, ApiError, changeBlock, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
+import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
+import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/use-reporting";
+import { agentsToAsk } from "@/lib/agents";
 import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
 import { hasHuddles } from "@/lib/huddle-people";
-import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
 import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
 import { lastRoomVisited } from "@/lib/last-room";
@@ -29,15 +32,17 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { isQuietWelcome, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, threadPath, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
 import { HuddlesContext, joinsNoHuddle, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
+import { ReminderNotice } from "./reminder-notice";
 import { NewDirectDialog, startedWithout } from "./new-direct-dialog";
 import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
-import { RoomView, type RoomViewHandle } from "./room-view";
+import { RoomView, THREAD_COVERS_ROOM, type RoomViewHandle } from "./room-view";
+import { SavedPanel } from "./saved-panel";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar } from "./sidebar";
@@ -246,6 +251,9 @@ function redirectOf(route: Route, rooms: SidebarRoom[], meId: UserId): Redirect 
  */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
+/** The longest a delay may be, past which a browser fires a timer late or never: about 24.8 days. */
+const TIMER_CAP_MS = 2_147_483_647;
+
 /** The signed-in layout: rail | sidebar | header over main, or the drawer layout. */
 interface Props {
   me: Me;
@@ -287,9 +295,43 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
+  // Reminders of theirs, which the workspace socket tells this tab about as each one comes due or is
+  // dismissed in another tab. Declared before the sidebar, whose socket hands it both.
+  const { reminders, cameDue, cameGone, dismiss: dismissReminder, load: reloadReminders } = useReminders();
+  // When your push notifications are hushed until, which the workspace socket's welcome brings, Do not
+  // disturb on your profile saves, and the socket tells your other tabs of, and the rail shows by the
+  // crescent on your avatar. How many hushes have been heard counts as each change is applied, so a
+  // page's answer about them shows only if none has been heard since it was asked for, as about the
+  // account. A welcome speaks of what the hush was as the socket let it in, so it stands down to
+  // whatever was heard since the last one — counted again at each connection, whose welcome reads over
+  // what the one before it heard — and the next is trusted again.
+  const [dndUntil, setDndUntil] = useState<string | null>(null);
+  const dndsHeard = useRef(0);
+  const heardAtWelcome = useRef(0);
+  const hearDnd = useCallback((until: string | null, read?: boolean) => {
+    if (read) {
+      const stale = heardAtWelcome.current !== dndsHeard.current;
+      heardAtWelcome.current = dndsHeard.current;
+      if (stale) return;
+    } else {
+      dndsHeard.current++;
+    }
+    setDndUntil(until);
+  }, []);
+  // What was heard of the hush before a connection began belongs to the connection that brought it,
+  // which its own welcome says over, so only what this one hears or the page saves first can stale it.
+  const dndConnecting = useCallback(() => {
+    heardAtWelcome.current = dndsHeard.current;
+  }, []);
+  const askForDnd = useCallback(() => {
+    const heard = dndsHeard.current;
+    return (until: string | null) => {
+      if (dndsHeard.current === heard) hearDnd(until);
+    };
+  }, [hearDnd]);
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone, reloadReminders, hearDnd, dndConnecting, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -297,6 +339,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // Activity's filter, which lives as long as the page: other pages keep it on, and loading the page
   // again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
+  // The hush ends of its own accord, so the crescent goes the moment it lapses, without a reload. The
+  // longest a delay may be is about 24.8 days, past which a browser fires a timer late or never, so a
+  // hush ending further out arms again at that until its time has come.
+  useEffect(() => {
+    if (dndUntil === null) return;
+    let lapse: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const wait = Math.min(TIMER_CAP_MS, Math.max(0, Date.parse(dndUntil) - Date.now()));
+      lapse = setTimeout(() => (Date.parse(dndUntil) > Date.now() ? arm() : setDndUntil(null)), wait);
+    };
+    arm();
+    return () => clearTimeout(lapse);
+  }, [dndUntil]);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const drawerRail = useRef<HTMLDivElement>(null);
   const roomView = useRef<RoomViewHandle>(null);
@@ -478,6 +533,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     },
     [failed],
   );
+  // The messages saved for later, whose list comes when the page loads, and again after a save or a
+  // remove here. Another tab's saves aren't heard of until it loads again.
+  const saver = useSaves(failed);
+  // Whether the Saved pane is open beside the room, which lives as long as the page, as Activity's
+  // filter does. A thread open beside the room takes its place, so one opening closes the other, and
+  // a permalink followed closes it too, where below 1180px wide it covers the message it jumped to.
+  const [savedOpen, setSavedOpen] = useState(false);
+  useEffect(() => {
+    if (route.page === "room" && (route.threadId !== undefined || route.messageId !== undefined)) setSavedOpen(false);
+  }, [route]);
   const invitationOver = useCallback((roomId: RoomId) => changeInvitations({ type: "over", roomId }), []);
   // An invitation answered stops ringing here at once, and in this person's other tabs once the Workspace
   // has heard, where one it never hears of rings on until it gives up.
@@ -677,9 +742,23 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     if (event.defaultPrevented && (event.target as Element).closest("a[href]")) afterNavigating(() => setUnreadOnly(false));
   };
   const currentRoomId = room?.id ?? null;
+  // The rail's Saved control, by Activity's conventions: it opens the pane beside the room shown, or
+  // goes home to the last room visited for it from a page of community settings. Opening it asks for
+  // the list again, which a failed ask never brought, but never asks a room for anything, so it marks
+  // nothing read.
+  const coversRoom = useMediaQuery(THREAD_COVERS_ROOM);
+  const savedShown = savedOpen && room !== null;
+  // The Pinned panel beside the room shares the Saved pane's column: opening it closes the pane.
+  const closeSaved = useCallback(() => setSavedOpen(false), []);
+  // Below 1180px wide the pane covers the room, which then counts as hidden, and leaves nothing of
+  // itself to reach behind it, as a thread covering the room does.
+  const savedCovered = savedShown && coversRoom;
+  // What the pane covers is marked as it is until it shows: its socket counts the tab hidden while
+  // the pane is over it, so it counts as read nowhere yet, though its address is still the page's.
+  const readRoomId = savedCovered ? null : currentRoomId;
   const activity = {
     on: unreadOnly,
-    unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
+    unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, readRoomId)).length,
     onToggle: () => {
       // A page of community settings has no conversations to show, so Activity goes home to them, once
       // unsaved changes let it. Pressed in the drawer, it keeps the drawer open, as it is when
@@ -691,6 +770,25 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
         setUnreadOnly((on) => !on);
         keepDrawer.current = inDrawer;
       });
+    },
+  };
+  // The pane shows only over a room, so a pane asked for from a page it doesn't show on counts as
+  // closed, whose press opens it rather than closing a pane that isn't there.
+  const saved = {
+    on: savedShown,
+    count: saver.saves?.length ?? 0,
+    onToggle: () => {
+      setDrawerOpen(false);
+      if (savedShown) return setSavedOpen(false);
+      saver.load();
+      // A thread open beside the room gives up its place to the pane: its address goes, as one whose
+      // Close is pressed does, so the thread unmounts and its replies reach this person as pushes again.
+      if (!settings && route.page === "room") {
+        if (route.threadId !== undefined) navigate(roomPath(route.roomId));
+        return setSavedOpen(true);
+      }
+      navigate("/");
+      afterNavigating(() => setSavedOpen(true));
     },
   };
   // Cmd+F or Ctrl+F opens the search box, as it opens Slack's: in the room shown, or with the search the
@@ -756,7 +854,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} dndUntil={dndUntil} saved={saved} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
   );
   const sidebar = (
     <Sidebar
@@ -769,6 +867,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
       huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       onHuddles={route.page === "huddles"}
       currentRoomId={currentRoomId}
+      readRoomId={readRoomId}
       unreadOnly={unreadOnly}
       agents={agents}
       agentsOpen={agentsList !== null}
@@ -852,6 +951,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             me={me}
             rooms={rooms}
             askForRoom={askForRoom}
+            dndUntil={dndUntil}
+            askForDnd={askForDnd}
+            onDndChanged={hearDnd}
             huddleSounds={huddlesOn && answered ? soundsHeard : null}
             askForHuddleSounds={askForHuddleSounds}
             onSignOut={onSignOut}
@@ -901,6 +1003,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
               // As the list has it, or as it starts once the room has gone from the list.
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
               newSince={opened.roomId === room.id ? opened.newSince : null}
+              savedCovered={savedCovered}
+              savedShown={savedShown}
+              onPinsOpened={closeSaved}
               askForRoom={askForRoom}
               onSessionChanged={onSessionChanged}
               onFailed={failed}
@@ -947,9 +1052,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
         <div
           className={cn(
             "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
-            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
-            // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
-            "min-[1180px]:has-[[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
+            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",            // A thread, the Pinned panel or the Saved pane open beside its room, from 1180px wide, which takes 420px of the room's width.
+            "min-[1180px]:has-[[data-thread],[data-pins],[data-saved]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
           )}
         >
           <SkipLink to={huddle?.open ? OPEN_HUDDLE : undefined} />
@@ -1014,6 +1118,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             <MovedNotice />
             <UpdatedNotice />
           </Notices>
+          {/* The Saved pane, beside the room shown, whose place a thread open beside it has taken. */}
+          {savedOpen && room !== null && (
+            <SavedPanel
+              me={me}
+              rooms={rooms ?? NO_ROOMS}
+              saves={saver.saves}
+              onClose={() => setSavedOpen(false)}
+              onForget={(id) => void saver.forget(id)}
+            />
+          )}
           {huddlesOn && invitations.length > 0 && (
             <RarePage
               show={({ HuddleInvitations }) => (
@@ -1086,25 +1200,56 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
           {huddle && !huddle.open && (
             <RarePage show={({ HuddleBar }) => <HuddleBar huddle={huddle} room={huddleRoom} meId={me.id} />} loading={null} onFailed={failed} />
           )}
+          {/* The reminder that has come due, over whatever page it finds the person on, until they're done with it. */}
+          {(() => {
+            const dueReminder = reminders?.find(isDue) ?? null;
+            if (dueReminder === null) return null;
+            const reminderRoom = rooms?.find((candidate) => candidate.id === dueReminder.roomId);
+            const roomName = reminderRoom === undefined || reminderRoom.kind === "direct" ? null : (reminderRoom.name ?? null);
+            return (
+              <ReminderNotice
+                reminder={dueReminder}
+                roomName={roomName}
+                onOpen={() => {
+                  navigate(dueReminder.parentId === undefined ? messagePath(dueReminder.roomId, dueReminder.messageId) : threadPath(dueReminder.roomId, dueReminder.parentId, dueReminder.messageId));
+                  // The page may hold the person with unsaved changes, so it's done with only once they've gone there.
+                  afterNavigating(() => void dismissReminder(dueReminder.id));
+                }}
+                onDone={() => void dismissReminder(dueReminder.id)}
+              />
+            );
+          })()}
         </div>
       </DrawerOpen>
     </Sheet>
   );
   return (
     <PeopleContext value={directory.people}>
-      <DirectoryLoaded value={directory.loaded}>
-        <ActivePeople value={active}>
-          <SettingsLayout value={settings}>
-            <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>
-                <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
-                </BlockingContext>
-              </HuddlesContext>
-            </OpenSearchContext>
-          </SettingsLayout>
-        </ActivePeople>
-      </DirectoryLoaded>
+      <GroupsContext value={directory.groups}>
+        <DirectoryReloading value={directory.reloading}>
+          <ReloadDirectory value={directory.reload}>
+            <DirectoryStale value={directory.stale}>
+              <DirectoryLoaded value={directory.loaded}>
+                <ActivePeople value={active}>
+                  <SettingsLayout value={settings}>
+                    <OpenSearchContext value={openSearch}>
+                      <SavesContext value={saver}>
+                        <HuddlesContext value={huddles}>
+                          <DismissReminder value={dismissReminder}>
+                            <BlockingContext value={blocking}>
+                              <ReportingContext value={openReport}>{layout}</ReportingContext>
+                            </BlockingContext>
+                          </DismissReminder>
+                        </HuddlesContext>
+                      </SavesContext>
+                    </OpenSearchContext>
+                  </SettingsLayout>
+                </ActivePeople>
+              </DirectoryLoaded>
+            </DirectoryStale>
+          </ReloadDirectory>
+        </DirectoryReloading>
+      </GroupsContext>
     </PeopleContext>
   );
 }

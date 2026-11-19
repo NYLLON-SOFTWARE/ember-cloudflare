@@ -513,6 +513,13 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "thread.opened":
     case "thread.history":
     case "card.clicked":
+    // Pins have a hook of their own, which the room's header and Pinned panel read.
+    case "pins.listed":
+    case "pin.created":
+    case "pin.deleted":
+    case "command.ran":
+    // A shortcut's answer, which its picker's menu has closed and the flash tells of.
+    case "shortcut.ran":
     case "pong":
       return state;
   }

@@ -40,8 +40,8 @@ Cloudflare's network, quiet rooms hibernate, and every push to your copy deploys
 
 Rooms for every project, private rooms for the few who need them, and DMs with one person or a few.
 Reply in a thread to keep a room on topic, and tick **Also send to the room** when everyone should see
-the answer. Mention people, quote a message, react with any emoji or a few words of your own, and edit
-or delete what you wrote.
+the answer. Mention people, quote a message, react with any emoji or a few words of your own, ask a
+message to come back to you when you pick, and edit or delete what you wrote.
 
 Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
 says whether you hear about every message, only mentions, or nothing. You see who's here and who's
@@ -141,7 +141,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Where it runs** | Your Cloudflare account | Slack's cloud |
 | **Source code** | MIT license, on GitHub | Closed |
 | **Your own domain** | ✅ such as chat.example.com | — only yourteam.slack.com |
-| **Branding** | Name, logo, tagline, room and navigation icons, and custom CSS | Workspace name and icon |
+| **Branding** | Name, logo, tagline, room and navigation icons, custom CSS, and custom profile fields | Workspace name and icon |
 
 ### Everyday chat
 
@@ -149,17 +149,26 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 |---|---|---|
 | **Rooms, private rooms and DMs** | ✅ | ✅ |
 | **Threads** | ✅ with Also send to the room | ✅ with Also send to the channel |
-| **Mentions, quotes, reactions and edits** | ✅ react with any emoji or a few words | ✅ plus custom emoji |
+| **Mentions, quotes, reactions and edits** | ✅ react with any emoji, mention a person or a group | ✅ plus custom emoji |
+| **User groups** | ✅ name a group, mention it, and everyone in it is notified | ✅ |
+| **Custom profile fields** | ✅ administrators define up to 10 for everyone, people answer them on their profile | ✅ on paid plans |
+| **Reminders** | ✅ ask a message to come back when you pick | ✅ |
+| **Custom status** | ✅ an emoji and a few words beside your name, until you clear them or they clear themselves | ✅ |
 | **Rich text, code blocks and link previews** | ✅ | ✅ |
 | **Files** | ✅ up to 250 MB each | ✅ up to 1 GB each |
 | **Search** | ✅ every message in your rooms and DMs, with Slack's filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |
 | **Unread, Activity, starred rooms, per-room notifications** | ✅ | ✅ |
+| **Do not disturb** | ✅ hush your push notifications for a while, from your profile or the rail, until the time you pick | ✅ |
+| **Saved items** | ✅ save a message for later, in a pane of your own | ✅ |
 | **Phones** | ✅ installable web app with push notifications | ✅ native iPhone and Android apps |
 | **Computers** | ✅ any modern browser, or installed as an app | ✅ native Mac, Windows and Linux apps, or the browser |
 | **Light and dark** | ✅ | ✅ |
 | **Incoming webhooks** | ✅ Slack-compatible, with attachments and Block Kit | ✅ |
 | **Bots that answer** | ✅ through a webhook per bot | ✅ through Slack apps |
+| **Slash commands and bot events** | ✅ a bot answers /commands and hears the rooms it is in | ✅ |
 | **Ways to join** | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
+| **Guests** | ✅ a guest for one room, whose stay ends when you choose | ✅ guest accounts (paid plans) |
+| **Single sign-on** | Memberful, for membership communities | Google on every plan, and SAML SSO with SCIM on Business+ |
 | **Single sign-on** | OpenID Connect with any provider (Zitadel, Keycloak, Okta, Entra ID, Google), with group rules and back-channel logout, and Memberful, for membership communities | Google on every plan, and SAML SSO with SCIM on Business+ |
 
 ### Where Slack does more
@@ -171,7 +180,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **AI** | @ember and agents of your own answer when you mention or DM them, each on the model you choose | ✅ summaries, recaps and AI search on every plan, more on Business+ |
 | **Canvases, lists and clips** | — | ✅ |
 | **Channels shared with other companies** | — | ✅ Slack Connect |
-| **Scheduled messages and reminders** | — | ✅ |
+| **Scheduled messages** | — | ✅ |
 | **Guest accounts** | — | ✅ on paid plans |
 | **Exports of every message, DMs included** | — not yet | ✅ on Business+ and up |
 | **Support** | GitHub issues | ✅ 24/7 on Business+ |

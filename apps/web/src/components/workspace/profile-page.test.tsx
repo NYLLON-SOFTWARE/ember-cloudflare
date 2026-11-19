@@ -1,23 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  AVATAR_PATH,
-  AVATAR_TOO_LARGE,
-  CURRENT_PASSWORD_WRONG,
-  MAX_AVATAR_SIZE,
-  MEMBERFUL_CONNECTIONS_PATH,
-  MEMBERFUL_DISCONNECTED_NOTICE,
-  type Account,
-  type DirectoryUser,
-  type MemberfulDisconnection,
-  type MemberfulStatus,
-  type Platform,
-  type Profile,
-  type ProfileAnswer,
-  type ProfileChanges,
-  type SidebarRoom,
-} from "@ember/protocol";
+import { AVATAR_PATH, AVATAR_TOO_LARGE, CURRENT_PASSWORD_WRONG, MAX_AVATAR_SIZE, MEMBERFUL_CONNECTIONS_PATH, MEMBERFUL_DISCONNECTED_NOTICE, type Account, type DirectoryUser, type MemberfulDisconnection, type MemberfulStatus, type PersonMood, type Platform, type Profile, type ProfileAnswer, type ProfileChanges, type ProfileFieldEntry, type SidebarRoom } from "@ember/protocol";
 import { MODEL_NOT_LISTED, type YourAssistant, type YourAssistantChanged, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { MEMBERFUL_WITH_SSO, SSO_CONNECTIONS_PATH, SSO_DISCONNECTED_NOTICE, SSO_WITH_MEMBERFUL, type SsoStatus } from "@ember/protocol/sso";
 import type { HuddleSounds, HuddleSoundsChanged } from "@ember/protocol/huddles";
@@ -33,13 +16,19 @@ import { PUSH_ON } from "@/test-push";
 import { DEFAULT_MODEL_EXPLAINED } from "./answer-levels";
 import { AVATAR_CHANGED, ProfilePage } from "./profile-page";
 import { NOTHING_CONNECTED } from "./your-outside-ai";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
+/** What the workspace asks on every profile, with what Ada last saved for each. */
+const ASKED_FIELDS: ProfileFieldEntry[] = [
+  { id: "field-title", name: "Title", options: null, value: "Countess" },
+  { id: "field-pronouns", name: "Pronouns", options: ["she/her", "they/them"], value: "she/her" },
+];
+const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", mood: null, avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, fields: ASKED_FIELDS, apps: [], outsideAi: null, dndUntil: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -94,8 +83,13 @@ function serve({
       case "GET /api/users/me/profile":
         return loaded();
       case "PATCH /api/users/me/profile": {
-        const { password: _, currentPassword: _current, pushSubscriptionEndpoint: _endpoint, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
-        return saved ? saved() : Response.json({ profile: { ...profile, ...changes }, transferId: SAVED_LINK } satisfies ProfileAnswer);
+        const { password: _, currentPassword: _current, pushSubscriptionEndpoint: _endpoint, fieldValues, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
+        // What the server answers for the fields, with what the change saved for the ones it named.
+        const fields =
+          fieldValues === undefined
+            ? profile.fields
+            : (profile.fields ?? []).map((asked) => (asked.id in fieldValues ? { ...asked, value: fieldValues[asked.id] ?? "" } : asked));
+        return saved ? saved() : Response.json({ profile: { ...profile, ...changes, fields }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       }
       case `PUT ${AVATAR_PATH}`:
         return uploaded();
@@ -117,12 +111,14 @@ function serve({
 
 /**
  * The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`,
- * and with the huddle sounds she hears as the list has them, or none while huddles are off.
+ * with pushes hushed until `dndUntil`, and with the huddle sounds she hears as the list has them, or
+ * none while huddles are off.
  */
-function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, huddleSounds: HuddleSounds | null = null) {
-  const [onSignOut, onFailed, answered, soundsAnswered] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, huddleSounds: HuddleSounds | null = null, dndUntil: string | null = null) {
+  const [onSignOut, onFailed, answered, onDndChanged, soundsAnswered] = [vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn()];
   const onDeleteAccount = vi.fn(async () => {});
   const setBlocked = vi.fn(async () => true);
+  let hushed = dndUntil;
   const page = (listed: SidebarRoom[] | null, people: People = new Map(), blocked: string[] = []) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
@@ -134,6 +130,9 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
                   me={ada}
                   rooms={listed}
                   askForRoom={() => answered}
+                  dndUntil={hushed}
+                  askForDnd={() => (hushedUntil: string | null) => onDndChanged(hushedUntil)}
+                  onDndChanged={onDndChanged}
                   huddleSounds={huddleSounds}
                   askForHuddleSounds={() => soundsAnswered}
                   onSignOut={onSignOut}
@@ -153,10 +152,15 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
     onDeleteAccount,
     onFailed,
     answered,
+    onDndChanged,
     soundsAnswered,
     user: userEvent.setup(),
     showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
     showPeople: (people: People) => rerender(page(rooms, people)),
+    showDnd: (hushedUntil: string | null) => {
+      hushed = hushedUntil;
+      rerender(page(rooms, new Map()));
+    },
     /** Has the sidebar list the people `blocked` names as blocked, with the people directory listing `people`. */
     showBlocked: (blocked: string[], people: People) => rerender(page(rooms, people, blocked)),
   };
@@ -1128,6 +1132,38 @@ describe("Your model on your profile", () => {
   });
 });
 
+describe("Do not disturb on your profile", () => {
+  const section = () => screen.queryByRole("region", { name: "Do not disturb" });
+  const HUSHED = "2026-11-14T09:00:00.000Z";
+  const hushedProfile = () =>
+    serve({ loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS, dndUntil: HUSHED }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+
+  it("stands between Ember AI and your rooms' bells, hushed as the workspace has it, which loading the page tells it of", async () => {
+    hushedProfile();
+    const { onDndChanged, showDnd, showRooms } = showPage();
+    await loaded();
+    // The hush the page loaded is the workspace's to keep, which the rail shows by its crescent.
+    expect(onDndChanged).toHaveBeenCalledWith(HUSHED);
+    showDnd(HUSHED);
+    showRooms([{ id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" }]);
+    const emberAi = screen.getByRole("region", { name: "Ember AI" });
+    const bells = screen.getByRole("list", { name: "Conversation notifications" });
+    expect(emberAi.compareDocumentPosition(section()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(section()!.compareDocumentPosition(bells)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(section()).toHaveTextContent("Your rooms, unread marks, the app badge and banners in the app carry on.");
+    expect(within(section()!).getByRole("switch", { name: "Hush my push notifications" })).toBeChecked();
+    expect(within(section()!).getByText(/Push notifications are hushed until/)).toBeInTheDocument();
+  });
+
+  it("has the switch off, and nothing hushed, while it isn't", async () => {
+    const { onDndChanged } = showPage();
+    await loaded();
+    expect(within(section()!).getByRole("switch", { name: "Hush my push notifications" })).not.toBeChecked();
+    expect(within(section()!).queryByText(/hushed until/)).not.toBeInTheDocument();
+    expect(onDndChanged).toHaveBeenCalledWith(null);
+  });
+});
+
 describe("Install as an app", () => {
   const install = () => screen.queryByText("Install Ember as a web app.")?.closest("details");
 
@@ -1324,5 +1360,255 @@ describe("Apps on your profile", () => {
     await user.click(screen.getByRole("button", { name: "Sign out of Linear" }));
     expect(await screen.findByRole("button", { name: "Sign in to Linear" })).toBeVisible();
     expect(fetch).toHaveBeenLastCalledWith(`/api/users/me/apps/${LINEAR.id}/sign-in`, expect.objectContaining({ method: "DELETE" }));
+  });
+});
+
+describe("The workspace's fields on your profile", () => {
+  const title = () => field("Title");
+  const pronouns = () => field("Pronouns");
+
+  it("asks the fields after your bio, an input each, or a menu of its choices set at what you saved", async () => {
+    showPage();
+    await loaded();
+    expect(title()).toHaveValue("Countess");
+    expect(title()).toHaveAttribute("maxlength", "200");
+    expect(pronouns().tagName).toBe("SELECT");
+    expect(within(pronouns()).getAllByRole("option").map((option) => option.textContent)).toEqual(["Not set", "she/her", "they/them"]);
+    expect(pronouns()).toHaveValue("she/her");
+    // Between your bio and Save changes.
+    expect(field("Bio").compareDocumentPosition(title())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(title().compareDocumentPosition(pronouns())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(pronouns().compareDocumentPosition(saveButton())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("saves what you changed with the rest, sending only the fields you changed", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.clear(title());
+    await user.type(title(), "Admiral");
+    await user.selectOptions(pronouns(), "Not set");
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{ fieldValues: { "field-title": "Admiral", "field-pronouns": "" } }]);
+    expect(title()).toHaveValue("Admiral");
+    expect(pronouns()).toHaveValue("");
+    // And saving again sends nothing, what being saved.
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{ fieldValues: { "field-title": "Admiral", "field-pronouns": "" } }, {}]);
+  });
+
+  it("shows what's saved once an answer says so, whether this page sent it or another tab did", async () => {
+    // Another tab saved a new title and pronouns while this page was open.
+    serve({
+      saved: () =>
+        Response.json({
+          profile: { ...profile, fields: [{ ...ASKED_FIELDS[0]!, value: "Admiral" }, { ...ASKED_FIELDS[1]!, value: "they/them" }] },
+          transferId: SAVED_LINK,
+        } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{}]);
+    expect(title()).toHaveValue("Admiral");
+    expect(pronouns()).toHaveValue("they/them");
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    // And saving again doesn't put back what the page loaded.
+    expect(saved()).toEqual([{}, {}]);
+  });
+
+  it("forgets a field an administrator has deleted once a save answers without it, so no later save names it", async () => {
+    // An administrator deleted Title while the page was open, and the save went before they did.
+    serve({
+      saved: () => Response.json({ profile: { ...profile, fields: [ASKED_FIELDS[1]!] }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(screen.queryByLabelText("Title")).toBeNull();
+    expect(pronouns()).toHaveValue("she/her");
+    // Saving again sends nothing for the field that's gone, which the server refuses a save for.
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{}, {}]);
+  });
+
+  it("takes up a field an administrator has added, with what it says another tab has saved for it", async () => {
+    const phone = { id: "field-phone", name: "Phone", options: null, value: "555-0101" };
+    // An administrator added Phone while the page was open, and another tab saved theirs before the save went.
+    serve({
+      saved: () => Response.json({ profile: { ...profile, fields: [...ASKED_FIELDS, phone] }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(screen.queryByLabelText("Phone")).toBeNull();
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(field("Phone")).toHaveValue("555-0101");
+    // And saving again doesn't clear what the other tab saved.
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{}, {}]);
+  });
+
+  it("shows what you saved even when it's no longer one of the choices, so that Not set can take it away", async () => {
+    // An administrator took she/her out of the choices after Ada saved hers, which the Worker keeps.
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, fields: [{ ...ASKED_FIELDS[1]!, options: ["they/them"] }] }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(pronouns()).toHaveValue("she/her");
+    expect(within(pronouns()).getAllByRole("option").map((option) => option.textContent)).toEqual(["Not set", "they/them", "she/her"]);
+
+    await user.selectOptions(pronouns(), "Not set");
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{ fieldValues: { "field-pronouns": "" } }]);
+    expect(pronouns()).toHaveValue("");
+  });
+});
+describe("Your mood", () => {
+  it("fills the Emoji from the picker, which offers the mood's emojis by name", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: "Pick the mood's emoji" }));
+    await user.click(screen.getByRole("option", { name: "Rocket" }));
+    expect(field("Emoji")).toHaveValue("🚀");
+    // The picker closes once one is picked, and any emoji can still be typed over it.
+    expect(screen.queryByRole("option", { name: "Rocket" })).not.toBeInTheDocument();
+    await user.type(field("Emoji"), "🥳");
+    expect(field("Emoji")).toHaveValue("🚀🥳");
+  });
+
+  it("wears an emoji and a few words beside your name, until the Clear-at menu says, with the notice ✓", async () => {
+    const { onFailed, user } = showPage();
+    await loaded();
+    await user.type(field("Emoji"), "😌");
+    await user.type(field("Words"), "Pairing on the compiler");
+    await user.selectOptions(field("Clear at"), "hour");
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    const [sent] = saved();
+    expect(sent!.mood).toEqual({ emoji: "😌", text: "Pairing on the compiler", clearAt: expect.any(String) });
+    // In an hour from when it was saved, by this clock.
+    expect(Date.parse(sent!.mood!.clearAt!)).toBeGreaterThan(Date.now() + 55 * 60_000);
+    expect(Date.parse(sent!.mood!.clearAt!)).toBeLessThan(Date.now() + 65 * 60_000);
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("shows what you wear, and takes it off with Clear, which empties the fields", async () => {
+    serve({
+      loaded: () =>
+        Response.json({ profile: { ...profile, mood: { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() + 30 * 60_000).toISOString() } }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    // Half an hour off is within the hour the Clear-at menu counts by.
+    expect(field("Clear at")).toHaveValue("hour");
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(saved()).toEqual([{ mood: null }]);
+    expect(field("Emoji")).toHaveValue("");
+    expect(field("Words")).toHaveValue("");
+    expect(field("Clear at")).toHaveValue("never");
+  });
+
+  it("prefers Never for a stored mood whose clear time has passed, so saving it doesn't keep it an hour longer", async () => {
+    serve({
+      loaded: () =>
+        Response.json({ profile: { ...profile, mood: { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() - 60_000).toISOString() } }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    showPage();
+    await loaded();
+    expect(field("Clear at")).toHaveValue("never");
+  });
+
+  it("has nothing to save or clear while you wear none, until an emoji and words are typed", async () => {
+    const { user } = showPage();
+    await loaded();
+    const saveMood = screen.getByRole("button", { name: "Save mood" });
+    expect(saveMood).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+    await user.type(field("Emoji"), "😌");
+    expect(saveMood).toBeDisabled();
+    await user.type(field("Words"), "Pairing");
+    expect(saveMood).toBeEnabled();
+  });
+
+  it("shows what another tab has saved since, which its answer tells this page", async () => {
+    const worn = { emoji: "😌", text: "Pairing on the compiler", clearAt: null };
+    serve({ loaded: () => Response.json({ profile: { ...profile, mood: worn }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { user } = showPage();
+    await loaded();
+    expect(field("Emoji")).toHaveValue("😌");
+    // Another tab saved new words, which reach this page with its next answer.
+    serve({ saved: () => Response.json({ profile: { ...profile, mood: { ...worn, text: "Sailing the seas" } }, transferId: SAVED_LINK } satisfies ProfileAnswer) });
+    await user.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    await waitFor(() => expect(field("Words")).toHaveValue("Sailing the seas"));
+  });
+
+  it("keeps the mood it just saved while its save is out and answers that read before it come, then shows a mood saved since", async () => {
+    const newer = { emoji: "🚀", text: "Sailing the seas", clearAt: null };
+    /** Each save of the profile answers when the test lets it, saying the mood it sent, if it sent one. */
+    const answers: Array<{ mood: PersonMood | null; resolve: (response: Response) => void }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/users/me/profile") return Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer);
+      if (request === "PATCH /api/users/me/profile") {
+        const { mood } = JSON.parse(String(init?.body)) as ProfileChanges;
+        return new Promise((resolve) => answers.push({ mood: mood ?? null, resolve }));
+      }
+      throw new Error(`Unexpected request for ${request}`);
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Emoji"), "😌");
+    await user.type(field("Words"), "Pairing on the compiler");
+    await user.selectOptions(field("Clear at"), "hour");
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+
+    // A save of the profile sent before the mood was answers first, saying the mood it read.
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => answers[1]!.resolve(Response.json({ profile: { ...profile, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(field("Name")).toHaveValue("Ada King"));
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    expect(field("Clear at")).toHaveValue("hour");
+
+    // One that says the mood the save sent has the save echoed back in it, so an answer after it that
+    // says another mood is a change made since the save, as another tab's newer one, and shows.
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(3));
+    await act(async () =>
+      answers[2]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: answers[0]!.mood }, transferId: SAVED_LINK } satisfies ProfileAnswer)),
+    );
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    // The mood's save answers itself, saying what it left the profile as.
+    await act(async () => answers[0]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: answers[0]!.mood }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    expect(field("Clear at")).toHaveValue("hour");
+
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(4));
+    await act(async () => answers[3]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: newer }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(field("Emoji")).toHaveValue("🚀"));
+    expect(field("Words")).toHaveValue("Sailing the seas");
+    expect(field("Clear at")).toHaveValue("never");
   });
 });

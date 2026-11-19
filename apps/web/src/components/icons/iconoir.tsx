@@ -104,8 +104,7 @@ export function Bell(props: IconoirIconProps) {
   return (
     <IconoirIcon name="bell" {...props}>
       <path
-        d="M18 8.4C18 6.70261 17.3679 5.07475 16.2426 3.87452C15.1174 2.67428 13.5913 2 12 2C10.4087 2 8.88258 2.67428 7.75736 3.87452C6.63214 5.07475 6 6.70261 6 8.4C6 15.8667 3 18 3 18H21C21 18 18 15.8667 18 8.4Z"
-        {...LINE}
+        d="M18 8.4C18 6.70261 17.3679 5.07475 16.2426 3.87452C15.1174 2.67428 13.5913 2 12 2C10.4087 2 8.88258 2.67428 7.75736 3.87452C6.63214 5.07475 6 6.70261 6 8.4C6 15.8667 3 18 3 18H21C21 18 18 15.8667 18 8.4Z"        {...LINE}
       />
       <path
         d="M13.73 21C13.5542 21.3031 13.3019 21.5547 12.9982 21.7295C12.6946 21.9044 12.3504 21.9965 12 21.9965C11.6496 21.9965 11.3054 21.9044 11.0018 21.7295C10.6982 21.5547 10.4458 21.3031 10.27 21"
@@ -153,6 +152,17 @@ export function BellOff(props: IconoirIconProps) {
         {...LINE}
       />
       <path d="M3 3L21 21" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function Bookmark(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="bookmark" {...props}>
+      <path
+        d="M5 21V5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L13.0815 17.1953C12.4227 16.7717 11.5773 16.7717 10.9185 17.1953L5 21Z"
+        {...LINE}
+      />
     </IconoirIcon>
   );
 }
@@ -564,6 +574,19 @@ export function Hashtag(props: IconoirIconProps) {
   );
 }
 
+export function Hourglass(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="hourglass" {...props}>
+      <path
+        d="M12 12C15.866 12 19 8.86599 19 5H5C5 8.86599 8.13401 12 12 12ZM12 12C15.866 12 19 15.134 19 19H5C5 15.134 8.13401 12 12 12Z"
+        {...LINE}
+      />
+      <path d="M5 2L12 2L19 2" {...LINE} />
+      <path d="M5 22H12L19 22" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function Headset(props: IconoirIconProps) {
   return (
     <IconoirIcon name="headset" {...props}>
@@ -886,6 +909,15 @@ export function Palette(props: IconoirIconProps) {
   );
 }
 
+export function Pin(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="pin" {...props}>
+      <path d="M9.5 14.5L3 21" {...LINE} />
+      <path d="M5.00007 9.48528L14.1925 18.6777L15.8895 16.9806L15.4974 13.1944L21.0065 8.5211L15.1568 2.67141L10.4834 8.18034L6.69713 7.78823L5.00007 9.48528Z" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function Plus(props: IconoirIconProps) {
   return (
     <IconoirIcon name="plus" {...props}>
@@ -1152,6 +1184,15 @@ export function SwitchOff(props: IconoirIconProps) {
   );
 }
 
+export function Terminal(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="terminal" {...props}>
+      <path d="M13 17H20" {...LINE} />
+      <path d="M5 7L10 12L5 17" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function TextSquare(props: IconoirIconProps) {
   return (
     <IconoirIcon name="text-square" {...props}>
@@ -1173,6 +1214,19 @@ export function Translate(props: IconoirIconProps) {
         {...LINE}
       />
       <path d="M13.5 21L14.6429 18M21.5 21L20.3571 18M14.6429 18L17.5 10.5L20.3571 18M14.6429 18H20.3571" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
+export function Timer(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="timer" {...props}>
+      <path d="M9 2L15 2" {...LINE} />
+      <path d="M12 10L12 14" {...LINE} />
+      <path
+        d="M12 22C16.4183 22 20 18.4183 20 14C20 9.58172 16.4183 6 12 6C7.58172 6 4 9.58172 4 14C4 18.4183 7.58172 22 12 22Z"
+        {...LINE}
+      />
     </IconoirIcon>
   );
 }

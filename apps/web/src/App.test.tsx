@@ -212,6 +212,9 @@ function serve({
       account = { ...account, huddles: true };
       return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId, relayKeyId: null } });
     }
+    if (route === "GET /api/account/profile_fields") return Response.json({ fields: [] });
+    if (route === "GET /api/users") return Response.json({ users: [], groups: [] });
+    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null, fields: [], apps: [], outsideAi: null } });
     if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, username: null, emailAddress: null, bio: null, apps: [], outsideAi: null } });
     if (route === "PATCH /api/users/me/profile") {

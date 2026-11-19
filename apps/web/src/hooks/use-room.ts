@@ -77,6 +77,8 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
     remove: (messageId) => sendOrWarn({ type: "message.delete", messageId }),
     boost: (messageId, content) => sendOrWarn({ type: "boost.create", messageId, content }),
     unboost: (boostId) => sendOrWarn({ type: "boost.delete", boostId }),
+    pin: (messageId) => sendOrWarn({ type: "pin.create", messageId }),
+    unpin: (messageId) => sendOrWarn({ type: "pin.delete", messageId }),
     click: (messageId, { id: actionId, blockId, value }) => {
       const clickId = crypto.randomUUID();
       const button = { actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
@@ -95,6 +97,52 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
         });
       });
     },
+    runShortcut: (messageId, shortcutId) => {
+      if (!sendOrWarn({ type: "shortcut.run", shortcutId, messageId })) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        const answered = (went: boolean) => {
+          stop();
+          resolve(went);
+        };
+        // The room answers once the bot has, or says why it didn't, which the flash says, as a command's
+        // does. A room that lets the page in again has lost the answer, if not the run.
+        const stop = listen((frame) => {
+          if (frame.type === "shortcut.ran" && frame.shortcutId === shortcutId) answered(true);
+          else if (frame.type === "error" && frame.shortcutId === shortcutId) {
+            warn(frame.message);
+            answered(false);
+          } else if (frame.type === "welcome" || frame.type === "resumed") answered(false);
+        });
+      });
+    },
+  };
+}
+
+/**
+ * Runs `/name text` as an invocation, over `frames`, answering whether the room took it: it answers
+ * `command.ran` once the bot has heard it, or says why it didn't, which the room shows. A room that lets
+ * the page in again has lost the command's answer, if not the command, as it has a click's.
+ */
+export function runCommandOf({ send, listen }: RoomFrames, warn: (message: string) => void): (name: string, text: string) => Promise<boolean> {
+  return (name, text) => {
+    const commandId = crypto.randomUUID();
+    if (!send({ type: "command.run", commandId, name, text })) {
+      warn("Not connected. Try again once you're reconnected.");
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      const answered = (went: boolean) => {
+        stop();
+        resolve(went);
+      };
+      const stop = listen((frame) => {
+        if (frame.type === "command.ran" && frame.commandId === commandId) answered(true);
+        else if (frame.type === "error" && frame.commandId === commandId) {
+          warn(frame.message);
+          answered(false);
+        } else if (frame.type === "welcome" || frame.type === "resumed") answered(false);
+      });
+    });
   };
 }
 
@@ -119,9 +167,11 @@ export function openRoomSocketAhead(pathname: string): () => void {
  * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
  * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
  * or whoever another tab signed in as. `openedAt` is the message whose permalink opened the room, which
- * the timeline starts around.
+ * the timeline starts around. `viewing` says whether the page counts as looking at the room, which a
+ * pane covering it, as Saved does below 1180px wide, says no to, so what's said goes unread until it
+ * closes.
  */
-export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void, openedAt?: string) {
+export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void, openedAt?: string, viewing = true) {
   const [state, dispatch, latest] = useLatestReducer(roomReducer, () => initialRoomState);
   const [around] = useState(openedAt);
   const socket = useRef<ReconnectingSocket | null>(null);
@@ -129,6 +179,11 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
+  // Whether the page counts as looking at the room, as `viewing` says now, which the room's socket
+  // effect reads when it opens the socket and tells the room of when it changes.
+  const viewingRef = useRef(viewing);
+  // Tells the room of a change of the above, once the room's socket effect has something to tell with.
+  const retellViewing = useRef<(() => void) | null>(null);
   // What this page left unsent here when the room was last left waits in the timeline again, to go, or
   // show as not sent, as it would have had the room stayed open.
   const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me));
@@ -170,13 +225,17 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     // The permalink's message, until the room has opened the timeline: a socket that connects again keeps it as it is.
     let openingAround = around;
 
-    // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
-    // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
+    // Tells the room whether the page is looking at it, unless its socket's address or an earlier frame
+    // said so already. Until the room lets the socket in, the welcome tells it. The tab's own change
+    // counts once it has stayed that way for a while; a pane starting or stopping covering the room
+    // counts at once, as looking away for a moment does.
     let told: boolean;
     const tellVisibility = (visible: boolean) => {
       if (visible !== told && room.send({ type: "presence.visible", visible })) told = visible;
     };
-    const visibility = settledVisibility(tellVisibility);
+    const visibility = settledVisibility((shown) => tellVisibility(shown && viewingRef.current));
+    const lookingAtRoom = () => visibility.visible && viewingRef.current;
+    retellViewing.current = () => tellVisibility(lookingAtRoom());
 
     // Asks who this browser is signed in as now and hands over to them, or to sign in, unless it's still
     // this person or it can't tell, when it does `then`. A session check that answers once this room
@@ -209,7 +268,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       if (frame.type !== "message.created" || isInRoom(frame.message)) dispatch({ type: "frame", frame, now: Date.now() });
       if (opening) {
         room.connected();
-        tellVisibility(visibility.visible);
+        tellVisibility(lookingAtRoom());
         checkUnconfirmed(room, frame.messages);
         sendQueued(room, frame);
       }
@@ -252,7 +311,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
           told = false;
           return ahead;
         }
-        return roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen, around: openingAround });
+        return roomSocketUrl(roomId, { visible: (told = lookingAtRoom()), since: seen, around: openingAround });
       },
       onMessage,
       onConnecting: (status) => dispatch({ type: "status", status }),
@@ -268,10 +327,18 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       visibility.stop();
       room.close();
       socket.current = null;
+      retellViewing.current = null;
       // Leaving the room loses none of what was written here: the outbox sends what hasn't gone.
       handOver(roomId, leftUnsent(latest.current));
     };
   }, [roomId, around]);
+
+  // The room hears of the pane starting and stopping covering it as of a change of the tab's own, so
+  // that what's said while it's covered goes unread, and closing it reads the room that shows again.
+  useEffect(() => {
+    viewingRef.current = viewing;
+    retellViewing.current?.();
+  }, [viewing]);
 
   const send = useCallback((frame: ClientFrame) => socket.current?.send(frame) ?? false, []);
   const frames = useMemo<RoomFrames>(
@@ -390,11 +457,12 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   );
 
   const messageActions = useMemo(() => messageActionsOf(frames, warn), [frames, warn]);
+  const runCommand = useMemo(() => runCommandOf(frames, warn), [frames, warn]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
   const givenBack = useCallback((clientMessageId: string, taken: boolean) => dispatch({ type: "given-back", clientMessageId, taken }), []);
 
-  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack };
+  return { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack };
 }
 
 /**

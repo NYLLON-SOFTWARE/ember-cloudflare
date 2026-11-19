@@ -1,144 +1,11 @@
-import {
-  AVATAR_PATH,
-  LOGO_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  roomSocketQuery,
-  searchQuery,
-  WORKSPACE_PRELOADS,
-  workspaceSocketQuery,
-  type Account,
-  type AccountChanges,
-  type AccountDeletion,
-  type AssistantChanged,
-  type AssistantChanges,
-  type AssistantForgotten,
-  type AssistantKeys,
-  type AssistantSaved,
-  type AssistantSetup,
-  type Bootstrap,
-  type Bot,
-  type BotAnswer,
-  type BotChanges,
-  type Bots,
-  type BotSettings,
-  type ChangedBlocks,
-  type ChangedPerson,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type CustomDomainReach,
-  type CustomStyles,
-  type DirectRoom,
-  type Directory,
-  type DirectoryUser,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailLinkRequest,
-  type EmailLinkSignUp,
-  type EmailSettings,
-  type Favorites,
-  type HuddleRelaySetup,
-  type HuddleSoundChanges,
-  type HuddleSounds,
-  type HuddleSoundsChanged,
-  type HuddlesForgotten,
-  type HuddlesSaved,
-  type HuddlesSettings,
-  type HuddlesSetup,
-  type InvitationOutcome,
-  type Invited,
-  type Involvement,
-  type LinkPreview,
-  type LinkSignIn,
-  type Me,
-  type MemberfulConnection,
-  type MemberfulConnectionStart,
-  type MemberfulDisconnection,
-  type NewAssistantModel,
-  type OfferedModels,
-  type NewDirect,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewBot,
-  type NewWorkspace,
-  type OpenSignUp,
-  type PastHuddle,
-  type PastHuddles,
-  type PasswordResetDone,
-  type PasswordResetRequest,
-  type PasswordResetWithCode,
-  type PasswordSignIn,
-  type PersonAnswer,
-  type PersonRole,
-  type ProfileAnswer,
-  type ProfileChanges,
-  type PushSubscriptionKeys,
-  type PushSubscriptionSave,
-  type PushSubscriptions,
-  type ReleaseCheck,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomSettings,
-  type RoomSocketParams,
-  type SavedPushSubscription,
-  type Search,
-  type SearchResults,
-  type SearchSort,
-  type SendingDomainCheck,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SignOut,
-  type SignUp,
-  type StartedDirect,
-  type TurnstileKeysChange,
-  type TurnstileSettings,
-  type UserId,
-  type WebSearchChanged,
-  type WorkspaceSettings,
-  type WorkspaceSocketParams,
-  type YourAssistantChanged,
-  type YourAssistantChanges,
-} from "@ember/protocol";
+import { AVATAR_PATH, LOGO_PATH, MEMBERFUL_CONNECTIONS_PATH, roomSocketQuery, searchQuery, WORKSPACE_PRELOADS, workspaceSocketQuery, type Account, type AccountChanges, type AccountDeletion, type AssistantChanged, type AssistantChanges, type AssistantForgotten, type AssistantKeys, type AssistantSaved, type AssistantSetup, type Bootstrap, type Bot, type BotAnswer, type BotChanges, type Bots, type BotSettings, type ChangedBlocks, type ChangedPerson, type CustomDomainCheck, type CustomDomainLookup, type CustomDomainReach, type CustomStyles, type Directory, type DirectoryUser, type DirectRoom, type DndAnswer, type EmailLinkFor, type EmailLinkKind, type EmailLinkRequest, type EmailLinkSignUp, type EmailSettings, type Favorites, type GroupId, type GuestAnswer, type HuddleRelaySetup, type HuddlesForgotten, type HuddleSoundChanges, type HuddleSounds, type HuddleSoundsChanged, type HuddlesSaved, type HuddlesSettings, type HuddlesSetup, type InvitationOutcome, type Invited, type Involvement, type LinkPreview, type LinkSignIn, type Me, type MemberfulConnection, type MemberfulConnectionStart, type MemberfulDisconnection, type NewAssistantModel, type NewBot, type NewDirect, type NewJoinCode, type NewRoom, type NewRoomForm, type NewUserGroup, type NewWorkspace, type OfferedModels, type OpenSignUp, type PasswordResetDone, type PasswordResetRequest, type PasswordResetWithCode, type PasswordSignIn, type PastHuddle, type PastHuddles, type PersonAnswer, type PersonRole, type ProfileAnswer, type ProfileChanges, type ProfileField, type ProfileFieldChange, type PushSubscriptionKeys, type PushSubscriptions, type PushSubscriptionSave, type ReleaseCheck, type Reminder, type ResentInvitation, type Room, type RoomChanges, type RoomGuest, type RoomId, type RoomSettings, type RoomSocketParams, type SavedItems, type SavedMessage, type SavedPushSubscription, type Search, type SearchResults, type SearchSort, type SendingDomainCheck, type SentTestEmail, type SharedRoom, type Sidebar, type SignOut, type SignUp, type StartedDirect, type TurnstileKeysChange, type TurnstileSettings, type UserGroup, type UserGroupAnswer, type UserGroupChanges, type UserGroupsAnswer, type UserId, type WebSearchChanged, type WorkspaceSettings, type WorkspaceSocketParams, type YourAssistantChanged, type YourAssistantChanges } from "@ember/protocol";
+import type { Command, CommandAnswer, Commands, NewCommand, NewShortcut, Shortcut, ShortcutAnswer, Shortcuts } from "@ember/protocol/bots";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, AvailableAgent, AvailableAgents, NewAgent } from "@ember/protocol/agents";
-import type {
-  AgentToolPicks,
-  AgentTools,
-  App,
-  AppAnswer,
-  AppChanges,
-  AppClient,
-  AppId,
-  AppRemoved,
-  Apps,
-  AppSignedIn,
-  AppSignInBegun,
-  AppSignInReturn,
-  AppSummary,
-  NewApp,
-  NewAppSignIn,
-  OfferedApp,
-  ToolPick,
-  YourAppSignedIn,
-  YourAppSignedOut,
-} from "@ember/protocol/apps";
+import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppClient, AppId, AppRemoved, Apps, AppSignedIn, AppSignInBegun, AppSignInReturn, AppSummary, NewApp, NewAppSignIn, OfferedApp, ToolPick, YourAppSignedIn, YourAppSignedOut } from "@ember/protocol/apps";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
 import type { OutsideAiSettings, OutsideAnswer, OutsideAnswered, OutsideAsk, OutsideAsked, OutsideScope, YourOutsideAi } from "@ember/protocol/outside";
 import type { HandledReports, NewReport, Report, ReportHandling, ReportOutcome, Reports } from "@ember/protocol/reports";
-import {
-  SSO_CONNECTIONS_PATH,
-  SSO_SETTINGS_PATH,
-  type ElsewhereConnection,
-  type SsoConnection,
-  type SsoConnectionStart,
-  type SsoDisconnection,
-  type SsoForgotten,
-  type SsoSaved,
-  type SsoSettings,
-  type SsoSetup,
-} from "@ember/protocol/sso";
+import { SSO_CONNECTIONS_PATH, SSO_SETTINGS_PATH, type ElsewhereConnection, type SsoConnection, type SsoConnectionStart, type SsoDisconnection, type SsoForgotten, type SsoSaved, type SsoSettings, type SsoSetup } from "@ember/protocol/sso";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -456,6 +323,20 @@ export async function removeAvatar(): Promise<ProfileAnswer> {
   return request<ProfileAnswer>(AVATAR_PATH, { method: "DELETE" });
 }
 
+/**
+ * Hushes your push notifications (Do not disturb) until `until`, an ISO time, answering when they're
+ * heard again. It hushes push notifications alone: your rooms, unread marks, the badge and banners in
+ * the app carry on. Fails with a 422 ApiError for a time that isn't ahead of now.
+ */
+export async function setDnd(until: string): Promise<DndAnswer> {
+  return request<DndAnswer>("/api/users/me/dnd", { method: "PUT", body: JSON.stringify({ until }) });
+}
+
+/** Lifts the hush on your push notifications, answering that they're heard again. */
+export async function clearDnd(): Promise<DndAnswer> {
+  return request<DndAnswer>("/api/users/me/dnd", { method: "DELETE" });
+}
+
 /** Workspace settings: the workspace, its join code, and whether this person can change it. */
 export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
   return request<WorkspaceSettings>("/api/account");
@@ -464,6 +345,31 @@ export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
 /** Changes the workspace, answering it as it is then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function changeAccount(changes: AccountChanges): Promise<Account> {
   return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
+}
+
+/** The workspace's profile fields, in the order they come in the profile. Fails with a 403 ApiError for anyone but an administrator. */
+export async function fetchProfileFields(): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>("/api/account/profile_fields")).fields;
+}
+
+/** Adds a profile field, answering the fields as they are then. */
+export async function addProfileField(change: ProfileFieldChange): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>("/api/account/profile_fields", { method: "POST", body: JSON.stringify(change) })).fields;
+}
+
+/** Renames a profile field and sets its choices, answering the fields as they are then. */
+export async function changeProfileField(id: string, change: ProfileFieldChange): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>(`/api/account/profile_fields/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) })).fields;
+}
+
+/** Puts the fields in the order `ids` name them, answering the fields as they are then. */
+export async function reorderProfileFields(ids: string[]): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>("/api/account/profile_fields/order", { method: "PUT", body: JSON.stringify({ ids }) })).fields;
+}
+
+/** Takes a profile field away, with what anyone saved for it, answering the fields as they are then. */
+export async function deleteProfileField(id: string): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>(`/api/account/profile_fields/${encodeURIComponent(id)}`, { method: "DELETE" })).fields;
 }
 
 /** What `domain`, a custom domain Ember moved away from, reaches, as Check in Workspace settings asks: this Ember, something else, or nothing. */
@@ -557,6 +463,61 @@ export async function changeBot(botId: UserId, changes: BotChanges, avatar: Chos
 /** Deletes the bot `botId`, which takes it out of every room but its DMs. Fails as `fetchBot` does. */
 export async function deleteBot(botId: UserId): Promise<void> {
   await request(`/api/account/bots/${encodeURIComponent(botId)}`, { method: "DELETE" });
+}
+
+/**
+ * The workspace's commands, each with its bot, and which of the bots are on which rooms' message events,
+ * as the bots page ticks them and the composer's menu offers them. Fails with a 401 ApiError once the
+ * session has ended.
+ */
+export async function fetchCommands(): Promise<Commands> {
+  return request<Commands>("/api/account/commands");
+}
+
+/**
+ * Registers a command with `name` and what it's for, invoking the bot `botId`. Fails with a 403 ApiError
+ * for anyone but an administrator, a 404 for a bot that isn't active, and a 422 for a name that's
+ * refused or taken already.
+ */
+export async function registerCommand(command: NewCommand): Promise<Command> {
+  return (await request<CommandAnswer>("/api/account/commands", { method: "POST", body: JSON.stringify(command) })).command;
+}
+
+/** Forgets the command `id`, whose name is free again. Fails as `fetchBot` does. */
+export async function removeCommand(commandId: string): Promise<void> {
+  await request(`/api/account/commands/${encodeURIComponent(commandId)}`, { method: "DELETE" });
+}
+
+/**
+ * The workspace's shortcuts, each with its bot, as a message's More actions offers them. Fails with a
+ * 401 ApiError once the session has ended.
+ */
+export async function fetchShortcuts(): Promise<Shortcuts> {
+  return request<Shortcuts>("/api/account/shortcuts");
+}
+
+/**
+ * Registers a shortcut with `name` and what it's for, invoking the bot `botId`. Fails with a 403
+ * ApiError for anyone but an administrator, a 404 for a bot that isn't active, and a 422 for a name
+ * that's refused or taken already.
+ */
+export async function registerShortcut(shortcut: NewShortcut): Promise<Shortcut> {
+  return (await request<ShortcutAnswer>("/api/account/shortcuts", { method: "POST", body: JSON.stringify(shortcut) })).shortcut;
+}
+
+/** Forgets the shortcut `id`, whose name is free again. Fails as `fetchBot` does. */
+export async function removeShortcut(shortcutId: string): Promise<void> {
+  await request(`/api/account/shortcuts/${encodeURIComponent(shortcutId)}`, { method: "DELETE" });
+}
+
+/** Puts the bot `botId` on room `roomId`'s message events, which it must be in. Fails with a 422 ApiError when it isn't. */
+export async function subscribeBotToMessages(botId: UserId, roomId: RoomId): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}/rooms/${encodeURIComponent(roomId)}/events`, { method: "PUT" });
+}
+
+/** Takes the bot `botId` off room `roomId`'s message events. Fails as `fetchBot` does. */
+export async function unsubscribeBotFromMessages(botId: UserId, roomId: RoomId): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}/rooms/${encodeURIComponent(roomId)}/events`, { method: "DELETE" });
 }
 
 /** Gives the bot `botId` a new key, so its old one stops working. Fails as `fetchBot` does. */
@@ -1052,6 +1013,28 @@ export async function dismissInvitation(): Promise<void> {
   await request("/api/sidebar/invitation", { method: "DELETE" });
 }
 
+/** The reminders of theirs the person hasn't dismissed yet, the one coming soonest first. */
+export async function fetchReminders(): Promise<Reminder[]> {
+  const { reminders } = await request<{ reminders: Reminder[] }>("/api/reminders");
+  return reminders;
+}
+
+/**
+ * Asks that a message of a room the person is in come back to them when they choose, answering what the
+ * Worker kept of it. A refusal (a time that makes no sense, a message that's gone) comes as an ApiError.
+ */
+export async function setReminder(roomId: RoomId, messageId: string, remindAt: string): Promise<Reminder> {
+  const { reminder } = await request<{ reminder: Reminder }>("/api/reminders", {
+    method: "POST",
+    body: JSON.stringify({ roomId, messageId, remindAt }),
+  });
+  return reminder;
+}
+
+/** Dismisses a reminder of theirs, which is being done with it, or taking it back before it comes. */
+export async function dismissReminder(id: string): Promise<void> {
+  await request(`/api/reminders/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
 /** Stops an invitation into room `roomId`'s huddle ringing in every tab this person has open, as joining from it or declining it does. */
 export async function answerHuddleInvitation(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}/huddle/invitation`, { method: "DELETE" });
@@ -1078,6 +1061,24 @@ export async function fetchDirectory(copy: DirectoryCopy | null): Promise<Direct
   if (copy && response.status === 304) return copy;
   return { directory: await dataOf<Directory>(response), etag: response.headers.get("ETag") };
 }
+
+/** The workspace's groups, by name, as the settings' User groups list shows them. Fails with a 403 ApiError for anyone but an administrator's session. */
+export async function fetchUserGroups(): Promise<UserGroup[]> {
+  return (await request<UserGroupsAnswer>("/api/user_groups")).groups;
+}
+
+/** Makes a group, answering it as it then is. Fails with a 403 ApiError for anyone but an administrator, or a 422 for a name another group has, however it's capitalised. */
+export async function createUserGroup(group: NewUserGroup): Promise<UserGroup> {
+  return (await request<UserGroupAnswer>("/api/user_groups", { method: "POST", body: JSON.stringify(group) })).group;
+}
+
+/** Changes a group's name or members, answering it as it then is, failing as `createUserGroup` does, and with a 404 ApiError for an id that isn't a group's. */
+export async function changeUserGroup(groupId: GroupId, changes: UserGroupChanges): Promise<UserGroup> {
+  return (await request<UserGroupAnswer>(`/api/user_groups/${encodeURIComponent(groupId)}`, { method: "PATCH", body: JSON.stringify(changes) })).group;
+}
+
+/** Deletes a group and everyone in it. Fails with a 404 ApiError for an id that isn't a group's. */
+export const deleteUserGroup = (groupId: GroupId) => request<void>(`/api/user_groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
 
 /** Who the New room forms list: everyone active, by name. */
 export async function fetchNewRoomForm(): Promise<NewRoomForm> {
@@ -1149,6 +1150,29 @@ export async function leaveRoom(roomId: RoomId): Promise<void> {
 }
 
 /**
+ * Adds a guest of a room, named `name`, whose stay ends at `until`, as its settings' guests panel asks,
+ * answering them as its people list then marks them. Fails with a 403 ApiError for someone who can't
+ * change the room, and a 422 one for a name one of its guests stays under or a time that has passed.
+ */
+export async function addGuest(roomId: RoomId, name: string, until: string): Promise<RoomGuest> {
+  return (await request<GuestAnswer>(`/api/rooms/${encodeURIComponent(roomId)}/guests`, { method: "POST", body: JSON.stringify({ name, until }) })).guest;
+}
+
+/**
+ * Extends the stay of a room's guest `userId` to end at `until`, as its settings' guests panel asks,
+ * answering them as its people list then marks them. Fails with a 404 ApiError once their stay is gone.
+ */
+export async function extendGuest(roomId: RoomId, userId: UserId, until: string): Promise<RoomGuest> {
+  return (await request<GuestAnswer>(`/api/rooms/${encodeURIComponent(roomId)}/guests/${encodeURIComponent(userId)}`, { method: "PUT", body: JSON.stringify({ until }) })).guest;
+}
+
+/** Ends the stay of a room's guest `userId`, as its settings' guests panel asks. Fails with a 404 ApiError once their stay is gone. */
+export async function endGuest(roomId: RoomId, userId: UserId): Promise<void> {
+  await request(`/api/rooms/${encodeURIComponent(roomId)}/guests/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+/**
+ * The preview of the page `url` goes to, for a link pasted in the composer, or null when it has none, as
  * The preview of the page `url` goes to, for a link in the composer, or null when it has none, as
  * Campfire's unfurl_controller.js asks for it. The page has none when it answers 204.
  */
@@ -1173,6 +1197,22 @@ export async function recordSearch(search: Search, sort: SearchSort = "newest"):
 /** Forgets your recent searches. */
 export async function clearSearches(): Promise<void> {
   await request("/api/searches", { method: "DELETE" });
+}
+
+/** The messages you've saved for later, newest save first, each as its room has it now. */
+export async function fetchSaves(): Promise<SavedItems> {
+  return request<SavedItems>("/api/saves");
+}
+
+/** Saves the message `messageId` of room `roomId` for later, answering the save. */
+export async function saveForLater(roomId: RoomId, messageId: string): Promise<SavedMessage> {
+  const { save } = await request<{ save: SavedMessage }>("/api/saves", { method: "POST", body: JSON.stringify({ roomId, messageId }) });
+  return save;
+}
+
+/** Forgets your save `id`. */
+export async function forgetSave(id: string): Promise<void> {
+  await request(`/api/saves/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /**

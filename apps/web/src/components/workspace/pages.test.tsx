@@ -5,7 +5,7 @@ import { PUSH_ON } from "@/test-push";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 // All of it, as the profile page reads every part once it loads.
-const adasProfile: Profile = { name: "Ada", username: null, emailAddress: "ada@example.com", bio: null, avatarUrl: "/users/u1/avatar?v=1", avatar: false, password: true, membershipNeeded: false, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
+const adasProfile: Profile = { name: "Ada", username: null, emailAddress: "ada@example.com", bio: null, avatarUrl: "/users/u1/avatar?v=1", avatar: false, password: true, membershipNeeded: false, memberful: null, sso: null, assistant: null, fields: [], apps: [], outsideAi: null, dndUntil: null, mood: null };
 const random: SharedRoom = { id: "random", name: "random", kind: "open", icon: null };
 const ANSWERS: Record<string, () => Response> = {
   "GET /api/sidebar": () =>
@@ -17,7 +17,7 @@ const ANSWERS: Record<string, () => Response> = {
       huddles: {},
       blocks: { userIds: [], version: 0 },
     }),
-  "GET /api/users": () => Response.json({ users: [] }),
+  "GET /api/users": () => Response.json({ users: [], groups: [] }),
   "GET /api/searches?q=": () => Response.json({ search: null, matches: [], next: null, rooms: [], recent: [] }),
   "GET /api/users/me/profile": () => Response.json({ profile: adasProfile }),
   "GET /api/huddles": () => Response.json({ huddles: [] }),

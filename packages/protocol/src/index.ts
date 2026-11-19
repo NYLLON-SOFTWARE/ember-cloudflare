@@ -129,6 +129,7 @@ export {
   CUSTOM_STYLES_PATH,
   EMAIL_SIGN_UP_PATH,
   emailSignUpLink,
+  guestSignInLink,
   huddlePath,
   HUDDLES_PATH,
   INVITATION_PATH,
@@ -142,6 +143,7 @@ export {
   NEW_DIRECT_PATH,
   pageAfterWelcome,
   PASSWORD_RESET_PATH,
+  messagePath,
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
   SEARCHES_PATH,
@@ -199,6 +201,7 @@ export {
   type SearchResults,
   type SearchSort,
 } from "./search.ts";
+export { MAX_SAVES, parseSave, type SavedItem, type SavedItems, type SavedMessage, type SaveMade } from "./saves.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -223,6 +226,28 @@ export type Role = "member" | "administrator" | "bot";
  */
 export type UserStatus = "active" | "deactivated" | "banned" | "suspended";
 
+/** How long the emoji someone wears beside their name may be, which a made-up one can be more than a character of. */
+export const MAX_MOOD_EMOJI_LENGTH = 24;
+/** How long the few words beside someone's name may be. */
+export const MAX_MOOD_TEXT_LENGTH = 100;
+
+/**
+ * What someone wears beside their name: a small emoji and a few words, which comes off by itself at
+ * `clearAt`, or stays until they take it off while that's null. When `clearAt` has passed it counts as
+ * none, which the page showing it decides: the workspace keeps it and sets no alarm for it.
+ */
+export interface PersonMood {
+  emoji: string;
+  text: string;
+  /** When it comes off by itself, as an ISO time, or null to wear it until they take it off. */
+  clearAt: string | null;
+}
+
+/** Whether `a` and `b` are the same mood, word for word and to the minute. */
+export function sameMood(a: PersonMood | null | undefined, b: PersonMood | null | undefined): boolean {
+  return a === b || (a !== undefined && b !== undefined && a !== null && b !== null && a.emoji === b.emoji && a.text === b.text && a.clearAt === b.clearAt);
+}
+
 /** Someone as the people directory lists them. */
 export interface DirectoryUser extends User {
   /** The username they picked, which typing @ finds them by too, as `usernameOf` keeps one. Left out while they have none. */
@@ -231,6 +256,8 @@ export interface DirectoryUser extends User {
   bio: string | null;
   role: Role;
   status: UserStatus;
+  /** What they wear beside their name (`PersonMood`), or null while they wear none. */
+  mood?: PersonMood | null;
   /** Their avatar, `/users/<token>/avatar?v=<version>`, whose address changes whenever they do, and @ember's with each release too. */
   avatarUrl: string;
   /**
@@ -246,13 +273,41 @@ export interface DirectoryUser extends User {
   adminsOnly?: true;
 }
 
+/** What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too, and the workspace's groups. */
 /**
  * What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too,
  * but, for anyone who isn't an administrator, the AI agents only administrators' direct messages reach.
  */
 export interface Directory {
   users: DirectoryUser[];
+  groups: UserGroup[];
 }
+
+export type GroupId = string;
+
+/** A group of people one mention stands for, as the people directory lists it. */
+export interface UserGroup {
+  id: GroupId;
+  /** As it's kept: lowercased, as people's names are compared. */
+  name: string;
+  /** Everyone in it, by id, in no order a mention would keep. */
+  memberIds: UserId[];
+}
+
+/** The most people a group can have, which creating or changing one is refused past. */
+export const MAX_GROUP_MEMBERS = 100;
+export const GROUP_TOO_BIG = `A group can have at most ${MAX_GROUP_MEMBERS.toLocaleString("en-US")} members.`;
+/** What a workspace's groups are called in the settings' list, which is a row each. */
+export const MAX_GROUP_NAME_LENGTH = 100;
+export const GROUP_NAME_TOO_LONG = `Name must be at most ${MAX_GROUP_NAME_LENGTH} characters.`;
+/** Why a group is refused the name another has, however it's capitalised. */
+export const GROUP_NAME_TAKEN = "A group is already named that.";
+/** Why a group is refused a member list naming someone who isn't an active person. */
+export const GROUP_MEMBER_UNKNOWN = "A group's members are people in the workspace.";
+/** The most groups a workspace keeps, as one settings list shows. */
+export const MAX_GROUPS = 1_000;
+/** Why a group is refused once the workspace keeps as many as it can. */
+export const GROUPS_FULL = `The workspace can have at most ${MAX_GROUPS.toLocaleString("en-US")} groups. Delete one first.`;
 
 export type RoomKind = "open" | "closed" | "direct";
 
@@ -370,6 +425,11 @@ export interface Sidebar {
    */
   sharedOrder: RoomId[];
   invitation: Invitation | null;
+  /**
+   * People to start a DM with: the active people with the oldest accounts who share no DM with this
+   * person, never them nor a bot or AI agent, as many as `suggestedCount` says.
+   */
+  suggestions: User[];
   /** The huddle going on in each of `rooms` that has one, by the room's id. `room.huddle` frames keep it current. */
   huddles: Record<RoomId, LiveHuddle>;
   /** Whom they've blocked, which `blocks.changed` frames keep current. */
@@ -386,6 +446,16 @@ export interface Sidebar {
   huddleSounds?: HuddleSounds;
 }
 
+/** How many people the sidebar's suggestions start from, Campfire's `DIRECT_PLACEHOLDERS`. */
+export const SUGGESTED_PEOPLE = 20;
+
+/**
+ * How many people the sidebar suggests for DMs to someone with `peopleInDirects` people across their
+ * DMs, them included: `SUGGESTED_PEOPLE` less those people, less one more, so 19 with no DMs, 18 with
+ * only a DM with themselves and 17 with a DM with one other person.
+ */
+export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED_PEOPLE - peopleInDirects - 1);
+
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
  * Without an icon, it has the default `#`.
@@ -395,6 +465,27 @@ export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
   member: boolean;
+  /**
+   * When their stay in this room as one of its guests ends, as an ISO time, while they're a guest of
+   * it, which an administrator added from its settings and can extend or end there. Left out for
+   * anyone else.
+   */
+  guestUntil?: string;
+}
+
+/**
+ * One of a room's guests, as its settings' guest answers name them: who they are and when their stay
+ * ends, as an ISO time.
+ */
+export interface RoomGuest {
+  userId: UserId;
+  name: string;
+  untilAt: string;
+}
+
+/** What `POST /api/rooms/<id>/guests` adds, and `PUT /api/rooms/<id>/guests/<user id>` answers: a guest of the room, as its settings mark them. */
+export interface GuestAnswer {
+  guest: RoomGuest;
 }
 
 /** What `GET /api/rooms/new` answers for the New room forms: everyone active who can be put in a room, by name (`RoomSettings.people`). */
@@ -450,6 +541,31 @@ export interface RoomSettings {
  * the people `memberIds` names, which takes anyone else out of it.
  */
 export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+
+/** What `POST /api/user_groups` makes: a group named `name` with the people `memberIds` names. */
+export interface NewUserGroup {
+  name: string;
+  memberIds: UserId[];
+}
+
+/**
+ * What `PATCH /api/user_groups/<id>` changes in a group: its name, its members, which takes everyone
+ * left out of it, or both.
+ */
+export interface UserGroupChanges {
+  name?: string;
+  memberIds?: UserId[];
+}
+
+/** What `POST /api/user_groups` and `PATCH /api/user_groups/<id>` answer: the group as it then is. */
+export interface UserGroupAnswer {
+  group: UserGroup;
+}
+
+/** What `GET /api/user_groups` answers: the workspace's groups, by name, each with everyone in it. */
+export interface UserGroupsAnswer {
+  groups: UserGroup[];
+}
 
 /**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
@@ -1031,6 +1147,11 @@ export interface Person extends DirectoryUser {
 export interface PersonAnswer {
   person: Person;
   /**
+   * The workspace's profile fields, in the order they come in the profile, with what this person saved
+   * for each, "" for none, which their page shows for the ones they filled in.
+   */
+  fields: ProfileFieldEntry[];
+  /**
    * The id in a new sign-in link for them (`transferLink`), which administrators are given for anyone
    * active who isn't a bot.
    */
@@ -1048,6 +1169,8 @@ export interface Profile {
   emailAddress: string | null;
   /** What you say about yourself, or null when you haven't said. */
   bio: string | null;
+  /** What you wear beside your name, or null while you wear none. */
+  mood: PersonMood | null;
   /** Your avatar, as the people directory gives it (`DirectoryUser.avatarUrl`). */
   avatarUrl: string;
   /** Whether you've uploaded an avatar, which Remove avatar takes away, though one that can't be resized shows your initials. */
@@ -1078,6 +1201,14 @@ export interface Profile {
   apps: YourApp[];
   /** The AI apps connected to Ember as you, newest first, or null when none can be: while an administrator hasn't let AI apps connect, or for a guest. */
   outsideAi: OutsideConnection[] | null;
+  /**
+   * When your hush of push notifications (Do not disturb) ends, as an ISO time, or null while you
+   * haven't hushed them. It hushes push notifications alone: rooms, unread marks, the badge and
+   * banners in the app carry on.
+   */
+  dndUntil: string | null;
+  /** The workspace's profile fields, in the order its administrators put them in, with what you saved for each, "" for none. */
+  fields: ProfileFieldEntry[];
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -1098,6 +1229,8 @@ export interface ProfileChanges {
   emailAddress?: string;
   password?: string;
   bio?: string;
+  /** The mood you wear beside your name, or null to take it off. What's left out stays as it is. */
+  mood?: PersonMood | null;
   /** The password you have, which changing your email address or password needs while you have one. */
   currentPassword?: string;
   /**
@@ -1105,6 +1238,75 @@ export interface ProfileChanges {
    * others, as signing out names the one it forgets (`SignOut`).
    */
   pushSubscriptionEndpoint?: string;
+  /**
+   * What to save for the workspace's profile fields, by their ids: what you typed, or "" to save none,
+   * clearing what you had. Only fields that changed are named, and the server checks each name and
+   * value once it knows the fields as they are then.
+   */
+  fieldValues?: Record<string, string>;
+}
+
+/** The most characters the name of a profile field takes, and each value or choice saved for one. */
+export const MAX_PROFILE_FIELD_NAME_LENGTH = 100;
+export const MAX_PROFILE_FIELD_VALUE_LENGTH = 200;
+
+/** The most profile fields a workspace can have, as Slack's does. */
+export const MAX_PROFILE_FIELDS = 10;
+
+/** The most choices a field with set choices takes. */
+export const MAX_PROFILE_FIELD_OPTIONS = 10;
+
+/** Why a field is refused, or a workspace can't take another one. */
+export const PROFILE_FIELD_NAME_REFUSED = `Give the field a name of at most ${MAX_PROFILE_FIELD_NAME_LENGTH} characters.`;
+export const PROFILE_FIELD_NAME_TAKEN = "There's a field with that name already.";
+export const PROFILE_FIELD_OPTIONS_REFUSED = `Set choices as one per line, at most ${MAX_PROFILE_FIELD_OPTIONS} of at most ${MAX_PROFILE_FIELD_VALUE_LENGTH} characters each.`;
+export const PROFILE_FIELDS_FULL = `A workspace can have at most ${MAX_PROFILE_FIELDS} profile fields. Delete one first.`;
+export const PROFILE_FIELD_VALUES_REFUSED = `Field values must be a JSON object of at most ${MAX_PROFILE_FIELD_VALUE_LENGTH} characters each.`;
+export const PROFILE_FIELD_VALUE_NOT_A_CHOICE = "Choose one of the field's choices.";
+export const PROFILE_FIELD_UNKNOWN = "That field is gone. Save again once your profile has loaded it.";
+export const PROFILE_FIELD_ORDER_REFUSED = "Field order must name each of the fields, once.";
+
+/** A field of the workspace's profiles, which administrators define and people fill in. */
+export interface ProfileField {
+  id: string;
+  name: string;
+  /** The choices it takes, or null for free text. */
+  options: string[] | null;
+}
+
+/** A field of the workspace's profiles, with the value someone saved for it, "" for none. */
+export interface ProfileFieldEntry extends ProfileField {
+  value: string;
+}
+
+/** What administrators give to add a field, or to rename one and set its choices. */
+export interface ProfileFieldChange {
+  name: string;
+  /** The choices it takes, or null for free text. */
+  options: string[] | null;
+}
+
+/** What `PUT` and `DELETE /api/users/me/dnd` answer: when your hush of push notifications ends, or null once it's lifted. */
+export interface DndAnswer {
+  dndUntil: string | null;
+}
+
+/** What `PUT /api/users/me/dnd` asks for: when to hush your push notifications until. */
+export interface DndChange {
+  until: string;
+}
+
+/**
+ * Parses an untrusted change to when your push notifications are hushed until. Returns why it's
+ * refused instead. Whether the time has passed, the server checks once it knows who's asking, by its
+ * own clock.
+ */
+export function parseDndChange(data: unknown): DndChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { until } = data as Record<string, unknown>;
+  if (typeof until !== "string" || until.trim() === "") return "Until must be a time";
+  if (Number.isNaN(Date.parse(until))) return "Until must be a time";
+  return { until };
 }
 
 /** What the Set up Ember form shows in its Name and Email address fields while they're empty. */
@@ -1725,9 +1927,23 @@ export interface ThreadSummary {
 /** Whether a message shows in its room's timeline: every message but a reply that was sent only to its thread. */
 export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
 
+/** How many messages a room keeps pinned, as Slack keeps a channel to a hundred. */
+export const MAX_PINS = 100;
+
+/** Why the room pins no more, once it has its hundred. */
+export const PINS_FULL = `A room keeps ${MAX_PINS} pins. Unpin one to pin another.`;
+
+/** A message someone pinned to its room, as the room's Pinned list shows it: the message, who pinned it and when. */
+export interface PinnedMessage {
+  message: Message;
+  by: User;
+  /** When they pinned it, as an ISO time. */
+  at: string;
+}
+
 /**
  * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
- * answers each frame that would change messages or boosts with an `error`.
+ * answers each frame that would change messages, boosts or pins with an `error`.
  */
 export type ClientFrame =
   /**
@@ -1748,6 +1964,10 @@ export type ClientFrame =
   | { type: "message.delete"; messageId: string }
   | { type: "boost.create"; messageId: string; content: string }
   | { type: "boost.delete"; boostId: string }
+  | { type: "pin.create"; messageId: string }
+  | { type: "pin.delete"; messageId: string }
+  /** Asks for the room's pinned messages, oldest pinned first. */
+  | { type: "pins.list" }
   | { type: "typing.start" }
   | { type: "typing.stop" }
   /** Up to `limit` messages before a message, oldest first, as history pages back from the oldest the timeline holds. */
@@ -1780,6 +2000,24 @@ export type ClientFrame =
    * makes up.
    */
   | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
+  /**
+   * A slash command typed in the room: `name` as it's kept (`commandNameOf`), without the "/" and
+   * lowercased, and `text`, whatever was typed after it. It goes on the room's own socket, as a
+   * `card.click` does, rather than a route of its own: the socket is who the room has let in, so the
+   * sender's being in the room and no ban blocking them are the checks every change here gets, and the
+   * room answers `command.ran`, or an `error`, with `commandId`, which the tab makes up, while the bot's
+   * answer reaches the room as any message of its does.
+   */
+  | { type: "command.run"; commandId: string; name: string; text: string }
+  /**
+   * One of the workspace's message shortcuts, run on the message `messageId` is, as a message's More
+   * actions offers one. It goes on the room's own socket, as a `command.run` does, so whoever picked it
+   * being in the room and no ban blocking them are the checks every change here gets, and the room
+   * reports it to the bot the shortcut invokes, delivering the message as Slack tells a message_action,
+   * and answers `shortcut.ran`, or an `error`, with `shortcutId`, while the bot's answer reaches the
+   * room as any message of its does.
+   */
+  | { type: "shortcut.run"; shortcutId: string; messageId: string }
   | { type: "ping" };
 
 /**
@@ -1820,6 +2058,12 @@ export type ServerFrame =
   | { type: "message.deleted"; messageId: string; seq: number }
   | { type: "boost.created"; boost: Boost; seq: number }
   | { type: "boost.deleted"; boostId: string; messageId: string; seq: number }
+  /** A message was pinned to the room, by `by`. */
+  | { type: "pin.created"; messageId: string; by: User; seq: number }
+  /** A message's pin was taken away, by `by`. */
+  | { type: "pin.deleted"; messageId: string; by: User; seq: number }
+  /** Answers pins.list: the room's pinned messages, oldest pinned first. */
+  | { type: "pins.listed"; pins: PinnedMessage[] }
   /** Someone opened the room who didn't have it open already, in another tab. */
   | { type: "presence.joined"; user: User }
   /** Someone closed the last tab they had the room open in, which stops their typing, too. */
@@ -1848,14 +2092,39 @@ export type ServerFrame =
   | { type: "thread.history"; parentId: string; before: string; messages: Message[]; hasMore: boolean }
   /** Answers card.click once the bot has answered the click: what it does to the room, if anything, comes as any change does. */
   | { type: "card.clicked"; clickId: string }
+  /** Answers command.run once the bot has answered the command: the bot's answer comes as any message of its does. */
+  | { type: "command.ran"; commandId: string }
+  /** Answers shortcut.run once the bot has answered the shortcut: the bot's answer comes as any message of its does. */
+  | { type: "shortcut.ran"; shortcutId: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
-   * take a message for what it says, as one with a word Blocked words keeps out, which is its writer's to
-   * change and send again.
+   * `clientMessageIds` the messages it was about, `clickId` the click, `commandId` the command, or
+   * `shortcutId` the shortcut. `rewrite` says the room won't take a message for what it says, as one
+   * with a word Blocked words keeps out, which is its writer's to change and send again.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; shortcutId?: string; failed?: ClientFrame["type"]; rewrite?: true }
   | { type: "pong" };
+
+/**
+ * A reminder someone asked for on a message, which comes back to them at `remindAt`. What the message
+ * said is kept as it was when the reminder was set, so it comes back whatever has happened to the
+ * message or its room since, as Slack's keep their text.
+ */
+export interface Reminder {
+  id: string;
+  /** The room the message is in, which the person reminding was in when they set it. */
+  roomId: RoomId;
+  /** The message the reminder is about, which may be gone or edited by the time it comes. */
+  messageId: string;
+  /** The message's parent, for a reply: its reminder opens the thread at the reply. */
+  parentId?: string;
+  /** Who wrote the message, named as they were when the reminder was set. */
+  creator: User;
+  /** The start of the message's plain text, as it was when the reminder was set. */
+  excerpt: string;
+  /** When the reminder comes back, in the past once it's due. */
+  remindAt: string;
+}
 
 /**
  * What a tab sends on its workspace socket (`/api/socket`): pings, which the runtime answers without
@@ -1868,8 +2137,12 @@ export type WorkspaceClientFrame = { type: "ping" } | { type: "presence.active";
 
 /** What the Workspace sends on a tab's workspace socket. */
 export type WorkspaceServerFrame =
-  /** Sent as the Workspace lets the socket in: who its session signs in, and the workspace as it is then. */
-  | { type: "welcome"; you: Me; account: Account }
+  /**
+   * Sent as the Workspace lets the socket in: who its session signs in, the workspace as it is then,
+   * and when this person's hush of push notifications (Do not disturb) ends, or null while it doesn't,
+   * which the rail shows by the crescent on their avatar. Left out by a worker that sends it not yet.
+   */
+  | { type: "welcome"; you: Me; account: Account; dndUntil?: string | null }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when the first
    * of those came. Sent only to the person marked, as their mark changes, and in a DM, as each message
@@ -1926,6 +2199,12 @@ export type WorkspaceServerFrame =
   | { type: "huddles.changed" }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /**
+   * Their hush of push notifications (Do not disturb) is now until `dndUntil`, or no more: they set it
+   * or lifted it, in this tab or another. Sent to their own workspace sockets alone, so their other
+   * tabs lay the crescent on their avatar or take it away as it goes.
+   */
+  | { type: "dnd.changed"; dndUntil: string | null }
   /** They've blocked or unblocked someone, in this tab or another: whom they've blocked now. */
   | { type: "blocks.changed"; blocks: Blocks }
   /**
@@ -1947,6 +2226,14 @@ export type WorkspaceServerFrame =
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
   | { type: "account.updated"; account: Account }
   /**
+   * A reminder of theirs has come due. Sent to every tab they have open at the moment it comes, and,
+   * when they weren't near Ember then, pushed to their browsers besides; a tab that opens later hears
+   * of it from `GET /api/reminders`, which lists what they haven't dismissed yet.
+   */
+  | { type: "reminder.due"; reminder: Reminder }
+  /** One of their reminders was dismissed, in this tab or another, and leaves every tab's corner. */
+  | { type: "reminder.dismissed"; id: string }
+  /**
    * Who's active, with a tab open that they've used in the last ten minutes, as Slack counts it, and who's
    * away otherwise: first everyone active, as the tab first says whether it's in use, and then whoever has
    * become active or away since the last of these. Sent only to tabs that have said, and gathered over a
@@ -1961,10 +2248,12 @@ export type WorkspaceServerFrame =
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
  * tells a tab running an older app to reload, and refuses its messages and edits: before revision 2,
  * tabs sent a message's text rather than its markup, which the room would now read as markup, before
- * revision 3, an edit dropped the message's mentions, and before revision 4, tabs knew nothing of
- * threads, and showed every reply in the room.
+ * revision 3, an edit dropped the message's mentions, before revision 4, tabs knew nothing of
+ * threads, and showed every reply in the room, and before revision 5, they knew nothing of pins,
+ * whose frames their room view has no case for, and an edit dropped a group's mention, which a tab
+ * that knew no groups detached as one of no one.
  */
-export const ROOM_PROTOCOL = 4;
+export const ROOM_PROTOCOL = 5;
 
 /** What a room socket's address tells the room about the tab opening it. */
 export interface RoomSocketParams {
@@ -2092,6 +2381,20 @@ export const MAX_BIO_LENGTH = 200;
  * of its history for everyone in it.
  */
 export const MAX_USER_NAME_LENGTH = 100;
+/** The longest name a slash command can have, where Slack's is 32. */
+export const MAX_COMMAND_NAME_LENGTH = 32;
+/** What a command's name is once it's kept: letters, numbers, dashes and underscores, one case. */
+const COMMAND_NAME = new RegExp(`^[a-z0-9_-]{1,${MAX_COMMAND_NAME_LENGTH}}$`);
+
+/**
+ * A command's name as it's kept: without the leading "/" typing it has, and lowercased, as Slack keeps
+ * its commands' names. Null unless the rest is 1 to `MAX_COMMAND_NAME_LENGTH` letters, numbers, dashes
+ * and underscores, which is all a name can be once it's one case.
+ */
+export function commandNameOf(given: string): string | null {
+  const name = given.trim().replace(/^\//, "").toLowerCase();
+  return COMMAND_NAME.test(name) ? name : null;
+}
 /** No deliverable address is longer (RFC 5321's path limit). */
 export const MAX_EMAIL_ADDRESS_LENGTH = 254;
 export const NAME_TOO_LONG = `Name must be at most ${MAX_USER_NAME_LENGTH} characters`;
@@ -2101,6 +2404,8 @@ export const ASSISTANT_ID: UserId = "ember";
 /** @ember's name, which nobody else can take (`isReservedName`). */
 export const ASSISTANT_NAME = "Ember";
 export const NAME_RESERVED = `${ASSISTANT_NAME} is the AI assistant's name. Choose another.`;
+/** What saving a profile whose name is another guest's says: their stay is what signs them in with it. */
+export const guestsNameTaken = (name: string) => `${name.trim()} is another guest's way in. Choose another.`;
 
 /**
  * Whether `name` is @ember's, which nobody can take, whether or not Ember AI is on, so that nobody passes
@@ -2231,6 +2536,11 @@ export function parseClientFrame(raw: string): ClientFrame | null {
     }
     case "boost.delete":
       return id(f.boostId) ? { type: f.type, boostId: f.boostId } : null;
+    case "pin.create":
+    case "pin.delete":
+      return id(f.messageId) ? { type: f.type, messageId: f.messageId } : null;
+    case "pins.list":
+      return { type: f.type };
     case "history.before":
       return id(f.before) ? { type: f.type, before: f.before, limit: pageLimit(f.limit) } : null;
     case "history.after":
@@ -2257,6 +2567,15 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       const { blockId, value } = f;
       return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
     }
+    case "command.run": {
+      if (!id(f.commandId)) return null;
+      const name = commandNameOf(typeof f.name === "string" ? f.name : "");
+      // Whatever was typed after the command goes as it was typed, its spaces at either end spared, as Slack sends `text`.
+      const text = typeof f.text === "string" && f.text.length <= MAX_MESSAGE_HTML_LENGTH ? f.text.trim() : null;
+      return name && text !== null ? { type: f.type, commandId: f.commandId, name, text } : null;
+    }
+    case "shortcut.run":
+      return id(f.shortcutId) && id(f.messageId) ? { type: f.type, shortcutId: f.shortcutId, messageId: f.messageId } : null;
     case "typing.start":
     case "typing.stop":
     case "ping":
@@ -2343,6 +2662,38 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
 const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof data === "object" && data !== null && !Array.isArray(data);
 
 /**
+ * A group's name a request names, or null for one refused: as `text` reads it, and no longer than the
+ * limit as the Workspace keeps it too, since lowercasing a name can lengthen it (`İ` folds to i and
+ * its dot), which a name sent within the limit could otherwise outgrow once kept.
+ */
+const sentGroupName = (value: unknown): string | null => {
+  const name = text(value, MAX_GROUP_NAME_LENGTH);
+  return name !== null && name.toLowerCase().length <= MAX_GROUP_NAME_LENGTH ? name : null;
+};
+
+/**
+ * Parses an untrusted request to make a group. Returns why it's refused instead of the group. The name
+ * is kept as it's sent; the Workspace lowercases it, so that two names that differ only in capitals
+ * can't both be kept.
+ */
+export function parseNewUserGroup(data: unknown): NewUserGroup | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = sentGroupName(data.name);
+  if (!name) return `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters`;
+  const memberIds = data.memberIds ?? [];
+  return userIds(memberIds) ? { name, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/** Parses an untrusted change to a group. Returns why it's refused instead of the changes. */
+export function parseUserGroupChanges(data: unknown): UserGroupChanges | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = data.name === undefined ? undefined : sentGroupName(data.name);
+  if (name === null) return `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters`;
+  if (data.memberIds === undefined) return name === undefined ? "Expected a name or members to change" : { name };
+  return userIds(data.memberIds) ? { name, memberIds: data.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/**
  * Parses an untrusted request to start a DM. Returns why it's refused instead of the DM. Naming nobody,
  * or leaving `userIds` out, starts your DM with yourself.
  */
@@ -2350,6 +2701,49 @@ export function parseNewDirect(data: unknown): NewDirect | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const named = data.userIds === undefined ? [] : data.userIds;
   return userIds(named) ? { userIds: named } : `People must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/** How long a name the guest sign-in takes, which a guest of one room signs in with (`MAX_NAME_LENGTH` in the Worker, the sign-in form's own cap). */
+export const MAX_GUEST_NAME_LENGTH = 48;
+
+/** What `POST /api/rooms/<id>/guests` asks for: the guest's name, and when their stay ends, as an ISO time. */
+export interface NewGuest {
+  name: string;
+  until: string;
+}
+
+/**
+ * Parses an untrusted stay to add a guest for. Returns why it's refused instead of the stay. The name
+ * is kept as typed, as the sign-in keeps it, and whether the time has passed, the server checks once
+ * it knows who's asking, by its own clock.
+ */
+export function parseNewGuest(data: unknown): NewGuest | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (!name) return `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`;
+  if (name.length > MAX_GUEST_NAME_LENGTH) return `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`;
+  if (isReservedName(name)) return NAME_RESERVED;
+  const until = aTime(data.until);
+  if (until === null) return "Until must be a time";
+  return { name, until };
+}
+
+/** What `PUT /api/rooms/<id>/guests/<user id>` asks for: when to extend their stay until, as an ISO time. */
+export interface GuestChange {
+  until: string;
+}
+
+/** Parses an untrusted change to when a guest's stay ends, as `parseNewGuest` does its time. */
+export function parseGuestChange(data: unknown): GuestChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const until = aTime(data.until);
+  if (until === null) return "Until must be a time";
+  return { until };
+}
+
+/** The time `v` gives, as given, or null unless it's a non-empty one a date can read. */
+function aTime(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" && !Number.isNaN(Date.parse(v)) ? v : null;
 }
 
 /** The settings `PATCH /api/account` changes, each with the name workspace settings give it. */
@@ -2714,10 +3108,36 @@ const PROFILE_FIELDS = {
   bio: "Bio",
   currentPassword: "Current password",
   pushSubscriptionEndpoint: "Push subscription endpoint",
-} as const satisfies Record<keyof ProfileChanges, string>;
+} as const satisfies Record<Exclude<keyof ProfileChanges, "fieldValues" | "mood">, string>;
+
+/**
+ * Parses an untrusted mood someone wears beside their name. Returns why it's refused instead. The emoji
+ * and the words are both wanted: a mood without either is none, which taking it off is for. The clear
+ * time is kept as the instant its text names, written canonically, not as it was written.
+ */
+export function parseMood(data: unknown): PersonMood | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { emoji, text, clearAt } = data as Record<string, unknown>;
+  if (typeof emoji !== "string" || emoji === "") return "Emoji is required";
+  if (emoji.length > MAX_MOOD_EMOJI_LENGTH) return `Emoji must be at most ${MAX_MOOD_EMOJI_LENGTH} characters`;
+  if (typeof text !== "string" || text === "") return "A few words are required";
+  if (text.length > MAX_MOOD_TEXT_LENGTH) return `Words must be at most ${MAX_MOOD_TEXT_LENGTH} characters`;
+  if (clearAt !== null && typeof clearAt !== "string") return "Clear time must be a time or null";
+  if (typeof clearAt === "string") {
+    // A time's text is read loosely, so what a browser tolerates could be padded and absurd while naming
+    // a fine instant. Save the instant it names, as the canonical UTC ISO time, and refuse what names none.
+    const parsed = Date.parse(clearAt);
+    if (!Number.isFinite(parsed)) return "Clear time isn't a time";
+    return { emoji, text, clearAt: new Date(parsed).toISOString() };
+  }
+  return { emoji, text, clearAt };
+}
 
 /**
  * Parses an untrusted change to your profile. Returns why it's refused instead. Each field is saved as
+ * typed, even a blank name. The server keeps the form's limits too: a new password from the 8 characters
+ * first run takes, to the 72 sign-in can take, and a 200-character bio. The mood comes as null to take
+ * it off, or an emoji, a few words and an optional clear time.
  * typed, even a blank name, but a username, which is kept as `usernameOf` keeps one, and refused unless
  * it's blank or can be one. The server keeps the form's limits too: a new password from the 8 characters
  * first run takes, to the 72 sign-in can take, and a 200-character bio.
@@ -2725,11 +3145,19 @@ const PROFILE_FIELDS = {
 export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const changes: ProfileChanges = {};
-  for (const [field, label] of Object.entries(PROFILE_FIELDS) as [keyof ProfileChanges, string][]) {
+  for (const [field, label] of Object.entries(PROFILE_FIELDS) as [Exclude<keyof ProfileChanges, "fieldValues" | "mood">, string][]) {
     const value = data[field];
     if (value === undefined) continue;
     if (typeof value !== "string") return `${label} must be text`;
     changes[field] = value;
+  }
+  if (data.mood !== undefined) {
+    if (data.mood === null) changes.mood = null;
+    else {
+      const mood = parseMood(data.mood);
+      if (typeof mood === "string") return mood;
+      changes.mood = mood;
+    }
   }
   if (changes.name !== undefined && changes.name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
   if (changes.username !== undefined) {
@@ -2744,7 +3172,47 @@ export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (changes.pushSubscriptionEndpoint !== undefined && changes.pushSubscriptionEndpoint.length > MAX_PUSH_ENDPOINT_LENGTH) {
     return `Endpoint can't be longer than ${MAX_PUSH_ENDPOINT_LENGTH} characters`;
   }
+  if (data.fieldValues !== undefined) {
+    if (!isJsonObject(data.fieldValues)) return PROFILE_FIELD_VALUES_REFUSED;
+    const fieldValues: Record<string, string> = {};
+    for (const [id, value] of Object.entries(data.fieldValues)) {
+      if (typeof value !== "string" || value.length > MAX_PROFILE_FIELD_VALUE_LENGTH) return PROFILE_FIELD_VALUES_REFUSED;
+      fieldValues[id] = value;
+    }
+    changes.fieldValues = fieldValues;
+  }
   return changes;
+}
+
+/**
+ * Parses an untrusted change to a profile field, as workspace settings sends it. The name is saved
+ * without the spaces at its ends. Returns why it's refused instead.
+ */
+export function parseProfileFieldChange(data: unknown): ProfileFieldChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (!name || name.length > MAX_PROFILE_FIELD_NAME_LENGTH) return PROFILE_FIELD_NAME_REFUSED;
+  if (data.options === undefined || data.options === null) return { name, options: null };
+  if (!Array.isArray(data.options) || data.options.length === 0) return PROFILE_FIELD_OPTIONS_REFUSED;
+  const options: string[] = [];
+  for (const option of data.options) {
+    if (typeof option !== "string") return PROFILE_FIELD_OPTIONS_REFUSED;
+    const choice = option.trim();
+    if (!choice || choice.length > MAX_PROFILE_FIELD_VALUE_LENGTH) return PROFILE_FIELD_OPTIONS_REFUSED;
+    options.push(choice);
+  }
+  return options.length <= MAX_PROFILE_FIELD_OPTIONS ? { name, options } : PROFILE_FIELD_OPTIONS_REFUSED;
+}
+
+/**
+ * Parses an untrusted order of the workspace's profile fields: their ids, in the new order. Returns why
+ * it's refused instead.
+ */
+export function parseProfileFieldOrder(data: unknown): string[] | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { ids } = data;
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) return "Field order must be a list of the fields' ids";
+  return new Set(ids).size === ids.length ? (ids as string[]) : "Field order must be a list of the fields' ids";
 }
 
 /**

@@ -370,6 +370,7 @@ describe("AI agents", () => {
         id: expect.any(String) as string,
         name: "Recap",
         bio: null,
+        mood: null,
         role: "bot",
         status: "active",
         avatarUrl: expect.stringMatching(/^\/users\/[^/]+\/avatar\?v=\d{14}$/) as string,
@@ -401,10 +402,10 @@ describe("AI agents", () => {
       expect(await workspaceSql("SELECT role, bot_token, email_address, password_digest FROM users WHERE id = ?", recap.id)).toEqual([
         { role: 2, bot_token: null, email_address: null, password_digest: null },
       ]);
-      const { id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, access, rooms } = recap;
-      expect(await listed(administrator)).toEqual([{ id, name, bio, role, status, avatarUrl, agent, description, model, modelName, webTools, access, rooms }]);
+      const { id, name, bio, mood, role, status, avatarUrl, agent, description, model, modelName, webTools, access, rooms } = recap;
+      expect(await listed(administrator)).toEqual([{ id, name, bio, mood, role, status, avatarUrl, agent, description, model, modelName, webTools, access, rooms }]);
       expect(await shownAgent(administrator, recap.id)).toEqual(recap);
-      const asListed = { id, name, bio, role, status, avatarUrl, agent };
+      const asListed = { id, name, bio, mood: null, role, status, avatarUrl, agent };
       expect(await inDirectory(administrator, recap.id)).toEqual(asListed);
       expect(await tab.next()).toEqual({ type: "user.updated", user: asListed });
     });
@@ -925,7 +926,7 @@ describe("AI agents", () => {
       const member = await joinAsGrace();
       const recap = await made(administrator);
       const profile = { description: RECAP.description, model: HAIKU, modelName: recap.modelName, setUpBy: { id: administrator.user.id, name: ada.name } };
-      expect(await pageOf(member, recap.id)).toEqual({ person: await inDirectory(member, recap.id), agent: profile });
+      expect(await pageOf(member, recap.id)).toEqual({ person: await inDirectory(member, recap.id), fields: [], agent: profile });
       expect(JSON.stringify(await pageOf(member, recap.id))).not.toContain(RECAP.instructions);
       expect(await pageOf(administrator, recap.id)).toMatchObject({ agent: profile });
 

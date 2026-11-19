@@ -1,4 +1,4 @@
-import type { Message, UserId } from "@ember/protocol";
+import type { GroupId, Message, UserId } from "@ember/protocol";
 import { displayMarkup, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
 
 /**
@@ -105,17 +105,17 @@ export const newestWrittenBy = <T extends Message>(messages: T[], userId: UserId
 
 /**
  * What Quote writes in the composer (reply_controller.js): what the message shows but its link previews,
- * quoted, with each mention as the bare name `nameOf` gives, then its author with a link to it, and a line
- * to reply on.
+ * quoted, with each mention as the bare name `nameOf` gives, a group's as `nameOfGroup` gives, then its
+ * author with a link to it, and a line to reply on.
  */
-export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string): string {
+export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string, nameOfGroup: (groupId: GroupId) => string): string {
   const linkToOriginal: DisplayNode = { kind: "element", name: "a", attrs: { href: link }, children: [{ kind: "text", value: "#" }] };
   const quote: DisplayNode[] = [
     { kind: "element", name: "blockquote", attrs: {}, children: quoted(nodes) },
     { kind: "element", name: "cite", attrs: {}, children: [{ kind: "text", value: `${author} ` }, linkToOriginal] },
     { kind: "element", name: "p", attrs: {}, children: [{ kind: "element", name: "br", attrs: {}, children: [] }] },
   ];
-  return displayMarkup(quote, ({ userId }) => nameOf(userId));
+  return displayMarkup(quote, (node) => ("groupId" in node ? nameOfGroup(node.groupId) : nameOf(node.userId)));
 }
 
 /**
@@ -138,9 +138,9 @@ function quoted(nodes: DisplayNode[]): DisplayNode[] {
   return link && !hasText(nodes) ? [{ kind: "text", value: link }] : nodes;
 }
 
-/** Whether there's text outside link previews, where a mention is the name it shows. */
+/** Whether there's text outside link previews, where a mention — a person's or a group's — is the name it shows. */
 const hasText = (nodes: DisplayNode[]): boolean =>
-  nodes.some((node) => node.kind === "mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)));
+  nodes.some((node) => node.kind === "mention" || node.kind === "group-mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)));
 
 /** The first link in a link preview, as `.og-embed a` finds it, by where it goes. */
 function firstPreviewLink(nodes: DisplayNode[]): string | undefined {

@@ -171,6 +171,9 @@ export async function postClick<K>(url: string, payload: string, keep: Keep<K>, 
   return "timedOutAfter" in posted ? { status: null, answer: null } : posted;
 }
 
+/** Delivers a slash command or a message event, and reads the answer as a click's is read: a bot's text or file, or a payload of blocks its card shows. */
+export const postCommand = postClick;
+
 async function clickAnswerIn<K>(response: Response, clock: DeliveryClock, keep: Keep<K>): Promise<ClickAnswer<K> | null> {
   const json = response.status === 200 && contentTypeOf(response.headers.get("Content-Type")) === "application/json";
   return json ? { payload: await textOf(response.body, clock) } : replyIn(response, clock, keep);

@@ -1,6 +1,5 @@
-import type { Account, DirectoryUser, Favorites, LiveHuddle, SidebarRoom, User, UserId } from "@ember/protocol";
+import type { Account, DirectoryUser, Favorites, LiveHuddle, PersonMood, SidebarRoom, User, UserId } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
@@ -8,6 +7,7 @@ import { ActivePeople, PeopleContext } from "@/hooks/use-directory";
 import { activeStore } from "@/lib/presence";
 import type { DirectSidebarRoom } from "@/lib/room-list";
 import { Sidebar } from "./sidebar";
+import userEvent from "@testing-library/user-event";
 
 const rooms = [
   { id: "general", name: "general", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const },
@@ -162,6 +162,14 @@ describe("Unread rooms", () => {
     expect(general).not.toHaveClass("font-[650]");
     expect(general).toHaveAccessibleDescription(HELP);
     expect(general.querySelector(".rounded-full")).toBeNull();
+  });
+
+  it("marks the room the Saved pane covers, which counts as read nowhere yet, and keeps it the page's room", () => {
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], currentRoomId: "general", readRoomId: null });
+    const general = screen.getByRole("link", { current: "page" });
+    expect(general).toHaveClass("font-[650]");
+    expect(general).toHaveAccessibleDescription(`Unread ${HELP}`);
+    expect(general.querySelector(".rounded-full")).not.toBeNull();
   });
 });
 
@@ -751,6 +759,37 @@ describe("Group DMs and DM names", () => {
     expect(withAgent).toHaveAccessibleName("Direct message with Recap Agent");
     expect(within(withAgent!).getByText("Agent")).toHaveAttribute("data-slot", "badge");
     expect(withBot).toHaveAccessibleName("Direct message with Build Bot");
+  });
+});
+
+describe("DM moods", () => {
+  /** Someone as the people directory lists them, wearing `mood`. */
+  const wearing = (person: User, mood: DirectoryUser["mood"]): DirectoryUser => ({ ...person, bio: null, mood, role: "member", status: "active", avatarUrl: `/users/${person.id}/avatar` });
+
+  it("wears what the one other person wears beside their name, muted, which runs to an ellipsis rather than wrap", () => {
+    const worn: PersonMood = { emoji: "😌", text: "Pairing on the compiler", clearAt: null };
+    renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!])] }, EMBER, [wearing(grace!, worn)]);
+    const row = directRows()[0]!;
+    expect(within(row).getByText("😌 Pairing on the compiler")).toHaveClass("truncate", "text-muted-foreground");
+    expect(row).toHaveAccessibleName("Direct message with Grace 😌 Pairing on the compiler");
+  });
+
+  it("leaves out a mood whose clear time has passed, but wears one that hasn't come yet", () => {
+    const worn = { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() + 60_000).toISOString() };
+    const comeOff = { ...worn, clearAt: new Date(Date.now() - 60_000).toISOString() };
+    renderSidebar(
+      { rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, alan!], false, at(1))] },
+      EMBER,
+      [wearing(grace!, comeOff), wearing(alan!, worn)],
+    );
+    expect(within(directRows()[0]!).queryByText(/^😌/)).toBeNull();
+    expect(within(directRows()[1]!).getByText("😌 Pairing on the compiler")).toBeInTheDocument();
+  });
+
+  it("shows nobody's mood in a group DM", () => {
+    const worn: PersonMood = { emoji: "😌", text: "Pairing on the compiler", clearAt: null };
+    renderSidebar({ rooms: [direct("d1", [ada!, grace!, linus!])] }, EMBER, [wearing(grace!, worn)]);
+    expect(within(directRows()[0]!).queryByText(/^😌/)).toBeNull();
   });
 });
 

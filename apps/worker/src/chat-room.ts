@@ -8,7 +8,9 @@ import {
   LATE_PREVIEW_MS,
   MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
+  MAX_PINS,
   MESSAGE_TOO_LONG,
+  PINS_FULL,
   parseClientFrame,
   parseRoomSocketParams,
   ROOM_PROTOCOL,
@@ -19,6 +21,7 @@ import {
   type LinkPreview,
   type Message,
   type NewUpload,
+  type PinnedMessage,
   type RoomId,
   type ServerFrame,
   type TimelinePage,
@@ -27,7 +30,7 @@ import {
 } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
-import { hasPreview, prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
+import { hasPreview, mentionGroupSgid, mentionSgid, parseHtml, prepareBody, userIdFromSgid, userIdsIn, mentionedIdsIn, type MentionUser, type PreparedBody } from "@ember/richtext";
 import {
   AGENT_NOTES,
   AnswerError,
@@ -68,7 +71,8 @@ import { JobQueue } from "./at-once";
 import { isFresh, keptBlockedWords, NO_BLOCKED_WORDS, outdated, type KeptBlockedWords } from "./blocked-words";
 import { actingButton, clickPayload } from "./bots/clicks";
 import { payloadOf, slackMessage, type SlackMessage, type SlackPayload } from "./bots/slack";
-import { postClick, postWebhook, WebhookError, webhookPayload, type ClickAnswer, type Reply } from "./bots/webhooks";
+import { commandPayload, eventPayload, messageActionPayload } from "./bots/commands";
+import { postClick, postCommand, postWebhook, WebhookError, webhookPayload, type ClickAnswer, type Reply } from "./bots/webhooks";
 import { keptCards } from "./cards";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
@@ -140,7 +144,7 @@ const rewriting = (why: string) => (why === BLOCKED_WORDS_REFUSED ? { rewrite: t
  * someone `named` names read as "@" alone, since their name isn't the writer's words, nor part of a word
  * the writer wrote beside it.
  */
-function writtenText(body: PreparedBody, named: (sgid: string) => User | undefined): string {
+function writtenText(body: PreparedBody, named: (sgid: string) => MentionUser | undefined): string {
   if (body.mentions.length === 0) return body.plainText;
   const unnamed = (sgid: string) => {
     const person = named(sgid);
@@ -165,7 +169,7 @@ const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
  */
 const BANNED = "Request failed (429)";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.preview", "message.delete", "boost.create", "boost.delete", "card.click"]);
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.preview", "message.delete", "boost.create", "boost.delete", "card.click", "pin.create", "pin.delete", "command.run", "shortcut.run"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -231,12 +235,30 @@ const THREAD_GONE = "the thread's message has been deleted";
 
 /** How many clicks on bots' buttons each person can have waiting in a room, so that no one fills its webhook queue. */
 const CLICKS_WAITING_EACH = 3;
+/** How many commands each person can have waiting in a room, as clicks are. */
+const COMMANDS_WAITING_EACH = 3;
+/** How many shortcuts each person can have waiting in a room, as commands are. */
+const SHORTCUTS_WAITING_EACH = 3;
 /** Why a click goes nowhere: its message, or the button on it, went before the click's turn came. */
 const BUTTON_GONE = "That button is no longer there";
 const TOO_MANY_CLICKS = "Wait for your earlier clicks to be answered";
+const TOO_MANY_COMMANDS = "Wait for your earlier commands to be answered";
+const TOO_MANY_SHORTCUTS = "Wait for your earlier shortcuts to be answered";
 const WEBHOOKS_FULL = "Too much is waiting for bots here. Try again in a moment.";
 /** What whoever clicked is told when the click's delivery fails without saying why. */
 const CLICK_FAILED = "That click couldn't be delivered";
+const COMMAND_FAILED = "That command couldn't be delivered";
+const SHORTCUT_FAILED = "That shortcut couldn't be delivered";
+
+/** Why a command went nowhere, as what the room tells whoever typed it, and what it logs. */
+class CommandError extends WebhookError {
+  constructor(
+    readonly told: string,
+    logged: string,
+  ) {
+    super(logged);
+  }
+}
 
 /** Why a click came to nothing: what the room tells whoever clicked, and what it logs. */
 class ClickError extends WebhookError {
@@ -250,6 +272,12 @@ class ClickError extends WebhookError {
 
 /** A click on a button that acts, as a socket sends it. */
 type CardClick = Extract<ClientFrame, { type: "card.click" }>;
+
+/** A slash command typed in the room, as a socket sends it. */
+type CommandRun = Extract<ClientFrame, { type: "command.run" }>;
+
+/** A shortcut of the workspace's, picked on a message, as a socket sends it. */
+type ShortcutRun = Extract<ClientFrame, { type: "shortcut.run" }>;
 
 /** The button `click` says was clicked, as a card names one. */
 const clickedIn = ({ actionId, blockId, value }: CardClick): CardAction => ({ id: actionId, blockId, value });
@@ -375,6 +403,12 @@ export class ChatRoom extends DurableObject<Env> {
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
   /** How many clicks each person has waiting on bots' webhooks. */
   private readonly clicking = new Map<UserId, number>();
+  /** How many commands each person has waiting on bots' webhooks, as clicks are. */
+  private readonly commanding = new Map<UserId, number>();
+  /** How many shortcuts each person has waiting on bots' webhooks, as commands are. */
+  private readonly shortcutting = new Map<UserId, number>();
+  /** Each person's message events waiting on bots' webhooks, as their commands are, with how many deliveries of each are out. */
+  private readonly eventing = new Map<UserId, Map<string, number>>();
   private readonly answers = new JobQueue(ANSWERS_AT_ONCE, ANSWERS_WAITING);
   /** The tools' cards a click's call is being made for, by their messages' ids: one at a time each, as what it answers takes the card's place. */
   private readonly calling = new Set<string>();
@@ -1060,7 +1094,9 @@ export class ChatRoom extends DurableObject<Env> {
         const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
         const clientMessageIds = frame.type === "message.check" ? frame.clientMessageIds : undefined;
         const clickId = frame.type === "card.click" ? frame.clickId : undefined;
-        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, clientMessageIds, clickId, failed: frame.type });
+        const commandId = frame.type === "command.run" ? frame.commandId : undefined;
+        const shortcutId = frame.type === "shortcut.run" ? frame.shortcutId : undefined;
+        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, clientMessageIds, clickId, commandId, shortcutId, failed: frame.type });
       }
     });
   }
@@ -1092,7 +1128,9 @@ export class ChatRoom extends DurableObject<Env> {
     if (CHANGES.has(frame.type) && (ws.deserializeAttachment() as Attachment).banned) {
       const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
       const clickId = frame.type === "card.click" ? frame.clickId : undefined;
-      return this.send(ws, { type: "error", message: BANNED, clientMessageId, clickId, failed: frame.type });
+      const commandId = frame.type === "command.run" ? frame.commandId : undefined;
+      const shortcutId = frame.type === "shortcut.run" ? frame.shortcutId : undefined;
+      return this.send(ws, { type: "error", message: BANNED, clientMessageId, clickId, commandId, shortcutId, failed: frame.type });
     }
 
     switch (frame.type) {
@@ -1146,6 +1184,16 @@ export class ChatRoom extends DurableObject<Env> {
         if (!boost || boost.booster.id !== user.id) return this.refuse(ws, "You can only remove your own reactions");
         return this.removeBoost(store, boost);
       }
+      case "pin.create": {
+        const message = await this.findUndeleted(store, frame.messageId);
+        if (!message) return this.refuse(ws, "That message no longer exists");
+        return this.addPin(store, frame.messageId, user, now, ws);
+      }
+      case "pin.delete":
+        // Anyone can unpin, as anyone can pin.
+        return this.removePin(store, frame.messageId, user);
+      case "pins.list":
+        return this.send(ws, { type: "pins.listed", pins: await this.listPins(store) });
       case "typing.start":
       case "typing.stop": {
         const typing = frame.type === "typing.start";
@@ -1197,6 +1245,24 @@ export class ChatRoom extends DurableObject<Env> {
         this.clicking.set(user.id, waiting + 1);
         // The bot answers in its own time, which nothing else in the room waits for. A click that calls an app's tool waits on the app, as an answer does, not among the bots' deliveries.
         this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame, button && toolCallOf(button.action) ? this.answers : this.webhooks));
+        return;
+      }
+      case "command.run": {
+        // Whoever typed it is here, as the room has their socket, and a ban blocked from changing anything above.
+        const waiting = this.commanding.get(user.id) ?? 0;
+        if (waiting >= COMMANDS_WAITING_EACH) return this.send(ws, { type: "error", message: TOO_MANY_COMMANDS, commandId: frame.commandId, failed: frame.type });
+        this.commanding.set(user.id, waiting + 1);
+        // The bot answers in its own time, among the room's other deliveries, as it answers a message.
+        this.ctx.waitUntil(this.deliverCommand(store.roomId, ws, user, frame));
+        return;
+      }
+      case "shortcut.run": {
+        // Whoever picked it is here, as the room has their socket, and a ban blocked from changing anything above.
+        const waiting = this.shortcutting.get(user.id) ?? 0;
+        if (waiting >= SHORTCUTS_WAITING_EACH) return this.send(ws, { type: "error", message: TOO_MANY_SHORTCUTS, shortcutId: frame.shortcutId, failed: frame.type });
+        this.shortcutting.set(user.id, waiting + 1);
+        // The bot answers in its own time, among the room's other deliveries, as it answers a command.
+        this.ctx.waitUntil(this.deliverShortcut(store.roomId, ws, user, frame));
         return;
       }
       case "ping":
@@ -1328,6 +1394,45 @@ export class ChatRoom extends DurableObject<Env> {
     this.couriersFor(store.roomId).index.deliver();
   }
 
+  /**
+   * Pins the message `messageId` for the room, telling everyone, or refuses when the room is at its
+   * hundred. Pinning a pinned message is a repeated click, which changes nothing.
+   */
+  private async addPin(store: MessageStore, messageId: string, user: User, now: string, ws: WebSocket): Promise<void> {
+    if (await store.isPinned(messageId)) return;
+    if ((await store.pinCount()) >= MAX_PINS) return this.send(ws, { type: "error", message: PINS_FULL, failed: "pin.create" });
+    const seq = await store.addPin(messageId, user.id, now);
+    this.broadcastPins({ type: "pin.created", messageId, by: user, seq });
+  }
+
+  /** Takes the room's pin of `messageId` away, telling everyone, or nothing where it isn't pinned. */
+  private async removePin(store: MessageStore, messageId: string, user: User): Promise<void> {
+    const seq = await store.removePin(messageId);
+    if (seq === null) return;
+    this.broadcastPins({ type: "pin.deleted", messageId, by: user, seq });
+  }
+
+  /**
+   * The room's pins, with their messages and whoever pinned each under their name now, as pins.list
+   * answers. The people of the pinners are the Workspace's to name, as a message's mentions are, and a
+   * pin whose message is gone is too late to show.
+   */
+  private async listPins(store: MessageStore): Promise<PinnedMessage[]> {
+    const pins = await store.pins();
+    if (pins.length === 0) return [];
+    const [people, messages] = await Promise.all([
+      workspace(this.env).mentionedPeople(pins.map(({ userId }) => userId)),
+      store.withIds(pins.map(({ messageId }) => messageId)),
+    ]);
+    const by = new Map(people.map((person) => [person.id, person]));
+    const pinned = new Map(messages.map((message) => [message.id, message]));
+    return pins.flatMap(({ messageId, userId, at }) => {
+      const message = pinned.get(messageId);
+      const pinner = by.get(userId);
+      return message && pinner ? [{ message, by: pinner, at }] : [];
+    });
+  }
+
   /** Deletes each of `boosts`, as `MessageStore.removeBoosts` does, telling everyone in the room. */
   private async removeBoosts(store: MessageStore, boosts: Boost[]): Promise<void> {
     const seq = await store.removeBoosts(boosts);
@@ -1395,7 +1500,10 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * What the room keeps of a body a client sent, naming the people it mentions as they are now, or
-   * why it keeps nothing, which is `BLOCKED_WORDS_REFUSED` when what its writer wrote has a blocked word.
+   * why it keeps nothing, which is `BLOCKED_WORDS_REFUSED` when what its writer wrote has a blocked
+   * word. A group's mention keeps the group's name in the body, and stands for everyone in it, whom
+   * the message's mentions list keeps once each, so that "mentions me", the unread marks and the
+   * pushes know it as they know a person's mention.
    */
   private async prepare(markup: string): Promise<PreparedBody | string> {
     const read = await this.readBody(markup);
@@ -1408,14 +1516,26 @@ export class ChatRoom extends DurableObject<Env> {
    * its writer wrote (`writtenText`), not yet checked for blocked words, or why the room can't keep it.
    */
   private async readBody(markup: string): Promise<{ body: PreparedBody; written: string } | string> {
-    const ids = userIdsIn(markup);
-    const people = new Map<UserId, User>(ids.length === 0 ? [] : (await workspace(this.env).mentionedPeople(ids)).map((person) => [person.id, person]));
-    const named = (sgid: string) => people.get(userIdFromSgid(sgid) ?? "");
-    const body = prepareBody(markup, named);
+    const { userIds, groupIds } = mentionedIdsIn(parseHtml, markup);
+    const [people, groups] = await Promise.all([
+      userIds.length === 0 ? [] : workspace(this.env).mentionedPeople(userIds),
+      groupIds.length === 0 ? [] : workspace(this.env).mentionedGroups(groupIds),
+    ]);
+    const named = new Map<string, MentionUser>(people.map((person) => [mentionSgid(person.id), person]));
+    for (const { id, name } of groups) named.set(mentionGroupSgid(id), { id, name, group: true });
+    const body = prepareBody(markup, (sgid) => named.get(sgid));
     if (body === null) return UNREADABLE;
     if (body.blank) return EMPTY;
     if (isMessageTooLong(body.plainText)) return MESSAGE_TOO_LONG;
-    return { body, written: writtenText(body, named) };
+    const membersOf = new Map(groups.map((group) => [group.id, group.members]));
+    const mentions: User[] = [];
+    const seen = new Set<string>();
+    for (const mentioned of body.mentions) {
+      for (const member of mentioned.group ? (membersOf.get(mentioned.id) ?? []) : [mentioned]) {
+        if (!seen.has(member.id)) (seen.add(member.id), mentions.push(member));
+      }
+    }
+    return { body: { ...body, mentions }, written: writtenText(body, (sgid) => named.get(sgid)) };
   }
 
   /**
@@ -1543,7 +1663,15 @@ export class ChatRoom extends DurableObject<Env> {
     // The Workspace answers a message's pushes, webhooks and question for @ember once, so they're sent
     // whatever happens next, and the log's next call doesn't wait on push services, bots or models.
     if (pushes.length > 0) this.ctx.waitUntil(this.push(pushes));
-    for (const webhook of webhooks) this.ctx.waitUntil(this.deliver(roomId, webhook));
+    for (const webhook of webhooks) {
+      // A watched room's events wait as their author's commands do, that one burst can't queue webhook
+      // work for every subscribed bot and hold up everyone else's.
+      if (webhook.subscribed && !this.holdEvent(webhook.author.id, webhook.messageId)) {
+        console.error(`Bot::WebhookJob of message ${webhook.messageId} to bot ${webhook.botId} dropped: ${webhook.author.id}'s earlier events are still waiting`);
+        continue;
+      }
+      this.ctx.waitUntil(this.deliver(roomId, webhook));
+    }
     for (const question of asks) this.ctx.waitUntil(this.answer(roomId, question));
     await log.delivered(events.at(-1)!.seq);
     for (const { message } of events) if (message) this.seenBy.delete(message.id);
@@ -1560,22 +1688,219 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async deliver(roomId: RoomId, delivery: MessageWebhook): Promise<void> {
     const job = `Bot::WebhookJob of message ${delivery.messageId} to bot ${delivery.botId}`;
-    const ran = await this.webhooks.run(async () => {
-      try {
-        const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(delivery.messageId);
-        if (!message) throw new WebhookError("the message is gone");
-        const webhook = await workspace(this.env).botWebhook(roomId, delivery.botId);
-        if (!webhook) throw new WebhookError(NO_WEBHOOK);
-        const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
-        const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, delivery, webhook, message), keep);
-        const refused = reply && (await this.postReply(roomId, webhook, reply, message.parentId));
-        if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
-        console.log(`${job} performed: ${status ?? "no answer in time"}`);
-      } catch (error) {
-        console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+    try {
+      const ran = await this.webhooks.run(async () => {
+        try {
+          const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(delivery.messageId);
+          if (!message) throw new WebhookError("the message is gone");
+          const webhook = await workspace(this.env).botWebhook(roomId, delivery.botId);
+          if (!webhook) throw new WebhookError(NO_WEBHOOK);
+          const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
+          // A message event's payload says who wrote what, where, as a command's does, and its answer is
+          // read as a command's is, that a payload of blocks posts as the bot's cards, where a delivery's
+          // JSON answer would be kept as a file. A mention's is read and posted as a delivery's always
+          // was, its answer in its thread when it's in one.
+          const { status, refused } = delivery.subscribed
+            ? await postCommand(webhook.url, eventPayload(roomId, delivery.author, delivery.roomName, message), keep).then(async ({ status, answer }) => ({
+                status,
+                refused: answer && (await this.postCommandAnswer(roomId, webhook, answer, message.parentId)),
+              }))
+            : await postWebhook(webhook.url, webhookPayload(roomId, delivery, webhook, message), keep).then(async ({ status, reply }) => ({
+                status,
+                refused: reply && (await this.postReply(roomId, webhook, reply, message.parentId)),
+              }));
+          if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
+          console.log(`${job} performed: ${status ?? "no answer in time"}`);
+        } catch (error) {
+          console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+        }
+      });
+      if (!ran) console.error(`${job} dropped: the room's webhook queue is full`);
+    } finally {
+      // One of a person's events gives their share of the room's queue back once every delivery of it
+      // has had its turn, as a command does.
+      if (delivery.subscribed) this.releaseEvent(delivery.author.id, delivery.messageId);
+    }
+  }
+
+  /**
+   * Counts a delivery more of `author`'s message `messageId` among the events of theirs waiting on the
+   * bots' webhooks, and answers whether it may wait: no more of a person's events wait than
+   * `COMMANDS_WAITING_EACH`, and one more of theirs is dropped instead. An event counts once, whatever
+   * bots it goes to, that a room with more of them watching than the budget holds doesn't leave the
+   * later bots' subscriptions starved on every message. The counting happens in one go, without a
+   * turn passed in between, so no two readings of what's waiting can both hold a place.
+   */
+  private holdEvent(author: UserId, messageId: string): boolean {
+    const waiting = this.eventing.get(author);
+    if (!waiting) {
+      this.eventing.set(author, new Map([[messageId, 1]]));
+      return true;
+    }
+    const held = waiting.get(messageId);
+    if (held === undefined && waiting.size >= COMMANDS_WAITING_EACH) return false;
+    waiting.set(messageId, (held ?? 0) + 1);
+    return true;
+  }
+
+  /**
+   * Takes one delivery of `author`'s message `messageId` back off their waiting events, once it has had
+   * its turn, theirs gone once its last delivery has, so each event's share of the budget comes back,
+   * once.
+   */
+  private releaseEvent(author: UserId, messageId: string): void {
+    const waiting = this.eventing.get(author);
+    const held = waiting?.get(messageId) ?? 0;
+    if (held > 1) waiting!.set(messageId, held - 1);
+    else {
+      waiting?.delete(messageId);
+      if (waiting?.size === 0) this.eventing.delete(author);
+    }
+  }
+
+  /**
+   * Delivers the command `command`, which `user` sent on `ws`, to the webhook of the bot it invokes, in
+   * its turn among the room's deliveries, and posts what the bot answers as its own message, then tells
+   * `ws` it's done, or why it came to nothing. Each is logged as a delivery is, without its URL or the
+   * bot's key, and one the queue has no room for is dropped, as a click's is.
+   */
+  private async deliverCommand(roomId: RoomId, ws: WebSocket, user: User, command: CommandRun): Promise<void> {
+    const job = `Bot::WebhookJob of ${user.id}'s /${command.name} in room ${roomId}`;
+    let failed: string | null = null;
+    try {
+      const ran = await this.webhooks.run(async () => {
+        try {
+          console.log(`${job} performed: ${await this.reportCommand(roomId, user, command)}`);
+        } catch (error) {
+          console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+          failed = error instanceof CommandError ? error.told : COMMAND_FAILED;
+        }
+      });
+      if (!ran) {
+        console.error(`${job} dropped: the room's queue is full`);
+        failed = WEBHOOKS_FULL;
       }
+    } finally {
+      const waiting = (this.commanding.get(user.id) ?? 1) - 1;
+      if (waiting > 0) this.commanding.set(user.id, waiting);
+      else this.commanding.delete(user.id);
+      this.send(ws, failed === null ? { type: "command.ran", commandId: command.commandId } : { type: "error", message: failed, commandId: command.commandId, failed: command.type });
+    }
+  }
+
+  /**
+   * Delivers `user`'s command to the bot's webhook, as `deliver` delivers a message: to the webhook as
+   * the Workspace finds it then, for whoever typed it, while they're in the room, and posts what the bot
+   * says back, text, a file or a payload of blocks, as it posts what it answers a click with. Answers the
+   * webhook's status, or throws why the command came to nothing, which whoever typed it is told.
+   */
+  private async reportCommand(roomId: RoomId, sender: User, command: CommandRun): Promise<number | string> {
+    const found = await workspace(this.env).commandWebhook(roomId, sender.id, command.name);
+    if (!found) throw new CommandError(COMMAND_FAILED, `${NO_WEBHOOK}, or whoever typed it has left the room`);
+    if (!found.command) throw new CommandError(`There's no /${command.name} command here`, "no command by that name");
+    if (!found.webhook || !found.bot) throw new CommandError(`${found.bot?.name ?? "That bot"} isn't taking commands here`, NO_WEBHOOK);
+    const { webhook } = found;
+    const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
+    const payload = commandPayload(roomId, found.sender, found.roomName, found.command, command.text);
+    const { status, answer } = await postCommand(webhook.url, payload, keep);
+    if (status === null) throw new CommandError(`${webhook.bot.name} didn't answer in time`, "no answer in time");
+    if (status < 200 || status > 299) throw new CommandError(`${webhook.bot.name} couldn't take that command`, `its webhook answered ${status}`);
+    const refused = answer && (await this.postCommandAnswer(roomId, webhook, answer));
+    if (refused) throw new CommandError(`${webhook.bot.name}'s answer couldn't be posted`, `its answer wasn't kept: ${refused}`);
+    return status;
+  }
+
+  /**
+   * Delivers the shortcut `shortcut`, which `user` picked on `ws`, to the webhook of the bot it invokes,
+   * in its turn among the room's deliveries, and posts what the bot answers as its own message — in the
+   * message's thread when it's a reply — then tells `ws` it's done, or why it came to nothing. Each is
+   * logged as a delivery is, without its URL or the bot's key, and one the queue has no room for is
+   * dropped, as a command's is.
+   */
+  private async deliverShortcut(roomId: RoomId, ws: WebSocket, user: User, shortcut: ShortcutRun): Promise<void> {
+    const job = `Bot::WebhookJob of ${user.id}'s shortcut on message ${shortcut.messageId}`;
+    let failed: string | null = null;
+    try {
+      const ran = await this.webhooks.run(async () => {
+        try {
+          console.log(`${job} performed: ${await this.reportShortcut(roomId, user, shortcut)}`);
+        } catch (error) {
+          console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+          failed = error instanceof CommandError ? error.told : SHORTCUT_FAILED;
+        }
+      });
+      if (!ran) {
+        console.error(`${job} dropped: the room's queue is full`);
+        failed = WEBHOOKS_FULL;
+      }
+    } finally {
+      const waiting = (this.shortcutting.get(user.id) ?? 1) - 1;
+      if (waiting > 0) this.shortcutting.set(user.id, waiting);
+      else this.shortcutting.delete(user.id);
+      this.send(ws, failed === null ? { type: "shortcut.ran", shortcutId: shortcut.shortcutId } : { type: "error", message: failed, shortcutId: shortcut.shortcutId, failed: shortcut.type });
+    }
+  }
+
+  /**
+   * Delivers `user`'s shortcut on the message `run` names, as `reportCommand` delivers a command: to the
+   * webhook as the Workspace finds it then, for whoever picked it, while they're in the room, and posts
+   * what the bot says back as it posts what it answers a command with, in the message's thread when it's
+   * a reply. Answers the webhook's status, or throws why the shortcut came to nothing, which whoever
+   * picked it is told.
+   */
+  private async reportShortcut(roomId: RoomId, sender: User, run: ShortcutRun): Promise<number | string> {
+    const found = await workspace(this.env).shortcutWebhook(roomId, sender.id, run.shortcutId);
+    if (!found) throw new CommandError(SHORTCUT_FAILED, `${NO_WEBHOOK}, or whoever picked it has left the room`);
+    if (!found.shortcut) throw new CommandError("There's no such shortcut here", "no shortcut by that id");
+    if (!found.webhook || !found.bot) throw new CommandError(`${found.bot?.name ?? "That bot"} isn't taking shortcuts here`, NO_WEBHOOK);
+    const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), run.messageId);
+    if (!message) throw new CommandError(MESSAGE_GONE, "the message is gone");
+    const { webhook } = found;
+    const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
+    const payload = messageActionPayload(roomId, found.sender, found.roomName, found.shortcut, message);
+    const { status, answer } = await postCommand(webhook.url, payload, keep);
+    if (status === null) throw new CommandError(`${webhook.bot.name} didn't answer in time`, "no answer in time");
+    if (status < 200 || status > 299) throw new CommandError(`${webhook.bot.name} couldn't take that shortcut`, `its webhook answered ${status}`);
+    const refused = answer && (await this.postCommandAnswer(roomId, webhook, answer, message.parentId));
+    if (refused) throw new CommandError(`${webhook.bot.name}'s answer couldn't be posted`, `its answer wasn't kept: ${refused}`);
+    return status;
+  }
+
+  /**
+   * Posts what a bot answers a command with: what it says back, text or a file, is its reply, as
+   * `postReply` posts one to a delivery — in the thread `threadId` names, when it's one an event came
+   * by — and a payload of blocks is a new message of its with the cards the blocks make, in that thread
+   * too, as a click's payload takes the clicked card's place. A payload that shows nothing does nothing,
+   * as an answer without one does, and as blank text does, which is a webhook's bare 200. Answers why
+   * the room keeps nothing of it, if it doesn't.
+   */
+  private async postCommandAnswer(roomId: RoomId, webhook: WebhookAccess, answer: ClickAnswer<KeptFile>, threadId?: string): Promise<string | null> {
+    // Blank text is a webhook's bare 200, which says nothing, as an answer without a payload doesn't.
+    if (!("payload" in answer)) return "text" in answer && answer.text.trim() === "" ? null : this.postReply(roomId, webhook, answer, threadId);
+    if (answer.payload.trim() === "") return null;
+    const payload = payloadOf(answer.payload);
+    if (!payload) return "it isn't a JSON object";
+    const posted = payload.delete_original === true ? null : slackMessage(payload, true);
+    if (posted === "no_text") return null;
+    if (typeof posted === "string") return posted;
+    // delete_original has nothing of the command's to take down, so nothing is posted.
+    if (!posted) return null;
+    const found = await workspace(this.env).botWebhook(roomId, webhook.bot.id);
+    const access = found?.url === webhook.url ? found : null;
+    return this.serially(async () => {
+      if (await this.isDeleted()) return "the room is gone";
+      if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return WEBHOOK_CHANGED;
+      const store = this.storeFor(roomId);
+      // What there still is of the thread the event came by, that the cards are posted in it as the
+      // answer's text and files are: gone with the thread's message, as any reply to it would be.
+      const inThread = threadId === undefined ? undefined : await this.inThread(store, threadId, false);
+      if (inThread === null) return THREAD_GONE;
+      const body = await this.prepareWithCards(posted.markup, posted.cards);
+      if (typeof body === "string") return body;
+      // A command's answer is the bot's own, as any reply is: no delivery is sent for it.
+      await this.create(store, access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply", inThread });
+      return null;
     });
-    if (!ran) console.error(`${job} dropped: the room's webhook queue is full`);
   }
 
   /**
@@ -2228,7 +2553,7 @@ export class ChatRoom extends DurableObject<Env> {
    * each when its turn comes, and has it forget the subscriptions they found gone.
    */
   private async push(pushes: Array<MessagePush | InvitationPush>): Promise<void> {
-    const gone = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
+    const { gone } = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
     if (gone.length === 0) return;
     await workspace(this.env)
       .forgetPushSubscriptions(gone)
@@ -2447,6 +2772,18 @@ export class ChatRoom extends DurableObject<Env> {
       } catch {
         // As above.
       }
+    }
+  }
+
+  /**
+   * Tells the room about a pin but the tabs running an app older than its protocol, whose room view has
+   * no case for a pin frame, and would break on one rather than ignore it: those are to reload, as the
+   * error they hear at once on joining, and whenever they send anything, says.
+   */
+  private broadcastPins(frame: ServerFrame): void {
+    for (const socket of this.roomSockets()) {
+      if (isOutdated(socket)) continue;
+      this.send(socket, frame);
     }
   }
 }

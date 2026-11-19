@@ -138,6 +138,8 @@ interface Props {
    * since gets the New line, unless the messages loaded may not reach back to it.
    */
   newSince?: string | null;
+  /** The room's pinned messages' ids, which names Pin to room or Unpin among each message's actions. */
+  pinnedIds?: ReadonlySet<string>;
   /** Who joined the workspace, and when, for a DM started as they did, which opens with their having joined. */
   joined?: { user: User; at: string } | null;
 }
@@ -164,6 +166,7 @@ export function MessageList({
   thread,
   openThread,
   newSince = null,
+  pinnedIds,
   joined = null,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -387,6 +390,7 @@ export function MessageList({
                         editors={editors}
                         thread={thread?.place}
                         open={message.id === openThread}
+                        pinnedIds={pinnedIds}
                       />
                     </div>
                   );

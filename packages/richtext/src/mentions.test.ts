@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { prepareBody, writtenBody } from "./body";
-import { editableBody, mentionContent, mentionedUsers, mentionPromptItem, mentionSgid, userIdFromSgid, userIdsIn, writtenMentions, type MentionCard } from "./mentions";
+import { editableBody, groupIdsIn, groupIdFromSgid, groupPromptItem, mentionContent, mentionedUsers, mentionGroupContent, mentionGroupSgid, mentionPromptItem, mentionSgid, userIdFromSgid, userIdsIn, writtenMentions, type MentionCard } from "./mentions";
 import { parseHtml } from "./parse";
-import { testUserId as id, testUsers } from "./testing/users";
+import { testGroupId, testGroups, testUserId as id, testUsers } from "./testing/users";
 
 const { users, resolve } = testUsers("David", "Jason");
 const mention = (n: number) => `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${mentionSgid(id(n))}"></action-text-attachment>`;
@@ -16,6 +16,17 @@ describe("How mentions look", () => {
     // @ember's id is its own, the AI assistant's.
     expect(userIdFromSgid("ember")).toBe("ember");
     for (const sgid of ["gid://ember/User/0mgx5k2p9abc1234", "0MGX5K2P9ABC1234", "0mgx5k2p9abc123", "0mgx5k2p9abc12345", " 0mgx5k2p9abc1234", "0mgx5k2p9abc-234", "", "Ember", "embers", "@ember"]) {
+      expect(userIdFromSgid(sgid), sgid).toBeUndefined();
+    }
+  });
+
+  it("names groups by their ids, marked so no person's id can be mistaken for one", () => {
+    expect(mentionGroupSgid(testGroupId(1))).toBe(`group-${testGroupId(1)}`);
+    expect(groupIdFromSgid(`group-${testGroupId(1)}`)).toBe(testGroupId(1));
+    // A person's id is never a group's sgid, whatever word starts it.
+    expect(groupIdFromSgid(id(1))).toBeUndefined();
+    for (const sgid of ["group-", "group-", `group-${testGroupId(1).toUpperCase()}`, `group-${testGroupId(1)}0`, "group", "Group-x", "grouped-0123456789abc"]) {
+      expect(groupIdFromSgid(sgid), sgid).toBeUndefined();
       expect(userIdFromSgid(sgid), sgid).toBeUndefined();
     }
   });
@@ -55,6 +66,32 @@ describe("How mentions look", () => {
     const editable = editableBody(parseHtml, `<p>Hi ${mention(1)} and ${mention(2)}</p>`, (userId) => (userId === david.id ? david : undefined), "");
     expect(editable).toBe(`<p>Hi <action-text-attachment content-type="application/vnd.campfire.mention" sgid="${id(1)}" content="${content}"></action-text-attachment> and </p>`);
     expect(editableBody(parseHtml, "<p>Hi <strong>all</strong></p>", () => david, "")).toBe("<p>Hi <strong>all</strong></p>");
+  });
+
+  it("opens a stored body for editing with a group's mention content, dropping one of a group unknown", () => {
+    const design = { id: testGroupId(1), name: "Design", group: true as const };
+    const stored = `<p>Hi <action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="${mentionGroupSgid(design.id)}"></action-text-attachment></p>`;
+    const content = mentionGroupContent(design).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    const withoutGroups = editableBody(parseHtml, stored, () => undefined, "");
+    expect(withoutGroups).toBe("<p>Hi </p>");
+    const withGroups = editableBody(parseHtml, stored, () => undefined, "", (groupId) => (groupId === design.id ? design : undefined));
+    expect(withGroups).toBe(
+      `<p>Hi <action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="${mentionGroupSgid(design.id)}" content="${content}"></action-text-attachment></p>`,
+    );
+  });
+
+  it("reads whom the editor's markup mentions, a group by the name its mention shows, and marks it", () => {
+    const written = `<action-text-attachment sgid="${mentionGroupSgid(testGroupId(1))}" content="${mentionGroupContent({ id: testGroupId(1), name: "Design", group: true }).replaceAll('"', "&quot;")}" content-type="application/vnd.campfire.group-mention"></action-text-attachment>`;
+    expect(writtenMentions(parseHtml, `<p>Hi ${written}!</p>`)).toEqual([{ id: testGroupId(1), name: "Design", group: true }]);
+    // What the room will make of it: the group named, as plain text shows it.
+    expect(writtenBody(parseHtml, `<p>Hi ${written}!</p>`)).toEqual({ plainText: "Hi @Design!", mentions: [{ id: testGroupId(1), name: "Design", group: true }] });
+  });
+
+  it("lists a group's ids to look up, nested ones included, apart from the people's", () => {
+    const group = (n: number) => `<action-text-attachment sgid="${mentionGroupSgid(testGroupId(n))}" content-type="application/vnd.campfire.group-mention"></action-text-attachment>`;
+    const contentAttachment = (inner: string) => `<action-text-attachment content-type="text/html" content="${inner.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"></action-text-attachment>`;
+    expect(groupIdsIn(parseHtml, `<p>${mention(1)}${group(1)}${contentAttachment(group(2))}</p>`)).toEqual([testGroupId(1), testGroupId(2)]);
+    expect(userIdsIn(parseHtml, `<p>${mention(1)}${group(1)}${contentAttachment(mention(2))}</p>`)).toEqual([id(1), id(2)]);
   });
 
   it("skips what's past the parser's limits", () => {
@@ -98,6 +135,15 @@ describe("@-mention people", () => {
   <template type="editor">${mentionContent(ada)}</template>
 </lexxy-prompt-item>
 `);
+  });
+
+  it("offers a group after the people, with how many it stands for, and the mention picking it writes", () => {
+    expect(groupPromptItem({ id: testGroupId(1), name: `Design & code`, group: true }, 3)).toBe(`<lexxy-prompt-item search="Design &amp; code" sgid="${mentionGroupSgid(testGroupId(1))}">
+  <template type="menu"><span class="autocomplete__item"><span class="autocompletable__name">Design &amp; code</span> <span class="autocompletable__badge">3 members</span></span></template>
+  <template type="editor" content-type="application/vnd.campfire.group-mention" sgid="${mentionGroupSgid(testGroupId(1))}">${mentionGroupContent({ id: testGroupId(1), name: `Design & code`, group: true })}</template>
+</lexxy-prompt-item>
+`);
+    expect(groupPromptItem({ id: testGroupId(1), name: "One", group: true }, 1)).toContain('<span class="autocompletable__badge">1 member</span>');
   });
 
   it("badges an agent after its name in the prompt, but not in the mention picking it writes", () => {

@@ -27,7 +27,7 @@ const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({
 });
 const unstarred: Favorites = { rooms: [], version: 0 };
 /** The sidebar's list of `rooms`, starred as `favorites` says. */
-const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } });
+const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 }, suggestions: [] });
 
 describe("Create an open room", () => {
   it("puts a new room last, as the room someone was put in most recently, and the sidebar below every other room, whatever its name", () => {

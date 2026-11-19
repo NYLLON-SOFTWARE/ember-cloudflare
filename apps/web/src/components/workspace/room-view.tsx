@@ -1,12 +1,13 @@
-import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { Favorites, Invitation, Involvement, Me, User } from "@ember/protocol";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useGivingBack } from "@/hooks/use-giving-back";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMessageEditors } from "@/hooks/use-message-editors";
+import { usePins } from "@/hooks/use-pins";
 import { useRoom } from "@/hooks/use-room";
-import { useVisit } from "@/hooks/use-route";
+import { navigate, roomPath, useVisit } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
 import { roomName } from "@/lib/directs";
@@ -16,12 +17,13 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { isPending } from "@/lib/room-state";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { MessageList } from "./message-list";
+import { PinnedPanel } from "./pinned-panel";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
 import { ThreadPanel } from "./thread-panel";
 
-/** Where a thread covers its room, rather than showing beside it: below 1180px wide. */
-const THREAD_COVERS_ROOM = "(width < 73.75rem)";
+/** Where a thread or the Saved pane covers its room, rather than showing beside it: below 1180px wide. */
+export const THREAD_COVERS_ROOM = "(width < 73.75rem)";
 
 /** Who joined the workspace, and when, in a DM started as they did, which its timeline opens with, or null. */
 function joinedIn(room: Room): { user: User; at: string } | null {
@@ -54,6 +56,12 @@ interface Props {
   involvement: Involvement;
   /** When the room was marked unread as of when it was opened, which the timeline draws a New line at, or null. */
   newSince?: string | null;
+  /** Whether the Saved pane covers the room, which leaves it nothing to reach and keeps it from counting as seen. */
+  savedCovered?: boolean;
+  /** Whether the Saved pane shows beside the room, which the Pinned panel's column is then not to take. */
+  savedShown?: boolean;
+  /** Called when the Pinned panel opens, so the Saved pane sharing its column closes. */
+  onPinsOpened?: () => void;
   /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
@@ -69,8 +77,9 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
-  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId);
+export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, savedCovered = false, savedShown = false, onPinsOpened, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
+  const { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId, !savedCovered);
+  const { pins, pinnedIds, listed, refresh } = usePins(room.id, frames);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
@@ -102,10 +111,28 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   const composer = useRef<ComposerHandle>(null);
   const { editing, editors } = useMessageEditors(composer);
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
+  // The thread or the Pinned panel, either of which covers the room, leaves nothing of it to reach until it's closed.
+  const [pinsOpen, setPinsOpen] = useState(false);
+  // A thread that covers the room leaves nothing of it to reach until it's closed, and so does the
+  // Saved pane, where it covers the room rather than sitting beside it.
+  const covered = (useMediaQuery(THREAD_COVERS_ROOM) && (threadId !== undefined || pinsOpen)) || savedCovered;
+  // The thread and the Pinned panel trade their column: opening one closes the other.
+  useEffect(() => {
+    if (threadId !== undefined) setPinsOpen(false);
+  }, [threadId]);
+  // The Saved pane and the Pinned panel trade it too, on wide screens where both sit beside the room:
+  // opening one closes the other, so the two never cover one another.
+  useEffect(() => {
+    if (savedShown) setPinsOpen(false);
+  }, [savedShown]);
+  useEffect(() => {
+    if (pinsOpen) onPinsOpened?.();
+  }, [pinsOpen, onPinsOpened]);
+  const togglePins = () => {
+    if (!pinsOpen && threadId !== undefined) navigate(roomPath(room.id));
+    setPinsOpen((open) => !open);
+  };
   useGivingBack(state.messages, composer, givenBack);
-  // A thread that covers the room leaves nothing of it to reach until it's closed.
-  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined;
-
   // Up Arrow edits the newest message you wrote, unless it's still on its way, or the timeline is reading
   // older history and may not hold it.
   const editLastMessage = () => {
@@ -128,6 +155,8 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
           favorite={favorite}
           onStarred={onStarred}
           involvement={involvement}
+          pinned={pins?.length ?? 0}
+          onPinned={togglePins}
           askForRoom={askForRoom}
           onSessionChanged={onSessionChanged}
           onFailed={onFailed}
@@ -151,6 +180,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
             onDropFiles={(files) => composer.current?.addFiles(files)}
             openThread={threadId}
             newSince={newSince}
+            pinnedIds={deleted ? undefined : pinnedIds}
             joined={joinedIn(room)}
           />
           {deleted ? (
@@ -170,6 +200,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
               autoFocus={threadId === undefined}
               onSend={postMessage}
               onSendFiles={postFiles}
+              onRunCommand={runCommand}
               onTyping={typing}
               onEditLastMessage={editLastMessage}
             />
@@ -190,6 +221,20 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
           deleted={deleted}
           roomNotice={covered ? state.notice : null}
           onDismissRoomNotice={dismissNotice}
+        />
+      )}
+      {pinsOpen && threadId === undefined && (
+        <PinnedPanel
+          room={room}
+          name={name}
+          me={me}
+          pins={pins}
+          messages={listed}
+          onUnpin={deleted ? null : (messageId) => void messageActions.unpin(messageId)}
+          refresh={refresh}
+          roomNotice={covered ? state.notice : null}
+          onDismissRoomNotice={dismissNotice}
+          onClose={() => setPinsOpen(false)}
         />
       )}
     </>

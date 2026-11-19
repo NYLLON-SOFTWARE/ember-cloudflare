@@ -1,29 +1,6 @@
 import { AVATAR_PATH, type NewRoom, type ProfileAnswer, type Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  ApiError,
-  changeAvatar,
-  changeBlock,
-  changeRoom,
-  createRoom,
-  fetchMe,
-  fetchNewRoomForm,
-  fetchRoomSettings,
-  fetchSidebar,
-  forgetStoredSession,
-  handleReport,
-  joinWorkspace,
-  listReports,
-  removeAvatar,
-  reportMessage,
-  reportPerson,
-  roomSocketUrl,
-  setFavorite,
-  setFavoriteOrder,
-  setUpWorkspace,
-  signOut,
-  workspaceSocketUrl,
-} from "./api";
+import { ApiError, changeAvatar, changeBlock, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, handleReport, joinWorkspace, listReports, removeAvatar, reportMessage, reportPerson, roomSocketUrl, setFavorite, setFavoriteOrder, setUpWorkspace, signOut, workspaceSocketUrl } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -114,7 +91,7 @@ describe("Installer-protected setup link", () => {
 
 describe("Upload an avatar", () => {
   it("changes your avatar with a form of the photo and its variant, and removes it", async () => {
-    const answer = { profile: { name: "Ada", username: null, emailAddress: null, bio: null, avatarUrl: "/users/t/avatar", avatar: true, password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null }, transferId: "u1.t" } satisfies ProfileAnswer;
+    const answer = { profile: { name: "Ada", username: null, emailAddress: null, bio: null, mood: null, avatarUrl: "/users/t/avatar", avatar: true, password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, fields: [], apps: [], outsideAi: null, dndUntil: null }, transferId: "u1.t" } satisfies ProfileAnswer;
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(answer));
     const file = new File(["ada"], "ada.jpg", { type: "image/jpeg" });
     expect(await changeAvatar({ file, variant: new Blob(["variant"], { type: "image/webp" }) })).toEqual(answer);
@@ -144,9 +121,9 @@ describe("Sign out", () => {
 
 describe("Connection sign-in and revocation", () => {
   it("opens room sockets at the room's own address, over wss on https pages", () => {
-    expect(roomSocketUrl("general", { visible: true })).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4");
+    expect(roomSocketUrl("general", { visible: true })).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=5");
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
-    expect(roomSocketUrl("general", { visible: false })).toBe("wss://ember.example/api/rooms/general/socket?visible=0&protocol=4");
+    expect(roomSocketUrl("general", { visible: false })).toBe("wss://ember.example/api/rooms/general/socket?visible=0&protocol=5");
     vi.unstubAllGlobals();
   });
 });
@@ -168,6 +145,7 @@ describe("Live sidebar updates", () => {
     invitation: null,
     huddles: {},
     blocks: { userIds: [], version: 0 },
+    suggestions: [],
   };
 
   it("keeps the sidebar's ETag, and names it to keep the copy while it's current", async () => {

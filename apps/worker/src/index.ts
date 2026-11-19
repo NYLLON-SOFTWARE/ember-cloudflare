@@ -7,6 +7,10 @@ import {
   DELETION_PASSWORD_NEEDED,
   EMAIL_DOMAIN_NEEDS_EMAIL,
   EMAIL_SIGN_UP_PATH,
+  GROUP_MEMBER_UNKNOWN,
+  GROUP_NAME_TAKEN,
+  GROUPS_FULL,
+  GROUP_TOO_BIG,
   INVITATION_PATH,
   LOGO_PATH,
   LOGO_TOO_LARGE,
@@ -18,6 +22,9 @@ import {
   MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD,
   MEMBERFUL_NOT_CONNECTED,
   MEMBERFUL_PASSWORD_NEEDED,
+  MEMBERFUL_SIGN_IN_NEEDED,
+  KIND_SEGMENTS,
+  MAX_ID_LENGTH,
   MEMBERFUL_SIGN_IN_PATH,
   MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
@@ -26,6 +33,7 @@ import {
   ONLY_ADMINISTRATOR,
   PASSWORD_RESET_PATH,
   PASSWORD_WITH_MEMBERFUL,
+  guestsNameTaken,
   isPasswordTooLong,
   isReservedName,
   isRoomId,
@@ -35,18 +43,30 @@ import {
   parseAccountDeletion,
   parseCustomDomainCheck,
   parseCustomStyles,
+  parseDndChange,
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
+  parseGuestChange,
+  parseNewGuest,
   parseSharedOrder,
   parseNewDirect,
   parseNewRoom,
+  parseNewUserGroup,
   parseProfileChanges,
+  parseProfileFieldChange,
+  parseProfileFieldOrder,
   parseResendApiKey,
   parseRoleChange,
   parseSendingDomainCheck,
   parseRoomChanges,
   parseTurnstileKeysChange,
+  parseUserGroupChanges,
+  PROFILE_FIELD_ORDER_REFUSED,
+  PROFILE_FIELD_NAME_TAKEN,
+  PROFILE_FIELD_UNKNOWN,
+  PROFILE_FIELD_VALUE_NOT_A_CHOICE,
+  PROFILE_FIELDS_FULL,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
   SIGN_IN_REJECTED,
@@ -65,15 +85,20 @@ import {
   type CustomDomainLookup,
   type CustomStyles,
   type Directory,
+  type DndAnswer,
   type EmailSettings,
   type Favorites,
+  type GuestAnswer,
   type Involvement,
+  type Reminder,
+  type MemberfulConnection,
   type MemberfulAccount,
   type MemberfulStatus,
   type NewJoinCode,
   type NewRoomForm,
   type PersonAnswer,
   type ProfileAnswer,
+  type ProfileField,
   type ReleaseCheck,
   type RoomId,
   type RoomSettings,
@@ -83,12 +108,16 @@ import {
   type StartedDirect,
   type TurnstileSettings,
   type UserId,
+  type UserGroup,
+  type UserGroupAnswer,
+  type UserGroupsAnswer,
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSoundChanges, type HuddleSoundsChanged, type PastHuddles } from "@ember/protocol/huddles";
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
+import { groupPromptItem, mentionPromptItem } from "@ember/richtext";
 import { parseNewReport, parseReportHandling, type HandledReports, type Reports } from "@ember/protocol/reports";
 import {
   MEMBERFUL_WITH_SSO,
@@ -109,7 +138,6 @@ import {
   type ElsewhereConnection,
   type SsoStatus,
 } from "@ember/protocol/sso";
-import { mentionPromptItem } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
 import {
   clientOf,
@@ -163,6 +191,7 @@ import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
+import { createCommand, createShortcut, listCommands, listShortcuts, removeCommand, removeShortcut, subscribeToRoomMessages, unsubscribeFromRoomMessages } from "./bots/commands";
 import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import { guestSignIn, type Env } from "./env";
@@ -203,6 +232,7 @@ import { releaseCheck } from "./releases";
 import { urlOf } from "./request-url";
 import { taggedAddress } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
+import { forgetSave, saveMessage, saves } from "./saves";
 import { isOnboardedToEmailSending } from "./sending-domain";
 import { checkSetup, firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
@@ -284,20 +314,23 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
 }
 
 /**
- * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
- * unless Memberful is members only, or single sign-on the only way in, or the name is @ember's or an
- * agent's, or has a word Blocked words keeps out.
+ * Signs someone in with just a name: one of the guests of one room, by the name their stay stays
+ * under, or, when EMBER_GUEST_SIGN_IN allows it, someone new every time. Memberful being members only,
+ * or single sign-on the only way in, answers 403, the name being @ember's or an agent's 422, a stay that
+ * has ended 403, a name with a word Blocked words keeps out 422, and the name alone being turned off
+ * 403, which a name no stay stays under hears.
  */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
-  if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
   if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
   if (isReservedName(name)) return problem(422, NAME_RESERVED);
 
   const token = newSessionToken();
-  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));
+  if (user === "off") return problem(403, "Signing in with just a name is turned off");
   if (user === "agent's name") return problem(422, agentsName(name));
   if (user === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
+  if (user === "ended") return problem(403, "Your stay in this workspace has ended. Ask whoever added you for another.");
   if (typeof user === "string") return problem(403, signInNeededWith(user));
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
@@ -553,6 +586,68 @@ async function changeCustomStyles(request: Request, env: Env): Promise<Response>
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   return typeof change === "string" ? problem(422, change) : json({ account });
+}
+
+/** The workspace's profile fields, as its settings manage them, which only administrators can read. */
+async function listProfileFields(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const fields = credentials && (await workspace(env).profileFields(credentials));
+  if (!fields) return problem(401, "Not signed in");
+  if (fields === "forbidden") return problem(403, "Only administrators can manage profile fields");
+  return json({ fields } satisfies { fields: ProfileField[] });
+}
+
+/** What a change to the profile fields answers: the fields as they are then, or why it was refused. */
+function profileFieldsAnswer(fields: ProfileField[] | "forbidden" | null): Response {
+  if (!fields) return problem(401, "Not signed in");
+  if (fields === "forbidden") return problem(403, "Only administrators can manage profile fields");
+  return json({ fields } satisfies { fields: ProfileField[] });
+}
+
+/** Adds a profile field, as workspace settings does, answering the fields as they are then. */
+async function addProfileField(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseProfileFieldChange(await jsonBodyOf(request));
+  // A change that doesn't parse adds nothing, but who's asking is still checked first.
+  const fields = await workspace(env).createProfileField(credentials, typeof change === "string" ? undefined : change);
+  if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
+  if (typeof change === "string") return problem(422, change);
+  if (fields === "full") return problem(422, PROFILE_FIELDS_FULL);
+  if (fields === "taken") return problem(422, PROFILE_FIELD_NAME_TAKEN);
+  return profileFieldsAnswer(fields);
+}
+
+/** Renames a profile field and sets its choices, answering the fields as they are then. */
+async function changeProfileField(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseProfileFieldChange(await jsonBodyOf(request));
+  // A change that doesn't parse changes nothing, but who's asking is still checked first.
+  const fields = await workspace(env).changeProfileField(credentials, id, typeof change === "string" ? undefined : change);
+  if (fields === "not found") return problem(404, "Not found");
+  if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
+  if (typeof change === "string") return problem(422, change);
+  if (fields === "taken") return problem(422, PROFILE_FIELD_NAME_TAKEN);
+  return profileFieldsAnswer(fields);
+}
+
+/** Puts the fields in the order `ids` name them, answering the fields as they are then. */
+async function setProfileFieldOrder(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const order = parseProfileFieldOrder(await jsonBodyOf(request));
+  // An order that doesn't parse orders nothing, but who's asking is still checked first.
+  const fields = await workspace(env).reorderProfileFields(credentials, typeof order === "string" ? [] : order);
+  if (fields === "not the fields") return problem(422, PROFILE_FIELD_ORDER_REFUSED);
+  if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
+  return typeof order === "string" ? problem(422, order) : profileFieldsAnswer(fields);
+}
+
+/** Takes a profile field away, with everything anyone saved for it, answering the fields as they are then. */
+async function removeProfileField(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  return profileFieldsAnswer(credentials && (await workspace(env).deleteProfileField(credentials, id)));
 }
 
 /**
@@ -823,10 +918,41 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "email address taken") return problem(422, "That email address has an account already");
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
+  if (yours === "another guest's name") return problem(422, guestsNameTaken(rest.name!));
+  if (yours === "guest's name too long") return problem(422, `Your name must be 1 to ${MAX_NAME_LENGTH} characters, as signing in with just a name takes it`);
   if (yours === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
   if (yours === "username taken") return problem(422, USERNAME_TAKEN);
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
+  if (yours === "unknown field") return problem(422, PROFILE_FIELD_UNKNOWN);
+  if (yours === "not a choice") return problem(422, PROFILE_FIELD_VALUE_NOT_A_CHOICE);
   return profileAnswer(yours, env, memberfulSite);
+}
+
+/** Why `PUT /api/users/me/dnd` refuses a time that isn't ahead of now. */
+const DND_PASSED = "Pick a time that hasn't passed yet";
+
+/**
+ * Hushes your push notifications until `until`, as Do not disturb on your profile asks, answering when
+ * they're heard again. It hushes push notifications alone: your rooms, unread marks, the app badge and
+ * banners in the app carry on.
+ */
+async function changeDnd(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseDndChange(await jsonBodyOf(request));
+  if (typeof change === "string") return problem(422, change);
+  const dndUntil = await workspace(env).setDnd(credentials, change.until);
+  if (!dndUntil) return problem(401, "Not signed in");
+  if (dndUntil === "passed") return problem(422, DND_PASSED);
+  return json({ dndUntil } satisfies DndAnswer);
+}
+
+/** Lifts the hush on your push notifications, answering that they're heard again. */
+async function clearDnd(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!(await workspace(env).clearDnd(credentials))) return problem(401, "Not signed in");
+  return json({ dndUntil: null } satisfies DndAnswer);
 }
 
 /**
@@ -1067,6 +1193,9 @@ async function dismissInvitation(request: Request, env: Env): Promise<Response> 
 }
 
 /**
+ * Everyone in the workspace, deactivated and banned people too, with their avatars' addresses, and the
+ * workspace's groups with everyone in each, for the app to show people by and a mention of a group to
+ * say whom it stands for. No cache keeps it, as none keeps the sidebar, so the app keeps its own copy.
  * Stops an invitation into room `roomId`'s huddle ringing in every tab of the signed-in person's, as
  * joining from it or declining it in one of them does, answering 204. Nothing is kept of an invitation,
  * so it answers the same for a room with none.
@@ -1109,9 +1238,59 @@ async function pastHuddles(request: Request, env: Env): Promise<Response> {
  */
 async function directory(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const entries = credentials && (await workspace(env).directory(credentials));
-  if (!entries) return problem(401, "Not signed in");
-  return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET) } satisfies Directory, { "Cache-Control": "no-store" });
+  const [entries, groups] = await Promise.all([
+    credentials && workspace(env).directory(credentials),
+    credentials && workspace(env).userGroups(credentials),
+  ]);
+  if (!entries || !groups) return problem(401, "Not signed in");
+  return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET), groups } satisfies Directory, { "Cache-Control": "no-store" });
+}
+
+/** The workspace's groups, by name, as the settings' User groups list shows them. */
+async function userGroups(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const groups = credentials && (await workspace(env).userGroups(credentials));
+  return groups ? Response.json({ groups } satisfies UserGroupsAnswer, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
+}
+
+/** Makes a group, as the settings' User groups section does, answering 201 with it as it then is. */
+async function createUserGroup(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const group = parseNewUserGroup(await jsonBodyOf(request));
+  if (typeof group === "string") return problem(422, group);
+  return groupAnswer(await workspace(env).createUserGroup(credentials, group), 201);
+}
+
+/** Changes a group's name or members, as the settings' User groups section does, answering it as it then is. */
+async function changeUserGroup(request: Request, env: Env, groupId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const changes = parseUserGroupChanges(await jsonBodyOf(request));
+  if (typeof changes === "string") return problem(422, changes);
+  return groupAnswer(await workspace(env).changeUserGroup(credentials, groupId, changes));
+}
+
+/** Deletes a group and everyone in it, as the settings' User groups section does, answering 204. */
+async function deleteUserGroup(request: Request, env: Env, groupId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const deleted = credentials && (await workspace(env).deleteUserGroup(credentials, groupId));
+  if (!deleted) return problem(401, "Not signed in");
+  if (deleted === "forbidden") return problem(403, "Only administrators can manage user groups");
+  if (deleted === "not found") return problem(404, "Not found");
+  return new Response(null, { status: 204 });
+}
+
+/** What the User groups section shows of an answer: the group, or what the Workspace refused it with. */
+function groupAnswer(group: UserGroup | "forbidden" | "not found" | "full" | "too big" | "member unknown" | "name taken" | null, created?: number): Response {
+  if (!group) return problem(401, "Not signed in");
+  if (group === "forbidden") return problem(403, "Only administrators can manage user groups");
+  if (group === "not found") return problem(404, "Not found");
+  if (group === "full") return problem(422, GROUPS_FULL);
+  if (group === "too big") return problem(422, GROUP_TOO_BIG);
+  if (group === "member unknown") return problem(422, GROUP_MEMBER_UNKNOWN);
+  if (group === "name taken") return problem(422, GROUP_NAME_TAKEN);
+  return Response.json({ group } satisfies UserGroupAnswer, { status: created, headers: { "Cache-Control": "no-store" } });
 }
 
 /** A path segment as text, or "" for malformed percent-encoding, which names nobody. */
@@ -1135,7 +1314,7 @@ async function showPerson(request: Request, env: Env, userId: UserId): Promise<R
   if (found === "not found") return problem(404, "Not found");
   const [shown] = await directoryOf([found.person], env.SESSION_SECRET);
   const transferId = found.transfer ? await newTransferId(found.transfer, env.SESSION_SECRET) : undefined;
-  return json({ person: shown!, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
+  return json({ person: shown!, fields: found.fields, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -1151,7 +1330,8 @@ async function personPage(request: Request, env: Env, pathname: string, userId: 
 /**
  * Whom the mentions prompt offers: the first 20 by name of the active people in `room_id`, or anywhere
  * without one, whose names contain `filter` (or `query`), as `<lexxy-prompt-item>`s, with the AI agents'
- * badged, @ember's among them. A room someone isn't in is 404.
+ * badged, @ember's among them, and the workspace's groups after them, each with how many it stands for.
+ * A room someone isn't in is 404.
  */
 async function mentionable(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1160,10 +1340,12 @@ async function mentionable(request: Request, env: Env): Promise<Response> {
   const roomId = present(params.get("room_id"));
   if (roomId !== undefined && !isRoomId(roomId)) return problem(404, ROOM_NOT_FOUND);
   const query = present(params.get("filter")) ?? present(params.get("query")) ?? "";
-  const people = await workspace(env).mentionable(credentials, roomId ?? null, query);
+  const [people, groups] = await Promise.all([workspace(env).mentionable(credentials, roomId ?? null, query), workspace(env).userGroups(credentials)]);
   if (!people) return problem(401, "Not signed in");
   if (people === "not found") return problem(404, ROOM_NOT_FOUND);
   const items = (await directoryOf(people, env.SESSION_SECRET)).map((person) => mentionPromptItem(person));
+  const shown = query === "" ? groups ?? [] : groups?.filter(({ name }) => name.includes(query.toLowerCase())) ?? [];
+  items.push(...shown.map((group) => groupPromptItem({ id: group.id, name: group.name }, group.memberIds.length)));
   return new Response(items.join(""), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
@@ -1204,6 +1386,9 @@ async function startDirect(request: Request, env: Env): Promise<Response> {
   if (typeof direct === "string") return problem(422, direct);
   const started = await workspace(env).startDirect(credentials, direct.userIds);
   if (!started) return problem(401, "Not signed in");
+  if (started === "forbidden") return problem(403, "You're a guest of one room, so direct messages aren't yours to start");
+  if (started === "unavailable")
+    return problem(422, "They're a guest of one room, whose stay is the one room they reach, so a direct message with them isn't yours to start");
   if ("refusedBy" in started) return problem(403, notTakingDirects(started.refusedBy));
   return json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 });
 }
@@ -1268,7 +1453,63 @@ async function leaveRoom(request: Request, env: Env, roomId: RoomId): Promise<Re
   if (left === "not found") return problem(404, ROOM_NOT_FOUND);
   if (left === "open") return problem(403, "Everyone is in an open room, so nobody can leave it");
   if (left === "can change") return problem(403, "You can change this room, so take yourself out in its settings");
+  if (left === "guest") return problem(403, "You're a guest of this room, so only whoever added you can take you out");
   if (left === "last") return problem(403, "Nobody else could open this room, so you can't leave it");
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * Adds a guest to a room, as its settings' guests panel asks: a name, and when their stay ends. 404
+ * unless whoever asks is in the room, 403 unless they can change it, 422 for a name it can't read, one
+ * of its guests stays under already, or a time that has passed, and 401 without a valid session.
+ */
+async function addGuest(request: Request, env: Env, roomId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const stay = parseNewGuest(await jsonBodyOf(request));
+  if (typeof stay === "string") return problem(422, stay);
+  const guest = await workspace(env).addGuest(credentials, roomId, stay.name, stay.until);
+  if (!guest) return problem(401, "Not signed in");
+  if (guest === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (guest === "forbidden") return problem(403, "Only administrators and the room's creator can add guests to it");
+  if (guest === "agent's name") return problem(422, agentsName(stay.name));
+  if (guest === "taken") return problem(422, `${stay.name} is already one of this room's guests`);
+  if (guest === "passed") return problem(422, "Pick a time that hasn't passed yet");
+  return json({ guest } satisfies GuestAnswer, { status: 201 });
+}
+
+/**
+ * Extends the stay of a room's guest `userId`, as its settings' guests panel asks, answering the guest:
+ * 404 unless whoever asks can change the room and their stay is in it, 422 for a time that has passed,
+ * and 401 without a valid session.
+ */
+async function extendGuestStay(request: Request, env: Env, roomId: string, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const change = parseGuestChange(await jsonBodyOf(request));
+  if (typeof change === "string") return problem(422, change);
+  const guest = await workspace(env).extendGuestStay(credentials, roomId, userId, change.until);
+  if (!guest) return problem(401, "Not signed in");
+  if (guest === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (guest === "forbidden") return problem(403, "Only administrators and the room's creator can extend a guest's stay");
+  if (guest === "passed") return problem(422, "Pick a time that hasn't passed yet");
+  return json({ guest } satisfies GuestAnswer);
+}
+
+/**
+ * Ends the stay of a room's guest `userId`, as its settings' guests panel asks, answering 204: 404
+ * unless whoever asks can change the room and their stay is in it, and 401 without a valid session.
+ */
+async function endGuestStay(request: Request, env: Env, roomId: string, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const ended = await workspace(env).endGuestStay(credentials, roomId, userId);
+  if (!ended) return problem(401, "Not signed in");
+  if (ended === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (ended === "forbidden") return problem(403, "Only administrators and the room's creator can end a guest's stay");
   return new Response(null, { status: 204 });
 }
 
@@ -1318,6 +1559,56 @@ async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   if (!favorites) return problem(401, "Not signed in");
   if (favorites === "forbidden") return problem(403, "Those aren't the rooms you've starred");
   return json({ favorites } satisfies { favorites: Favorites });
+}
+
+/** The reminders the signed-in person hasn't dismissed yet, the one coming soonest first. */
+async function remindersOf(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const reminders = credentials && (await workspace(env).reminders(credentials));
+  if (!reminders) return problem(401, "Not signed in");
+  return json({ reminders } satisfies { reminders: Reminder[] });
+}
+
+/** What a reminder must be asked with, and what a body that asks otherwise is told. */
+function parseReminderAsk(body: unknown): { roomId: RoomId; messageId: string; remindAt: number } | string {
+  if (typeof body !== "object" || body === null) return "The reminder must be asked with an object";
+  const { roomId, messageId, remindAt } = body as Record<string, unknown>;
+  if (typeof roomId !== "string" || !isRoomId(roomId)) return "invalid room ID";
+  if (typeof messageId !== "string" || messageId === "" || messageId.length > MAX_ID_LENGTH) return "invalid message ID";
+  if (typeof remindAt !== "string" || !Number.isFinite(Date.parse(remindAt))) return "remindAt must be a date's text";
+  return { roomId, messageId, remindAt: Date.parse(remindAt) };
+}
+
+/**
+ * Asks that a message of a room the signed-in person is in come back to them when they choose,
+ * answering the reminder: 400 for what it can't read, 403 for a room they aren't in, 404 for a message
+ * the room has no more, and 422 for a time that makes no sense.
+ */
+async function setReminder(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const asked = parseReminderAsk(await jsonBodyOf(request));
+  if (typeof asked === "string") return problem(400, asked);
+  const reminded = await workspace(env).setReminder(credentials, asked.roomId, asked.messageId, asked.remindAt);
+  if (!reminded) return problem(401, "Not signed in");
+  if (reminded === "forbidden") return problem(403, "You aren't in that room");
+  if (reminded === "gone") return problem(404, "That message isn't there any more");
+  if (reminded === "too soon") return problem(422, "Choose a time a little later from now");
+  if (reminded === "too late") return problem(422, "Choose a time within a year from now");
+  return json({ reminder: reminded } satisfies { reminder: Reminder }, { status: 201 });
+}
+
+/**
+ * Takes the signed-in person's reminder `id` away, which is being done with one that has come due, or
+ * taking back one that hasn't: 404 for one that isn't theirs or isn't there.
+ */
+async function dismissReminder(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const dismissed = await workspace(env).dismissReminder(credentials, id);
+  if (dismissed === null) return problem(401, "Not signed in");
+  if (!dismissed) return problem(404, "No reminder of yours by that id");
+  return new Response(null, { status: 204 });
 }
 
 /** What someone hears when they can't put rooms in the shared order. */
@@ -1455,6 +1746,13 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return () => changeCustomStyles(request, env);
   if (pathname === "/api/account/room_order" && request.method === "PUT") return () => setSharedOrder(request, env);
+  if (pathname === "/api/account/profile_fields" && request.method === "GET") return () => listProfileFields(request, env);
+  if (pathname === "/api/account/profile_fields" && request.method === "POST") return () => addProfileField(request, env);
+  // Before a field's id, which "order" could name.
+  if (pathname === "/api/account/profile_fields/order" && request.method === "PUT") return () => setProfileFieldOrder(request, env);
+  const profileField = pathname.match(/^\/api\/account\/profile_fields\/([^/]+)$/);
+  if (profileField && request.method === "PATCH") return () => changeProfileField(request, env, profileField[1]!);
+  if (profileField && request.method === "DELETE") return () => removeProfileField(request, env, profileField[1]!);
   // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
   const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
   if (person && request.method === "PATCH") return () => changeRole(request, env, person[1]!);
@@ -1468,14 +1766,40 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (bot && request.method === "DELETE") return () => deleteBot(request, env, bot[1]!);
   const botKey = pathname.match(/^\/api\/account\/bots\/([^/]+)\/key$/);
   if (botKey && request.method === "PUT") return () => resetBotKey(request, env, botKey[1]!);
+  // A bot's subscription to a room's message events, as the bots page ticks it. Neither id needs encoding, as a bot's or a room's.
+  const botEvents = pathname.match(/^\/api\/account\/bots\/([^/]+)\/rooms\/([^/]+)\/events$/);
+  if (botEvents && request.method === "PUT") return () => subscribeToRoomMessages(request, env, botEvents[1]!, botEvents[2]!);
+  if (botEvents && request.method === "DELETE") return () => unsubscribeFromRoomMessages(request, env, botEvents[1]!, botEvents[2]!);
+  if (pathname === "/api/account/commands" && request.method === "GET") return () => listCommands(request, env);
+  if (pathname === "/api/account/commands" && request.method === "POST") return () => createCommand(request, env);
+  const command = pathname.match(/^\/api\/account\/commands\/([^/]+)$/);
+  if (command && request.method === "DELETE") return () => removeCommand(request, env, command[1]!);
+  if (pathname === "/api/account/shortcuts" && request.method === "GET") return () => listShortcuts(request, env);
+  if (pathname === "/api/account/shortcuts" && request.method === "POST") return () => createShortcut(request, env);
+  // A shortcut's id is a sortable id, which never needs percent-encoding, so an encoded segment names none.
+  const shortcut = pathname.match(/^\/api\/account\/shortcuts\/([^/]+)$/);
+  if (shortcut && request.method === "DELETE") return () => removeShortcut(request, env, shortcut[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
   if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
+  if (pathname === "/api/user_groups" && request.method === "GET") return () => userGroups(request, env);
+  if (pathname === "/api/user_groups" && request.method === "POST") return () => createUserGroup(request, env);
+  // Groups' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
+  const userGroup = pathname.match(/^\/api\/user_groups\/([^/]+)$/);
+  if (userGroup && request.method === "PATCH") return () => changeUserGroup(request, env, userGroup[1]!);
+  if (userGroup && request.method === "DELETE") return () => deleteUserGroup(request, env, userGroup[1]!);
   if (pathname === "/api/agents" && request.method === "GET") return () => listAvailableAgents(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
+  if (pathname === "/api/reminders" && request.method === "GET") return () => remindersOf(request, env);
+  if (pathname === "/api/reminders" && request.method === "POST") return () => setReminder(request, env);
+  // A reminder's id is a sortable id, which never needs percent-encoding, so an encoded segment names none.
+  const reminder = pathname.match(/^\/api\/reminders\/([^/]+)$/);
+  if (reminder && request.method === "DELETE") return () => dismissReminder(request, env, reminder[1]!);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
+  if (pathname === "/api/users/me/dnd" && request.method === "PUT") return () => changeDnd(request, env);
+  if (pathname === "/api/users/me/dnd" && request.method === "DELETE") return () => clearDnd(request, env);
   if (pathname === "/api/users/me" && request.method === "DELETE") return () => deleteAccount(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
   if (pathname === "/api/users/me/huddle-sounds" && request.method === "PATCH") return () => changeHuddleSounds(request, env);
@@ -1529,6 +1853,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/searches" && request.method === "GET") return () => searchMessages(request, env);
   if (pathname === "/api/searches" && request.method === "POST") return () => recordSearch(request, env);
   if (pathname === "/api/searches" && request.method === "DELETE") return () => clearSearches(request, env);
+  if (pathname === "/api/saves" && request.method === "POST") return () => saveMessage(request, env);
+  if (pathname === "/api/saves" && request.method === "GET") return () => saves(request, env);
+  // A save's id is a UUID, which never needs percent-encoding, so an encoded segment names none.
+  const save = pathname.match(/^\/api\/saves\/([^/]+)$/);
+  if (save && request.method === "DELETE") return () => forgetSave(request, env, save[1]!);
   if (pathname === "/api/push-subscriptions" && request.method === "GET") return () => listPushSubscriptions(request, env);
   if (pathname === "/api/push-subscriptions" && request.method === "POST") return () => savePushSubscription(request, env);
   const pushSubscription = pathname.match(/^\/api\/push-subscriptions\/([^/]+)$/);
@@ -1556,6 +1885,15 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
     return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
   const membership = pathname.match(/^\/api\/rooms\/([^/]+)\/membership$/);
   if (membership && request.method === "DELETE") return () => (isRoomId(membership[1]!) ? leaveRoom(request, env, membership[1]!) : problem(404, ROOM_NOT_FOUND));
+  const guests = pathname.match(/^\/api\/rooms\/([^/]+)\/guests$/);
+  if (guests && request.method === "POST") return () => addGuest(request, env, guests[1]!);
+  const guest = pathname.match(/^\/api\/rooms\/([^/]+)\/guests\/([^/]+)$/);
+  // Guest ids are user ids, which never need percent-encoding, so an encoded segment names none.
+  if (guest) {
+    const [roomId, userId] = [guest[1]!, guest[2]!];
+    if (request.method === "PUT") return () => (isRoomId(roomId) ? extendGuestStay(request, env, roomId, userId) : problem(404, ROOM_NOT_FOUND));
+    if (request.method === "DELETE") return () => (isRoomId(roomId) ? endGuestStay(request, env, roomId, userId) : problem(404, ROOM_NOT_FOUND));
+  }
   const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
   if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
   // A file's key never needs percent-encoding either, so an encoded segment names no upload.
