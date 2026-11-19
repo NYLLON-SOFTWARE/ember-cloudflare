@@ -4098,17 +4098,11 @@ export class Workspace extends DurableObject<Env> {
       this.store.isAdministrator(session.user.id),
       this.store.profileFieldsWithValues(userId),
     ]);
-    if (!person) return "not found";
-    const agent = person.agent ? await this.store.agentProfile(userId) : null;
-    if (administrator) {
-      const transferable = person.status === "active" && person.role !== "bot";
-      return { person, fields, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent };
-    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
     if (!person || (person.keptFor === "admin-dms" && !administrator)) return "not found";
     const agent = person.agent ? await this.store.agentProfile(userId) : null;
     if (administrator) {
       const transferable = person.status === "active" && person.role !== "bot";
-      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id, shownAt: Date.now() } : null, agent };
+      return { person, fields, transfer: transferable ? { userId: person.id, sessionId: session.id, shownAt: Date.now() } : null, agent };
     }
     const { emailAddress, ...listed } = person;
     return { person: listed, fields, transfer: null, agent };
@@ -5363,25 +5357,17 @@ export class Workspace extends DurableObject<Env> {
 
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
-    const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
+    const { name, username, emailAddress, bio, avatar, password, membershipNeeded } = person;
     const [{ avatarUrl }, account, fields] = await Promise.all([
       this.directoryUser(person),
       this.joinableAccount(),
       this.store.profileFieldsWithValues(person.id),
     ]);
-    const memberful = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, accounts: person.accounts };
-    const [apps, outsideAi] = await Promise.all([this.yourApps(person.id, session.guest, account), this.yourOutsideAi(person.id, session.guest, account)]);
-    return {
-      transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), fields, apps, outsideAi },
-      memberful,
-    const { name, username, emailAddress, bio, avatar, password, membershipNeeded } = person;
-    const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
     const elsewhere = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, ssoOnly: account?.ssoSignIn ?? false, accounts: person.accounts };
     const [apps, outsideAi] = await Promise.all([this.yourApps(person.id, session.guest, account), this.yourOutsideAi(person.id, session.guest, account)]);
     return {
       transfer: { userId: person.id, sessionId: session.id, shownAt: Date.now() },
-      profile: { name, username, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps, outsideAi },
+      profile: { name, username, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), fields, apps, outsideAi },
       elsewhere,
     };
   }
@@ -5435,14 +5421,12 @@ export class Workspace extends DurableObject<Env> {
    */
   async changeProfile(
     credentials: Credentials,
-    changes: Pick<ProfileChanges, "name" | "emailAddress" | "bio" | "fieldValues">,
-    changes: Pick<ProfileChanges, "name" | "username" | "emailAddress" | "bio">,
+    changes: Pick<ProfileChanges, "name" | "username" | "emailAddress" | "bio" | "fieldValues">,
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
     memberfulSite: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "unknown field" | "not a choice" | null> {
-  ): Promise<YourProfile | "email address taken" | "password needed" | SignInElsewhere | "name reserved" | NameRefusal | "username taken" | null> {
+  ): Promise<YourProfile | "email address taken" | "password needed" | SignInElsewhere | "name reserved" | NameRefusal | "username taken" | "unknown field" | "not a choice" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -5461,13 +5445,11 @@ export class Workspace extends DurableObject<Env> {
       // be there, and a filled value must be one of its choices, which it has if it has any.
       const fieldValues = await this.checkedFieldValues(changes.fieldValues);
       if (typeof fieldValues === "string") return fieldValues;
-      const listed = profile.name !== person.name || profile.bio !== person.bio;
+      const listed = profile.name !== person.name || profile.username !== person.username || profile.bio !== person.bio;
       if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) {
         if (fieldValues) await this.store.changeProfileFieldValues(user.id, fieldValues);
         return this.yourProfile(person, session);
       }
-      const listed = profile.name !== person.name || profile.username !== person.username || profile.bio !== person.bio;
-      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
       if (await this.hasBlockedWord(...(["name", "username", "bio"] as const).filter((field) => profile[field] !== person[field]).map((field) => profile[field]))) return "blocked words";

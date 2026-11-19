@@ -45,8 +45,7 @@ const ASKED_FIELDS: ProfileFieldEntry[] = [
   { id: "field-title", name: "Title", options: null, value: "Countess" },
   { id: "field-pronouns", name: "Pronouns", options: ["she/her", "they/them"], value: "she/her" },
 ];
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, fields: ASKED_FIELDS, apps: [], outsideAi: null };
-const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
+const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, fields: ASKED_FIELDS, apps: [], outsideAi: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },

@@ -1227,6 +1227,8 @@ describe("Profile fields", () => {
     expect(parseProfileFieldOrder({ ids: "field-1" })).toBe("Field order must be a list of the fields' ids");
     expect(parseProfileFieldOrder({ ids: [1] })).toBe("Field order must be a list of the fields' ids");
     expect(parseProfileFieldOrder({ ids: ["field-1", "field-1"] })).toBe("Field order must be a list of the fields' ids");
+  });
+
   it("keeps a username in lowercase, without spaces or the @ before it, in ASCII for fullwidth letters, and a blank one as none", () => {
     expect(parseProfileChanges({ username: " @Ada.Lovelace_1815 " })).toEqual({ username: "ada.lovelace_1815" });
     expect(parseProfileChanges({ username: "@@ａｄａ" })).toEqual({ username: "ada" });

@@ -636,8 +636,6 @@ export interface AvatarChange {
 }
 
 /** What `WorkspaceStore.changeProfile` saves: someone's profile, the digest of a new password or null to keep theirs, and what they gave the workspace's fields, or none. */
-export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio"> {
-/** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
 export interface ProfileChange extends Pick<Profile, "name" | "username" | "emailAddress" | "bio"> {
   passwordDigest: string | null;
   fieldValues: Record<string, string> | null;
@@ -5583,22 +5581,14 @@ export class WorkspaceStore {
    * Saves someone's profile, what they gave the workspace's fields, and a new password when `passwordDigest`
    * is one's, recording when, all in one batch, so a save of the lot can't land half-way. With a new
    * password, in the same transaction it ends the sessions and forgets the push subscriptions
-   * `ended` says, queuing closing those sessions' sockets, and forgets the accounts elsewhere their old
-   * password started connecting, or connected, if they had one and keep an email address to sign in
-   * with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it queued any.
-   */
-  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest, fieldValues }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
-    const change = statement(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
-    const asked = changeProfileFieldValuesStatements(userId, fieldValues ?? {});
-   * Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. With a
-   * new password, in the same transaction it ends the sessions and forgets the push subscriptions
    * `ended` says, queuing closing those sessions' sockets, ends the sign-in links the session it keeps
    * has shown, and forgets the accounts elsewhere their old password started connecting, or connected, if
    * they had one and keep an email address to sign in with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it
    * queued any.
    */
-  async changeProfile(userId: UserId, { name, username, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+  async changeProfile(userId: UserId, { name, username, emailAddress, bio, passwordDigest, fieldValues }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
     const change = statement(CHANGE_PROFILE, name, username, emailAddress, bio, passwordDigest, now, userId);
+    const asked = changeProfileFieldValuesStatements(userId, fieldValues ?? {});
     if (!ended) {
       await this.db.batch([change, ...asked]);
       return false;
