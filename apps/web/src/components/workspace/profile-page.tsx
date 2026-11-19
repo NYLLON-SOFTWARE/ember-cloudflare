@@ -181,6 +181,13 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const [fieldValues, setFieldValues] = useState<FieldValues | null>(null);
   /** What was saved for each of them, as the page last loaded or saved it. */
   const savedFieldValues = useRef<FieldValues>({});
+  // What's typed now, for a recovery refresh to tell an untouched answer from an edit of it.
+  const typedFieldValues = useRef<FieldValues>({});
+  useEffect(() => {
+    typedFieldValues.current = fieldValues ?? {};
+  }, [fieldValues]);
+  // How many saves have been made, for a recovery refresh to ignore answers superseded by a later save.
+  const savesMade = useRef(0);
   const [picture, setPicture] = useState<Picture | null>(null);
   /** The address of the photo picked, shown while it saves. */
   const [picked, setPicked] = useState<string | null>(null);
@@ -327,6 +334,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const save = (event: FormEvent) => {
     event.preventDefault();
     if (!fields || !saved.current || !fieldValues || saving) return;
+    savesMade.current++;
     setSaving(true);
     const sent = fields;
     const sentFieldValues = fieldValues;
@@ -366,12 +374,22 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         // again for the fields of now, take the deleted ones out of what's typed, and keep every
         // other edit, so saving on works with what's left.
         if (error instanceof ApiError && error.status === 422) {
+          const made = savesMade.current;
           fetchProfile().then((answer) => {
-            if (!mounted.current) return;
+            // A save made since this refresh asked is newer: its answer, not this older one, stands.
+            if (!mounted.current || savesMade.current !== made) return;
             const kept = new Set((answer.profile.fields ?? []).map(({ id }) => id));
             setAskedFields(answer.profile.fields ?? []);
             setFieldValues((values) => values && Object.fromEntries(Object.entries(values).filter(([id]) => kept.has(id))));
-            savedFieldValues.current = fieldValuesOf(answer.profile.fields);
+            // The fields of now replace the saved baseline of the untouched ones, so a retry sends
+            // no stale answer back over another tab's change; a field typed since keeps its old
+            // baseline, so the edit still goes.
+            const refreshed = fieldValuesOf(answer.profile.fields);
+            const previous = savedFieldValues.current;
+            const typed = typedFieldValues.current;
+            savedFieldValues.current = Object.fromEntries(
+              Object.entries(refreshed).map(([id, value]) => [id, typed[id] !== undefined && typed[id] !== previous[id] ? previous[id]! : value]),
+            );
           }, onFailed);
         }
       },
