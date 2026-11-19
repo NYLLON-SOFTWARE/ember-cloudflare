@@ -1,7 +1,7 @@
 import type { Message, RoomId, SavedItem, SavedMessage } from "@ember/protocol";
 import { MAX_SAVES } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { api, connect, createRoom, direct, freshDeploy, post, settle, signIn, workspaceSql, type Session, type Socket } from "./support";
+import { api, connect, createRoom, direct, freshDeploy, openWorkspaceSocket, post, settle, signIn, workspaceSql, type Session, type Socket } from "./support";
 
 /** Saves the message `messageId` of room `roomId` for `session`'s person, as More actions does. */
 const save = (session: Session, roomId: RoomId, messageId: string) =>
@@ -306,5 +306,24 @@ describe("Forget a save", () => {
   it("answers 401 to someone signed out", async () => {
     expect((await api("/api/saves/whatever", { method: "DELETE" })).status).toBe(401);
     expect((await api("/api/saves", { method: "GET" })).status).toBe(401);
+  });
+
+  it("tells the person's other tabs, over their workspace sockets, of each save and each remove", async () => {
+    const ada = await signIn("Ada");
+    const room = await createRoom("Design");
+    const { message, done } = await messageIn(room.id, ada, "For a while");
+    const laptop = await openWorkspaceSocket(ada);
+    const phone = await openWorkspaceSocket(ada);
+    await done();
+
+    const mine = await saved(save(ada, room.id, message.id));
+    expect((await laptop.next()).type).toBe("saves.changed");
+    expect((await phone.next()).type).toBe("saves.changed");
+
+    expect((await forget(ada, mine.id)).status).toBe(204);
+    expect((await laptop.next()).type).toBe("saves.changed");
+    expect((await phone.next()).type).toBe("saves.changed");
+    // A remove that isn't theirs tells no one.
+    expect((await forget(ada, mine.id)).status).toBe(404);
   });
 });

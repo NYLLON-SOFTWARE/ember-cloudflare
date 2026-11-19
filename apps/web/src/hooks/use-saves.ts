@@ -3,9 +3,9 @@ import type { RoomId, SavedItem } from "@ember/protocol";
 import { ApiError, forgetSave as forgetOnServer, fetchSaves, saveForLater } from "@/lib/api";
 
 // The messages someone has saved for later, which the rail's count, the Saved pane and More actions
-// share. The list is asked for when the page loads, and again after a save or a remove made here, and
-// when the pane opens asking for what a failed ask never brought; what another tab does isn't heard of
-// until it loads again.
+// share. The list is asked for when the page loads, and again after a save or a remove made here or in
+// another tab (which the workspace socket's `saves.changed` says), and when the pane opens asking for
+// what a failed ask never brought.
 
 /** What the workspace keeps of someone's saves. */
 export interface Saver {

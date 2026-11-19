@@ -5438,7 +5438,10 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (!(await this.store.isMember(roomId, user.id))) return "forbidden";
-    return (await this.store.saveMessage(user.id, roomId, messageId, Date.now())) ?? "saved already";
+    const saved = await this.store.saveMessage(user.id, roomId, messageId, Date.now());
+    // Their other tabs hear of the save, as this one follows the answer it gets.
+    this.tell([user.id], { type: "saves.changed" });
+    return saved ?? "saved already";
   }
 
   /** The messages the person `credentials` signs in has saved for later, newest save first, or null without a valid session. */
@@ -5450,7 +5453,10 @@ export class Workspace extends DurableObject<Env> {
   /** Deletes the save `id` of the person `credentials` signs in, answering whether it was theirs, or false without a valid session. */
   async forgetSave(credentials: Credentials, id: string): Promise<boolean | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.forgetSave(user.id, id);
+    if (!user) return null;
+    const forgotten = await this.store.forgetSave(user.id, id);
+    if (forgotten) this.tell([user.id], { type: "saves.changed" });
+    return forgotten;
   }
 
   /** Forgets the saves with `ids`, which an answer about someone's saves has dropped, so the table cleans itself as the pane does. */

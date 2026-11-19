@@ -292,7 +292,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const directory = useDirectory();
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  // The saves list asks again when another tab saves or removes, which the workspace socket says; set once the saver is made below.
+  const savesChanged = useRef<() => void>(() => {});
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations, () => savesChanged.current());
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -482,8 +484,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     [failed],
   );
   // The messages saved for later, whose list comes when the page loads, and again after a save or a
-  // remove here. Another tab's saves aren't heard of until it loads again.
+  // remove here or in another tab, which the workspace socket says.
   const saver = useSaves(failed);
+  useEffect(() => {
+    savesChanged.current = saver.load;
+  }, [saver.load]);
   // Whether the Saved pane is open beside the room, which lives as long as the page, as Activity's
   // filter does. A thread open beside the room takes its place, so one opening closes the other, and
   // a permalink followed closes it too, where below 1180px wide it covers the message it jumped to.
