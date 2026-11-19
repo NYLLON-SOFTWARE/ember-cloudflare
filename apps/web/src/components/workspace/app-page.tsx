@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_SIGNED_IN_PATH, type Me } from "@ember/protocol";
 import {
   APPS_FORBIDDEN,
@@ -513,8 +513,23 @@ function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onS
   );
 }
 
+/**
+ * A ref for the field of a secret the form keeps as `typed`, which leaves the field uncontrolled, as
+ * passwords are: React puts a controlled field's value in its `value` attribute too, where custom CSS
+ * could read it. The field shows what the form has, once the form clears it or puts it back.
+ */
+function useSecretField(typed: string) {
+  const field = useRef<HTMLInputElement>(null);
+  // After every render, not only when `typed` changes: the form can clear what's typed in the same render as a keystroke the field already shows.
+  useLayoutEffect(() => {
+    if (field.current && field.current.value !== typed) field.current.value = typed;
+  });
+  return field;
+}
+
 /** The token's field: what it's for, or why it was refused, Send no token for an app that has one, and Sign in, once the server asks for a sign-in. */
 function Token({ saved, fields, onChange, refusal, busy, offersSignIn, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "offersSignIn" | "onSignIn">) {
+  const field = useSecretField(fields.token);
   const keepsToken = saved?.hasToken === true;
   return (
     <Field id="app_token" label="Token">
@@ -529,7 +544,7 @@ function Token({ saved, fields, onChange, refusal, busy, offersSignIn, onSignIn 
         disabled={fields.noToken}
         aria-invalid={refusal?.field === "token" ? true : undefined}
         aria-describedby={refusal?.field === "token" ? "app_token-refusal" : "app_token-description"}
-        value={fields.token}
+        ref={field}
         onChange={(event) => onChange({ ...fields, token: event.target.value })}
         className={FIELD_INPUT}
       />
@@ -564,6 +579,7 @@ function Token({ saved, fields, onChange, refusal, busy, offersSignIn, onSignIn 
  * stays while the ID does. Enter in either begins the sign-in, as they're what it's begun with.
  */
 function Client({ kept, fields, onChange, refusal, busy, onSignIn }: Pick<FormProps, "fields" | "onChange" | "refusal" | "busy" | "onSignIn"> & { kept: string | null }) {
+  const secretField = useSecretField(fields.clientSecret);
   const keepsSecret = kept !== null && fields.clientId.trim() === kept;
   const signInOnEnter = (event: KeyboardEvent) => {
     if (event.key !== "Enter") return;
@@ -607,7 +623,7 @@ function Client({ kept, fields, onChange, refusal, busy, onSignIn }: Pick<FormPr
           data-1p-ignore
           aria-invalid={refusal?.field === "clientSecret" ? true : undefined}
           aria-describedby={refusal?.field === "clientSecret" ? "app_client_secret-refusal" : "app_client_secret-description"}
-          value={fields.clientSecret}
+          ref={secretField}
           onChange={(event) => onChange({ ...fields, clientSecret: event.target.value })}
           onKeyDown={signInOnEnter}
           className={FIELD_INPUT}

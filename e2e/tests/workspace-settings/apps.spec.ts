@@ -87,8 +87,9 @@ test.describe("Apps", () => {
     await expect(token).toHaveAccessibleDescription(`${host} doesn't say how to sign in to it. Give a token for it, if it has one.`);
     await expect(page.getByRole("button", { name: /^Sign in/ })).toHaveCount(0);
 
-    // With it, Ember reads the server's tools and goes to the app's page, which lists them.
+    // With it, Ember reads the server's tools and goes to the app's page, which lists them. It's never in its field's value attribute, where custom CSS could read it.
     await token.fill(MCP_TOKEN);
+    await expect(token).not.toHaveAttribute("value");
     await page.getByRole("button", { name: "Connect" }).click();
     await expect(page).toHaveURL(/\/account\/apps\/[^/]+\/edit$/);
     await expect(page.getByRole("alert")).toHaveText("Tracker is connected. Ember read 2 tools from it.");

@@ -296,6 +296,23 @@ describe("Connect an app", () => {
     await waitFor(() => expect(requests.at(-1)).toEqual({ request: "POST /api/account/app-sign-ins", body: { name: "Linear", url: `${LINEAR.url}/v2`, clientId: "ember-two" } }));
   });
 
+  it("keeps the token and the client secret out of their fields' value attributes, where custom CSS could read them", async () => {
+    serve({ sent: (request) => (request === "POST /api/account/apps" ? refused(422, ASKS_FOR_SIGN_IN, "token", true) : asksForClient()) });
+    const { user } = showNew();
+    await user.type(await nameField(), "Linear");
+    await user.type(urlField(), LINEAR.url);
+    await user.type(tokenField(), "lin_api_123");
+    expect(tokenField()).toHaveValue("lin_api_123");
+    expect(tokenField()).not.toHaveAttribute("value");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    await user.click(await screen.findByRole("button", { name: "Sign in to mcp.linear.example" }));
+
+    await user.type(await screen.findByLabelText("Client secret"), "s3cret");
+    expect(clientSecretField()).toHaveValue("s3cret");
+    expect(clientSecretField()).not.toHaveAttribute("value");
+    expect(tokenField()).not.toHaveAttribute("value");
+  });
+
   it("says so, as the workspace's alerts do, when as many apps are connected as can be", async () => {
     serve({ sent: () => refused(409, APPS_FULL) });
     const { user, onFailed } = showNew();
@@ -586,8 +603,10 @@ describe("A connected app's page", () => {
     const requests = serve({ sent: () => answer({ ...LINEAR, hasToken: false }) });
     const { user } = showSettings();
     await nameField();
+    await user.type(tokenField(), "lin_api_456");
     await user.click(screen.getByRole("checkbox", { name: "Send no token" }));
     expect(tokenField()).toBeDisabled();
+    expect(tokenField()).toHaveValue("");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(requests).toEqual([{ request: `PATCH /api/account/apps/${LINEAR.id}`, body: { token: "" } }]));
