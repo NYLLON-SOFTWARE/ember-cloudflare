@@ -1,69 +1,8 @@
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  DELETED_PERSON_NAME,
-  MAX_FAVORITES,
-  MAX_OTHER_ADDRESSES,
-  MAX_PUSH_SUBSCRIPTIONS,
-  MAX_SHARED_ORDER,
-  NAVIGATION_SLOTS,
-  PASSWORD_RESET_CODE_TRIES,
-  RECENT_SEARCHES,
-  emailDomainOf,
-  isHost,
-  isRoomIcon,
-  mailboxOf,
-  mailboxText,
-  parseSearch,
-  type Account,
-  type Blocks,
-  type BotChanges,
-  type BotRoom,
-  type ChangedBlocks,
-  type CloseCode,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkKind,
-  type Favorites,
-  type Involvement,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type PersonRole,
-  type Profile,
-  type PushSubscriptionKeys,
-  type Role,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SharedRoom,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-} from "@ember/protocol";
-import {
-  ANSWER_LENGTHS,
-  DEFAULT_LEVELS,
-  MODEL_FORMATS,
-  modelName,
-  modelNameOf,
-  modelOf,
-  THINKING_LEVELS,
-  TOP_LEVELS,
-  WEB_TOOLS,
-  type AnswerLength,
-  type AnswerLevels,
-  type AssistantModel,
-  type ModelFormat,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_ID, ASSISTANT_NAME, DELETED_PERSON_NAME, emailDomainOf, isHost, isRoomIcon, mailboxOf, mailboxText, MAX_FAVORITES, MAX_OTHER_ADDRESSES, MAX_PUSH_SUBSCRIPTIONS, MAX_SHARED_ORDER, NAVIGATION_SLOTS, parseSearch, PASSWORD_RESET_CODE_TRIES, RECENT_SEARCHES, type Account, type Blocks, type BotChanges, type BotRoom, type ChangedBlocks, type CloseCode, type DirectRoom, type EmailInvitation, type EmailLinkKind, type Favorites, type Involvement, type NavigationIconChanges, type NavigationIcons, type PersonRole, type Profile, type PushSubscriptionKeys, type Role, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SharedRoom, type SidebarRoom, type User, type UserId, type UserStatus } from "@ember/protocol";
+import { ANSWER_LENGTHS, DEFAULT_LEVELS, MODEL_FORMATS, modelName, modelNameOf, modelOf, THINKING_LEVELS, TOP_LEVELS, WEB_TOOLS, type AnswerLength, type AnswerLevels, type AssistantModel, type ModelFormat, type ThinkingLevel, type WebTool, type YourAssistantChanges } from "@ember/protocol/assistant";
 import type { AgentAccess, AgentProfile, AgentRoom } from "@ember/protocol/agents";
 import type { AppId } from "@ember/protocol/apps";
+import type { Command, Commands, EventSubscription } from "@ember/protocol/bots";
 import { ALL_HUDDLE_SOUNDS, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
 import { DEFAULT_GROUPS_CLAIM, DEFAULT_SSO_NAME } from "@ember/protocol/sso";
 import { statement, type Db, type Statement } from "./db";
@@ -786,6 +725,11 @@ export interface MessageWebhook {
   /** The room's name, or null for a DM. */
   roomName: string | null;
   botId: UserId;
+  /**
+   * Whether the bot watches the room's message events, which makes the delivery one of those: shaped as
+   * a command's is, rather than as a mention's delivery is.
+   */
+  subscribed: boolean;
 }
 
 /**
@@ -1298,6 +1242,9 @@ interface BotRow extends DirectoryRow {
 }
 
 const storedBot = (row: BotRow, rooms: BotRoom[]): StoredBot => ({ ...directoryEntry(row), token: row.bot_token, rooms });
+
+/** A command as the bots page and the composer's menu list it, as `COMMANDS` and `COMMAND_BY_ID` read it. */
+const commandOf = ({ bot_id, bot_name, ...command }: CommandRow): Command => ({ ...command, bot: { id: bot_id, name: bot_name } });
 
 /** An agent as the AI assistant tab lists it, as `AGENTS` reads it. */
 interface AgentRow extends DirectoryRow {
@@ -2350,6 +2297,18 @@ const answersTo = (asker: string, room: string) => `(users.agent_access IS NULL 
       WHERE others.room_id = ${room} AND others.user_id <> users.id AND people.role <> ${ADMINISTRATOR}))))`;
 
 /**
+ * Where a new message, numbered ?4, by ?2 in room ?1 goes: the active bots in it whom the message
+ * mentions, a JSON list ?3, and any the bot_subscriptions table puts on the room's message events;
+ * never its author. In a DM they're all of them, mention or no. They're the bots with webhooks, which
+ * it's delivered to, and @ember and the agents, which answer it (`answers` 1) unless a bot wrote it,
+ * @ember or an agent among them, so that bots can't keep each other talking. `subscribed` says whether
+ * the delivery is one of a message event, which a bot watching the room's messages is sent mention or
+ * no; one both mentioned and watching is delivered to once, as the event. A reply sent to its thread
+ * alone, ?5, is none of the room's events, so only whom the message mentions, or a DM's bots, go,
+ * none by watching alone. Each comes with the room's name, but a DM's, and the author's, and its id:
+ * a bot's webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once the Workspace has
+ * applied the message's event. Webhooks, subscriptions and agents are few, so they're read first, with
+ * @ember, and each one's bot and membership found by their keys.
  * The bots a new message, numbered ?4, by ?2 in room ?1 goes to: in a DM, the active bots in it, and in
  * any other room, the active bots in it whom the message mentions, a JSON list ?3; never its author.
  * They're the bots with webhooks, which it's delivered to, and @ember and the agents, which answer it
@@ -2360,29 +2319,46 @@ const answersTo = (asker: string, room: string) => `(users.agent_access IS NULL 
  * Webhooks and agents are few, so they're read first, with @ember, and each one's bot and membership
  * found by their keys.
  */
-export const MESSAGE_BOTS = `SELECT users.id, bots.answers,
+export const MESSAGE_BOTS = `SELECT users.id, bots.answers, bots.subscribed,
     (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
-  FROM (SELECT user_id, 0 AS answers FROM webhooks UNION ALL SELECT '${ASSISTANT_ID}', 1 UNION ALL SELECT user_id, 1 FROM agents) AS bots
+  FROM (SELECT user_id, 0 AS answers, 0 AS subscribed FROM webhooks
+        UNION ALL SELECT user_id, 0, 1 FROM bot_subscriptions WHERE room_id = ?1 AND ?5 = 0
+        UNION ALL SELECT '${ASSISTANT_ID}', 1, 0 UNION ALL SELECT user_id, 1, 0 FROM agents) AS bots
     CROSS JOIN users ON users.id = bots.user_id
   WHERE users.role = ${BOT} AND users.status = ${ACTIVE} AND users.id <> ?2
     AND (bots.answers = 0 OR NOT EXISTS (SELECT 1 FROM users AS authors WHERE authors.id = ?2 AND authors.role = ${BOT}))
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)
-    AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct'))
+    AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct') OR bots.subscribed = 1)
     AND ${answersTo("?2", "?1")}
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   ORDER BY lower(users.name), users.id`;
 
-/** A bot a new message goes to, as `MESSAGE_BOTS` finds it, and whether it answers it, as @ember and the agents do. */
+/** A bot a new message goes to, as `MESSAGE_BOTS` finds it, and whether it answers it, as @ember and the agents do, or watches the room's messages. */
 interface MessageBotRow {
   id: UserId;
   answers: number;
+  subscribed: number;
   room_name: string | null;
   author_name: string;
 }
 
 /** Where a new message goes, from the rows `MESSAGE_BOTS` found for it: to bots' webhooks, and to @ember and the agents to answer. */
 function messageDeliveries({ userId, message }: RoomEvent, rows: MessageBotRow[]): Array<MessageWebhook & { answers: boolean }> {
-  return rows.map((row) => ({ messageId: message!.id, author: { id: userId, name: row.author_name }, roomName: row.room_name, botId: row.id, answers: row.answers === 1 }));
+  // A bot mentioned and watching the room's messages both goes once, as the event it watches.
+  const once = new Map<UserId, MessageWebhook & { answers: boolean }>();
+  for (const row of rows) {
+    const delivery = {
+      messageId: message!.id,
+      author: { id: userId, name: row.author_name },
+      roomName: row.room_name,
+      botId: row.id,
+      subscribed: row.subscribed === 1,
+      answers: row.answers === 1,
+    };
+    const kept = once.get(row.id);
+    if (!kept || (!kept.subscribed && delivery.subscribed)) once.set(row.id, delivery);
+  }
+  return [...once.values()];
 }
 
 /**
@@ -2406,6 +2382,52 @@ const CLICKER = `SELECT users.name, (SELECT name FROM rooms WHERE id = ?1 AND ki
 const ROOM_MEMBER = `SELECT users.name, users.role = ${ADMINISTRATOR} AS administrator FROM users
   WHERE users.id = ?2 AND users.status = ${ACTIVE}
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
+
+/** The columns every command reads, its own and its bot's. */
+interface CommandRow {
+  id: string;
+  name: string;
+  description: string | null;
+  bot_id: UserId;
+  bot_name: string;
+}
+
+/**
+ * The workspace's commands, by name, each with the bot it invokes by its name now: a deactivated bot's
+ * command goes with the bot, and a removed command's name is free again.
+ */
+const COMMANDS = `SELECT commands.id, commands.name, commands.description, users.id AS bot_id, users.name AS bot_name
+  FROM commands JOIN users ON users.id = commands.bot_id
+  ORDER BY commands.name`;
+
+/** The command `?1` names, with the bot that invokes it, by its name now: nothing unless there is one. */
+const COMMAND_BY_NAME = `SELECT commands.id, commands.name, commands.description, users.id AS bot_id, users.name AS bot_name
+  FROM commands JOIN users ON users.id = commands.bot_id
+  WHERE commands.name = ?1`;
+
+/** The command `?1` is, with the bot that invokes it by its name now: nothing unless there is one. */
+const COMMAND_BY_ID = `SELECT commands.id, commands.name, commands.description, users.id AS bot_id, users.name AS bot_name
+  FROM commands JOIN users ON users.id = commands.bot_id
+  WHERE commands.id = ?1`;
+
+/** Puts bot ?2 on room ?1's message events, unless it's there already, and answers when it joined them. */
+const SUBSCRIBE = `INSERT INTO bot_subscriptions (room_id, user_id, created_at) VALUES (?1, ?2, ?3)
+  ON CONFLICT (room_id, user_id) DO NOTHING RETURNING room_id`;
+
+/** Takes bot ?2 off room ?1's message events, answering whether it was on them. */
+const UNSUBSCRIBE = `DELETE FROM bot_subscriptions WHERE room_id = ?1 AND user_id = ?2 RETURNING room_id`;
+
+/** Which of the active bots are on which rooms' message events, for the bots page's ticks. */
+const SUBSCRIPTIONS = `SELECT bot_subscriptions.user_id AS botId, bot_subscriptions.room_id AS roomId
+  FROM bot_subscriptions JOIN users ON users.id = bot_subscriptions.user_id
+  WHERE users.status = ${ACTIVE} ORDER BY bot_subscriptions.user_id, bot_subscriptions.room_id`;
+
+/** The same, but for ?1, who isn't an administrator: only the subscriptions to rooms they're in, since one names a room and its bot they may not read of. */
+const SUBSCRIPTIONS_IN_ROOMS_OF = `SELECT bot_subscriptions.user_id AS botId, bot_subscriptions.room_id AS roomId
+  FROM bot_subscriptions JOIN users ON users.id = bot_subscriptions.user_id
+  WHERE users.status = ${ACTIVE}
+    AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = bot_subscriptions.room_id AND memberships.user_id = ?1)
+  ORDER BY bot_subscriptions.user_id, bot_subscriptions.room_id`;
 
 /** Whether a room's event is a new message: anyone's, or a bot's reply to a webhook delivery. */
 const isNewMessage = ({ kind }: RoomEvent) => kind !== "read";
@@ -4251,6 +4273,9 @@ export class WorkspaceStore {
       statement(`DELETE FROM own_app_sign_ins WHERE user_id = ?`, userId),
       statement(`DELETE FROM outside_spent_tokens WHERE connection_id IN (SELECT id FROM outside_connections WHERE user_id = ?)`, userId),
       statement(`DELETE FROM outside_connections WHERE user_id = ?`, userId),
+      // A bot's commands and subscriptions go with it, as its being one of the workspace's does.
+      statement(`DELETE FROM commands WHERE bot_id = ?`, userId),
+      statement(`DELETE FROM bot_subscriptions WHERE user_id = ?`, userId),
       statement(DEACTIVATE, `-deactivated-${uuid}@`, now, userId),
     ]);
     return queued!.length > 0;
@@ -4889,7 +4914,7 @@ export class WorkspaceStore {
       const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
-      const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
+      const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq, event.threadOnly ? 1 : 0)) - 1 : null;
       return { event, marks, pushes, bots };
     });
     const told = statements.length;
@@ -5057,6 +5082,78 @@ export class WorkspaceStore {
     return row ? { member: { id: userId, name: row.name }, administrator: row.administrator === 1 } : null;
   }
 
+  /** The workspace's commands, by name, and which of the bots are on which rooms' message events, read together: an administrator's every subscription, and anyone else's only those of the rooms they're in, whose ids alone they may read. */
+  async commands(viewerId: UserId, administrator: boolean): Promise<Commands> {
+    const [commandRows, subscriptions] = (await this.db.batch([statement(COMMANDS), administrator ? statement(SUBSCRIPTIONS) : statement(SUBSCRIPTIONS_IN_ROOMS_OF, viewerId)])) as [
+      CommandRow[],
+      EventSubscription[],
+    ];
+    return { commands: commandRows.map(commandOf), subscriptions };
+  }
+
+  /** The command `id` is, with its bot, or null unless there is one. */
+  async command(id: string): Promise<Command | null> {
+    const [row] = await this.db.all<CommandRow>(COMMAND_BY_ID, id);
+    return row ? commandOf(row) : null;
+  }
+
+  /** Whether a command with `name` is registered already. */
+  async commandTaken(name: string): Promise<boolean> {
+    return (await this.db.all(COMMAND_BY_NAME, name)).length > 0;
+  }
+
+  /** Registers a command, with `id` and what's given of it, for the bot `botId`, recording when. */
+  async registerCommand({ id, name, description, botId }: { id: string; name: string; description: string | null; botId: UserId }, now: string): Promise<void> {
+    await this.db.run(`INSERT INTO commands (id, name, description, bot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, id, name, description, botId, now, now);
+  }
+
+  /** Forgets the command `id`, answering whether there was one. */
+  async removeCommand(id: string): Promise<boolean> {
+    const [row] = await this.db.all(`DELETE FROM commands WHERE id = ? RETURNING id`, id);
+    return row !== undefined;
+  }
+
+  /** Puts the active bot `botId` on room `roomId`'s message events, answering whether it was put there. */
+  async subscribeToMessages(botId: UserId, roomId: RoomId, now: string): Promise<boolean> {
+    const [row] = await this.db.all(SUBSCRIBE, roomId, botId, now);
+    return row !== undefined;
+  }
+
+  /** Takes the bot `botId` off room `roomId`'s message events, answering whether it was on them. */
+  async unsubscribeFromMessages(botId: UserId, roomId: RoomId): Promise<boolean> {
+    const [row] = await this.db.all(UNSUBSCRIBE, roomId, botId);
+    return row !== undefined;
+  }
+
+  /**
+   * The command `name` names in room `roomId`, as its delivery finds it, with whoever typed it,
+   * `senderId`, by their names now: null once whoever typed it isn't an active member of the room; the
+   * command null within that once no command has the name, and the webhook null once its bot isn't an
+   * active one in the room with one, as `BOT_WEBHOOK` finds none for it then.
+   */
+  async commandWebhook(roomId: RoomId, senderId: UserId, name: string): Promise<{
+    command: { id: string; name: string } | null;
+    bot: User | null;
+    sender: User;
+    roomName: string | null;
+    webhook: BotWebhook | null;
+  } | null> {
+    const [[sender], [command]] = (await this.db.batch([statement(CLICKER, roomId, senderId), statement(COMMAND_BY_NAME, name)])) as [
+      Array<{ name: string; room_name: string | null }>,
+      CommandRow[],
+    ];
+    if (!sender) return null;
+    const webhook = command ? await this.botWebhook(roomId, command.bot_id) : null;
+    return {
+      command: command ? { id: command.id, name: command.name } : null,
+      bot: command ? { id: command.bot_id, name: command.bot_name } : null,
+      sender: { id: senderId, name: sender.name },
+      roomName: sender.room_name,
+      webhook,
+    };
+  }
+
+  /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
   /**
    * The active bot `botId`, with its token, its rooms but DMs, where its webhook delivers and the open
    * rooms it's kept to, if it's kept to the ones picked, or null unless it's one.
@@ -5794,6 +5891,7 @@ export class WorkspaceStore {
       // Its messages all go, a banned person's with them, and the search index forgets them.
       statement(`DELETE FROM pending_purges WHERE room_id = ?`, roomId),
       statement(`DELETE FROM pending_reindexes WHERE room_id = ?`, roomId),
+      statement(`DELETE FROM bot_subscriptions WHERE room_id = ?`, roomId),
       statement(`DELETE FROM rooms WHERE id = ?`, roomId),
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
     ])) as UserIdRow[][];

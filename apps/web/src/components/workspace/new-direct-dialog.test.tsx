@@ -1,11 +1,11 @@
 import type { DirectoryUser, DirectRoom, Me } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving } from "@/hooks/use-route";
 import type { RoomAnswer } from "@/lib/room-list";
 import { NewDirectDialog, startedWithout } from "./new-direct-dialog";
+import userEvent from "@testing-library/user-event";
 
 /** Someone in the people directory, active unless `status` says otherwise. */
 const person = (id: string, name: string, status: DirectoryUser["status"] = "active"): DirectoryUser => ({

@@ -1,5 +1,5 @@
+import { commandNameOf, isReservedName, MAX_COMMAND_NAME_LENGTH, MAX_USER_NAME_LENGTH, NAME_RESERVED, type DirectoryUser, type RoomId, type User, type UserId } from "./index.ts";
 import { roomsIn } from "./agents.ts";
-import { isReservedName, MAX_USER_NAME_LENGTH, NAME_RESERVED, type DirectoryUser, type RoomId } from "./index.ts";
 
 // Chat bots, as administrators add, change and delete them through `/api/account/bots`, as Campfire's
 // `accounts/bots` and `accounts/bots/keys` controllers do.
@@ -133,4 +133,75 @@ export function parseNewBot(data: unknown): NewBot | string {
   if (typeof changes === "string") return changes;
   if (changes.name === undefined) return "Name can't be blank";
   return isReservedName(changes.name) ? NAME_RESERVED : { ...changes, name: changes.name };
+}
+
+// Slash commands and bots' subscriptions to message events, as administrators add and take them away
+// through `/api/account/commands` and a bot's rooms' addresses there, as Slack's slash commands and
+// event subscriptions have a workspace's.
+
+export { MAX_COMMAND_NAME_LENGTH, commandNameOf };
+
+/** The longest description a command can have. */
+export const MAX_COMMAND_DESCRIPTION_LENGTH = 200;
+
+/** Why a command's name is refused: letters, numbers, dashes and underscores, one case. */
+export const COMMAND_NAME_REFUSED = "A command's name is letters, numbers, dashes and underscores";
+
+/** Why a command with a name that's taken already is refused, as Slack keeps its commands' names apart. */
+export const COMMAND_NAME_TAKEN = "A command with that name is registered already";
+
+/** Why a bot is refused for a room's message events it isn't in the room for. */
+export const NOT_IN_ROOM = "The bot has to be in the room first";
+
+/** A command as the bots page and the composer's menu list it: its name, what it's for, and the bot it invokes. */
+export interface Command {
+  id: string;
+  /** The name as it's kept, without the leading "/" and lowercased, which typing either way finds. */
+  name: string;
+  description: string | null;
+  /** The bot it invokes, as rooms and lists name it. */
+  bot: User;
+}
+
+/** A bot's subscription to a room's message events, as the bots page ticks it. */
+export interface EventSubscription {
+  botId: UserId;
+  roomId: RoomId;
+}
+
+/** What `GET /api/account/commands` answers: the workspace's commands, and bots' subscriptions, by bot and room. */
+export interface Commands {
+  commands: Command[];
+  subscriptions: EventSubscription[];
+}
+
+/** What `POST /api/account/commands` answers, once it has registered one. */
+export interface CommandAnswer {
+  command: Command;
+}
+
+/** What `POST /api/account/commands` takes: the bot it invokes, a name, and what it's for, if anything. */
+export interface NewCommand {
+  botId: UserId;
+  name: string;
+  description?: string;
+}
+
+/**
+ * Parses an untrusted new command. Returns why it's refused instead: a name has to be one
+ * (`commandNameOf`), of no more than `MAX_COMMAND_DESCRIPTION_LENGTH` characters when there is one,
+ * and the bot it invokes a person's id.
+ */
+export function parseNewCommand(data: unknown): NewCommand | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const { botId, name, description } = data as Record<string, unknown>;
+  if (typeof botId !== "string" || !botId) return "Which bot it invokes must be a person";
+  if (typeof name !== "string") return "Name must be text";
+  const kept = commandNameOf(name);
+  if (!kept) return COMMAND_NAME_REFUSED;
+  if (description === undefined) return { botId, name: kept };
+  if (typeof description !== "string") return "Description must be text";
+  const trimmed = description.trim();
+  if (trimmed.length > MAX_COMMAND_DESCRIPTION_LENGTH) return `Description can't be longer than ${MAX_COMMAND_DESCRIPTION_LENGTH} characters`;
+  return { botId, name: kept, ...(trimmed !== "" && { description: trimmed }) };
 }

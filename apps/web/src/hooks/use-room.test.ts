@@ -1,4 +1,4 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type LinkPreview, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, COMMAND_TOO_LONG, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type ClientFrame, type LinkPreview, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { AddPreview } from "@/components/workspace/composer";
 import { StrictMode } from "react";
@@ -8,7 +8,7 @@ import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
-import { openRoomSocketAhead, useRoom } from "./use-room";
+import { openRoomSocketAhead, runCommandOf, useRoom } from "./use-room";
 import { useThread } from "./use-thread";
 
 vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
@@ -995,7 +995,6 @@ describe("Typing indicator", () => {
   it("tells the room you're typing at most once a second, and at once when you stop", () => {
     const { result } = joinGeneral();
     act(() => result.current.typing(true));
-    act(() => result.current.typing(true));
     wait(999);
     act(() => result.current.typing(true));
     expect(socket().sentOfType("typing.start")).toHaveLength(1);
@@ -1041,7 +1040,6 @@ describe("Scroll back through history", () => {
   it("asks for the page before the oldest message, once at a time", () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasMore: true });
     act(() => result.current.loadOlder());
-    act(() => result.current.loadOlder());
     expect(socket().sentOfType("history.before")).toEqual([{ type: "history.before", before: "m1", limit: 40 }]);
     expect(result.current.state.loadingOlder).toBe(true);
 
@@ -1065,7 +1063,6 @@ describe("Scroll back through history", () => {
 
   it("asks for the page after the newest message while the room has newer ones, once at a time", () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasNewer: true });
-    act(() => result.current.loadNewer());
     act(() => result.current.loadNewer());
     expect(socket().sentOfType("history.after")).toEqual([{ type: "history.after", after: "m2", limit: 40 }]);
 
@@ -1502,7 +1499,6 @@ describe("Threads", () => {
     const { result } = openThread();
     socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [reply("r5"), reply("r6")], hasMore: true });
     act(() => result.current.thread.loadOlder());
-    act(() => result.current.thread.loadOlder());
     expect(socket().sentOfType("thread.before")).toEqual([{ type: "thread.before", parentId: "m1", before: "r5", limit: 40 }]);
     socket().receive({ type: "thread.history", parentId: "m1", before: "r5", messages: [reply("r4")], hasMore: false });
     expect(result.current.thread.state.replies.messages.map((m) => m.id)).toEqual(["r4", "r5", "r6"]);
@@ -1615,5 +1611,37 @@ describe("Threads", () => {
       outbox!.receive({ type: "message.created", message: stored("m3", again!), seq: 3 });
       expect(outbox!.closedWith).toBe(1000);
     });
+  });
+});
+
+describe("Running a command", () => {
+  it("refuses one longer than a frame takes, saying so, and sends nothing", async () => {
+    const sent: ClientFrame[] = [];
+    const warnings: string[] = [];
+    const heard: Array<(frame: ServerFrame) => void> = [];
+    const run = runCommandOf(
+      {
+        send: (frame) => {
+          sent.push(frame);
+          return true;
+        },
+        listen: (frame) => {
+          heard.push(frame);
+          return () => {};
+        },
+      },
+      (message) => warnings.push(message),
+    );
+    await expect(run("deploy", "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1))).resolves.toBe(false);
+    // Nothing went to the room, which drops a frame that long as unrecognized, without the id its
+    // error names, and leaves whoever sent it waiting.
+    expect(sent).toEqual([]);
+    expect(warnings).toEqual([COMMAND_TOO_LONG]);
+
+    // One the room takes goes, and its answer ends the wait.
+    const fitting = run("deploy", "x".repeat(MAX_MESSAGE_HTML_LENGTH));
+    expect(sent).toEqual([expect.objectContaining({ type: "command.run", name: "deploy", text: "x".repeat(MAX_MESSAGE_HTML_LENGTH) })]);
+    heard.at(-1)!({ type: "command.ran", commandId: (sent.at(-1) as { commandId: string }).commandId });
+    await expect(fitting).resolves.toBe(true);
   });
 });

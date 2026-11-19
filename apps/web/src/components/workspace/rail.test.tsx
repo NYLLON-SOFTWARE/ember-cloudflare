@@ -1,10 +1,10 @@
 import { avatarSvg, type Account } from "@ember/protocol";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { Rail, type Activity, type RailPage } from "./rail";
 import { OpenSearchContext } from "./search-box";
+import userEvent from "@testing-library/user-event";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };

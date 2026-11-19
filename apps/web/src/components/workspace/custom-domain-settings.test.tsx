@@ -1,22 +1,13 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  CUSTOM_DOMAIN_NOT_A_HOST,
-  NOT_A_CUSTOM_DOMAIN,
-  type Account,
-  type AccountChanges,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type CustomDomainReach,
-  type EmberAddresses,
-} from "@ember/protocol";
+import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type AccountChanges, type CustomDomainCheck, type CustomDomainLookup, type CustomDomainReach, type EmberAddresses } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
 import { loadPage } from "@/lib/page";
-import { CLOUDFLARE_CUSTOM_HOSTNAMES, CLOUDFLARE_DNS_RECORDS, CLOUDFLARE_DOMAINS, CustomDomainSettings, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
+import { CLOUDFLARE_CUSTOM_HOSTNAMES, CLOUDFLARE_DNS_RECORDS, CLOUDFLARE_DOMAINS, CustomDomainSettings, workerDomains, WORKERS_DASHBOARD } from "./custom-domain-settings";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { MAX_USER_NAME_LENGTH, type Me, type Profile, type ProfileChanges } from "@ember/protocol";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { PhotoField } from "@/components/photo-field";
 import { Input } from "@/components/ui/input";
 import { UsernameField } from "@/components/username-field";

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { TRYING_BETAS, UPDATING_EMBER, type CopyOnGitHub, type ReleaseCheck } from "@ember/protocol";
+
 // Ember's beta workflow, which the card offers a copy without one.
 import BETA_WORKFLOW from "../../../../worker/scripts/update-ember-beta.yml?raw";
 // Ember's Update Ember workflow, as the deploy offers it to a copy without one (apps/worker/scripts/deploy.ts).

@@ -1,3 +1,5 @@
+
+
 // Mentions: `<action-text-attachment>` elements whose `sgid` names a user. Ember's sgid is the user's
 // id. Campfire's are signed global ids, but any member can list every user's, so a signature protects
 // nothing; and Lexxy, the composer, drops an sgid that starts like a URL, as `gid://` does, since

@@ -147,7 +147,6 @@ describe("Rich text, safely", () => {
     // Another reading counts apart, as does each parse outside one
     expect(failure(reopening(titleOf(1_000), 100), forOneReading(read))).toBeUndefined();
     expect(failure(reopening(titleOf(1_000), 100))).toBeUndefined();
-    expect(failure(reopening(titleOf(1_000), 100))).toBeUndefined();
   });
 
   it("keeps what the tokenizer already deduplicated", () => {

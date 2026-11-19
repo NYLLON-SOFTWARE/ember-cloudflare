@@ -1,12 +1,12 @@
 import type { Account, Room } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { PushProvider } from "@/hooks/use-push";
 import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 import { CHROME_MAC } from "@/test-platforms";
 import { FEEDBACK_MS, INVOLVEMENT_NOT_SAVED, NotificationBell } from "./notification-bell";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/push", () => ({
   isPushOn: vi.fn(async () => false),

@@ -1,124 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  CANT_SEND_EMAIL,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  domainOfEmailAddress,
-  EMAILS_PER_ADDRESS,
-  EMAIL_LINKS_PER_NETWORK,
-  emailSignUpLink,
-  INVITATION_DAYS,
-  invitationLink,
-  isReservedName,
-  isRoomId,
-  mailboxOf,
-  mailboxUnder,
-  NAVIGATION_SLOTS,
-  othersAfterMove,
-  parseWorkspaceClientFrame,
-  parseWorkspaceSocketParams,
-  PASSWORD_RESET_CODE_MINUTES,
-  PASSWORD_RESETS_PER_NETWORK,
-  sameName,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  signsInElsewhereOnly,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  usernameFrom,
-  withNavigationIcons,
-  type Account,
-  type AccountChanges,
-  type AccountSettings,
-  type AssistantSettings,
-  type Bot,
-  type BotChanges,
-  type BotSettings,
-  type ChangedBlocks,
-  type CustomStyles,
-  type DirectoryUser,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailSettings,
-  type Favorites,
-  type HuddlesSettings,
-  type LiveHuddle,
-  type Mailbox,
-  type Invited,
-  type Involvement,
-  type Me,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type NewBot,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewWorkspace,
-  type PersonRole,
-  type Profile,
-  type ProfileChanges,
-  type PushSubscriptionSave,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-  type WorkspaceServerFrame,
-  type WorkspaceSettings,
-  type SsoSettings,
-} from "@ember/protocol";
+import { ASSISTANT_ID, ASSISTANT_NAME, CANT_SEND_EMAIL, CloseCode, DELETED_PERSON_NAME, domainOfEmailAddress, EMAIL_LINKS_PER_NETWORK, EMAILS_PER_ADDRESS, emailSignUpLink, INVITATION_DAYS, invitationLink, isReservedName, isRoomId, mailboxOf, mailboxUnder, MEMBERFUL_SIGN_IN_NEEDED, NAVIGATION_SLOTS, othersAfterMove, parseWorkspaceClientFrame, parseWorkspaceSocketParams, PASSWORD_RESET_CODE_MINUTES, PASSWORD_RESETS_PER_NETWORK, sameName, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, signsInElsewhereOnly, signsUpOpenly, signsUpWithEmailDomain, usernameFrom, withNavigationIcons, type Account, type AccountChanges, type AccountSettings, type AssistantSettings, type Bot, type BotChanges, type BotSettings, type ChangedBlocks, type CustomStyles, type DirectoryUser, type DirectRoom, type EmailInvitation, type EmailLinkFor, type EmailLinkKind, type EmailSettings, type Favorites, type HuddlesSettings, type Invited, type Involvement, type LiveHuddle, type Mailbox, type Me, type NavigationIconChanges, type NavigationIcons, type NewBot, type NewJoinCode, type NewRoom, type NewRoomForm, type NewWorkspace, type PersonRole, type Profile, type ProfileChanges, type PushSubscriptionSave, type ResentInvitation, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SentTestEmail, type SharedRoom, type Sidebar, type SidebarRoom, type SsoSettings, type User, type UserId, type UserStatus, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import { MAX_OUTSIDE_CONNECTIONS, outsideScopesOf, type OutsideAiSettings, type OutsideConnection, type OutsideScope } from "@ember/protocol/outside";
-import {
-  ASSISTANT_MODELS,
-  DEFAULT_LEVELS,
-  isWorkersAiModel,
-  MAX_ASSISTANT_MODELS,
-  modelName,
-  offeredModelOf,
-  searchFormatOf,
-  TOP_LEVELS,
-  webToolsOf,
-  withinMost,
-  type AnswerLevels,
-  type AssistantChanges,
-  type ModelFormat,
-  type OfferedModel,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistant,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, DEFAULT_LEVELS, isWorkersAiModel, MAX_ASSISTANT_MODELS, modelName, offeredModelOf, searchFormatOf, TOP_LEVELS, webToolsOf, withinMost, type AnswerLevels, type AssistantChanges, type ModelFormat, type OfferedModel, type ThinkingLevel, type WebTool, type YourAssistant, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
-import {
-  isAtHost,
-  MAX_APP_SCOPE_LENGTH,
-  MAX_APPS,
-  type App,
-  type AppChanges,
-  type AppId,
-  type AppSummary,
-  type NewApp,
-  type OfferedApp,
-  type SetAsideTool,
-  type ToolPick,
-  type YourApp,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import type { Command, Commands, NewCommand } from "@ember/protocol/bots";
+import { isAtHost, MAX_APP_SCOPE_LENGTH, MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick, type YourApp, type YourAppSignedOut } from "@ember/protocol/apps";
 import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/blocked-words";
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
@@ -139,18 +26,7 @@ import type { RelayKey } from "./huddles/relay";
 import type { HuddleApp, RoomHuddles, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import {
-  deployedMemberfulOf,
-  memberfulApiOf,
-  memberfulWebhooksOf,
-  membershipsOf,
-  namelessMember,
-  openMemberfulSecrets,
-  sealMemberfulSecrets,
-  type MemberfulApi,
-  type MemberfulMember,
-  type MemberfulSetup,
-} from "./memberful-api";
+import { deployedMemberfulOf, memberfulApiOf, memberfulWebhooksOf, membershipsOf, namelessMember, openMemberfulSecrets, sealMemberfulSecrets, type MemberfulApi, type MemberfulMember, type MemberfulSetup } from "./memberful-api";
 import { discover, refreshTokens } from "./oidc";
 import { Presence } from "./presence";
 import { sendPushes } from "./push/delivery";
@@ -175,54 +51,7 @@ import { claimsOf, isAllowed, sameSignInRules, ssoProviderOf, ssoSettingsOf, tol
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
-import {
-  allowingHuddles,
-  NEW_ACCOUNT_LOOKS,
-  WorkspaceStore,
-  type AccountChange,
-  type AgentSetup,
-  type AvatarOwner,
-  type BotKey,
-  type Client,
-  type Connecting,
-  type AssistantPicks,
-  type DeletedAccount,
-  type DirectoryEntry,
-  type Disconnection,
-  type InvitationPush,
-  type JoinableAccount,
-  type LinkedAccount,
-  type LinkedPerson,
-  type LoggedOut,
-  type LoggedOutSessions,
-  type OtherWays,
-  type MovedModel,
-  type NewPerson,
-  type OwnAppSignIn,
-  type OwnProfileEntry,
-  type PendingRevocation,
-  type ProfileEntry,
-  type PushDelivery,
-  type RoomEventDeliveries,
-  type SavedAssistant,
-  type SavedModel,
-  type SavedRoomChange,
-  type SavedSso,
-  type SignInKept,
-  type SignInClient,
-  type StoredAgent,
-  type StoredApp,
-  type StoredAppRead,
-  type AgentToolPicks,
-  type ChangedPicks,
-  type StoredToolPick,
-  type StoredAgentSettings,
-  type StoredBot,
-  type StoredBotSettings,
-  type StoredPushSubscription,
-  type StoredSession,
-  type Welcome,
-} from "./workspace-store";
+import { allowingHuddles, NEW_ACCOUNT_LOOKS, WorkspaceStore, type AccountChange, type AgentSetup, type AgentToolPicks, type AssistantPicks, type AvatarOwner, type BotKey, type ChangedPicks, type Client, type Connecting, type DeletedAccount, type DirectoryEntry, type Disconnection, type InvitationPush, type JoinableAccount, type LinkedAccount, type LinkedPerson, type LoggedOut, type LoggedOutSessions, type MovedModel, type NewPerson, type OtherWays, type OwnAppSignIn, type OwnProfileEntry, type PendingRevocation, type ProfileEntry, type PushDelivery, type RoomEventDeliveries, type SavedAssistant, type SavedModel, type SavedRoomChange, type SavedSso, type SignInClient, type SignInKept, type StoredAgent, type StoredAgentSettings, type StoredApp, type StoredAppRead, type StoredBot, type StoredBotSettings, type StoredPushSubscription, type StoredSession, type StoredToolPick, type Welcome } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -806,6 +635,20 @@ export interface WebhookAccess extends BotAccess {
 /** A bot's webhook as a click's delivery finds it, with who clicked, by their name now, and the room's name, or null for a DM's. */
 export interface ClickAccess extends WebhookAccess {
   clicker: User;
+  roomName: string | null;
+}
+
+/**
+ * The command `name` names, as its delivery in a room finds it: the command, or null when no command has
+ * that name; the bot that invokes it, by its name now, or null with the command; and its webhook as
+ * `WebhookAccess` is, or null once the bot isn't an active one in the room with one, with whoever typed
+ * it, by their name now, and the room's name, or null for a DM's.
+ */
+export interface CommandAccess {
+  command: { id: string; name: string } | null;
+  bot: User | null;
+  webhook: WebhookAccess | null;
+  sender: User;
   roomName: string | null;
 }
 
@@ -4315,6 +4158,82 @@ export class Workspace extends DurableObject<Env> {
     return bot && this.shownBotSettings(bot);
   }
 
+  /**
+   * The workspace's commands, each with its bot, and which of the bots are on which rooms' message
+   * events, for the person `credentials` signs in: they're what the composer's menu offers and the bots
+   * page ticks, which everyone signed in reads, though only administrators change them. The
+   * subscriptions name rooms, which not everyone may read, so an administrator's are all of them, and
+   * anyone else's only those of their own rooms — the composer needs the commands alone. Null without a
+   * valid session.
+   */
+  async commands(credentials: Credentials): Promise<Commands | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.store.commands(user.id, await this.store.isAdministrator(user.id));
+  }
+
+  /**
+   * Registers a command with `name` and what it's for, invoking the active bot `botId`, as the person
+   * `credentials` signs in asks. Answers it as the bots page lists it: "forbidden" unless that's an
+   * administrator, "not found" unless `botId` is an active bot, "taken" for a name one of the
+   * workspace's commands has already, or null without a valid session.
+   */
+  async registerCommand(credentials: Credentials, botId: UserId, { name, description }: NewCommand): Promise<Command | "forbidden" | "not found" | "taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.activeBot(botId))) return "not found";
+      if (await this.store.commandTaken(name)) return "taken";
+      const id = sortableId();
+      await this.store.registerCommand({ id, name, description: description ?? null, botId }, new Date().toISOString());
+      return (await this.store.command(id))!;
+    });
+  }
+
+  /**
+   * Forgets the command `id`, whose name is free again, as the person `credentials` signs in asks:
+   * "forbidden" unless they're an administrator, "not found" unless there is one, or null without a
+   * valid session.
+   */
+  async removeCommand(credentials: Credentials, commandId: string): Promise<"removed" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return (await this.store.removeCommand(commandId)) ? "removed" : "not found";
+  }
+
+  /**
+   * Puts the active bot `botId` on room `roomId`'s message events, as the person `credentials` signs in
+   * ticks it: every message written in the room by someone else is delivered to the bot's webhook, as a
+   * command's delivery is. Answers "subscribed", or that again for a tick of one it's on already:
+   * "forbidden" unless that's an administrator, "not found" unless `botId` is an active bot, "not in
+   * room" unless the room has it, or null without a valid session.
+   */
+  async subscribeToMessages(credentials: Credentials, botId: UserId, roomId: RoomId): Promise<"subscribed" | "forbidden" | "not found" | "not in room" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    if (!(await this.store.activeBot(botId))) return "not found";
+    // A subscription is for the messages a room sends the bot, which it hears of only in the room.
+    if (!(await this.store.isMember(roomId, botId))) return "not in room";
+    await this.store.subscribeToMessages(botId, roomId, new Date().toISOString());
+    return "subscribed";
+  }
+
+  /**
+   * Takes the bot `botId` off room `roomId`'s message events, as the person `credentials` signs in
+   * unticks it, answering whether it did: "forbidden" unless that's an administrator, or null without a
+   * valid session. Off when it wasn't on them, as lifting a hush is when there's none.
+   */
+  async unsubscribeFromMessages(credentials: Credentials, botId: UserId, roomId: RoomId): Promise<"unsubscribed" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    await this.store.unsubscribeFromMessages(botId, roomId);
+    return "unsubscribed";
+  }
+
   /** Bots as administrators see them: with their avatars' addresses, and their keys in place of their tokens. */
   private async shownBots(bots: StoredBot[]): Promise<Bot[]> {
     return (await directoryOf(bots, this.env.SESSION_SECRET)).map(({ token, ...bot }) => ({ ...bot, key: botKeyOf(bot.id, token) }));
@@ -5725,6 +5644,30 @@ export class Workspace extends DurableObject<Env> {
     if (!found) return null;
     const { bot, url, clicker, roomName } = found;
     return { bot, url, key: botKeyOf(bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, found)), authorizedAt, clicker, roomName };
+  }
+
+  /**
+   * The command `name` names, as its delivery in room `roomId` by `senderId` finds it, when its turn
+   * comes: null once whoever typed it isn't an active member of the room, so that a command waiting its
+   * turn goes nowhere once they're taken out. Within that, the command null once no command has the
+   * name, and the webhook null as `botWebhook` answers it, so that deleting a bot, taking it out of the
+   * room or removing its webhook stops what's on its way to it, and a new URL or key takes effect at
+   * once.
+   */
+  async commandWebhook(roomId: RoomId, senderId: UserId, name: string): Promise<CommandAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.commandWebhook(roomId, senderId, name);
+    if (!found) return null;
+    const { command, bot, sender, roomName, webhook } = found;
+    const access =
+      webhook && {
+        bot: webhook.bot,
+        url: webhook.url,
+        key: botKeyOf(webhook.bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, webhook.bot.id, webhook)),
+        authorizedAt,
+      };
+    return { command, bot, webhook: access || null, sender, roomName };
   }
 
   /**

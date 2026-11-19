@@ -1,168 +1,24 @@
-import {
-  AVATAR_PATH,
-  CloseCode,
-  CURRENT_PASSWORD_NEEDED,
-  CURRENT_PASSWORD_WRONG,
-  DELETION_NAME_NEEDED,
-  DELETION_PASSWORD_NEEDED,
-  EMAIL_DOMAIN_NEEDS_EMAIL,
-  EMAIL_SIGN_UP_PATH,
-  INVITATION_PATH,
-  LOGO_PATH,
-  LOGO_TOO_LARGE,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MEMBERFUL_CALLBACK_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  MEMBERFUL_DISCONNECT_PASSWORD_NEEDED,
-  MEMBERFUL_DISCONNECT_WITHOUT_EMAIL,
-  MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD,
-  MEMBERFUL_NOT_CONNECTED,
-  MEMBERFUL_PASSWORD_NEEDED,
-  MEMBERFUL_SIGN_IN_PATH,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  MEMBERFUL_WEBHOOK_PATH,
-  NAME_RESERVED,
-  NO_EMAIL_DOMAINS,
-  ONLY_ADMINISTRATOR,
-  PASSWORD_RESET_PATH,
-  PASSWORD_WITH_MEMBERFUL,
-  isPasswordTooLong,
-  isReservedName,
-  isRoomId,
-  notTakingDirects,
-  OPEN_WITH_MEMBERFUL,
-  parseAccountChanges,
-  parseAccountDeletion,
-  parseCustomDomainCheck,
-  parseCustomStyles,
-  parseFavoriteOrder,
-  parseInvolvementChange,
-  parseMemberfulDisconnection,
-  parseSharedOrder,
-  parseNewDirect,
-  parseNewRoom,
-  parseProfileChanges,
-  parseResendApiKey,
-  parseRoleChange,
-  parseSendingDomainCheck,
-  parseRoomChanges,
-  parseTurnstileKeysChange,
-  PROFILE_PATH,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  signOutEndpointOf,
-  signsInElsewhereOnly,
-  SIGN_UP_PATH,
-  TRANSFER_PATH,
-  TURNSTILE_CHECK_PATH,
-  USERNAME_TAKEN,
-  workspacePageOf,
-  type Account,
-  type Bootstrap,
-  type ChangedBlocks,
-  type ChangedPerson,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type CustomStyles,
-  type Directory,
-  type EmailSettings,
-  type Favorites,
-  type Involvement,
-  type MemberfulAccount,
-  type MemberfulStatus,
-  type NewJoinCode,
-  type NewRoomForm,
-  type PersonAnswer,
-  type ProfileAnswer,
-  type ReleaseCheck,
-  type RoomId,
-  type RoomSettings,
-  type SendingDomainCheck,
-  type SentTestEmail,
-  type Sidebar,
-  type StartedDirect,
-  type TurnstileSettings,
-  type UserId,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { AVATAR_PATH, CloseCode, CURRENT_PASSWORD_NEEDED, CURRENT_PASSWORD_WRONG, DELETION_NAME_NEEDED, DELETION_PASSWORD_NEEDED, EMAIL_DOMAIN_NEEDS_EMAIL, EMAIL_SIGN_UP_PATH, INVITATION_PATH, isPasswordTooLong, isReservedName, isRoomId, LOGO_PATH, LOGO_TOO_LARGE, MAX_EMAIL_ADDRESS_LENGTH, MEMBERFUL_CALLBACK_PATH, MEMBERFUL_CONNECTIONS_PATH, MEMBERFUL_DISCONNECT_PASSWORD_NEEDED, MEMBERFUL_DISCONNECT_WITHOUT_EMAIL, MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD, MEMBERFUL_NOT_CONNECTED, MEMBERFUL_PASSWORD_NEEDED, MEMBERFUL_SIGN_IN_PATH, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_PATH, NAME_RESERVED, NO_EMAIL_DOMAINS, notTakingDirects, ONLY_ADMINISTRATOR, OPEN_WITH_MEMBERFUL, parseAccountChanges, parseAccountDeletion, parseCustomDomainCheck, parseCustomStyles, parseFavoriteOrder, parseInvolvementChange, parseMemberfulDisconnection, parseNewDirect, parseNewRoom, parseProfileChanges, parseResendApiKey, parseRoleChange, parseRoomChanges, parseSendingDomainCheck, parseSharedOrder, parseTurnstileKeysChange, PASSWORD_RESET_PATH, PASSWORD_WITH_MEMBERFUL, PROFILE_PATH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, SIGN_UP_PATH, signOutEndpointOf, signsInElsewhereOnly, TRANSFER_PATH, TURNSTILE_CHECK_PATH, USERNAME_TAKEN, workspacePageOf, type Account, type Bootstrap, type ChangedBlocks, type ChangedPerson, type CustomDomainCheck, type CustomDomainLookup, type CustomStyles, type Directory, type EmailSettings, type Favorites, type Involvement, type MemberfulAccount, type MemberfulStatus, type NewJoinCode, type NewRoomForm, type PersonAnswer, type ProfileAnswer, type ReleaseCheck, type RoomId, type RoomSettings, type SendingDomainCheck, type SentTestEmail, type Sidebar, type StartedDirect, type TurnstileSettings, type UserId, type WorkspaceSettings } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSoundChanges, type HuddleSoundsChanged, type PastHuddles } from "@ember/protocol/huddles";
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
 import { parseNewReport, parseReportHandling, type HandledReports, type Reports } from "@ember/protocol/reports";
-import {
-  MEMBERFUL_WITH_SSO,
-  OPEN_WITH_SSO,
-  PASSWORD_WITH_SSO,
-  SSO_CALLBACK_PATH,
-  SSO_CONNECTIONS_PATH,
-  SSO_DISCONNECT_PASSWORD_NEEDED,
-  SSO_DISCONNECT_WITHOUT_EMAIL,
-  SSO_DISCONNECT_WITHOUT_PASSWORD,
-  SSO_LOGOUT_PATH,
-  SSO_NOT_CONNECTED,
-  SSO_PASSWORD_NEEDED,
-  SSO_SETTINGS_PATH,
-  SSO_SIGN_IN_PATH,
-  SSO_SIGN_IN_PROBLEMS,
-  SSO_WITH_MEMBERFUL,
-  type ElsewhereConnection,
-  type SsoStatus,
-} from "@ember/protocol/sso";
+import { MEMBERFUL_WITH_SSO, OPEN_WITH_SSO, PASSWORD_WITH_SSO, SSO_CALLBACK_PATH, SSO_CONNECTIONS_PATH, SSO_DISCONNECT_PASSWORD_NEEDED, SSO_DISCONNECT_WITHOUT_EMAIL, SSO_DISCONNECT_WITHOUT_PASSWORD, SSO_LOGOUT_PATH, SSO_NOT_CONNECTED, SSO_PASSWORD_NEEDED, SSO_SETTINGS_PATH, SSO_SIGN_IN_PATH, SSO_SIGN_IN_PROBLEMS, SSO_WITH_MEMBERFUL, type ElsewhereConnection, type SsoStatus } from "@ember/protocol/sso";
 import { mentionPromptItem } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
-import {
-  clientOf,
-  credentialsFor,
-  credentialsOf,
-  expiredSessionCookie,
-  isCrossSite,
-  isHttps,
-  isSameOriginUpgrade,
-  newSessionToken,
-  sessionCookie,
-  sessionToken,
-  signOut,
-  tokenDigest,
-} from "./auth";
+import { clientOf, credentialsFor, credentialsOf, expiredSessionCookie, isCrossSite, isHttps, isSameOriginUpgrade, newSessionToken, sessionCookie, sessionToken, signOut, tokenDigest } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import {
-  appPage,
-  beginAppSignIn,
-  beginNewAppSignIn,
-  beginOwnAppSignIn,
-  changeApp,
-  clientDocument,
-  connectApp,
-  disconnectApp,
-  finishAppSignIn,
-  listApps,
-  pickAgentTools,
-  readAppTools,
-  showAgentTools,
-  showApp,
-  signOutOfApp,
-} from "./apps/api";
+import { appPage, beginAppSignIn, beginNewAppSignIn, beginOwnAppSignIn, changeApp, clientDocument, connectApp, disconnectApp, finishAppSignIn, listApps, pickAgentTools, readAppTools, showAgentTools, showApp, signOutOfApp } from "./apps/api";
 import { answerOutsideAsk, changeOutsideAi, describeOutsideAsk, disconnectOutside, isOutsideRegistration, outsideAction, outsideConnectPage } from "./outside/api";
 import { CLIENT_DOCUMENT_PATH } from "./apps/oauth";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, listAvailableAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
-import {
-  addAssistantModel,
-  changeAssistantAvatar,
-  changeAssistantSettings,
-  changeWebSearch,
-  changeYourAssistant,
-  deployedAccountIdOf,
-  forgetAssistant,
-  listOfferedModels,
-  removeAssistantAvatar,
-  removeAssistantModel,
-  saveAssistant,
-} from "./assistant/settings";
+import { addAssistantModel, changeAssistantAvatar, changeAssistantSettings, changeWebSearch, changeYourAssistant, deployedAccountIdOf, forgetAssistant, listOfferedModels, removeAssistantAvatar, removeAssistantModel, saveAssistant } from "./assistant/settings";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
+import { createCommand, listCommands, removeCommand, subscribeToRoomMessages, unsubscribeFromRoomMessages } from "./bots/commands";
 import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import { guestSignIn, type Env } from "./env";
@@ -181,16 +37,7 @@ import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./i
 import { askForEmailLink, emailSignUpPage, invitationPage, join, joinCodeOf, joinPage, joinWithEmailLink, signUp, signUpPage } from "./join";
 import { checkResendApiKey } from "./mail";
 import { manifest, manifestFormatOf } from "./manifest";
-import {
-  finishMemberfulSignIn,
-  memberfulConnectionFor,
-  memberfulRefusal,
-  memberfulSiteFor,
-  memberfulWebhook,
-  saveMemberfulKeys,
-  startMemberfulSignIn,
-  withDeployedMemberful,
-} from "./memberful";
+import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulSiteFor, memberfulWebhook, saveMemberfulKeys, startMemberfulSignIn, withDeployedMemberful } from "./memberful";
 import { deployedMemberfulOf } from "./memberful-api";
 import { anyOtherPage, formAnswer } from "./pages";
 import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
@@ -1468,6 +1315,14 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (bot && request.method === "DELETE") return () => deleteBot(request, env, bot[1]!);
   const botKey = pathname.match(/^\/api\/account\/bots\/([^/]+)\/key$/);
   if (botKey && request.method === "PUT") return () => resetBotKey(request, env, botKey[1]!);
+  // A bot's subscription to a room's message events, as the bots page ticks it. Neither id needs encoding, as a bot's or a room's.
+  const botEvents = pathname.match(/^\/api\/account\/bots\/([^/]+)\/rooms\/([^/]+)\/events$/);
+  if (botEvents && request.method === "PUT") return () => subscribeToRoomMessages(request, env, botEvents[1]!, botEvents[2]!);
+  if (botEvents && request.method === "DELETE") return () => unsubscribeFromRoomMessages(request, env, botEvents[1]!, botEvents[2]!);
+  if (pathname === "/api/account/commands" && request.method === "GET") return () => listCommands(request, env);
+  if (pathname === "/api/account/commands" && request.method === "POST") return () => createCommand(request, env);
+  const command = pathname.match(/^\/api\/account\/commands\/([^/]+)$/);
+  if (command && request.method === "DELETE") return () => removeCommand(request, env, command[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
   if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);

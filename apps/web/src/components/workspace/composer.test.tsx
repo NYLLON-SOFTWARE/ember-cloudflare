@@ -1,13 +1,14 @@
-import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
+import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
+import type { Command, Commands } from "@ember/protocol/bots";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { Typist } from "@/lib/room-state";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import userEvent from "@testing-library/user-event";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
@@ -25,12 +26,22 @@ vi.mock("./emoji-panel", () => ({
 /** What `onSend` answers for a message that went, where nothing's to come after it. */
 const went: AddPreview = () => {};
 
-async function showComposer({ typing = [] as Typist[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, autoFocus = true, mentionsAbove = false } = {}) {
+async function showComposer({
+  typing = [] as Typist[],
+  disabled = false,
+  roomId = "r1",
+  threadId = undefined as string | undefined,
+  direct = false,
+  autoFocus = true,
+  mentionsAbove = false,
+  servedCommands = null as Commands["commands"] | null,
+} = {}) {
   // Hears a link's preview that comes once the message has gone.
   const addPreview = vi.fn((_preview: LinkPreview) => {});
   const onSend = vi.fn((_body: string, _alsoSend: boolean): AddPreview | null => addPreview);
   const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
+  const onRunCommand = servedCommands === null ? undefined : vi.fn(async (_name: string, _text: string) => true);
   const composer = createRef<ComposerHandle>();
   const view = render(
     <Composer
@@ -44,6 +55,7 @@ async function showComposer({ typing = [] as Typist[], disabled = false, roomId 
       threadId={threadId}
       onSend={onSend}
       onSendFiles={onSendFiles}
+      onRunCommand={onRunCommand}
       onTyping={onTyping}
       autoFocus={autoFocus}
       mentionsAbove={mentionsAbove}
@@ -51,7 +63,19 @@ async function showComposer({ typing = [] as Typist[], disabled = false, roomId 
   );
   // The editor loads as the first composer shows.
   const input = await within(view.container).findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { onSend, addPreview, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
+  return { onSend, addPreview, onSendFiles, onTyping, onRunCommand, composer, view, user: userEvent.setup(), input };
+}
+
+/** The workspace's commands, as the server has them, which the menu of commands offers. */
+const DEPLOY_COMMAND: Command = { id: "c1", name: "deploy", description: "Ship the build", bot: { id: "b1", name: "Build Bot" } };
+const RESTART_COMMAND: Command = { id: "c2", name: "restart", description: null, bot: { id: "b1", name: "Build Bot" } };
+
+/** Answers the workspace's commands with `commands`, until the test ends. */
+function serveCommands(commands: Command[]) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (String(input).endsWith("/api/account/commands")) return Response.json({ commands, subscriptions: [] } satisfies Commands);
+    throw new Error(`Unexpected request for ${String(input)}`);
+  });
 }
 
 function touchScreen() {
@@ -66,6 +90,7 @@ const tool = (name: string) => within(formattingRow()!).getByRole("button", { na
 const fileField = () => document.querySelector<HTMLInputElement>('input[type="file"]')!;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.mocked(editorLoaded).mockReturnValue(false);
 });
@@ -1271,5 +1296,325 @@ describe("Only members see a room", () => {
     expect(notice).toHaveTextContent("This room was deleted.");
     expect(notice).toHaveClass("text-negative", "border-negative", "motion-safe:animate-shake");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("Slash commands", () => {
+  const menu = () => screen.getByRole("listbox", { name: "Commands" });
+
+  it("offers the workspace's commands once what's written begins with a slash, and asks for them once", async () => {
+    const served = serveCommands([DEPLOY_COMMAND, RESTART_COMMAND]);
+    const { input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND, RESTART_COMMAND] });
+    await user.type(input, "a message");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    expect(served).not.toHaveBeenCalled();
+
+    await user.clear(input);
+    await user.type(input, "/");
+    const menuBox = await screen.findByRole("listbox", { name: "Commands" });
+    const options = within(menuBox).getAllByRole("option");
+    expect(options.map((option) => option.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    expect(within(options[0]!).getByText(/^\/deploy$/)).toBeInTheDocument();
+    expect(within(options[0]!).getByText("Ship the build")).toBeInTheDocument();
+    expect(within(options[0]!).getByText("Build Bot")).toBeInTheDocument();
+    // Asked for once, whatever the typing that needs them after.
+    expect(served).toHaveBeenCalledTimes(1);
+    expect(String(served.mock.calls[0]![0])).toBe("/api/account/commands");
+
+    // A command one of the workspace's names whole leaves the menu, for Enter to send.
+    await user.clear(input);
+    await user.type(input, "/deploy prod");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+  });
+
+  it("narrows the menu to what's typed, and Enter picks the highlighted one, completing it", async () => {
+    serveCommands([DEPLOY_COMMAND, RESTART_COMMAND]);
+    const { input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND, RESTART_COMMAND] });
+    await user.type(input, "/");
+    const menuBox = await screen.findByRole("listbox", { name: "Commands" });
+    expect(within(menuBox).getAllByRole("option").map((option) => within(option).getByText(/^\/(deploy|restart)$/).textContent)).toEqual(["/deploy", "/restart"]);
+
+    await user.type(input, "re");
+    const options = within(menu()).getAllByRole("option");
+    expect(options.map((option) => within(option).getByText(/^\/(deploy|restart)$/).textContent)).toEqual(["/restart"]);
+
+    // The arrows move the highlight, and Enter completes the one it's on.
+    await user.keyboard("{ArrowDown}");
+    expect(options.map((option) => option.getAttribute("aria-selected"))).toEqual(["true"]);
+    await user.keyboard("{Enter}");
+    expect(input).toHaveValue("/restart ");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    // Nothing was sent: the command is being typed, with a space after it for what it's to be told.
+    expect(input).toHaveFocus();
+  });
+
+  it("shuts the menu on Escape, and Enter then runs the command it was offering", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("runs what's written as an invocation once it begins with a command, and not as a message", async () => {
+    serveCommands([DEPLOY_COMMAND, RESTART_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND, RESTART_COMMAND] });
+    await user.type(input, "/deploy production{Enter}");
+    expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production");
+    expect(onSend).not.toHaveBeenCalled();
+    // The box is left clear, and the menu with it: the command's name is typed whole by then.
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+  });
+
+  it("runs a command typed whole with nothing after it, whatever case it was typed in", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    await user.type(input, "/DEPLOY{Enter}");
+    expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("sends what a slash that's no command begins as a message, as it was typed", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    await user.type(input, "/etc/hosts says otherwise{Enter}");
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>/etc/hosts says otherwise</p>", false);
+  });
+
+  it("leaves the menu out once the name is typed whole, though a longer command's name starts with it", async () => {
+    const DEPLOY_PROD: Command = { id: "c3", name: "deploy-prod", description: null, bot: { id: "b1", name: "Build Bot" } };
+    serveCommands([DEPLOY_COMMAND, DEPLOY_PROD, RESTART_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND, DEPLOY_PROD, RESTART_COMMAND] });
+    await user.type(input, "/");
+    const menuBox = await screen.findByRole("listbox", { name: "Commands" });
+    expect(within(menuBox).getAllByRole("option")).toHaveLength(3);
+
+    // The name whole shuts the menu, and what's typed after it stays for the command to be told.
+    await user.type(input, "deploy production");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    expect(input).toHaveValue("/deploy production");
+    await user.keyboard("{Enter}");
+    expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("waits for the workspace's commands before what begins with a slash is told from a message", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy production");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    // The commands are still on their way, so nothing is sent and what's written stays.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/deploy production");
+
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written when the commands couldn't be had, and runs the command once they are", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: "Something went wrong" }, { status: 500 }));
+    await user.type(input, "/deploy");
+    await user.keyboard("{Enter}");
+    await act(async () => {});
+    // The lookup failed, so what's written is neither run nor posted: it stays to be sent again.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/deploy");
+
+    // Asked for again at the next Enter, they're had, and the command runs.
+    fetch.mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands);
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", ""));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("runs a command registered since the commands were had, rather than posting it to the room", async () => {
+    const had = [RESTART_COMMAND];
+    let asked = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (!String(input).endsWith("/api/account/commands")) throw new Error(`Unexpected request for ${String(input)}`);
+      asked += 1;
+      return Response.json({ commands: [...had], subscriptions: [] } satisfies Commands);
+    });
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [RESTART_COMMAND] });
+    await user.type(input, "/");
+    await screen.findByRole("listbox", { name: "Commands" });
+    // An administrator registers /deploy elsewhere while this page holds the commands it had, which
+    // name no /deploy.
+    had.push(DEPLOY_COMMAND);
+    await user.type(input, "deploy production");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    // Asked for again before what they don't name is told from a message, so the command runs, and
+    // goes to the room as no message.
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(asked).toBe(2);
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written while the commands can't be had again, then sends it as the message they don't name", async () => {
+    let asked = 0;
+    let answer!: (response: Response) => void;
+    const again = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (!String(input).endsWith("/api/account/commands")) throw new Error(`Unexpected request for ${String(input)}`);
+      asked += 1;
+      if (asked === 2) return again;
+      return Response.json({ commands: [RESTART_COMMAND], subscriptions: [] } satisfies Commands);
+    });
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [RESTART_COMMAND] });
+    await user.type(input, "/etc/hosts says otherwise");
+    await vi.waitFor(() => expect(asked).toBe(1));
+    await user.keyboard("{Enter}");
+    await act(async () => {});
+    // The commands are being had again, so nothing goes, and what's written stays.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/etc/hosts says otherwise");
+
+    // Had again to no avail, so what's written is kept still.
+    act(() => answer(Response.json({ error: "Something went wrong" }, { status: 500 })));
+    await act(async () => {});
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/etc/hosts says otherwise");
+
+    // Had again at the next Enter, they name it not, so what's written goes as the message it is.
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>/etc/hosts says otherwise</p>", false));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(asked).toBe(3);
+    expect(input).toHaveValue("");
+  });
+
+  it("runs what began with a slash once, though Enter is pressed again while the commands wait", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy production");
+    await user.keyboard("{Enter}");
+    // A second Enter while the first send waits for the commands starts nothing: one submit at a time,
+    // that the bot isn't told twice of what was typed once.
+    await user.keyboard("{Enter}");
+    expect(onRunCommand).not.toHaveBeenCalled();
+
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("sends what a send became while the commands waited, rather than what waited", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Enter}");
+    // Written over while the commands were on their way: what's written by then is what goes, as a
+    // message, and the slash that waited is gone with it.
+    await user.clear(input);
+    await user.type(input, "hello there");
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await vi.waitFor(() => expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>hello there</p>", false));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("completes what a send grew into while the commands waited", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Enter}");
+    await user.type(input, " production");
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production"));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("sends nothing of a send emptied while the commands waited", async () => {
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let answer!: (response: Response) => void;
+    const arrived = new Promise<Response>((resolve) => (answer = resolve));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      if (String(request).endsWith("/api/account/commands")) return await arrived;
+      throw new Error(`Unexpected request for ${String(request)}`);
+    });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Enter}");
+    await user.clear(input);
+    act(() => answer(Response.json({ commands: [DEPLOY_COMMAND], subscriptions: [] } satisfies Commands)));
+    await act(async () => {});
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written when the room wouldn't run the command, for it to be sent again", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    onRunCommand!.mockResolvedValueOnce(false);
+    await user.type(input, "/deploy production");
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(input).toHaveValue("/deploy production"));
+    // The room wouldn't take it, so it's given back, kept as the draft as well, to be sent again.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>/deploy production</p>");
+
+    // Sent again once the room would take it.
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(onRunCommand).toHaveBeenCalledTimes(2));
+    expect(input).toHaveValue("");
+  });
+
+  it("leaves newer writing be when the room wouldn't run the command", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    let refuse!: (went: boolean) => void;
+    onRunCommand!.mockImplementationOnce(async () => new Promise<boolean>((resolve) => (refuse = resolve)));
+    await user.type(input, "/deploy production");
+    await user.keyboard("{Enter}");
+    expect(input).toHaveValue("");
+    // Something else is written by the time the room refuses the command, which stays written.
+    await user.type(input, "never mind");
+    act(() => refuse(false));
+    await act(async () => {});
+    expect(input).toHaveValue("never mind");
   });
 });

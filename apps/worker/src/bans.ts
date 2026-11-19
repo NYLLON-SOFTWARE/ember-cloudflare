@@ -1,3 +1,5 @@
+
+
 // Which IP addresses a ban can block, as Campfire's `ip_address_is_public` decides (app/models/ban.rb):
 // an address Rust's `IpAddr` parses, as Ruby's `IPAddr.new` takes it, optionally with a `/prefix` that
 // masks it, or an IPv6 address in brackets, and that isn't loopback, private or link-local as Ruby's

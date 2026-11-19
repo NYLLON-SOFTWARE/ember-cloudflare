@@ -1,24 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  cameraOf,
-  closeDevice,
-  facesAway,
-  facingOf,
-  listDevices,
-  listsSpeaker,
-  microphoneOf,
-  NO_DEVICES,
-  openCamera,
-  openMicrophone,
-  openOtherCamera,
-  openScreen,
-  rememberDevice,
-  rememberedDevice,
-  sharesScreens,
-  speakerChoices,
-  watchDevices,
-  withOpen,
-} from "./huddle-devices";
+import { cameraOf, closeDevice, facesAway, facingOf, listDevices, listsSpeaker, microphoneOf, NO_DEVICES, openCamera, openMicrophone, openOtherCamera, openScreen, rememberDevice, rememberedDevice, sharesScreens, speakerChoices, watchDevices, withOpen } from "./huddle-devices";
 
 /** A stream from the microphone `deviceId`, or with `kind` said, the camera, as much of one as the code reads. */
 function streamFrom(deviceId: string, kind: "audio" | "video" = "audio") {

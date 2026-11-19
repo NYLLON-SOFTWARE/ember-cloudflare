@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { blockedWordsRefusal, blockedWordsTyped } from "@ember/protocol/blocked-words";
-import { FIELD_INPUT, Field } from "@/components/field";
+import { Field, FIELD_INPUT } from "@/components/field";
 import { cn } from "@/lib/utils";
 
 // The Blocked words card in Membership, for administrators, as Apple asks of every app where people

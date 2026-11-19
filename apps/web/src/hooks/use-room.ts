@@ -1,20 +1,5 @@
 import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  CloseCode,
-  HISTORY_PAGE_SIZE,
-  isInRoom,
-  isMessageTooLong,
-  MAX_CHECKED_MESSAGES,
-  MAX_MESSAGE_HTML_LENGTH,
-  MESSAGE_TOO_LONG,
-  parseServerFrame,
-  workspacePageOf,
-  type ClientFrame,
-  type Me,
-  type Message,
-  type ServerFrame,
-  type User,
-} from "@ember/protocol";
+import { CloseCode, COMMAND_TOO_LONG, HISTORY_PAGE_SIZE, isInRoom, isMessageTooLong, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MESSAGE_TOO_LONG, parseServerFrame, workspacePageOf, type ClientFrame, type Me, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import type { AddPreview } from "@/components/workspace/composer";
 import type { MessageActions } from "@/components/workspace/message-item";
@@ -95,6 +80,41 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
         });
       });
     },
+  };
+}
+
+/**
+ * Runs `/name text` as an invocation, over `frames`, answering whether the room took it: it answers
+ * `command.ran` once the bot has heard it, or says why it didn't, which the room shows. A room that lets
+ * the page in again has lost the command's answer, if not the command, as it has a click's.
+ */
+export function runCommandOf({ send, listen }: RoomFrames, warn: (message: string) => void): (name: string, text: string) => Promise<boolean> {
+  return (name, text) => {
+    // One longer than a frame takes is refused before it's sent, that what's written stays to be cut
+    // down: the room would drop the frame as unrecognized, with no `commandId` for an error to name,
+    // and leave whoever sent it waiting while their writing is gone.
+    if (text.length > MAX_MESSAGE_HTML_LENGTH) {
+      warn(COMMAND_TOO_LONG);
+      return Promise.resolve(false);
+    }
+    const commandId = crypto.randomUUID();
+    if (!send({ type: "command.run", commandId, name, text })) {
+      warn("Not connected. Try again once you're reconnected.");
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      const answered = (went: boolean) => {
+        stop();
+        resolve(went);
+      };
+      const stop = listen((frame) => {
+        if (frame.type === "command.ran" && frame.commandId === commandId) answered(true);
+        else if (frame.type === "error" && frame.commandId === commandId) {
+          warn(frame.message);
+          answered(false);
+        } else if (frame.type === "welcome" || frame.type === "resumed") answered(false);
+      });
+    });
   };
 }
 
@@ -390,11 +410,12 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   );
 
   const messageActions = useMemo(() => messageActionsOf(frames, warn), [frames, warn]);
+  const runCommand = useMemo(() => runCommandOf(frames, warn), [frames, warn]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
   const givenBack = useCallback((clientMessageId: string, taken: boolean) => dispatch({ type: "given-back", clientMessageId, taken }), []);
 
-  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack };
+  return { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack };
 }
 
 /**

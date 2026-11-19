@@ -1,21 +1,12 @@
-import {
-  JOINING_PROBLEMS,
-  MAX_PASSWORD_LENGTH,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  signInSaying,
-  type Bootstrap,
-} from "@ember/protocol";
+import { JOINING_PROBLEMS, MAX_PASSWORD_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PROBLEMS, SIGN_IN_LIMITED, SIGN_IN_REJECTED, signInSaying, type Bootstrap } from "@ember/protocol";
 import { SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_PROBLEMS } from "@ember/protocol/sso";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { returnPath } from "@/lib/return-path";
 import { CHROME_MAC } from "@/test-platforms";
 import { FlashProvider } from "./flash";
 import { SignInPage } from "./sign-in-page";
+import userEvent from "@testing-library/user-event";
 
 const ada = { id: "u1", name: "Ada" };
 const workspace: Omit<Bootstrap, "user"> = {

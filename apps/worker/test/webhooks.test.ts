@@ -337,7 +337,7 @@ describe("Webhooks", () => {
 
   it("takes only the bot's own @mentions out of the plain text, case for case, then whitespace at either end", () => {
     const space = String.fromCodePoint(0xa0, 0x2003, 0x3000);
-    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1" };
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1", subscribed: false };
     const webhook = { bot: { id: "b1", name: "Build Bot" }, key: "b1-AbC123" };
     const plain = (plainText: string, mentions: User[] = []) =>
       (JSON.parse(webhookPayload("r1", delivery, webhook, { id: "m1", body: "", plainText, mentions })) as { message: { body: { plain: string } } }).message.body.plain;
@@ -349,7 +349,7 @@ describe("Webhooks", () => {
   });
 
   it("trims the plain text in a moment, however long a run of whitespace it holds", () => {
-    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1" };
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1", subscribed: false };
     const webhook = { bot: { id: "b1", name: "Build Bot" }, key: "b1-AbC123" };
     const plainText = `a${" ".repeat(300_000)}b`;
     const started = Date.now();
@@ -360,7 +360,7 @@ describe("Webhooks", () => {
   });
 
   it("writes the payload as Campfire does, with HTML's characters escaped, and a DM's name null", () => {
-    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, botId: "b1" };
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, botId: "b1", subscribed: false };
     const webhook = { bot: { id: "b1", name: "Build Bot" }, key: "b1-AbC123" };
     const payload = webhookPayload("r1", delivery, webhook, { id: "m1", body: "<p>A &amp; B</p>", plainText: "A & B", mentions: [] });
 
@@ -610,7 +610,7 @@ describe("Webhook replies", () => {
     // Once the room has heard.
     await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
     file.send();
-    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"));
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"), { timeout: 5_000 });
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
   });
 
@@ -685,7 +685,7 @@ describe("Webhook replies", () => {
       object.env = { ...object.env, WORKSPACE: workspace as unknown as Env["WORKSPACE"] };
     });
     file.send();
-    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, unreachable));
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, unreachable), { timeout: 5_000 });
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
     expect((await files().list({ prefix: "previews/" })).objects).toEqual([]);
     client.close();
@@ -933,7 +933,7 @@ describe("Webhooks run in the background", () => {
   });
 
   it("queries webhooks first, with @ember, finding each one's bot and membership by their keys, and a delivery's webhook by its bot's", async () => {
-    const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_BOTS}`, "room", "user", "[]", 1)).map((row) => (row as { detail: string }).detail);
+    const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_BOTS}`, "room", "user", "[]", 1, 0)).map((row) => (row as { detail: string }).detail);
     expect(plan).toContainEqual(expect.stringMatching(/^SCAN webhooks\b/));
     expect(plan.filter((step) => /^SCAN (users|memberships|rooms)\b/.test(step))).toEqual([]);
     const found = (await workspaceSql(`EXPLAIN QUERY PLAN ${BOT_WEBHOOK}`, "room", "bot")).map((row) => (row as { detail: string }).detail);

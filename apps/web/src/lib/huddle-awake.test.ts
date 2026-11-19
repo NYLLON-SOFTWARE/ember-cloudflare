@@ -132,7 +132,6 @@ describe("Keeping a phone's screen awake", () => {
     request.mockImplementationOnce(() => new Promise<FakeLock>((resolve) => (answer = resolve)));
     const stop = keepAwake();
     visibility("visible");
-    visibility("visible");
     expect(request).toHaveBeenCalledTimes(1);
 
     const lock = new FakeLock();

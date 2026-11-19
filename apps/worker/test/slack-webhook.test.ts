@@ -5,8 +5,8 @@ import { withoutBotKeys } from "../src/bots/api";
 import { slackMessage } from "../src/bots/slack";
 import { keptCards } from "../src/cards";
 import type { Env } from "../src/env";
-import slackPayloads from "./fixtures/slack_payloads.json";
 import { api, apiWith, connect, cookieOf, createRoom, freshDeploy, objectSql, roomSql, roomStub, searchSql, sharedD1, shown, workspaceSql, type Session } from "./support";
+import slackPayloads from "./fixtures/slack_payloads.json";
 
 // What a Slack incoming webhook is sent, posted to a room at /rooms/<room id>/<bot key>/slack (bots/slack.ts),
 // so tools that post to Slack can post to Ember, answered as Slack's webhooks answer.
