@@ -128,7 +128,9 @@ const FOUND = `search_messages.id AS number, search_messages.message_id AS messa
  * The statement a search runs to find a page of messages and one more, which says there's another page,
  * newest or oldest first, past the number it starts after, if any. It's the one statement whatever the
  * rooms it doesn't look in hold: were another to run when their messages left the page short, the time
- * a search took would tell the searcher what's written in rooms they can't read.
+ * a search took would tell the searcher what's written in rooms they can't read. A search of filters
+ * alone reads nothing of those rooms, but one with words still passes over their matches, so the time it
+ * takes grows with how many of their messages have its words (`wordsStatement`).
  */
 export function searchStatement(search: IndexSearch): SearchStatement {
   return search.terms === "" ? filtersStatement(search) : wordsStatement(search);
