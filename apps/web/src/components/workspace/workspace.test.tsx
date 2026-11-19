@@ -677,9 +677,9 @@ describe("The Pinned panel", () => {
     await user.click(screen.getByRole("button", { name: "Pinned messages (1)" }));
     const panel = screen.getByRole("complementary", { name: "Pinned messages" });
     expect(panel).toHaveAttribute("data-pins");
-    // The layout's fourth column, which the rule naming a thread as its child names the panel's room for too.
-    expect(panel.parentElement).toHaveClass(
-      "min-[1180px]:has-[>[data-thread],>[data-pins]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
+    // The layout's fourth column, which the rule naming a thread or the panel names the room for too.
+    expect(panel.parentElement!.parentElement).toHaveClass(
+      "min-[1180px]:has-[[data-thread],[data-pins]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
     );
   });
 });
