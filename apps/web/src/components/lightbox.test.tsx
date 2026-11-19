@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlashProvider } from "./flash";
 import { Lightbox } from "./lightbox";
+import userEvent from "@testing-library/user-event";
 
 const QR_CODE = "/qr_code/aHR0cDovL3gvP2E=";
 

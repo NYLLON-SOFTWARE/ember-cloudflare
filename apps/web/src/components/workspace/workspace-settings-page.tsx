@@ -1,24 +1,8 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import {
-  LOGO_TOO_LARGE,
-  MAX_ACCOUNT_NAME_LENGTH,
-  MAX_LOGO_SIZE,
-  MAX_TAGLINE_LENGTH,
-  type Account,
-  type AccountSettings,
-  type DirectoryUser,
-  type EmailInvitation,
-  type EmberAddresses,
-  type Me,
-  type PersonRole,
-  type ReleaseCheck,
-  type RoomId,
-  type SidebarRoom,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { LOGO_TOO_LARGE, MAX_ACCOUNT_NAME_LENGTH, MAX_LOGO_SIZE, MAX_TAGLINE_LENGTH, type Account, type AccountSettings, type DirectoryUser, type EmailInvitation, type EmberAddresses, type Me, type PersonRole, type ReleaseCheck, type RoomId, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
 import type { MemberfulSaved } from "@ember/protocol/memberful";
 import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { Crown, Plus } from "@/components/icons/iconoir";
 import { scrollMainContentToTop } from "@/components/main-content";

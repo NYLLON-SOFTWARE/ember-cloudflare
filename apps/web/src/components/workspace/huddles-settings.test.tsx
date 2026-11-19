@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountSettings, WorkspaceSettings } from "@ember/protocol";
@@ -7,6 +6,7 @@ import { HUDDLES_FORBIDDEN } from "@ember/protocol/huddles";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
 import { CAMERAS_EXPLAINED, CONFIRM_STOP_HUDDLES, CONFIRM_STOP_RELAY, HuddleRelay, HUDDLES_EXPLAINED, HuddlesSettings, HuddleSwitches, RELAY_EXPLAINED, RELAY_TITLE, SCREENS_EXPLAINED } from "./huddles-settings";
+import userEvent from "@testing-library/user-event";
 
 const APP_ID = "2a95132c15732412d22c1476fa83f27a";
 

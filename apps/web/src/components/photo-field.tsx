@@ -1,6 +1,6 @@
-import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 import { Camera } from "@/components/icons/iconoir";
 import type { PhotoChoice } from "@/hooks/use-chosen-photo";
+import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 
 /**
  * Upload photo: Campfire's `.btn`, holding the file field over itself, outlined while the field has

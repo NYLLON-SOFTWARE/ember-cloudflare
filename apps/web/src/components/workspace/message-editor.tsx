@@ -2,7 +2,7 @@ import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState,
 import type { Message } from "@ember/protocol";
 import { editableBody, groupIdsIn, writtenMentions } from "@ember/richtext/dom";
 import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
-import { DirectoryLoaded, GroupsContext, ReloadDirectory, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { DirectoryLoaded, GroupsContext, mentionedPerson, PeopleContext, ReloadDirectory } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";

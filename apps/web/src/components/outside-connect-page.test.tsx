@@ -1,12 +1,12 @@
 import type { Bootstrap, Me } from "@ember/protocol";
 import { OUTSIDE_ASK_REFUSED, OUTSIDE_FULL, OUTSIDE_SCOPE_EXPLAINED, type OutsideAsked } from "@ember/protocol/outside";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadPage } from "@/lib/page";
 import { takeReturnPath } from "@/lib/return-path";
 import { CHROME_MAC } from "@/test-platforms";
 import { comesBackTo, OutsideConnectPage } from "./outside-connect-page";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 

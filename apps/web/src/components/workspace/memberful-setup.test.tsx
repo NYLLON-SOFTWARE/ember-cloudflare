@@ -1,22 +1,10 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  MEMBERFUL_API_KEY_REFUSED,
-  MEMBERFUL_API_KEY_UNKNOWN,
-  MEMBERFUL_CLIENT_ID_REFUSED,
-  MEMBERFUL_CLIENT_UNKNOWN,
-  MEMBERFUL_KEYS_UNCHECKED,
-  MEMBERFUL_SITE_REFUSED,
-  MEMBERFUL_SITE_UNKNOWN,
-  MEMBERFUL_WEBHOOK_SECRET_REFUSED,
-  memberfulSiteKept,
-  type MemberfulKeysChange,
-  type MemberfulSaved,
-} from "@ember/protocol/memberful";
+import { MEMBERFUL_API_KEY_REFUSED, MEMBERFUL_API_KEY_UNKNOWN, MEMBERFUL_CLIENT_ID_REFUSED, MEMBERFUL_CLIENT_UNKNOWN, MEMBERFUL_KEYS_UNCHECKED, MEMBERFUL_SITE_REFUSED, MEMBERFUL_SITE_UNKNOWN, MEMBERFUL_WEBHOOK_SECRET_REFUSED, memberfulSiteKept, type MemberfulKeysChange, type MemberfulSaved } from "@ember/protocol/memberful";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
 import { MEMBERFUL_SETUP_EXPLAINED, MemberfulSetup } from "./memberful-setup";
+import userEvent from "@testing-library/user-event";
 
 /** A Memberful site and its keys, as an administrator copies them from Memberful's dashboard. */
 const KEYS: MemberfulKeysChange = {

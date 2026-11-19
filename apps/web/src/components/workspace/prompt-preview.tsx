@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { MAX_TEMPLATE_LENGTH, PLACEHOLDERS, placeholderOf, placesForInstructions, templateRefusal, type Placeholder, type Prompt } from "@ember/protocol/prompts";
+import { MAX_TEMPLATE_LENGTH, placeholderOf, PLACEHOLDERS, placesForInstructions, templateRefusal, type Placeholder, type Prompt } from "@ember/protocol/prompts";
 import { FIELD_INPUT } from "@/components/field";
 import { WarningTriangle } from "@/components/icons/iconoir";
 import { cn } from "@/lib/utils";

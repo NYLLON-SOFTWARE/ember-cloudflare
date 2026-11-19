@@ -1,21 +1,6 @@
 import { useId, useRef, useState, type ComponentType, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type RefObject } from "react";
-import { FIELD_INPUT, Field } from "@/components/field";
-import {
-  Bold,
-  Code,
-  CodeBracketsSquare,
-  HSquare,
-  Italic,
-  Link,
-  List,
-  Minus,
-  NavArrowDown,
-  NumberedListLeft,
-  Quote,
-  Strikethrough,
-  Underline,
-  type IconoirIconProps,
-} from "@/components/icons/iconoir";
+import { Field, FIELD_INPUT } from "@/components/field";
+import { Bold, Code, CodeBracketsSquare, HSquare, Italic, Link, List, Minus, NavArrowDown, NumberedListLeft, Quote, Strikethrough, Underline, type IconoirIconProps } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";

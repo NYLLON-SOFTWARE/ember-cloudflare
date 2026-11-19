@@ -1,24 +1,11 @@
-import {
-  CANT_EMAIL_CODES,
-  MAX_PASSWORD_LENGTH,
-  MIN_PASSWORD_LENGTH,
-  PASSWORD_RESET_CODE_WRONG,
-  PASSWORD_RESET_DONE,
-  PASSWORD_RESET_LIMITED,
-  PASSWORD_RESET_SIGN_IN,
-  PASSWORD_RESETS_LIMITED,
-  PASSWORD_TOO_SHORT,
-  TURNSTILE_FAILED,
-  type Bootstrap,
-  type Me,
-} from "@ember/protocol";
+import { CANT_EMAIL_CODES, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_RESET_CODE_WRONG, PASSWORD_RESET_DONE, PASSWORD_RESET_LIMITED, PASSWORD_RESET_SIGN_IN, PASSWORD_RESETS_LIMITED, PASSWORD_TOO_SHORT, TURNSTILE_FAILED, type Bootstrap, type Me } from "@ember/protocol";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadPage } from "@/lib/page";
 import { CHROME_MAC } from "@/test-platforms";
 import { fakeTurnstile } from "@/test-turnstile";
 import { PasswordResetPage } from "./password-reset-page";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 

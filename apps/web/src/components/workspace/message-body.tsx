@@ -1,7 +1,5 @@
 import { createElement, useContext, type ComponentProps, type ReactNode } from "react";
 import { isAppPage, type GroupId, type User, type UserId } from "@ember/protocol";
-import type { DisplayElement, DisplayNode, DisplayPreview } from "@ember/richtext/dom";
-import { isAppPage, type User, type UserId } from "@ember/protocol";
 import { displayBody, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
 import { GroupsContext, mentionedPerson, PeopleContext } from "@/hooks/use-directory";

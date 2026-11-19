@@ -1,33 +1,4 @@
-import {
-  APP_CHANGED,
-  APP_IS_EMBER,
-  APP_SIGN_IN_ENDED,
-  APP_SIGNED_IN,
-  APPS_FORBIDDEN,
-  APPS_FULL,
-  TOOL_GONE,
-  YOUR_APP_GONE,
-  YOUR_APPS_FORBIDDEN,
-  isAtHost,
-  parseAppChanges,
-  parseAppClient,
-  parseAppSignInReturn,
-  parseNewApp,
-  parseToolPicks,
-  type AgentTools,
-  type App,
-  type AppAnswer,
-  type AppClient,
-  type AppId,
-  type AppRefused,
-  type AppRemoved,
-  type Apps,
-  type AppSignedIn,
-  type AppSignInBegun,
-  type OfferedApp,
-  type YourAppSignedIn,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import { APP_CHANGED, APP_IS_EMBER, APP_SIGN_IN_ENDED, APP_SIGNED_IN, APPS_FORBIDDEN, APPS_FULL, isAtHost, parseAppChanges, parseAppClient, parseAppSignInReturn, parseNewApp, parseToolPicks, TOOL_GONE, YOUR_APP_GONE, YOUR_APPS_FORBIDDEN, type AgentTools, type App, type AppAnswer, type AppClient, type AppId, type AppRefused, type AppRemoved, type Apps, type AppSignedIn, type AppSignInBegun, type OfferedApp, type YourAppSignedIn, type YourAppSignedOut } from "@ember/protocol/apps";
 import { APP_SIGNED_IN_PATH, type UserId } from "@ember/protocol";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { administratorOf } from "../assistant/settings";

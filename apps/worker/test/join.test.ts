@@ -1,38 +1,9 @@
-import {
-  EMAIL_ADDRESS_TOO_LONG,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MAX_PASSWORD_LENGTH,
-  MAX_USER_NAME_LENGTH,
-  MIN_PASSWORD_LENGTH,
-  NAME_TOO_LONG,
-  PASSWORD_TOO_LONG,
-  PASSWORD_TOO_SHORT,
-  type Bootstrap,
-  type Directory,
-  type NewWorkspace,
-  type Sidebar,
-  type User,
-} from "@ember/protocol";
+import { EMAIL_ADDRESS_TOO_LONG, MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, MIN_PASSWORD_LENGTH, NAME_TOO_LONG, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Bootstrap, type Directory, type NewWorkspace, type Sidebar, type User } from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyPassword } from "../src/passwords";
 import { ORIGINAL_ROOM } from "../src/workspace-store";
-import {
-  api,
-  apiWith,
-  builtPages,
-  cookieOf,
-  createRoom,
-  deactivatedPerson,
-  freshDeploy,
-  openWorkspaceSocket,
-  origin,
-  shown,
-  signIn,
-  workspaceSql,
-  workspaceStub,
-  type Session,
-} from "./support";
+import { api, apiWith, builtPages, cookieOf, createRoom, deactivatedPerson, freshDeploy, openWorkspaceSocket, origin, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" };

@@ -1,18 +1,6 @@
 import type { Favorites, LiveHuddle, Room, Sidebar, SidebarRoom } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import {
-  apart,
-  inDirectOrder,
-  inSidebarOrder,
-  isQuietWelcome,
-  markedUnread,
-  NO_ROOM_LIST,
-  roomListReducer,
-  withRoom,
-  type DirectSidebarRoom,
-  type RoomListAction,
-  type SharedSidebarRoom,
-} from "./room-list";
+import { apart, inDirectOrder, inSidebarOrder, isQuietWelcome, markedUnread, NO_ROOM_LIST, roomListReducer, withRoom, type DirectSidebarRoom, type RoomListAction, type SharedSidebarRoom } from "./room-list";
 
 const NOON = "2026-10-15T12:00:00.000Z";
 const room = (id: string, name: string, unread = false): SharedSidebarRoom => ({ id, kind: "open", name, icon: null, unread, involvement: "mentions" });

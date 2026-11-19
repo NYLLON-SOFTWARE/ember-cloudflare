@@ -3,11 +3,11 @@ import { createRequire } from "node:module";
 import type { User } from "@ember/protocol";
 import { parseHuddleClientFrame } from "@ember/protocol/huddles";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { showHuddle, type JoinedHuddle } from "@/lib/huddle-store";
 import { HuddleReactions } from "./huddle-reactions";
 import { MoreTool, ReactTool } from "./huddle-tools";
+import userEvent from "@testing-library/user-event";
 
 // The emoji picker, without Emojibase's data, which isn't served here: its search, and two emoji to pick.
 vi.mock("./emoji-panel", () => ({

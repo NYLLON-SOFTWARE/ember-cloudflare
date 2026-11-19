@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prepareBody, writtenBody } from "./body";
-import { editableBody, groupIdsIn, groupIdFromSgid, groupPromptItem, mentionContent, mentionedUsers, mentionGroupContent, mentionGroupSgid, mentionPromptItem, mentionSgid, userIdFromSgid, userIdsIn, writtenMentions, type MentionCard } from "./mentions";
+import { editableBody, groupIdFromSgid, groupIdsIn, groupPromptItem, mentionContent, mentionedUsers, mentionGroupContent, mentionGroupSgid, mentionPromptItem, mentionSgid, userIdFromSgid, userIdsIn, writtenMentions, type MentionCard } from "./mentions";
 import { parseHtml } from "./parse";
 import { testGroupId, testGroups, testUserId as id, testUsers } from "./testing/users";
 

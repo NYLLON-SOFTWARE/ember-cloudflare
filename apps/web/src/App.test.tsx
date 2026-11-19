@@ -1,19 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CloseCode,
-  DELETION_NAME_NEEDED,
-  EMAIL_LINK_GONE,
-  SIGN_IN_REJECTED,
-  type Account,
-  type AccountChanges,
-  type AccountDeletion,
-  type Bootstrap,
-  type Message,
-  type ProfileChanges,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { CloseCode, DELETION_NAME_NEEDED, EMAIL_LINK_GONE, SIGN_IN_REJECTED, type Account, type AccountChanges, type AccountDeletion, type Bootstrap, type Message, type ProfileChanges, type WorkspaceSettings } from "@ember/protocol";
 import type { HuddlesSetup } from "@ember/protocol/huddles";
 import { QUESTION } from "@/components/setup-huddles";
 import { ACCOUNT_DELETED } from "@/components/workspace/delete-account";
@@ -23,6 +10,7 @@ import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
 import { CHROME_MAC } from "@/test-platforms";
 import { App } from "./App";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 

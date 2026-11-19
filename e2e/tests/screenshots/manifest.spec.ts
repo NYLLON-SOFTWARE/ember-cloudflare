@@ -1,9 +1,9 @@
-import path from "node:path";
 import type { RoomIconName, Sidebar } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import type { APIRequestContext, Page, TestInfo } from "@playwright/test";
 import { answerChanged, cookieHeader, createSession, expect, keepOtherRoomsOut, openRoom, Participant, signInAs, test, type Session, type TestRoom } from "../../fixtures";
 import { settle } from "../mobile/audits";
+import path from "node:path";
 
 // The web app manifest's screenshots, which an install prompt shows: Ember on a phone. `pnpm
 // screenshots` saves them over apps/web/public/screenshots/, and any other run with the test's results,

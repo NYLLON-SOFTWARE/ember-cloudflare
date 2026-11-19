@@ -1,18 +1,17 @@
 import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useMemo, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
 import { DirectoryLoaded, GroupsContext, PeopleContext, ReloadDirectory, type Groups, type People } from "@/hooks/use-directory";
 import { BlockingContext } from "@/hooks/use-blocking";
 import { ReportingContext } from "@/hooks/use-reporting";
-import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { BLOCKED_MESSAGE, MessageItem, type ThreadPlace } from "./message-item";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };

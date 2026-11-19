@@ -162,6 +162,9 @@ describe("Groups", () => {
     await reload(result);
     expect(result.current.groups.get(design.id)).toEqual(design);
     expect(result.current.loaded).toBe(true);
+  });
+});
+
 describe("AI agents kept to administrators' direct messages", () => {
   const scout: DirectoryUser = { id: "u3", name: "Scout", bio: null, role: "bot", status: "active", avatarUrl: "/users/u3.ghi/avatar?v=20261115120000", agent: true };
 
