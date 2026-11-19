@@ -12,7 +12,7 @@ const NOON = "2026-10-15T12:00:00.000Z";
 const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false, involvement: "mentions" } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
 const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } });
-const ember: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+const ember: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
 /** Someone as the directory lists them. */
 const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
 
@@ -630,6 +630,56 @@ describe("Huddle sounds, which each person turns on or off for themselves", () =
   });
 });
 
+describe("The huddles that are over, which the Huddles page lists", () => {
+  it("counts a change each time the workspace socket says they've changed, and at nothing else it says", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    const before = result.current.huddleChanges;
+    socket().receive({ type: "huddles.changed" });
+    expect(result.current.huddleChanges).toBe(before + 1);
+    socket().receive({ type: "huddles.changed" });
+    expect(result.current.huddleChanges).toBe(before + 2);
+
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON });
+    // Nor at a huddle starting or ending, which says so of its room's own.
+    socket().receive({ type: "room.huddle", roomId: design.id, huddle: { startedAt: NOON, userIds: [grace.id] } });
+    expect(result.current.list?.huddles).toEqual({ [design.id]: { startedAt: NOON, userIds: [grace.id] } });
+    socket().receive({ type: "room.huddle", roomId: design.id, huddle: null });
+    expect(result.current.huddleChanges).toBe(before + 2);
+    // The page asks for them itself: the sidebar's list isn't loaded again for it, however long that's waited for.
+    await wait(RELOAD_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+  });
+
+  it("counts one each time it loads everything again, as they may have changed unheard: as its socket connects, the first time included, and once the tab is shown after more than a minute hidden", async () => {
+    const { result } = await showSidebar();
+    const atFirst = result.current.huddleChanges;
+    socket().connect();
+    await settle();
+    expect(result.current.huddleChanges).toBe(atFirst + 1);
+
+    socket().drop();
+    await wait(500);
+    socket().connect();
+    await settle();
+    expect(result.current.huddleChanges).toBe(atFirst + 2);
+
+    await visibility("hidden");
+    await wait(RELOAD_AFTER_HIDDEN_MS + 1);
+    await visibility("visible");
+    await settle();
+    expect(result.current.huddleChanges).toBe(atFirst + 3);
+    // A shorter while hidden loads nothing again, so counts nothing.
+    await visibility("hidden");
+    await wait(RELOAD_AFTER_HIDDEN_MS);
+    await visibility("visible");
+    await settle();
+    expect(result.current.huddleChanges).toBe(atFirst + 3);
+  });
+});
+
 describe("Make or revoke administrators", () => {
   /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `reload`, `update` and `remove`. */
   async function connected() {
@@ -769,6 +819,35 @@ describe("Block someone", () => {
     expect(result.current.list?.blocks).toEqual({ userIds: ["u2"], version: 2 });
     socket().receive({ type: "blocks.changed", blocks: { userIds: [], version: 1 } });
     expect(result.current.list?.blocks).toEqual({ userIds: ["u2"], version: 2 });
+  });
+});
+
+describe("Reports", () => {
+  it("counts an administrator's open reports as the workspace socket says, made or handled in any tab", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "reports.changed", open: 3 });
+    expect(result.current.list?.openReports).toBe(3);
+    socket().receive({ type: "reports.changed", open: 0 });
+    expect(result.current.list?.openReports).toBe(0);
+  });
+
+  it("counts the times the count comes, with a list or from the socket, though it's the same, for the Reports list to load again", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    const heard = result.current.reportsHeard;
+    socket().receive({ type: "reports.changed", open: 3 });
+    socket().receive({ type: "reports.changed", open: 3 });
+    expect(result.current.reportsHeard).toBe(heard + 2);
+    // A list loaded once the socket connects again, as the server says the one it has is current, though
+    // reports may have been made and handled while it wasn't connected.
+    socket().drop();
+    await wait(500);
+    socket().connect();
+    await settle();
+    expect(result.current.reportsHeard).toBe(heard + 3);
   });
 });
 

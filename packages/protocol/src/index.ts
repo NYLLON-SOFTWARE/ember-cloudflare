@@ -5,10 +5,12 @@
 import type { AgentProfile } from "./agents.ts";
 import type { YourApp } from "./apps.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
+import { parseBlockedWords } from "./blocked-words.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddleSounds, HuddlesSettings, LiveHuddle, MessageHuddle } from "./huddles.ts";
 import type { OutsideConnection } from "./outside.ts";
+import type { SsoSettings, SsoStatus } from "./sso.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 import { MAX_PUSH_ENDPOINT_LENGTH } from "./push.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
@@ -93,7 +95,11 @@ export type {
   HuddlesSetup,
   LiveHuddle,
   MessageHuddle,
+  PastHuddle,
+  PastHuddles,
 } from "./huddles.ts";
+// And the rest of sso.ts, from "@ember/protocol/sso", which only the sign-in pages, the Single sign-on card and the Worker's single sign-on use.
+export type { SsoAccount, SsoConnection, SsoField, SsoForgotten, SsoSaved, SsoSettings, SsoSetup, SsoStatus } from "./sso.ts";
 export {
   FILE_NAME_NOT_KEPT,
   FILE_TOO_LARGE,
@@ -124,6 +130,7 @@ export {
   EMAIL_SIGN_UP_PATH,
   emailSignUpLink,
   huddlePath,
+  HUDDLES_PATH,
   INVITATION_PATH,
   invitationLink,
   isAppPage,
@@ -388,6 +395,11 @@ export interface Sidebar {
   /** Whom they've blocked, which `blocks.changed` frames keep current. */
   blocks: Blocks;
   /**
+   * For an administrator, how many open reports they see, which never include the reports of them, as
+   * `reports.changed` frames keep it. Nobody else is given it.
+   */
+  openReports?: number;
+  /**
    * Which of a huddle's sounds they hear, as the switches on their profile leave them, left out while
    * they hear them all. `huddle.sounds` frames keep it current.
    */
@@ -443,14 +455,19 @@ export interface RoomSettings {
   room: SharedRoom;
   /** Whether you can change the room, as administrators and its creator can. Others see it read-only. */
   canAdminister: boolean;
+  /**
+   * Whether you can turn huddles on or off in it, as only administrators can, as a Slack workspace's
+   * owners and admins can in a channel. Its creator, who can change the rest, sees of them what others do.
+   */
+  canChangeHuddles: boolean;
   /** Everyone active who can be put in a room, by name: all but the AI agents only administrators' direct messages reach. */
   people: RoomPerson[];
 }
 
 /**
  * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, whether
- * huddles are allowed in it, and who it's for, everyone or just the people `memberIds` names, which
- * takes anyone else out of it.
+ * huddles are allowed in it, which is an administrator's to change, and who it's for, everyone or just
+ * the people `memberIds` names, which takes anyone else out of it.
  */
 export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
@@ -544,6 +561,20 @@ export interface Account {
    */
   memberfulSignIn: boolean;
   /**
+   * Whether the people the single sign-on provider signs in join with it, which an administrator turns on
+   * in Membership as Single sign-on, once it's set up. Off until one does. People who joined with it keep
+   * signing in with it once it's off, while it's set up.
+   */
+  ssoJoin: boolean;
+  /**
+   * Whether only the people the single sign-on provider signs in sign in, and administrators, which an
+   * administrator turns on in Membership as SSO only: then the join link, open sign-up, Email domain and
+   * signing in with just a name are off, and only administrators and the people they invite sign in with
+   * a password. Off until one turns it on, and never on while single sign-on is off, nor with Open or
+   * Memberful's Members only.
+   */
+  ssoSignIn: boolean;
+  /**
    * Whether people with an email address at one of `emailDomains` may join with a link Ember emails
    * them, which they ask for at `/join/email`, and which an administrator turns on in Membership as Email
    * domain. Off until one does, and off whatever this says while Memberful is members only
@@ -616,6 +647,11 @@ export interface WorkspaceSettings {
    */
   memberfulSiteKept: string | null;
   /**
+   * The single sign-on provider, as the Single sign-on card shows it to administrators, once it's set up,
+   * by an administrator or by the deployment's secrets, and null otherwise, or for anyone else.
+   */
+  sso: SsoSettings | null;
+  /**
    * Where the keys of the Cloudflare Turnstile widget come from that checks whoever signs up, or asks
    * Ember to email them, is a person, as Membership's Turnstile card says: the deployment's secrets
    * `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`, which take the place of any others, the ones an
@@ -629,6 +665,8 @@ export interface WorkspaceSettings {
   invitations: EmailInvitation[];
   /** The domains Email domain lets in, as kept, whether it's on or not, for administrators, and none for anyone else. */
   emailDomains: string[];
+  /** The words and phrases Blocked words keeps out of messages, reactions, names, usernames and bios, for administrators, and none for anyone else. */
+  blockedWords: string[];
   /** The addresses Ember knows reach it besides its own, which the Custom domain card names, for administrators, and none for anyone else. */
   addresses: EmberAddresses;
   /** Ember AI as the AI assistant tab shows it, for administrators while it's on, and null otherwise. */
@@ -821,7 +859,8 @@ export interface NewJoinCode {
  * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
  * its settings, its custom domain, which can only be the address the request comes to, or null for
  * none, the icons of the rail's buttons and the appearance modes, the address Ember's email comes from,
- * or null for none, and the domains Email domain lets in, in place of those it had.
+ * or null for none, the domains Email domain lets in, in place of those it had, and the words and
+ * phrases Blocked words keeps out, in place of those it had too.
  */
 export interface AccountChanges {
   name?: string;
@@ -831,6 +870,7 @@ export interface AccountChanges {
   navigationIcons?: NavigationIconChanges;
   emailFrom?: string | null;
   emailDomains?: string[];
+  blockedWords?: string[];
 }
 
 /**
@@ -849,21 +889,30 @@ export interface AccountSettings {
   openSignUp?: boolean;
   memberfulJoin?: boolean;
   memberfulSignIn?: boolean;
+  ssoJoin?: boolean;
+  ssoSignIn?: boolean;
   emailDomainSignUp?: boolean;
 }
 
-/** Whether the join link lets people in: its switch is on, and Memberful isn't members only, which turns it off. */
-export const joinsWithLink = ({ joinLink, memberfulSignIn }: Pick<Account, "joinLink" | "memberfulSignIn">) => joinLink && !memberfulSignIn;
+/**
+ * Whether people sign in only with an account elsewhere, but administrators and the people they invite:
+ * Memberful is members only, or single sign-on is the only way in. Then the join link, open sign-up,
+ * Email domain and signing in with just a name are off.
+ */
+export const signsInElsewhereOnly = ({ memberfulSignIn, ssoSignIn }: Pick<Account, "memberfulSignIn" | "ssoSignIn">) => memberfulSignIn || ssoSignIn;
 
-/** Whether anyone may create an account at `/join`: Open is on, and Memberful isn't members only, which it can't be on with. */
-export const signsUpOpenly = ({ openSignUp, memberfulSignIn }: Pick<Account, "openSignUp" | "memberfulSignIn">) => openSignUp && !memberfulSignIn;
+/** Whether the join link lets people in: its switch is on, and people don't sign in only elsewhere, which turns it off. */
+export const joinsWithLink = (account: Pick<Account, "joinLink" | "memberfulSignIn" | "ssoSignIn">) => account.joinLink && !signsInElsewhereOnly(account);
+
+/** Whether anyone may create an account at `/join`: Open is on, and people don't sign in only elsewhere, which it can't be on with. */
+export const signsUpOpenly = (account: Pick<Account, "openSignUp" | "memberfulSignIn" | "ssoSignIn">) => account.openSignUp && !signsInElsewhereOnly(account);
 
 /**
  * Whether people may join with an email address at the workspace's email domains: Email domain is on,
  * with a domain to let in, and Memberful isn't members only, which turns it off.
  */
-export const signsUpWithEmailDomain = ({ emailDomainSignUp, emailDomains, memberfulSignIn }: Pick<Account, "emailDomainSignUp" | "emailDomains" | "memberfulSignIn">) =>
-  emailDomainSignUp && emailDomains.length > 0 && !memberfulSignIn;
+export const signsUpWithEmailDomain = (account: Pick<Account, "emailDomainSignUp" | "emailDomains" | "memberfulSignIn" | "ssoSignIn">) =>
+  account.emailDomainSignUp && account.emailDomains.length > 0 && !signsInElsewhereOnly(account);
 
 /** Why turning on Open, or Memberful's Members only, is refused while the other is on: Members only lets only Memberful's members in. */
 export const OPEN_WITH_MEMBERFUL = "Open and Members only can't both be on. Turn one off first.";
@@ -1037,6 +1086,12 @@ export interface Profile {
    * nothing to connect, or while Memberful isn't members only and you haven't connected one.
    */
   memberful: MemberfulStatus | null;
+  /**
+   * Where you stand with single sign-on (`SsoStatus`): the account at the provider you've connected, or
+   * none yet while it's the only way in. Null when there's nothing to show: while it isn't set up, for a
+   * guest, or while it isn't the only way in and you haven't connected one.
+   */
+  sso: SsoStatus | null;
   /** How much @ember thinks and how long it answers you, and the most each may be, and the model you picked, if you did, and the ones you can pick, or null while Ember AI is off. */
   assistant: YourAssistant | null;
   /** The connected apps you can sign in to yourself, by name, each with your sign-in to it, if you've made one: none while Ember AI is off, or for a guest. */
@@ -1108,6 +1163,12 @@ export interface Bootstrap {
    * in with an account there, as members who joined with it keep doing once it's off.
    */
   signInWithMemberful: boolean;
+  /**
+   * What the sign-in page calls the single sign-on provider it offers Sign in with, while single sign-on
+   * lets its people join, or while anyone here signs in with it, as people who joined with it keep doing
+   * once it's off, or null while it offers none.
+   */
+  signInWithSso: string | null;
   /**
    * The site key of the Turnstile widget whose check the open sign-up form shows, and the forms that ask
    * Ember to email a link to join or a code to reset a password, to check that whoever fills them in is a
@@ -1699,6 +1760,14 @@ export type ClientFrame =
   | { type: "message.create"; clientMessageId: string; body: string; parentId?: string; alsoSend?: boolean }
   /** A message's new body, as for `message.create`. */
   | { type: "message.update"; messageId: string; body: string }
+  /**
+   * The preview of a link in a message the tab sent as `clientMessageId`, which came after the message
+   * went, as one does for a link pasted just before Send, or typed. The room adds it below the message's
+   * text, as the composer adds one that comes in time, without marking it edited, as Slack adds a link's
+   * preview a moment after its message, if the message is still as it was sent, without a preview, and
+   * was sent within `LATE_PREVIEW_MS`. Otherwise it takes nothing, without a word.
+   */
+  | { type: "message.preview"; clientMessageId: string; preview: LinkPreview }
   | { type: "message.delete"; messageId: string }
   | { type: "boost.create"; messageId: string; content: string }
   | { type: "boost.delete"; boostId: string }
@@ -1780,9 +1849,11 @@ export type ServerFrame =
   | { type: "presence.left"; userId: UserId }
   /**
    * Someone started or stopped typing: in the room's composer, or, with `threadId`, in that thread, where
-   * only @ember types, as it answers there.
+   * only @ember types, as it answers there. @ember or an agent that's typing as it answers says, with
+   * `doing`, what it's doing meanwhile, if it's more than writing, in words that follow its name, as
+   * "is using Digg: digg_get_feed" does. Only the room says it.
    */
-  | { type: "typing"; user: User; typing: boolean; threadId?: string }
+  | { type: "typing"; user: User; typing: boolean; threadId?: string; doing?: string }
   /** Answers history.before: the page before `before`, oldest first, and whether there are older ones still. */
   | { type: "history"; before: string; messages: Message[]; hasMore: boolean }
   /** Answers history.after: the page after `after`, oldest first, and whether there are newer ones still. */
@@ -1802,9 +1873,11 @@ export type ServerFrame =
   | { type: "card.clicked"; clickId: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about, or `clickId` the click.
+   * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
+   * take a message for what it says, as one with a word Blocked words keeps out, which is its writer's to
+   * change and send again.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
   | { type: "pong" };
 
 /**
@@ -1868,10 +1941,22 @@ export type WorkspaceServerFrame =
   | { type: "huddle.answered"; roomId: RoomId }
   /** They've turned one of a huddle's sounds on or off on their profile, in this tab or another: the ones they hear now. */
   | { type: "huddle.sounds"; sounds: HuddleSounds }
+  /**
+   * The huddles the Huddles page lists for a room of theirs have changed: one is over, or one that was
+   * goes on after all, has gained or lost a reply, or has had its message deleted. It names none, so the
+   * page loads its list again. Sent to everyone in the room.
+   */
+  | { type: "huddles.changed" }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
   /** They've blocked or unblocked someone, in this tab or another: whom they've blocked now. */
   | { type: "blocks.changed"; blocks: Blocks }
+  /**
+   * Someone has made a report, or an administrator has handled one, or someone reported has deleted their
+   * account, which clears what the reports of them kept: how many open reports whoever it's sent to sees
+   * now, which never include the reports of them. Sent to the administrators.
+   */
+  | { type: "reports.changed"; open: number }
   /** They've given a room of theirs another notification level, in this tab or another. */
   | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
@@ -1975,8 +2060,8 @@ export const workspaceSocketQuery = ({ visible }: WorkspaceSocketParams) => `?vi
  */
 export const parseWorkspaceSocketParams = (query: SearchParams): WorkspaceSocketParams => ({ visible: query.get("visible") === "1" });
 
-/** The most characters a message's plain text can have. */
-export const MAX_MESSAGE_LENGTH = 10_000;
+/** The most characters a message's plain text can have: Slack's most, room for a long paste. */
+export const MAX_MESSAGE_LENGTH = 40_000;
 /** What the room says of a message with more, which the app says itself rather than send one. */
 export const MESSAGE_TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString("en-US")} characters.`;
 /** Whether a message whose plain text is `plainText` is longer than the room takes. */
@@ -1985,6 +2070,11 @@ export const isMessageTooLong = (plainText: string) => plainText.length > MAX_ME
 export const MAX_MESSAGE_HTML_LENGTH = 100_000;
 /** As long as Campfire's `boosts.content` column can be (`limit: 16`, db/schema.rb). */
 export const MAX_BOOST_LENGTH = 16;
+/**
+ * How long after a message is posted the room still adds the preview of its link that its sender's tab
+ * sends (`message.preview`): well past the most an unfurl takes.
+ */
+export const LATE_PREVIEW_MS = 60_000;
 /**
  * Campfire's page of messages (`Message::PAGE_SIZE`): the newest a room opens on, what each page of
  * history adds before or after the timeline, and how many a permalink shows on either side of its
@@ -2107,6 +2197,18 @@ const userIds = (v: unknown): v is UserId[] => Array.isArray(v) && v.length <= M
 /** Markup no longer than `MAX_MESSAGE_HTML_LENGTH`, or null. Whether it holds a message is the room's to read. */
 const markup = (v: unknown): string | null => (typeof v === "string" && v.length <= MAX_MESSAGE_HTML_LENGTH ? v : null);
 
+/**
+ * A link's preview, as `POST /api/unfurl` answers one, with a title and an address that aren't blank, and
+ * none of it longer than a message's markup, or null. What the room can keep of it is the room's to read.
+ */
+function linkPreview(v: unknown): LinkPreview | null {
+  if (typeof v !== "object" || v === null) return null;
+  const { title, url, image, description } = v as Record<string, unknown>;
+  const field = (value: unknown): value is string => typeof value === "string" && value.length <= MAX_MESSAGE_HTML_LENGTH;
+  if (!field(title) || !field(url) || !field(description) || !(image === null || field(image))) return null;
+  return title.trim() !== "" && url.trim() !== "" ? { title, url, image, description } : null;
+}
+
 /** Trimmed, non-empty text no longer than `max`, or null. */
 const text = (v: unknown, max: number): string | null => {
   if (typeof v !== "string") return null;
@@ -2139,6 +2241,10 @@ export function parseClientFrame(raw: string): ClientFrame | null {
     case "message.update": {
       const body = markup(f.body);
       return id(f.messageId) && body !== null ? { type: f.type, messageId: f.messageId, body } : null;
+    }
+    case "message.preview": {
+      const preview = linkPreview(f.preview);
+      return id(f.clientMessageId) && preview ? { type: f.type, clientMessageId: f.clientMessageId, preview } : null;
     }
     case "message.delete":
       return id(f.messageId) ? { type: f.type, messageId: f.messageId } : null;
@@ -2279,6 +2385,8 @@ const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   openSignUp: "Open",
   memberfulJoin: "Memberful",
   memberfulSignIn: "Members only",
+  ssoJoin: "Single sign-on",
+  ssoSignIn: "SSO only",
   emailDomainSignUp: "Email domain",
 };
 
@@ -2549,12 +2657,12 @@ function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
  * is saved as typed, even blank. The tagline is kept on one line without space at its ends, and blank is
  * none. Each setting is true or false, and one it doesn't know is refused. A custom domain is a host or
  * null, which the Worker then checks is the address the request came to. Navigation icons are as
- * `navigationIconsOf` reads them, the From address as `emailFromOf` does, and Email domain's domains as
- * `emailDomainsOf` does.
+ * `navigationIconsOf` reads them, the From address as `emailFromOf` does, Email domain's domains as
+ * `emailDomainsOf` does, and the blocked words as `parseBlockedWords` does.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains } = data;
+  const { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
   const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
   if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
@@ -2566,6 +2674,8 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (emailFrom !== undefined && from === undefined) return EMAIL_FROM_REFUSED;
   const domains = emailDomainsOf(emailDomains);
   if (emailDomains !== undefined && domains === undefined) return EMAIL_DOMAINS_REFUSED;
+  const blocked = blockedWords === undefined ? undefined : parseBlockedWords(blockedWords);
+  if (blocked !== undefined && "error" in blocked) return blocked.error;
   const changes: AccountChanges = {
     ...(name !== undefined && { name }),
     ...(kept !== undefined && { tagline: kept }),
@@ -2573,6 +2683,7 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
     ...(icons !== undefined && { navigationIcons: icons }),
     ...(from !== undefined && { emailFrom: from }),
     ...(domains !== undefined && { emailDomains: domains }),
+    ...(blocked !== undefined && { blockedWords: blocked }),
   };
   if (settings === undefined) return changes;
   if (!isJsonObject(settings)) return "Settings must be a JSON object";

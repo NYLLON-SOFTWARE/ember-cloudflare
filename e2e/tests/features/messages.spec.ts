@@ -1,4 +1,4 @@
-import type { ServerFrame } from "@ember/protocol";
+import { MAX_MESSAGE_LENGTH, type ServerFrame } from "@ember/protocol";
 import type { Locator, Page } from "@playwright/test";
 import { administratorOn, allowClipboard, editorField, ROOM_SOCKET } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
@@ -590,6 +590,23 @@ test.describe("Message action bar", () => {
     expect(more.x + more.width + 5).toBe(Math.min(trigger.x + trigger.width, 320 - 8));
   });
 
+  test("keeps the bar's rows clear of the avatars on a narrow phone, each ending at its right edge", async ({ members, participant }) => {
+    await (await participant("Grace")).say("Ten actions on a narrow phone");
+    const ada = await members.signIn("Ada", { administrator: true, context: { ...phone, viewport: { width: 320, height: 620 } } });
+    const message = ada.message("Ten actions on a narrow phone");
+    await message.getByRole("button", { name: "Message options" }).tap();
+    // An administrator has six buttons after the reactions on someone else's message, of which five fit
+    // right of the avatars' column, so Edit starts a third row, under Report.
+    const more = await box(bar(message).getByRole("button", { name: "More reactions" }));
+    const thread = await box(bar(message).getByRole("link", { name: "Reply in thread" }));
+    const report = await box(bar(message).getByRole("button", { name: "Report message" }));
+    const edit = await box(bar(message).getByRole("button", { name: "Edit" }));
+    expect(thread).toMatchObject({ x: more.x - 4 * 44, y: more.y + 44 });
+    expect(report).toMatchObject({ x: more.x, y: thread.y });
+    expect(edit).toMatchObject({ x: more.x, y: thread.y + 44 });
+    expect((await box(bar(message))).x).toBeGreaterThanOrEqual((await box(message.getByText("Grace", { exact: true }))).x);
+  });
+
   test("opens the bar below Message options on touch screens where there's room", async ({ members, participant }) => {
     await (await participant("Grace")).say("Room below me");
     const ada = await members.signIn("Ada", { context: phone });
@@ -695,7 +712,7 @@ test.describe("More actions on a message", () => {
     const ada = await members.signIn("Ada");
     await allowClipboard(ada.page.context());
     const panel = await openMoreActions(ada, "Copy my words");
-    await expect(panel.getByRole("button")).toHaveText(["Quote", "Copy text", "Copy link", `Block ${grace.session.user.name}`]);
+    await expect(panel.getByRole("button")).toHaveText(["Quote", "Copy text", "Copy link", `Block ${grace.session.user.name}`, "Report message"]);
     await panel.getByRole("button", { name: "Copy text" }).click();
     await expect.poll(() => ada.page.evaluate(() => navigator.clipboard.readText())).toBe("Copy my words");
     await expect(panel).toBeVisible();
@@ -886,12 +903,12 @@ test.describe("Edit a message", () => {
     const ada = await members.signIn("Ada");
     await ada.send("Short");
     await (await ada.actions("Short")).getByRole("button", { name: "Edit" }).click();
-    await ada.editor().evaluate((content) => {
-      (content.closest("lexxy-editor") as HTMLElement & { value: string }).value = `<p>${"x".repeat(10_001)}</p>`;
-    });
+    await ada.editor().evaluate((content, length) => {
+      (content.closest("lexxy-editor") as HTMLElement & { value: string }).value = `<p>${"x".repeat(length)}</p>`;
+    }, MAX_MESSAGE_LENGTH + 1);
     await ada.editor().press("ControlOrMeta+Enter");
-    await expect(ada.page.getByRole("alert")).toHaveText("Messages can be up to 10,000 characters.");
-    await expect(ada.editor().locator("p")).toHaveText(["x".repeat(10_001)]);
+    await expect(ada.page.getByRole("alert")).toHaveText("Messages can be up to 40,000 characters.");
+    await expect(ada.editor().locator("p")).toHaveText(["x".repeat(MAX_MESSAGE_LENGTH + 1)]);
     await expect(ada.page.getByRole("article")).not.toContainText("(edited)");
   });
 
@@ -910,6 +927,9 @@ test.describe("Edit a message", () => {
     // Escape closes Link's dialog, leaving the edit open.
     await ada.editor().press("ControlOrMeta+k");
     await expect(ada.page.getByRole("dialog", { name: "Edit link" }).or(ada.page.getByRole("dialog", { name: "Add link" }))).toBeVisible();
+    // The click shut the tooltip that named Bold as the pointer reached it, which takes Escape until it has faded,
+    // hidden under the dialog as it is.
+    await expect(ada.page.getByRole("tooltip", { includeHidden: true })).toHaveCount(0);
     await ada.page.keyboard.press("Escape");
     await expect(ada.page.getByRole("dialog")).toBeHidden();
     await expect(ada.editor()).toBeFocused();
