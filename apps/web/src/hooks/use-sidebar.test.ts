@@ -510,7 +510,7 @@ describe("Huddles in your rooms", () => {
 
   it("tells of each invitation into a huddle the workspace socket brings, when it came, and of each that's answered", async () => {
     const onInvitation = vi.fn();
-    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onInvitation));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, onInvitation));
     await settle();
     socket().connect();
     await settle();
@@ -529,7 +529,7 @@ describe("Huddles in your rooms", () => {
   it("tells that an invitation into a room's huddle is over once the workspace socket says the room is gone, a room it never listed too", async () => {
     const onInvitation = vi.fn();
     server.change(unstarred([design]));
-    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onInvitation));
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, onInvitation));
     await settle();
     socket().connect();
     await settle();
