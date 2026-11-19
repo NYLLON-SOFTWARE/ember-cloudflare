@@ -103,7 +103,6 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
   const started = useRef<"opened" | "shown" | null>(null);
 
   const name = soughtName(typed);
-  const matches = useMemo(() => peopleMatching(people.values(), name), [people, name]);
   const matches = useMemo(() => peopleMatching(people.values(), me, name), [people, me, name]);
   const shown = matches.slice(0, pages * PEOPLE_PAGE);
   const options = shown.filter((person) => !picked.some((p) => p.id === person.id));
@@ -319,7 +318,7 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
                   <UserAvatar user={person} />
                   <span className="min-w-0 wrap-anywhere">
                     {nameOf(person)}
-                    {person.id === meId && " (you)"}
+                    {person.id === me.id && " (you)"}
                     {person.username && <span className="text-muted-foreground"> @{person.username}</span>}
                     {isAgent(person) && <AgentBadge className="ms-0.5" />}
                   </span>
