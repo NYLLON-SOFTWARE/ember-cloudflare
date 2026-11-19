@@ -175,10 +175,11 @@ const DELIVERIES_PER_RUN = 40;
 const GUEST_STAYS_LAPSED_AT_ONCE = 20;
 /**
  * What lapsing one stay costs a run's budget, of which a run of the alarm has `DELIVERIES_PER_RUN` after
- * its deliveries: the batch that saves it, the sessions it ends, the room it asks to close its sockets,
- * and the person it publishes again, each a query or a call.
+ * its deliveries: six statements of the batch that ends the stay (queued revocations, ended sessions,
+ * forgotten searches, forgotten push subscriptions, the deactivation), then the person it publishes
+ * again and the guests who cannot hear that, each a D1 query.
  */
-const COSTS_PER_LAPSED_STAY = 5;
+const COSTS_PER_LAPSED_STAY = 8;
 /**
  * How long a change waits for the rooms to close the sockets it queued before it answers. The alarm sees
  * to a room that takes longer.

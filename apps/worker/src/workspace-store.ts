@@ -1137,10 +1137,10 @@ const DISCONNECT_IDENTITY = `DELETE FROM identities WHERE user_id = ?1 AND issue
  */
 const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}
-    AND (guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?9))
+    AND (guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?10))
     AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
       WHERE showing.id = ?8 AND showing.transfers_since <= ?9 AND shower.status = ${ACTIVE}
-        AND (shower.guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?9))
+        AND (shower.guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?10))
         AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /**
@@ -3163,9 +3163,12 @@ const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, c
     AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
-/** Puts someone whose ban is lifted in every open room, as joining does, unless they're a chat bot kept to the open rooms picked. */
+/** Puts someone whose ban is lifted in every open room, as joining does, unless they're a chat bot kept to the open rooms picked, or a guest of one room, whose stay keeps them to its own. */
 const GRANT_OPEN_ROOMS_TO_UNBANNED = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, users.id, ?2, ?2 FROM rooms, users WHERE rooms.kind = 'open' AND users.id = ?1 AND users.rooms_picked IS NULL ON CONFLICT DO NOTHING`;
+  SELECT rooms.id, users.id, ?2, ?2 FROM rooms, users
+  WHERE rooms.kind = 'open' AND users.id = ?1 AND users.rooms_picked IS NULL
+    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
+  ON CONFLICT DO NOTHING`;
 
 /**
  * Adds one of first run's open rooms, made by ?3, unless the workspace has an open room of its name
@@ -3759,7 +3762,7 @@ export class WorkspaceStore {
    */
   async startGuestSession(userId: UserId, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_LINKED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId),
+      statement(INSERT_LINKED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, null, null),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -4169,13 +4172,16 @@ export class WorkspaceStore {
   }
 
   /**
-   * The guests of one room who may still sign in by their stay's name: those active whose stays haven't
-   * ended yet, with their names, for matching the name the sign-in form gives (`sameName` compares those).
+   * The guests of one room whose stays haven't ended yet, with their names, for matching the name the
+   * sign-in form gives (`sameName` compares those). A banned guest's stay can be restored by lifting
+   * the ban, so their name stays reserved until the stay ends: leaving them out would let another
+   * guest take the name and be signed in as the first after the unban. Signing in still refuses the
+   * banned one, as starting their session requires them active.
    */
   async unexpiredGuestStays(now: number): Promise<Array<{ userId: UserId; name: string }>> {
     return this.db.all(
       `SELECT guest_stays.user_id AS userId, users.name FROM guest_stays JOIN users ON users.id = guest_stays.user_id
-       WHERE guest_stays.until_at > ? AND users.status = ${ACTIVE}`,
+       WHERE guest_stays.until_at > ? AND users.status IN (${ACTIVE}, ${BANNED})`,
       now,
     );
   }
@@ -4302,14 +4308,12 @@ export class WorkspaceStore {
   }
 
   /**
-   * Starts a session for someone who opened a sign-in link for them that the session `shownBy` showed,
-   * unless they're no longer active, or are a guest while `guests` says guests can't stay signed in and
-   * no stay of a guest of one room still holds them, or that session has ended or is neither theirs nor
-   * an active administrator's.
    * Starts a session for someone who opened a sign-in link for them that the session `shownBy` showed
    * at `shownAt`, unless they're no longer active, or are a guest while `guests` says guests can't stay
-   * signed in, or that session has ended, has ended the links it showed until then, or is neither theirs
-   * nor an active administrator's.
+   * signed in and no stay of a guest of one room still holds them now, or that session has ended, has
+   * ended the links it showed until then, or is neither theirs nor an active administrator's. A stay is
+   * checked against the current time, not when the link was shown, so a stay that ended before the link
+   * was opened doesn't replace a valid session with one the next request rejects.
    */
   async startTransferredSession(
     userId: UserId,
@@ -4322,7 +4326,7 @@ export class WorkspaceStore {
     now: string,
   ): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy, shownAt),
+      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy, shownAt, Date.now()),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
