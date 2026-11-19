@@ -1,17 +1,5 @@
 import { ASSISTANT_ID, ASSISTANT_NAME, MAX_MESSAGE_HTML_LENGTH, type Message, type NewWorkspace, type RoomId, type User, type WorkspaceSettings } from "@ember/protocol";
-import {
-  ASSISTANT_FORBIDDEN,
-  ASSISTANT_OFF,
-  cannotSearchWith,
-  PAGES_READ_PER_ANSWER,
-  THINKING_LEVELS,
-  WEB_SEARCH_CHANGED,
-  WEB_SEARCH_REFUSED,
-  WEB_SEARCHES_PER_ANSWER,
-  type AssistantSaved,
-  type AssistantSettings,
-  type WebSearchChanged,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_FORBIDDEN, ASSISTANT_OFF, cannotSearchWith, PAGES_READ_PER_ANSWER, THINKING_LEVELS, WEB_SEARCH_CHANGED, WEB_SEARCH_REFUSED, WEB_SEARCHES_PER_ANSWER, type AssistantSaved, type AssistantSettings, type WebSearchChanged } from "@ember/protocol/assistant";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { answerOf, questionFor } from "../src/assistant/answers";

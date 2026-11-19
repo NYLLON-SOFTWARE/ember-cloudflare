@@ -1,9 +1,9 @@
 import { ALL_HUDDLE_SOUNDS, HUDDLE_SOUNDS, type HuddleSound, type HuddleSounds, type HuddleSoundsChanged } from "@ember/protocol/huddles";
 import { act, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { HUDDLE_SOUND_LABELS, HuddleSoundSwitches } from "./huddle-sound-switches";
+import userEvent from "@testing-library/user-event";
 
 const NO_MUSIC: HuddleSounds = { ...ALL_HUDDLE_SOUNDS, music: false };
 

@@ -1,23 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ASSISTANT_ID } from "./index";
-import {
-  AGENT_TEMPLATE,
-  AI_SETTINGS,
-  CARDS_PROMPT,
-  EMBER_TEMPLATE,
-  INSTRUCTIONS_PLACE_NEEDED,
-  MAX_TEMPLATE_LENGTH,
-  NAMES_AS_TYPED,
-  ownTemplateFor,
-  parseTemplate,
-  promptAround,
-  TEMPLATE_REFUSED,
-  TEMPLATE_TOO_LONG,
-  templateRefusal,
-  unknownPlaceholder,
-  webPromptFor,
-  withInstructions,
-} from "./prompts";
+import { AGENT_TEMPLATE, AI_SETTINGS, CARDS_PROMPT, EMBER_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED, MAX_TEMPLATE_LENGTH, NAMES_AS_TYPED, ownTemplateFor, parseTemplate, promptAround, TEMPLATE_REFUSED, TEMPLATE_TOO_LONG, templateRefusal, unknownPlaceholder, webPromptFor, withInstructions } from "./prompts";
 
 const NOW = new Date("2026-11-10T12:00:00Z");
 const IN_LAUNCH = { community: "Fernwood", roomName: "Launch", inThread: true };

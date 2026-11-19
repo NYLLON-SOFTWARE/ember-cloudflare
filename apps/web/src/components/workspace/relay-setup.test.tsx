@@ -1,9 +1,9 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HUDDLES_FORBIDDEN, RELAY_API_TOKEN_REFUSED, RELAY_API_TOKEN_UNKNOWN, RELAY_KEY_ID_REFUSED, RELAY_KEY_ID_UNKNOWN, RELAY_UNCHECKED, RELAY_WITHOUT_HUDDLES } from "@ember/protocol/huddles";
 import { ApiError } from "@/lib/api";
 import { RELAY_ON, RELAY_SETUP_EXPLAINED, RelaySetup } from "./relay-setup";
+import userEvent from "@testing-library/user-event";
 
 /** The SFU app huddles run through, by its ID. */
 const APP_ID = "2a95132c15732412d22c1476fa83f27a";

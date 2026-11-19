@@ -139,8 +139,7 @@ interface Props {
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of, or while reports are open, which Membership counts.
  */
-export function Rail({ me, workspaceName, current, activity, saved, newRelease, onNewDirect }: Props) {
-export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, saved, newRelease, openReports = 0, onNewDirect }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;

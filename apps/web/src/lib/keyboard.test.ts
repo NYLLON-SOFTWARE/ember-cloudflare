@@ -1,25 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  backShortcut,
-  breaksLine,
-  formattingKeys,
-  forwardShortcut,
-  formattingShortcut,
-  huddleShortcut,
-  muteShortcut,
-  opensFind,
-  opensShortcuts,
-  SHORTCUTS,
-  pressedAlone,
-  savesEdit,
-  sendsMessage,
-  snippetShortcut,
-  togglesHuddle,
-  togglesMute,
-  uploadShortcut,
-  uploadsFiles,
-  writesSnippet,
-} from "./keyboard";
+import { backShortcut, breaksLine, formattingKeys, formattingShortcut, forwardShortcut, huddleShortcut, muteShortcut, opensFind, opensShortcuts, pressedAlone, savesEdit, sendsMessage, SHORTCUTS, snippetShortcut, togglesHuddle, togglesMute, uploadsFiles, uploadShortcut, writesSnippet } from "./keyboard";
 
 function pointer(coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && coarse }));

@@ -1,9 +1,9 @@
 import { CloseCode, type DirectRoom, type Me, type Message, type Room, type ServerFrame, type User } from "@ember/protocol";
 import { act, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { takeBack } from "@/lib/outbox";
 import { HuddleThread } from "./huddle-thread";
+import userEvent from "@testing-library/user-event";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: User = { id: "u2", name: "Grace" };

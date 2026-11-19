@@ -17,13 +17,11 @@ import { useReleaseCheck } from "@/hooks/use-release-check";
 import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/use-reporting";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { SavesContext, useSaves } from "@/hooks/use-saves";
-import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
-import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
-import { agentsToAsk } from "@/lib/agents";
 import { answerHuddleInvitation, ApiError, changeBlock, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
+import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
+import { agentsToAsk } from "@/lib/agents";
 import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
 import { hasHuddles } from "@/lib/huddle-people";
-import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
 import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
 import { lastRoomVisited } from "@/lib/last-room";
@@ -802,8 +800,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} saved={saved} newRelease={newRelease} onNewDirect={openNewDirect} />
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} saved={saved} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
   );
   const sidebar = (
     <Sidebar
@@ -1074,6 +1071,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
               saves={saver.saves}
               onClose={() => setSavedOpen(false)}
               onForget={(id) => void saver.forget(id)}
+            />
+          )}
           {huddlesOn && invitations.length > 0 && (
             <RarePage
               show={({ HuddleInvitations }) => (

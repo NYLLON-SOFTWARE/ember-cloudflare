@@ -1,22 +1,7 @@
-import {
-  useContext,
-  useEffect,
-  useEffectEvent,
-  useId,
-  useImperativeHandle,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-  type MouseEvent,
-  type ReactElement,
-  type Ref,
-  type RefObject,
-} from "react";
+import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactElement, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { Bookmark, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
+import { Bookmark, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -140,13 +125,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const menuId = useId();
   const trayId = useId();
   // What Copy text copies: the message's plain text, which holds a bot's cards' too. A file message has none
-  // but its file's name.
-  const text = message.attachment ? null : message.plainText;
+  // but its file's name, and a huddle's message none that it shows.
+  const text = message.attachment || message.huddle ? null : message.plainText;
   // The message's save, when the workspace has heard of one, which More actions saves or forgets.
   const saver = useSaver();
   const savedHere = saver?.saveOf(message.id) ?? null;
-  // but its file's name, and a huddle's message none that it shows.
-  const text = message.attachment || message.huddle ? null : message.plainText;
 
   const show = (byHovering: boolean) => {
     hoverOpened.current = byHovering;
@@ -502,6 +485,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                   <Bookmark />
                 </button>
               </ActionTooltip>
+            )}
             {!overlapping && block && <BlockButton message={message} blocked={block.blocked} onClick={changeBlock} />}
             {!overlapping && onReport && (
               <button type="button" aria-label="Report message" className={ACTION} onClick={report}>
@@ -553,8 +537,6 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 {savedHere ? "Saved" : "Save for later"}
               </button>
             )}
-            {/* Quoting a file message would quote nothing, as its text is empty. */}
-            {!message.attachment && (
             {/* Quoting a file message would quote nothing, as its text is empty, and a huddle's message shows none of its own. */}
             {!message.attachment && !message.huddle && (
               <QuoteButton message={message} nodes={nodes} className={ITEM} onQuote={quote}>

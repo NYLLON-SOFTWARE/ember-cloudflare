@@ -1,30 +1,4 @@
-import {
-  CANT_EMAIL_LINKS,
-  EMAIL_LINK_GONE,
-  EMAIL_LINK_UNSENT,
-  EMAIL_LINKS_LIMITED,
-  INVITATION_GONE,
-  isPasswordTooLong,
-  isPasswordTooShort,
-  JOINING_PROBLEMS,
-  onlyAddressesAt,
-  parseEmailLinkRequest,
-  parseEmailLinkSignUp,
-  parseOpenSignUp,
-  parseSignUp,
-  PASSWORD_TOO_LONG,
-  PASSWORD_TOO_SHORT,
-  signInSaying,
-  SIGN_UP_FULL,
-  SIGN_UP_LIMITED,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  TURNSTILE_FAILED,
-  type EmailLinkKind,
-  type JoiningProblem,
-  type Me,
-  type SignUp,
-} from "@ember/protocol";
+import { CANT_EMAIL_LINKS, EMAIL_LINK_GONE, EMAIL_LINK_UNSENT, EMAIL_LINKS_LIMITED, INVITATION_GONE, isPasswordTooLong, isPasswordTooShort, JOINING_PROBLEMS, onlyAddressesAt, parseEmailLinkRequest, parseEmailLinkSignUp, parseOpenSignUp, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, SIGN_UP_FULL, SIGN_UP_LIMITED, signInSaying, signsUpOpenly, signsUpWithEmailDomain, TURNSTILE_FAILED, type EmailLinkKind, type JoiningProblem, type Me, type SignUp } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";

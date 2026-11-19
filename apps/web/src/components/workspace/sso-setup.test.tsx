@@ -1,9 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CLIENT_ID_REFUSED, ISSUER_REFUSED, ISSUER_UNREACHABLE, SCOPES_REFUSED, SSO_FORBIDDEN, type SsoSettings } from "@ember/protocol/sso";
 import { ApiError } from "@/lib/api";
 import { SsoSetup } from "./sso-setup";
+import userEvent from "@testing-library/user-event";
 
 /** The provider and its app's keys, as an administrator copies them from Zitadel. */
 const ISSUER = "https://example.zitadel.cloud";

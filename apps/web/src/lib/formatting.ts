@@ -1,3 +1,5 @@
+
+
 // The formatting row over a message's text, as Slack's composer has it: what its buttons and keys do, and
 // what they show of the text where the cursor is. The editor that does it is a chunk of its own
 // (rich-text-editor.tsx), so this holds what the rest of the app needs to draw the row.

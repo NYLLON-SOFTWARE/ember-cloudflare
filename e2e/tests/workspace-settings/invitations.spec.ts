@@ -1,7 +1,6 @@
 import { INVITATION_GONE, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
-import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, administratorSession, allowClipboard, cookieHeader, SAME_ORIGIN, sentFrom, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, administratorSession, allowClipboard, cookieHeader, expect, SAME_ORIGIN, sentFrom, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
 
 // Membership's Invite by email card, and the page an invitation's link opens, on the second test server,

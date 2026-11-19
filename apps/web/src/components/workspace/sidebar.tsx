@@ -103,11 +103,9 @@ export function Sidebar({
   onStarred,
   onSessionChanged,
 }: Props) {
-  const { tagline } = useAccount();
-  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, readRoomId)) : rooms), [rooms, unreadOnly, readRoomId]);
   const { tagline, huddles: huddlesOn } = useAccount();
   const goingOn = useMemo(() => huddlesGoingOn(rooms, huddles).length, [rooms, huddles]);
-  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
+  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, readRoomId)) : rooms), [rooms, unreadOnly, readRoomId]);
   const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
   const nameOf = (roomId: RoomId) => {
     const room = rooms.find((r) => r.id === roomId);
@@ -214,7 +212,6 @@ export function Sidebar({
             meId={meId}
             current={room.id === currentRoomId}
             unreadId={markedUnread(room, readRoomId) ? unreadId : null}
-            unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
             huddle={huddles[room.id]}
             onClick={(event) => select(event, room.id)}
           />

@@ -1,43 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { MAX_USER_NAME_LENGTH, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
-import {
-  agentCannotSearchWith,
-  MAX_AGENT_DESCRIPTION_LENGTH,
-  type AgentAccess,
-  type AgentChanges,
-  type AgentField,
-  type AgentRoom,
-  type AgentSettings,
-  type AgentTrial,
-  type AgentTrialAnswer,
-  type NewAgent,
-} from "@ember/protocol/agents";
-import {
-  ANSWER_WORDS,
-  ASSISTANT_OFF,
-  DEFAULT_LEVELS,
-  formatOf,
-  MAX_CONVERSATION_LENGTH,
-  MAX_INSTRUCTIONS_LENGTH,
-  maxTokensAt,
-  modelName,
-  offeredModelOf,
-  PAGES_READ_PER_ANSWER,
-  searchFormatOf,
-  WEB_SEARCHES_PER_ANSWER,
-  webToolsOf,
-  type AnswerLevels,
-  type AssistantSettings as Assistant,
-  type ModelFormat,
-  type ModelPrice,
-  type OfferedModels,
-} from "@ember/protocol/assistant";
+import { agentCannotSearchWith, MAX_AGENT_DESCRIPTION_LENGTH, type AgentAccess, type AgentChanges, type AgentField, type AgentRoom, type AgentSettings, type AgentTrial, type AgentTrialAnswer, type NewAgent } from "@ember/protocol/agents";
+import { ANSWER_WORDS, ASSISTANT_OFF, DEFAULT_LEVELS, formatOf, MAX_CONVERSATION_LENGTH, MAX_INSTRUCTIONS_LENGTH, maxTokensAt, modelName, offeredModelOf, PAGES_READ_PER_ANSWER, searchFormatOf, WEB_SEARCHES_PER_ANSWER, webToolsOf, type AnswerLevels, type AssistantSettings as Assistant, type ModelFormat, type ModelPrice, type OfferedModels } from "@ember/protocol/assistant";
 import { AGENT_TEMPLATE, promptAround, templateRefusal, webPromptFor, withInstructions, type Prompt } from "@ember/protocol/prompts";
 import { displayBody, type DisplayNode } from "@ember/richtext/dom";
 import { AUTH_FORM } from "@/components/auth-page";
 import { Crown, EyeClosed } from "@/components/icons/iconoir";
-import defaultBotAvatar from "@/components/default-bot-avatar.svg";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
@@ -62,6 +31,7 @@ import { PromptPreview } from "./prompt-preview";
 import { DeleteButton, isMissing } from "./room-settings-page";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
+import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 
 // New agent and an agent's settings, for administrators while Ember AI is on, which the Agents card on
 // the AI assistant tab links to, as the project's owner chose in the mock-ups (2026-11-10): the agent's

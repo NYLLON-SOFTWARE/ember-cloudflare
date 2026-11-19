@@ -1,6 +1,6 @@
 import type { Sidebar } from "@ember/protocol";
 import type { APIRequestContext, BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
-import { test as app, answerChanged, cookieHeader, createRoom, createSession, editorField, expect, keepOtherRoomsOut, makeAdministrator, type Session, type TestRoom } from "../../fixtures";
+import { answerChanged, cookieHeader, createRoom, createSession, editorField, expect, keepOtherRoomsOut, makeAdministrator, test as app, type Session, type TestRoom } from "../../fixtures";
 
 export { expect };
 
