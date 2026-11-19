@@ -58,6 +58,10 @@ interface Props {
   newSince?: string | null;
   /** Whether the Saved pane covers the room, which leaves it nothing to reach and keeps it from counting as seen. */
   savedCovered?: boolean;
+  /** Whether the Saved pane shows beside the room, which the Pinned panel's column is then not to take. */
+  savedShown?: boolean;
+  /** Called when the Pinned panel opens, so the Saved pane sharing its column closes. */
+  onPinsOpened?: () => void;
   /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
@@ -73,7 +77,7 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, savedCovered = false, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
+export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, savedCovered = false, savedShown = false, onPinsOpened, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
   const { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId, !savedCovered);
   const { pins, pinnedIds, listed, refresh } = usePins(room.id, frames);
   const nameOf = useNameOf();
@@ -116,6 +120,14 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   useEffect(() => {
     if (threadId !== undefined) setPinsOpen(false);
   }, [threadId]);
+  // The Saved pane and the Pinned panel trade it too, on wide screens where both sit beside the room:
+  // opening one closes the other, so the two never cover one another.
+  useEffect(() => {
+    if (savedShown) setPinsOpen(false);
+  }, [savedShown]);
+  useEffect(() => {
+    if (pinsOpen) onPinsOpened?.();
+  }, [pinsOpen, onPinsOpened]);
   const togglePins = () => {
     if (!pinsOpen && threadId !== undefined) navigate(roomPath(room.id));
     setPinsOpen((open) => !open);

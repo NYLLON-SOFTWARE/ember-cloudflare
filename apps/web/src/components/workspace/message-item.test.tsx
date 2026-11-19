@@ -108,10 +108,9 @@ function show(
       <FlashProvider workspace>
         <RoomConnection value={connections}>
           <RefusedUnboosts value={refusals}>
-            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} pinnedIds={pinnedIds} />
             <BlockingContext value={blocking}>
               <ReportingContext value={openReport}>
-                <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+                <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} pinnedIds={pinnedIds} />
               </ReportingContext>
             </BlockingContext>
           </RefusedUnboosts>
@@ -829,8 +828,7 @@ describe("More actions on a message", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("More actions");
 
     await user.click(options);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…"]);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Block Ada", "Report message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Block Ada", "Report message"]);
     expect(within(moreActions()).getByRole("button", { name: "Quote" })).toHaveFocus();
     expect(options).toHaveClass("bg-hover");
     // The pointer leaving no longer closes the bar.
@@ -854,15 +852,13 @@ describe("More actions on a message", () => {
 
     const file = show(fileMessage(), { me: grace, administrator: true });
     await openMoreActions(file.user, file.article);
-    expect(items()).toEqual(["Copy link", "Remind me…", "Delete message"]);
-    expect(items()).toEqual(["Copy link", "Block Ada", "Report message", "Delete message"]);
+    expect(items()).toEqual(["Copy link", "Remind me…", "Block Ada", "Report message", "Delete message"]);
     cleanup();
 
     // A bot's cards can't be edited either, but their text can be quoted and copied.
     const cards = show(cardMessage(), { me: grace, administrator: true });
     await openMoreActions(cards.user, cards.article);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Delete message"]);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Block Ada", "Report message", "Delete message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Block Ada", "Report message", "Delete message"]);
   });
 
   it("offers Block on touch screens on the bar, after Copy link, where More actions doesn't open", async () => {
@@ -888,7 +884,7 @@ describe("More actions on a message", () => {
     const blocked = show(message(), { me: grace, blocked: [ada.id] });
     await blocked.user.click(within(blocked.article).getByRole("button", { name: BLOCKED_MESSAGE }));
     await openMoreActions(blocked.user, screen.getByRole("article"));
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Unblock Ada", "Report message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Unblock Ada", "Report message"]);
     await blocked.user.click(within(moreActions()).getByRole("button", { name: "Unblock Ada" }));
     expect(blocked.setBlocked).toHaveBeenCalledExactlyOnceWith(ada, false);
   });
@@ -1103,7 +1099,7 @@ describe("More actions on a message", () => {
       withMouse();
       const { actions, article, user } = show(message({ creator: grace }), { administrator: true, pinnedIds: new Set<string>() });
       await openMoreActions(user, article);
-      expect(items()).toEqual(["Pin to room", "Quote", "Copy text", "Copy link", "Remind me…", "Edit message", "Delete message"]);
+      expect(items()).toEqual(["Pin to room", "Quote", "Copy text", "Copy link", "Remind me…", "Block Grace", "Report message", "Edit message", "Delete message"]);
       await user.click(within(moreActions()).getByRole("button", { name: "Pin to room" }));
       expect(actions.pin).toHaveBeenCalledWith("m1");
       cleanup();
@@ -1117,7 +1113,7 @@ describe("More actions on a message", () => {
       const { user } = show(message(), { me: grace });
       await user.click(optionsOn("Hello"));
       expect(within(actionBar()).queryByRole("button", { name: "Pin to room" })).not.toBeInTheDocument();
-      expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link"]);
+      expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Block Ada", "Report message"]);
     });
   });
 
@@ -1143,13 +1139,13 @@ describe("More actions on a message", () => {
       fetchShortcutsMock.mockResolvedValue({ shortcuts: [] });
       const { article, user } = show(message(), { me: grace });
       await openMoreActions(user, article);
-      expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…"]);
+      expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Block Ada", "Report message"]);
 
       cleanup();
       fetchShortcutsMock.mockRejectedValue(new ApiError(500, "Something went wrong"));
       const failed = show(message(), { me: grace });
       await openMoreActions(failed.user, failed.article);
-      expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…"]);
+      expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Block Ada", "Report message"]);
     });
   });
 });
@@ -1195,7 +1191,7 @@ describe("Save a message for later", () => {
     withMouse();
     const { saver, user, open } = showSaved(false);
     await open();
-    expect(items()).toEqual(["Save for later", "Quote", "Copy text", "Copy link", "Remind me…"]);
+    expect(items()).toEqual(["Save for later", "Quote", "Copy text", "Copy link", "Remind me…", "Block Ada", "Report message"]);
     const item = within(moreActions()).getByRole("button", { name: "Save for later" });
     expect(item).toHaveAttribute("aria-pressed", "false");
     await user.click(item);

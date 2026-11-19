@@ -748,6 +748,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // nothing read.
   const coversRoom = useMediaQuery(THREAD_COVERS_ROOM);
   const savedShown = savedOpen && room !== null;
+  // The Pinned panel beside the room shares the Saved pane's column: opening it closes the pane.
+  const closeSaved = useCallback(() => setSavedOpen(false), []);
   // Below 1180px wide the pane covers the room, which then counts as hidden, and leaves nothing of
   // itself to reach behind it, as a thread covering the room does.
   const savedCovered = savedShown && coversRoom;
@@ -1002,6 +1004,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
               newSince={opened.roomId === room.id ? opened.newSince : null}
               savedCovered={savedCovered}
+              savedShown={savedShown}
+              onPinsOpened={closeSaved}
               askForRoom={askForRoom}
               onSessionChanged={onSessionChanged}
               onFailed={failed}
@@ -1048,13 +1052,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
         <div
           className={cn(
             "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
-            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
-            // A thread or the Pinned panel open beside its room, from 1180px wide, which takes 420px of the room's width.
-            "min-[1180px]:has-[>[data-thread],>[data-pins]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
-            // Or the Saved pane open beside it, which takes the same of the room's width.
-            "min-[1180px]:has-[>[data-saved]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
-            // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
-            "min-[1180px]:has-[[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
+            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",            // A thread, the Pinned panel or the Saved pane open beside its room, from 1180px wide, which takes 420px of the room's width.
+            "min-[1180px]:has-[[data-thread],[data-pins],[data-saved]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
           )}
         >
           <SkipLink to={huddle?.open ? OPEN_HUDDLE : undefined} />
@@ -1231,33 +1230,26 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
           <ReloadDirectory value={directory.reload}>
             <DirectoryStale value={directory.stale}>
               <DirectoryLoaded value={directory.loaded}>
-                <SettingsLayout value={settings}>
-                  <OpenSearchContext value={openSearch}>
-                    <SavesContext value={saver}>
-                      <HuddlesContext value={huddles}>
-                        <DismissReminder value={dismissReminder}>{layout}</DismissReminder>
-                      </HuddlesContext>
-                    </SavesContext>
-                  </OpenSearchContext>
-                </SettingsLayout>
+                <ActivePeople value={active}>
+                  <SettingsLayout value={settings}>
+                    <OpenSearchContext value={openSearch}>
+                      <SavesContext value={saver}>
+                        <HuddlesContext value={huddles}>
+                          <DismissReminder value={dismissReminder}>
+                            <BlockingContext value={blocking}>
+                              <ReportingContext value={openReport}>{layout}</ReportingContext>
+                            </BlockingContext>
+                          </DismissReminder>
+                        </HuddlesContext>
+                      </SavesContext>
+                    </OpenSearchContext>
+                  </SettingsLayout>
+                </ActivePeople>
               </DirectoryLoaded>
             </DirectoryStale>
           </ReloadDirectory>
         </DirectoryReloading>
       </GroupsContext>
-      <DirectoryLoaded value={directory.loaded}>
-        <ActivePeople value={active}>
-          <SettingsLayout value={settings}>
-            <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>
-                <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
-                </BlockingContext>
-              </HuddlesContext>
-            </OpenSearchContext>
-          </SettingsLayout>
-        </ActivePeople>
-      </DirectoryLoaded>
     </PeopleContext>
   );
 }

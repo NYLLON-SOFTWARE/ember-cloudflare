@@ -1332,9 +1332,7 @@ export class Workspace extends DurableObject<Env> {
         account: account ?? ACCOUNT_BEFORE_SETUP,
         dndUntil: hushedUntil === null ? null : new Date(hushedUntil).toISOString(),
       });
-    } else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
-    if (current) send(server, { type: "welcome", you: meOf(current), account: account ?? ACCOUNT_BEFORE_SETUP });
-    else this.closeSocket(server, CloseCode.Reconnect);
+    } else this.closeSocket(server, CloseCode.Reconnect);
     return new Response(null, { status: 101, webSocket: client });
   }
 

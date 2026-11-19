@@ -1247,10 +1247,10 @@ const DISCONNECT_IDENTITY = `DELETE FROM identities WHERE user_id = ?1 AND issue
  */
 const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}
-    AND (guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?9))
+    AND (guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?10))
     AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
       WHERE showing.id = ?8 AND showing.transfers_since <= ?9 AND shower.status = ${ACTIVE}
-        AND (shower.guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?9))
+        AND (shower.guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?10))
         AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /**
@@ -1334,7 +1334,7 @@ const isMood = (mood: object): mood is PersonMood =>
  */
 const botRoomsChange = (botId: UserId, rooms: RoomId[] | null, now: string): Statement[] =>
   rooms === null
-    ? [statement(`UPDATE users SET rooms_picked = NULL WHERE id = ?`, botId), statement(GRANT_OPEN_ROOMS_TO_USER, botId, now, now)]
+    ? [statement(`UPDATE users SET rooms_picked = NULL WHERE id = ?`, botId), statement(GRANT_OPEN_ROOMS_TO_USER, botId, now, now, botId)]
     : [
         statement(`UPDATE users SET rooms_picked = 1 WHERE id = ?`, botId),
         statement(LEAVE_UNPICKED_ROOMS, botId, JSON.stringify(rooms)),
@@ -2380,10 +2380,8 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
   WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE}
     AND (users.guest = 0 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?9)
       OR (?6 = 1 AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)))
-    AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
-    AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = memberships.user_id AND dnd.until_at > ?9)
-  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1)
     AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
+    AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = memberships.user_id AND dnd.until_at > ?9)
     AND ((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
       AND (memberships.user_id IN (SELECT value FROM json_each(?4)) OR memberships.user_id IN (SELECT value FROM json_each(?8)))))
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
@@ -2509,7 +2507,6 @@ export const MESSAGE_BOTS = `SELECT users.id, bots.answers, bots.subscribed,
     AND (bots.answers = 0 OR NOT EXISTS (SELECT 1 FROM users AS authors WHERE authors.id = ?2 AND authors.role = ${BOT}))
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)
     AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct') OR bots.subscribed = 1)
-    AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct'))
     AND ${answersTo("?2", "?1")}
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   ORDER BY lower(users.name), users.id`;
@@ -3258,7 +3255,7 @@ const DEACTIVATE = `UPDATE users SET status = ${DEACTIVATED}, email_address = re
  * address, password, username, bio, avatar or picks of theirs, and no longer an administrator. Their
  * username is free for anyone then, as their email address is.
  */
-const DELETE_ACCOUNT = `UPDATE users SET name = ?1, status = ${DEACTIVATED}, role = ${MEMBER}, email_address = NULL, email_verified_at = NULL, password_digest = NULL, username = NULL, bio = NULL,
+const DELETE_ACCOUNT = `UPDATE users SET name = ?1, status = ${DEACTIVATED}, role = ${MEMBER}, email_address = NULL, email_verified_at = NULL, password_digest = NULL, username = NULL, bio = NULL, mood = NULL,
   avatar_key = NULL, avatar_variant = NULL, assistant_thinking = NULL, assistant_answer_length = NULL, assistant_model = NULL,
   huddle_music = 1, huddle_chimes = 1, huddle_ring = 1, invitation_dismissed_at = NULL, deleted_at = ?2, updated_at = ?2 WHERE id = ?3`;
 
@@ -3467,9 +3464,12 @@ const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, c
     AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
-/** Puts someone whose ban is lifted in every open room, as joining does, unless they're a chat bot kept to the open rooms picked. */
+/** Puts someone whose ban is lifted in every open room, as joining does, unless they're a chat bot kept to the open rooms picked, or a guest of one room, whose stay keeps them to its own. */
 const GRANT_OPEN_ROOMS_TO_UNBANNED = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, users.id, ?2, ?2 FROM rooms, users WHERE rooms.kind = 'open' AND users.id = ?1 AND users.rooms_picked IS NULL ON CONFLICT DO NOTHING`;
+  SELECT rooms.id, users.id, ?2, ?2 FROM rooms, users
+  WHERE rooms.kind = 'open' AND users.id = ?1 AND users.rooms_picked IS NULL
+    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
+  ON CONFLICT DO NOTHING`;
 
 /**
  * Adds one of first run's open rooms, made by ?3, unless the workspace has an open room of its name
@@ -4135,7 +4135,7 @@ export class WorkspaceStore {
    */
   async startGuestSession(userId: UserId, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_LINKED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId),
+      statement(INSERT_LINKED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, null, null),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -4698,7 +4698,7 @@ export class WorkspaceStore {
     now: string,
   ): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy, shownAt),
+      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy, shownAt, Date.now()),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -4815,6 +4815,7 @@ export class WorkspaceStore {
       ...forgettingSearches(userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(`DELETE FROM favorites WHERE user_id = ?`, userId),
+      statement(`DELETE FROM profile_field_values WHERE user_id = ?`, userId),
       statement(`DELETE FROM blocks WHERE user_id = ?1 OR blocked_id = ?1`, userId),
       statement(`DELETE FROM identities WHERE user_id = ?`, userId),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),

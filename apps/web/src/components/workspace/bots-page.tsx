@@ -205,6 +205,7 @@ function BotItem({ bot, commands, shortcuts, onChanged }: { bot: Bot; commands: 
           <span className="sr-only">Edit {bot.name}</span>
         </PageLink>
       </div>
+      {bot.rooms.length === 0 && <p className="text-message-muted">{NO_ROOMS}</p>}
       {bot.rooms.map((room) => (
         <RoomCommands key={room.id} room={room} botKey={bot.key} listening={itsRooms.has(room.id)} onTick={ticked} />
       ))}

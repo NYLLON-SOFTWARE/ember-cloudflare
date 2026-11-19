@@ -511,7 +511,7 @@ describe("Huddles in your rooms", () => {
 
   it("tells of each invitation into a huddle the workspace socket brings, when it came, and of each that's answered", async () => {
     const onInvitation = vi.fn();
-    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onInvitation));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, onInvitation));
     await settle();
     socket().connect();
     await settle();
@@ -530,7 +530,7 @@ describe("Huddles in your rooms", () => {
   it("tells that an invitation into a room's huddle is over once the workspace socket says the room is gone, a room it never listed too", async () => {
     const onInvitation = vi.fn();
     server.change(unstarred([design]));
-    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onInvitation));
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, onInvitation));
     await settle();
     socket().connect();
     await settle();
@@ -1158,7 +1158,7 @@ describe("Do not disturb", () => {
 
   it("says when your push notifications are hushed until, as the welcome read them", async () => {
     const onDndChanged = vi.fn();
-    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged));
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, onDndChanged));
     await settle();
     socket().connect(ada, ember, HUSHED);
     expect(onDndChanged).toHaveBeenLastCalledWith(HUSHED, true);
@@ -1169,7 +1169,7 @@ describe("Do not disturb", () => {
 
   it("says when the socket brings what a tab of yours did to them", async () => {
     const onDndChanged = vi.fn();
-    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged));
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, onDndChanged));
     await settle();
     socket().connect();
     socket().receive({ type: "dnd.changed", dndUntil: HUSHED });
@@ -1181,7 +1181,7 @@ describe("Do not disturb", () => {
   it("says what the hush has become once a connection that dropped has come back", async () => {
     const onDndChanged = vi.fn();
     const onDndConnecting = vi.fn();
-    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged, onDndConnecting));
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, onDndChanged, onDndConnecting));
     await settle();
     socket().connect();
     expect(onDndConnecting).toHaveBeenCalled();

@@ -157,16 +157,14 @@ describe("Edit your profile", () => {
     for (const body of [{}, { name: "Grace Hopper" }, { bio: "Rear admiral", password: "" }]) {
       const response = await save(grace, body);
       expect(response.status, JSON.stringify(body)).toBe(200);
-      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", mood: null, ...initials, password: false, membershipNeeded: true, memberful: null, assistant: null, fields: [], apps: [], outsideAi: null, dndUntil: null }, transferId: expect.any(String) });
-      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Rear admiral", ...initials, password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
+      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Rear admiral", mood: null, ...initials, password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, fields: [], apps: [], outsideAi: null, dndUntil: null }, transferId: expect.any(String) });
       expect((await stored(grace.user.id)).updated_at).toBe(LONG_AGO);
     }
 
     const answer = await (await save(grace, { bio: "Admiral" })).json();
     expect((await stored(grace.user.id)).updated_at > LONG_AGO).toBe(true);
     // The avatar's address changes with it, as it's versioned by when they last changed.
-    expect(answer).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null, fields: [], apps: [], outsideAi: null, dndUntil: null }, transferId: expect.any(String) });
-    expect(answer).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Admiral", ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null }, transferId: expect.any(String) });
+    expect(answer).toEqual({ profile: { name: "Grace Hopper", username: null, emailAddress: null, bio: "Admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, sso: null, assistant: null, fields: [], apps: [], outsideAi: null, dndUntil: null }, transferId: expect.any(String) });
     expect((await initialsOf(grace)).avatarUrl).not.toBe(initials.avatarUrl);
   });
 

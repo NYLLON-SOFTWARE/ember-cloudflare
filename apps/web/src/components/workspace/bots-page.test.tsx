@@ -73,12 +73,13 @@ async function listed(count: number): Promise<HTMLElement[]> {
   return bots();
 }
 
-/** Opens the bot named `name`, which `bot` lists, to its rooms, then each room, answering the groups of their commands, in order. */
-async function openRooms(bot: HTMLElement, name: string): Promise<HTMLElement[]> {
-  await userEvent.click(within(bot).getByRole("button", { name }));
-  for (const room of within(within(bot).getByRole("list")).getAllByRole("button")) await userEvent.click(room);
+/** The rooms of `bot`'s card, which are always open: their fieldsets, named by their legends, in order. */
+function roomsOf(bot: HTMLElement): HTMLElement[] {
   return within(bot).getAllByRole("group");
 }
+
+/** The name of a room fieldset, as its legend says it. */
+const roomName = (room: HTMLElement) => room.querySelector("legend")?.textContent;
 
 /** Gives the browser a clipboard until the test ends. */
 function stubClipboard(writeText: (text: string) => Promise<void>) {
@@ -102,7 +103,7 @@ describe("Chat bots page", () => {
     expect(
       screen.getByText(
         "Chat bots let other apps and services post in your rooms, and reply when people talk to them. " +
-          "Each of a bot's rooms gets two addresses below, one for posting text or a file and one that takes a Slack incoming webhook's payload. " +
+          "Each of a bot's rooms gets two addresses, one for posting text or a file and one that takes a Slack incoming webhook's payload. " +
           "Give a bot a webhook URL, and Ember sends it every message that @mentions it or is sent to it in a DM, then posts whatever it answers within 30 seconds. " +
           "Register a command for a bot, and typing /name in a room it's in sends it what was typed, its answer posted as the bot. " +
           "Register a shortcut, and picking its name in a message's More actions sends it that message, its answer posted as the bot. " +
@@ -121,7 +122,7 @@ describe("Chat bots page", () => {
     expect(panel).toHaveAttribute("aria-busy", "false");
 
     expect(within(build!).getByText("Build Bot").tagName).toBe("STRONG");
-    expect(within(build!).getByText("general, random")).toBeInTheDocument();
+    expect(roomsOf(build!).map(roomName)).toEqual(["general", "random"]);
     expect(within(deploy!).getByText(NO_ROOMS)).toBeInTheDocument();
     const avatar = within(build!).getByTitle("Build Bot");
     expect(avatar).toHaveAttribute("href", `/users/${BUILD_BOT.id}`);
@@ -131,53 +132,37 @@ describe("Chat bots page", () => {
     expect(within(deploy!).getByRole("link", { name: "Edit Deploy Bot" })).toHaveAttribute("href", `/account/bots/${DEPLOY_BOT.id}/edit`);
   });
 
-  it("folds each bot away until it's clicked, opening it to its rooms, and each room to its commands, until they're clicked again", async () => {
+  it("shows each bot's rooms with their commands all at once, and a bot in no rooms as none", async () => {
     showPage();
     const [build, deploy] = await listed(2);
-    expect(screen.queryAllByRole("textbox")).toEqual([]);
 
-    const bot = within(build!).getByRole("button", { name: "Build Bot", description: "general, random" });
-    expect(bot).toHaveAttribute("aria-expanded", "false");
-    await userEvent.click(bot);
-    expect(bot).toHaveAttribute("aria-expanded", "true");
-    const rooms = within(build!).getByRole("list", { name: "Rooms for Build Bot" });
-    expect(bot).toHaveAttribute("aria-controls", rooms.id);
-    const [general, random] = within(rooms).getAllByRole("button");
-    expect([general, random].map((room) => [room!.textContent, room!.getAttribute("aria-expanded")])).toEqual([
-      ["general", "false"],
-      ["random", "false"],
-    ]);
-    // Until a room's opened, it has no commands.
-    expect(screen.queryAllByRole("textbox")).toEqual([]);
-
-    await userEvent.click(random!);
-    expect(random).toHaveAttribute("aria-expanded", "true");
-    expect(random).toHaveAttribute("aria-controls", within(rooms).getByRole("group", { name: "random" }).id);
-    expect(within(rooms).getAllByRole("group")).toHaveLength(1);
-    await userEvent.click(random!);
-    expect(within(rooms).queryAllByRole("group")).toEqual([]);
-
-    await userEvent.click(bot);
-    expect(bot).toHaveAttribute("aria-expanded", "false");
-    expect(within(build!).queryByRole("list")).not.toBeInTheDocument();
-    // A bot in no rooms has nothing to open.
-    expect(within(deploy!).queryByRole("button")).not.toBeInTheDocument();
+    const rooms = roomsOf(build!);
+    expect(rooms.map(roomName)).toEqual(["general", "random"]);
+    // Each room's posting addresses are there without anything to open.
+    for (const room of rooms) {
+      expect(within(room).getByRole("textbox", { name: "curl command for posting messages" })).toBeInTheDocument();
+      expect(within(room).getByRole("textbox", { name: "curl command for posting attachments" })).toBeInTheDocument();
+      expect(within(room).getByRole("textbox", { name: "Slack-compatible webhook URL" })).toBeInTheDocument();
+    }
+    // A bot in no rooms has no room to show.
+    expect(within(deploy!).queryAllByRole("group")).toEqual([]);
+    expect(within(deploy!).getByText(NO_ROOMS)).toBeInTheDocument();
   });
 
-  it("opens a bot's only room with it", async () => {
+  it("shows a bot's only room with its commands, without anything to open", async () => {
     serve(() => Response.json({ bots: [UPTIME_BOT] } satisfies Bots));
     showPage();
     const [uptime] = await listed(1);
-    await userEvent.click(within(uptime!).getByRole("button", { name: "Uptime" }));
-    expect(within(uptime!).getByRole("button", { name: "random" })).toHaveAttribute("aria-expanded", "true");
-    expect(within(uptime!).getByRole("group", { name: "random" })).toContainElement(within(uptime!).getByRole("textbox", { name: "curl command for posting messages" }));
+    const [random] = roomsOf(uptime!);
+    expect(roomName(random!)).toBe("random");
+    expect(within(random!).getByRole("textbox", { name: "curl command for posting messages" })).toBeInTheDocument();
   });
 
   it("gives the commands that post to each of a bot's rooms as it, at the bot's address there on this host", async () => {
     showPage();
     const [build] = await listed(2);
-    const rooms = await openRooms(build!, "Build Bot");
-    expect(rooms.map((room) => room.getAttribute("aria-label"))).toEqual(["general", "random"]);
+    const rooms = roomsOf(build!);
+    expect(rooms.map(roomName)).toEqual(["general", "random"]);
 
     for (const [room, { id }] of [
       [rooms[0]!, BUILD_BOT.rooms[0]!],
@@ -198,7 +183,7 @@ describe("Chat bots page", () => {
     const [build] = await listed(2);
     const writeText = vi.fn().mockResolvedValue(undefined);
     stubClipboard(writeText);
-    const [general] = await openRooms(build!, "Build Bot");
+    const [general] = roomsOf(build!);
     await userEvent.click(within(general!).getByRole("button", { name: "Copy message command" }));
     await userEvent.click(within(general!).getByRole("button", { name: "Copy attachment command" }));
     const url = `http://localhost:3000/rooms/${BUILD_BOT.rooms[0]!.id}/${BUILD_BOT.key}/messages`;
@@ -274,7 +259,7 @@ describe("Slack-compatible webhooks", () => {
     const [build] = await listed(2);
     const writeText = vi.fn().mockResolvedValue(undefined);
     stubClipboard(writeText);
-    const rooms = await openRooms(build!, "Build Bot");
+    const rooms = roomsOf(build!);
     for (const [room, { id }] of [
       [rooms[0]!, BUILD_BOT.rooms[0]!],
       [rooms[1]!, BUILD_BOT.rooms[1]!],

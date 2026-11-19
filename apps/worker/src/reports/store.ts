@@ -101,23 +101,27 @@ export const OPEN_REPORTS_BY_ADMINISTRATOR = `SELECT id AS user_id, (SELECT coun
 
 /**
  * Where the push of a report made by ?1 of ?2 goes: to the subscriptions of the active administrators
- * but the two of them and anyone who has blocked whoever made it, in the order they were saved, each
- * with the count its push sets the badge to, as a message's does.
+ * but the two of them, anyone who has blocked whoever made it, and anyone whose hush (Do not disturb)
+ * until past ?3 is still on, in the order they were saved, each with the count its push sets the badge
+ * to, as a message's does.
  */
 export const REPORT_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships WHERE memberships.user_id = users.id AND memberships.unread_at IS NOT NULL) AS badge
   FROM users JOIN push_subscriptions ON push_subscriptions.user_id = users.id
   WHERE users.role = ${ADMINISTRATOR} AND users.status = ${ACTIVE} AND users.id <> ?1 AND users.id <> ?2
     AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocks.user_id = users.id AND blocks.blocked_id = ?1)
+      AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = users.id AND dnd.until_at > ?3)
   ORDER BY push_subscriptions.id`;
 
 /**
  * Whether subscription ?1 may still have the push of a report made by ?2 as its turn comes: it's an
- * active administrator's still, who hasn't blocked them since.
+ * active administrator's still, who hasn't blocked them since, and hasn't hushed their push
+ * notifications (Do not disturb) until past ?3.
  */
 export const REPORT_PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
   WHERE push_subscriptions.id = ?1 AND users.role = ${ADMINISTRATOR} AND users.status = ${ACTIVE}
-    AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocks.user_id = users.id AND blocks.blocked_id = ?2)`;
+    AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocks.user_id = users.id AND blocks.blocked_id = ?2)
+    AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = push_subscriptions.user_id AND dnd.until_at > ?3)`;
 
 /** The newest open reports, leaving out the reports of ?. */
 export const OPEN_REPORTS = `SELECT ${COLUMNS} FROM reports WHERE handled_at IS NULL AND subject_id <> ?
@@ -162,7 +166,7 @@ export class ReportStore {
       subject.kind === "message"
         ? statement(KEEP_MESSAGE_REPORT, id, reporterId, subjectId, subject.roomId, subject.message.id, JSON.stringify(subject), reason, note, createdAt)
         : statement(KEEP_PERSON_REPORT, id, reporterId, subjectId, JSON.stringify(subject), reason, note, createdAt);
-    const [[saved], open, deliveries] = (await this.db.batch([kept, statement(OPEN_REPORTS_BY_ADMINISTRATOR), statement(REPORT_PUSHES, reporterId, subjectId)])) as [
+    const [[saved], open, deliveries] = (await this.db.batch([kept, statement(OPEN_REPORTS_BY_ADMINISTRATOR), statement(REPORT_PUSHES, reporterId, subjectId, Date.now())])) as [
       unknown[],
       Array<{ user_id: UserId; open: number }>,
       DeliveryRow[],
@@ -177,7 +181,7 @@ export class ReportStore {
 
   /** Whether subscription `id` may still have the push of a report `reporterId` made (`REPORT_PUSHABLE`). */
   async pushable(id: number, reporterId: UserId): Promise<boolean> {
-    return (await this.db.all(REPORT_PUSHABLE, id, reporterId)).length > 0;
+    return (await this.db.all(REPORT_PUSHABLE, id, reporterId, Date.now())).length > 0;
   }
 
   /** The reports administrator `userId` sees: the newest open ones and the ones handled last, leaving out the reports of them. */

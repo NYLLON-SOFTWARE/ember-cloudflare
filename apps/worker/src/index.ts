@@ -321,7 +321,6 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
  * 403, which a name no stay stays under hears.
  */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
-  if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
   if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
   if (isReservedName(name)) return problem(422, NAME_RESERVED);
