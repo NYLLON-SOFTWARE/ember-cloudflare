@@ -355,7 +355,10 @@ Objects, D1 or speed call for something else.
   someone, closes every open report of it, or of them, in one `UPDATE ... RETURNING` by
   `index_reports_on_message_id` or `index_reports_on_subject_id`. Every active administrator's count
   of open reports is one statement, which binds nothing however many there are. Reports stay when
-  whoever made them, or whoever they're of, deletes their account, as the administrators' record.
+  whoever made them, or whoever they're of, deletes their account, as the administrators' record, but
+  deleting an account takes what the reports of them kept of them out of `subject` in the same batch,
+  by `index_reports_on_subject_id` (`CLEAR_REPORTS_OF`), as workspace migration 0078 does for accounts
+  deleted before then, and keeping one is refused in its `INSERT` once whoever it's of has deleted theirs.
 - **A room's place in the shared order is a column of the room**, `rooms.shared_position` (workspace
   migration 0020), so the sidebar's statement reads each room's place with the room, and listing the
   order costs nothing more, nor reads the places of rooms someone isn't in. Saving it reads the
@@ -644,6 +647,23 @@ Objects, D1 or speed call for something else.
   `pending_identities` rows, each statement checking that the row is still there, `password_digest`
   is still the one the Worker checked and `email_address` is one. Each row keeps the account's name and email address as Memberful last described it
   (workspace migration 0049), refreshed as it signs them in, only so their profile can name it.
+- **Single sign-on goes through the same tables.** A provider that speaks OpenID Connect links
+  accounts in `identities` by its issuer and the ID token's `sub`, connects them through
+  `pending_identities`, and suspends someone outside the groups it lets in as a lapsed membership
+  does, with no table of its own. The provider the Single sign-on card sets up is the account's
+  `sso` setting, its client secret sealed under SESSION_SECRET, beside `sso_join` and `sso_sign_in`.
+  `users.email_verified_at` keeps when someone joined with a link emailed to their address, which
+  saving their profile with another forgets, and is what linking by an address the provider verified
+  goes by, never linking an administrator.
+  Workspace migration 0079 adds what Memberful lacks. `identities.refresh_token` keeps the refresh
+  token each sign-in gave, sealed, and `refresh_due_at`, which an index serves, keeps when the
+  Workspace's alarm next asks the provider with it, without a queue. Settling one checks that the
+  token is still the one it asked with, so a sign-in meanwhile keeps its own. `sessions.identity_issuer`
+  and `identity_sid` say which provider and which of its sessions signed a session in, indexed
+  together, so a back-channel logout ends just those, or, by subject, the sessions any of that
+  account's sign-ins started, which a password's sessions never are. `identities.via` says which way
+  each account signs in, `memberful` for those from before, so the Memberful site Set up Memberful
+  keeps, while people are linked at it, is never a provider's issuer.
 - **Memberships are asked about, not taken from webhooks.** Memberful sends its webhooks in no
   particular order, so one only queues a check of a linked member in `membership_checks` (workspace
   migration 0038), keyed by issuer and subject, as `identities` is, which the Workspace's alarm asks
@@ -735,6 +755,15 @@ Objects, D1 or speed call for something else.
   statements that list people, such as the directory's and the mention prompt's, and the one that
   finds who answers a question, check it against the asker's role in SQL, so nobody is sent a person
   they aren't told of.
+- **Whether a chat bot is kept to the open rooms picked is a column of its person.**
+  `users.rooms_picked` (workspace migration 0077) is 1 for a bot an administrator keeps to the open
+  rooms they pick, as `agents.every_open_room` 0 keeps an agent, and null for one in every open room,
+  and for everyone who isn't a chat bot. The statement that puts everyone active in a room made, or
+  opened to everyone, leaves those bots out, as it does those agents, and so does the one that lifts a
+  ban, since a ban keeps memberships. The rooms a bot's kept to are its memberships, as an agent's are.
+  Keeping it to fewer queues a `pending_revocations` row for each open room it leaves, in the same
+  batch, as taking someone out of a private room does, so a post its key was let in with just before
+  is turned away.
 
 ## Writing SQL here
 
