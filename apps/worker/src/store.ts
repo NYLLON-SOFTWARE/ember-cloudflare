@@ -702,8 +702,24 @@ export class MessageStore {
    */
   async updateBody(message: Message, body: PreparedBody | StoredBody, now: string): Promise<{ message: Message; seq: number }> {
     const cards = "cards" in body && body.cards ? body.cards : undefined;
-  updateBody(message: Message, body: StoredBody, now: string): Promise<{ message: Message; seq: number }> {
-    return this.replaceBody(message, body, now, now);
+    const seq = await this.change((seq) => [
+      statement(
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ?, change_seq = ?, cards = ? WHERE room_id = ? AND id = ?`,
+        body.html,
+        body.plainText,
+        JSON.stringify(body.mentions),
+        now,
+        now,
+        seq,
+        cards ? JSON.stringify(cards) : null,
+        this.roomId,
+        message.id,
+      ),
+      logIndexing(this.roomId, message.id),
+      ...logIndexingRepliesTo(this.roomId, message, body.plainText),
+    ]);
+    const { cards: _, ...rest } = message;
+    return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now, ...(cards && { cards }) }, seq };
   }
 
   /**
@@ -725,7 +741,7 @@ export class MessageStore {
         now,
         editedAt,
         seq,
-        cards ? JSON.stringify(cards) : null,
+        body.cards ? JSON.stringify(body.cards) : null,
         this.roomId,
         message.id,
       ),
@@ -733,7 +749,6 @@ export class MessageStore {
       ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
     const { cards: _, ...rest } = message;
-    return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now, ...(cards && { cards }) }, seq };
     const replaced = { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt };
     return { message: body.cards ? { ...replaced, cards: body.cards } : replaced, seq };
   }
