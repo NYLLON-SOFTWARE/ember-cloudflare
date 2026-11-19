@@ -1,4 +1,4 @@
-import { type ApiTokenCreated, type ApiTokens, type Me, type Message, type RoomId } from "@ember/protocol";
+import { MAX_MESSAGE_LENGTH, type ApiTokenCreated, type ApiTokens, type Me, type Message, type RoomId } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   api,
@@ -415,7 +415,7 @@ describe("The MCP server", () => {
     const { token } = await tokenOf(grace);
     expect(said((await toolOf(token, "post_message", { room_id: room, body: "   " })) as never)).toBe("Your message is empty.");
     // More plain text than a message can have, which the room itself refuses.
-    const tooLong = await toolOf(token, "post_message", { room_id: room, body: "x".repeat(10_001) });
+    const tooLong = await toolOf(token, "post_message", { room_id: room, body: "x".repeat(MAX_MESSAGE_LENGTH + 1) });
     expect(said(tooLong as never)).toContain("up to");
     // More markup than the tool takes at all, refused before a room is asked.
     const absurd = await toolOf(token, "post_message", { room_id: room, body: "x".repeat(100_001) });
