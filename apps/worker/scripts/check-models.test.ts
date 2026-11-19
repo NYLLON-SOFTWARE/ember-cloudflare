@@ -293,6 +293,8 @@ describe("publishing the check, as the Check models workflow does", () => {
     expect(status, output).toBe(0);
     expect(output).toContain("https://github.com/me/ember/pull/7 has these changes already.");
     expect(calls().filter((call) => !call.startsWith("pr list") && !call.startsWith("issue list"))).toEqual(["pr edit 7 --body-file -"]);
+    // gh gives only the fields it's asked for, so the check has to ask which are forks'.
+    expect(calls()).toContain("pr list --state open --limit 100 --json number,url,headRefName,isCrossRepository");
 
     // With only forks' pull requests open, it opens its own, and closes none once nothing changes.
     const FORKS = JSON.stringify(JSON.parse(GH_PULLS).slice(0, 2));
@@ -337,6 +339,8 @@ describe("publishing the check, as the Check models workflow does", () => {
     expect(status, output).toBe(0);
     expect(output).toContain("Nothing in models.json changes, and https://github.com/me/ember/issues/8 says what to look at.");
     expect(calls().filter((call) => !call.includes(" list "))).toEqual(["issue edit 8 --body-file -"]);
+    // gh gives only the fields it's asked for, so the check has to ask who opened each.
+    expect(calls()).toContain("issue list --state open --limit 100 --json number,url,title,author");
 
     // With only theirs open, it opens its own, and closes none once there's nothing to look at.
     rmSync(path.join(dir, "gh", "calls"));
