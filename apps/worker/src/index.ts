@@ -118,6 +118,7 @@ import {
   expiredSessionCookie,
   isCrossSite,
   isHttps,
+  isReadFromAnotherSite,
   isSameOriginUpgrade,
   newSessionToken,
   sessionCookie,
@@ -1616,6 +1617,9 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Then: a browser too old for the app has nothing to sign in to.
   if (isFromUnsupportedBrowser(request)) return unsupportedBrowserPage(request, env);
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
+  // Nor can another site's page read the API, but for a socket's upgrade, which is checked where it's answered.
+  const upgrading = request.headers.get("Upgrade") === "websocket";
+  if (!write && !upgrading && pathname.startsWith("/api/") && isReadFromAnotherSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
   if (pathname === MEMBERFUL_SIGN_IN_PATH) return startMemberfulSignIn(request, env);
