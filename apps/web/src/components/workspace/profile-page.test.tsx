@@ -12,6 +12,7 @@ import {
   type DirectoryUser,
   type MemberfulDisconnection,
   type MemberfulStatus,
+  type PersonMood,
   type Platform,
   type Profile,
   type ProfileAnswer,
@@ -39,7 +40,7 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
+const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", mood: null, avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -1324,5 +1325,145 @@ describe("Apps on your profile", () => {
     await user.click(screen.getByRole("button", { name: "Sign out of Linear" }));
     expect(await screen.findByRole("button", { name: "Sign in to Linear" })).toBeVisible();
     expect(fetch).toHaveBeenLastCalledWith(`/api/users/me/apps/${LINEAR.id}/sign-in`, expect.objectContaining({ method: "DELETE" }));
+  });
+});
+describe("Your mood", () => {
+  it("fills the Emoji from the picker, which offers the mood's emojis by name", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: "Pick the mood's emoji" }));
+    await user.click(screen.getByRole("option", { name: "Rocket" }));
+    expect(field("Emoji")).toHaveValue("🚀");
+    // The picker closes once one is picked, and any emoji can still be typed over it.
+    expect(screen.queryByRole("option", { name: "Rocket" })).not.toBeInTheDocument();
+    await user.type(field("Emoji"), "🥳");
+    expect(field("Emoji")).toHaveValue("🚀🥳");
+  });
+
+  it("wears an emoji and a few words beside your name, until the Clear-at menu says, with the notice ✓", async () => {
+    const { onFailed, user } = showPage();
+    await loaded();
+    await user.type(field("Emoji"), "😌");
+    await user.type(field("Words"), "Pairing on the compiler");
+    await user.selectOptions(field("Clear at"), "hour");
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    const [sent] = saved();
+    expect(sent!.mood).toEqual({ emoji: "😌", text: "Pairing on the compiler", clearAt: expect.any(String) });
+    // In an hour from when it was saved, by this clock.
+    expect(Date.parse(sent!.mood!.clearAt!)).toBeGreaterThan(Date.now() + 55 * 60_000);
+    expect(Date.parse(sent!.mood!.clearAt!)).toBeLessThan(Date.now() + 65 * 60_000);
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("shows what you wear, and takes it off with Clear, which empties the fields", async () => {
+    serve({
+      loaded: () =>
+        Response.json({ profile: { ...profile, mood: { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() + 30 * 60_000).toISOString() } }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    // Half an hour off is within the hour the Clear-at menu counts by.
+    expect(field("Clear at")).toHaveValue("hour");
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(saved()).toEqual([{ mood: null }]);
+    expect(field("Emoji")).toHaveValue("");
+    expect(field("Words")).toHaveValue("");
+    expect(field("Clear at")).toHaveValue("never");
+  });
+
+  it("prefers Never for a stored mood whose clear time has passed, so saving it doesn't keep it an hour longer", async () => {
+    serve({
+      loaded: () =>
+        Response.json({ profile: { ...profile, mood: { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() - 60_000).toISOString() } }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    showPage();
+    await loaded();
+    expect(field("Clear at")).toHaveValue("never");
+  });
+
+  it("has nothing to save or clear while you wear none, until an emoji and words are typed", async () => {
+    const { user } = showPage();
+    await loaded();
+    const saveMood = screen.getByRole("button", { name: "Save mood" });
+    expect(saveMood).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled();
+    await user.type(field("Emoji"), "😌");
+    expect(saveMood).toBeDisabled();
+    await user.type(field("Words"), "Pairing");
+    expect(saveMood).toBeEnabled();
+  });
+
+  it("shows what another tab has saved since, which its answer tells this page", async () => {
+    const worn = { emoji: "😌", text: "Pairing on the compiler", clearAt: null };
+    serve({ loaded: () => Response.json({ profile: { ...profile, mood: worn }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { user } = showPage();
+    await loaded();
+    expect(field("Emoji")).toHaveValue("😌");
+    // Another tab saved new words, which reach this page with its next answer.
+    serve({ saved: () => Response.json({ profile: { ...profile, mood: { ...worn, text: "Sailing the seas" } }, transferId: SAVED_LINK } satisfies ProfileAnswer) });
+    await user.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    await waitFor(() => expect(field("Words")).toHaveValue("Sailing the seas"));
+  });
+
+  it("keeps the mood it just saved while its save is out and answers that read before it come, then shows a mood saved since", async () => {
+    const newer = { emoji: "🚀", text: "Sailing the seas", clearAt: null };
+    /** Each save of the profile answers when the test lets it, saying the mood it sent, if it sent one. */
+    const answers: Array<{ mood: PersonMood | null; resolve: (response: Response) => void }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/users/me/profile") return Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer);
+      if (request === "PATCH /api/users/me/profile") {
+        const { mood } = JSON.parse(String(init?.body)) as ProfileChanges;
+        return new Promise((resolve) => answers.push({ mood: mood ?? null, resolve }));
+      }
+      throw new Error(`Unexpected request for ${request}`);
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Emoji"), "😌");
+    await user.type(field("Words"), "Pairing on the compiler");
+    await user.selectOptions(field("Clear at"), "hour");
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+
+    // A save of the profile sent before the mood was answers first, saying the mood it read.
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => answers[1]!.resolve(Response.json({ profile: { ...profile, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(field("Name")).toHaveValue("Ada King"));
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    expect(field("Clear at")).toHaveValue("hour");
+
+    // One that says the mood the save sent has the save echoed back in it, so an answer after it that
+    // says another mood is a change made since the save, as another tab's newer one, and shows.
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(3));
+    await act(async () =>
+      answers[2]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: answers[0]!.mood }, transferId: SAVED_LINK } satisfies ProfileAnswer)),
+    );
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    // The mood's save answers itself, saying what it left the profile as.
+    await act(async () => answers[0]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: answers[0]!.mood }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    expect(field("Clear at")).toHaveValue("hour");
+
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(4));
+    await act(async () => answers[3]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: newer }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(field("Emoji")).toHaveValue("🚀"));
+    expect(field("Words")).toHaveValue("Sailing the seas");
+    expect(field("Clear at")).toHaveValue("never");
   });
 });

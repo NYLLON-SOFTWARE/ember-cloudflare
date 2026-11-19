@@ -2,10 +2,11 @@ import { useContext, useId, useMemo, type MouseEvent } from "react";
 import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@ember/protocol";
 import { ChatPlusIn, Headset, NavArrowRight, StarSolid } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
-import { PageLink } from "@/components/page-link";
-import { useAccount } from "@/hooks/use-account";
+import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext, useNameOf, usePresenceOf, type Presence } from "@/hooks/use-directory";
-import { HUDDLES_PATH, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
+import { useMounted } from "@/hooks/use-mounted";
+import { HUDDLES_PATH, leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
+import { PageLink } from "@/components/page-link";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { membersShown } from "@/lib/directs";
 import { huddlesGoingOn } from "@/lib/huddle-list";
@@ -14,6 +15,7 @@ import { apart, inDirectOrder, inSidebarOrder, isQuietWelcome, markedUnread, typ
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
 import { opensNewDirect } from "./new-direct-dialog";
+import { Mood } from "./mood";
 import { UserAvatar } from "./user-avatar";
 
 /** A row of the list, a room's or a DM's. */
@@ -328,17 +330,21 @@ interface DirectRowProps {
 
 /**
  * A DM's row: the avatar of the one other person in it, with whether they're active or away, or of up
- * to four in a group, at 24px or 14px each, then their names, or yours in a DM with yourself, and the
- * agent badge in a DM with an AI agent alone. It ends with who's in its huddle while one is going on, as
- * a room's does, and one marked unread with how many messages it counts, or a dot for one the server
- * didn't count. Its presence and count are said to screen readers too.
+ * to four in a group, at 24px or 14px each, then their names, or yours in a DM with yourself, the agent
+ * badge in a DM with an AI agent alone, and what the one other person wears beside their name, muted.
+ * It ends with who's in its huddle while one is going on, as a room's does, and one marked unread with
+ * how many messages it counts, or a dot for one the server didn't count. Its presence and count are said
+ * to screen readers too.
  */
 function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
   const isWithAgent = useIsWithAgent();
+  const people = useContext(PeopleContext);
+  const members = membersShown(room, meId);
+  // The mood worn in a DM with one other person, which the row shows beside their name.
+  const alone = members.length === 1 ? people.get(members[0]!.id) : undefined;
   const presenceOf = usePresenceOf();
   const wordsId = useId();
-  const members = membersShown(room, meId);
   // An AI agent has no presence, though @ember's isn't listed as a bot until the directory has loaded.
   const presence = members.length === 1 && !isWithAgent(room) ? presenceOf(members[0]!) : null;
   const count = unreadId ? room.unreadCount : undefined;
@@ -373,6 +379,12 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
         <span className="min-w-0 flex-1 truncate">
           <span className="sr-only">Direct message with</span> {members.map((member) => `${nameOf(member)}${member.id === meId ? " (you)" : ""}`).join(", ")}
           {isWithAgent(room) && <AgentBadge className="ms-0.5" />}
+          {alone && (
+            <>
+              {" "}
+              <Mood mood={alone.mood} className="ms-1" />
+            </>
+          )}
         </span>
         {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} />}
         {count !== undefined ? <UnreadCount count={count} /> : unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}

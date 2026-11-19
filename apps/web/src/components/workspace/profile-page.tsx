@@ -8,9 +8,11 @@ import {
   MAX_USER_NAME_LENGTH,
   MEMBERFUL_DISCONNECTED_NOTICE,
   MIN_PASSWORD_LENGTH,
+  sameMood,
   type AccountDeletion,
   type Me,
   type MemberfulStatus,
+  type PersonMood,
   type Profile,
   type ProfileAnswer,
   type ProfileChanges,
@@ -50,6 +52,7 @@ import { SingleSignOnConnection } from "./sso-connection";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
 import { YourApps } from "./your-apps";
 import { YourOutsideAi } from "./your-outside-ai";
+import { MoodEditor } from "./mood-editor";
 
 interface Props {
   me: Me;
@@ -124,6 +127,18 @@ function disconnectsWithNewPassword(memberful: MemberfulStatus | null, sso: SsoS
 /**
  * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
  * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
+ * everywhere.", and Remove avatar takes away, then your name, email address, a new password, unless
+ * Memberful signs you in without one, your current password while you have one, which changing your
+ * email address or password takes, and your
+ * bio, which Save changes saves with the notice "✓", keeping the page, then your mood, an emoji and a
+ * few words beside your name, which Save mood wears and Clear takes off, and which comes off by itself
+ * when the Clear-at menu says, then, while members sign in with
+ * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
+ * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
+ * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
+ * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
+ * returns to the page it was opened from. Your avatar, name, bio and mood reach everyone's open pages at
+ * once, through the workspace socket, as they reach the rail.
  * everywhere.", and Remove avatar takes away, then your name, username, email address, a new password,
  * unless Memberful or single sign-on signs you in without one, your current password while you have
  * one, which changing your email address or password takes, and your
@@ -168,9 +183,19 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const [membershipNeeded, setMembershipNeeded] = useState(true);
   /** Which model @ember answers you with, how much it thinks and how long its answers are, or null while Ember AI is off. */
   const [assistant, setAssistant] = useState<Profile["assistant"]>(null);
-  /** The connected apps you can sign in to yourself, each with your sign-in to it, if you've made one. */
+/** The connected apps you can sign in to yourself, each with your sign-in to it, if you've made one. */
   const [apps, setApps] = useState<Profile["apps"]>([]);
   const [outsideAi, setOutsideAi] = useState<Profile["outsideAi"]>(null);
+  /** The mood you wear beside your name, or null while you wear none. */
+  const [mood, setMood] = useState<Profile["mood"]>(null);
+  /**
+   * The mood a save of the mood section has sent, and nothing once its save has answered or an answer
+   * has said it: an answer that read the profile before the save says the mood it read, and would take
+   * the save off again, so while the save is out, answers saying another mood are held off, until one
+   * says the mood that was sent, which has the save echoed back in it, and answers after it that
+   * differ are changes made since the save, as another tab's newer save, and show.
+   */
+  const savedMood = useRef<PersonMood | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -231,6 +256,14 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
     const { sso } = profile;
     setSso(disconnectedSso.current && sso?.connected ? (sso.ssoOnly ? { ...sso, connected: null } : null) : sso);
     setMembershipNeeded(profile.membershipNeeded);
+    // While a mood this page has sent is out for its save's answer, an answer saying another mood may
+    // be one that read the profile before the save, and is held off; one saying the mood that was sent
+    // has the save echoed back in it, so answers after it that differ are changes made since, as
+    // another tab's newer save, and show.
+    if (savedMood.current === undefined || sameMood(profile.mood, savedMood.current)) {
+      savedMood.current = undefined;
+      setMood(profile.mood);
+    }
     setTransferId(transferId);
   }
 
@@ -239,6 +272,25 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
     disconnectedMemberful.current = true;
     showAnswer(answer);
     flash("notice", MEMBERFUL_DISCONNECTED_NOTICE);
+  }
+
+  /** Shows your mood as a save of it or its clearing answered it, with the notice. */
+  function answered(answer: ProfileAnswer) {
+    // The save's own answer says the profile as the save left it, so the wait it armed is over.
+    savedMood.current = undefined;
+    showAnswer(answer);
+    flash("notice", "✓");
+  }
+
+  /** Arms the wait with the mood `worn` a save of the mood section has sent, or none, that answers before its own are held against. */
+  function savingMood(worn: PersonMood | null) {
+    savedMood.current = worn;
+  }
+
+  /** Says why saving the mood failed, letting answers through again, since nothing was saved for them to take off. */
+  function failedMood(error: unknown) {
+    savedMood.current = undefined;
+    onFailed(error);
   }
 
   /** Shows your profile as disconnecting your account at the single sign-on provider answered it, with the notice. */
@@ -433,6 +485,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
+        {fields !== null && <MoodEditor mood={mood} onSaving={savingMood} onSaved={answered} onFailed={failedMood} />}
         {memberful && (
           <MemberfulConnection
             connected={memberful.connected}

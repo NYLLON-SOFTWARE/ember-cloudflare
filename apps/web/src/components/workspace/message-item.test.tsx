@@ -1368,6 +1368,16 @@ describe("Custom reactions", () => {
     await user.click(screen.getByRole("button", { name: "New boost" }));
   }
 
+  it("fills a custom reaction from the picker, which offers the reactions by name", async () => {
+    const { actions, user } = show(message());
+    await newBoost(user);
+    await user.click(screen.getByRole("button", { name: "Pick a reaction" }));
+    await user.click(screen.getByRole("option", { name: "Party popper" }));
+    expect(customField()).toHaveValue("🎉");
+    await user.keyboard("{Enter}");
+    expect(actions.boost).toHaveBeenCalledWith("m1", "🎉");
+  });
+
   it("adds a reaction of your own from New boost's form, then hands focus to Message options", async () => {
     const { actions, user } = show(message());
     await newBoost(user);

@@ -28,6 +28,7 @@ import {
   type Involvement,
   type NavigationIconChanges,
   type NavigationIcons,
+  type PersonMood,
   type PersonRole,
   type Profile,
   type PushSubscriptionKeys,
@@ -327,6 +328,8 @@ export interface DirectoryEntry extends User {
   /** The username they picked, or null while they have none. */
   username: string | null;
   bio: string | null;
+  /** What they wear beside their name, or null while they wear none. */
+  mood: PersonMood | null;
   role: Role;
   status: UserStatus;
   updatedAt: string;
@@ -634,8 +637,8 @@ export interface AvatarChange {
   dueAt: number;
 }
 
-/** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
-export interface ProfileChange extends Pick<Profile, "name" | "username" | "emailAddress" | "bio"> {
+/** What `WorkspaceStore.changeProfile` saves: someone's profile, their mood, and the digest of a new password or null to keep theirs. */
+export interface ProfileChange extends Pick<Profile, "name" | "username" | "emailAddress" | "bio" | "mood"> {
   passwordDigest: string | null;
 }
 
@@ -1212,6 +1215,8 @@ interface DirectoryRow {
   name: string;
   username: string | null;
   bio: string | null;
+  /** The JSON `moodIn` reads, or null while they wear none. */
+  mood: string | null;
   role: number;
   status: number;
   updated_at: string;
@@ -1253,6 +1258,22 @@ const roomsChange = (agentId: UserId, rooms: RoomId[] | null, now: string): Stat
         statement(GRANT_PICKED_ROOMS, agentId, JSON.stringify(rooms), now),
       ];
 
+/** The mood the JSON `kept` names, as the users table keeps it, or null for none or what can't be one, as nothing Ember writes isn't. */
+function moodIn(kept: string | null): PersonMood | null {
+  if (kept === null) return null;
+  let mood: unknown;
+  try {
+    mood = JSON.parse(kept);
+  } catch {
+    return null;
+  }
+  return typeof mood === "object" && mood !== null && isMood(mood) ? mood : null;
+}
+
+const isMood = (mood: object): mood is PersonMood =>
+  typeof (mood as PersonMood).emoji === "string" &&
+  typeof (mood as PersonMood).text === "string" &&
+  ((mood as PersonMood).clearAt === null || typeof (mood as PersonMood).clearAt === "string");
 /**
  * What puts chat bot `botId` in every open room, with null, or in just the open rooms `rooms` names,
  * taking it out of the others, and records which, as `roomsChange` does an agent.
@@ -1286,6 +1307,7 @@ const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   name: row.name,
   username: row.username,
   bio: row.bio,
+  mood: moodIn(row.mood),
   role: ROLES[row.role] ?? "member",
   status: STATUSES[row.status] ?? "active",
   updatedAt: row.updated_at,
@@ -2715,7 +2737,7 @@ export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE
  * are, deleted agents too, whose answers stay, and whom an agent not everyone can ask is kept for
  * (migrations/0063_agent_access.sql).
  */
-const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, users.role, users.status, users.updated_at,
+const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, users.mood, users.role, users.status, users.updated_at,
   (users.role = ${BOT} AND users.bot_token IS NULL) AS agent, users.agent_access`;
 
 /** Everyone ?1 is told of, for the people directory: removed and banned people too, whose messages stay (`listedTo`). */
@@ -2998,7 +3020,7 @@ const DEACTIVATE = `UPDATE users SET status = ${DEACTIVATED}, email_address = re
  * address, password, username, bio, avatar or picks of theirs, and no longer an administrator. Their
  * username is free for anyone then, as their email address is.
  */
-const DELETE_ACCOUNT = `UPDATE users SET name = ?1, status = ${DEACTIVATED}, role = ${MEMBER}, email_address = NULL, email_verified_at = NULL, password_digest = NULL, username = NULL, bio = NULL,
+const DELETE_ACCOUNT = `UPDATE users SET name = ?1, status = ${DEACTIVATED}, role = ${MEMBER}, email_address = NULL, email_verified_at = NULL, password_digest = NULL, username = NULL, bio = NULL, mood = NULL,
   avatar_key = NULL, avatar_variant = NULL, assistant_thinking = NULL, assistant_answer_length = NULL, assistant_model = NULL,
   huddle_music = 1, huddle_chimes = 1, huddle_ring = 1, invitation_dismissed_at = NULL, deleted_at = ?2, updated_at = ?2 WHERE id = ?3`;
 
@@ -3079,9 +3101,9 @@ const KEEP_PICTURE = `DELETE FROM pending_picture_deletions WHERE object_key = ?
  * Saves someone's profile and records when, keeping their password unless given a new one's digest, and
  * forgetting that they proved their email address once it's another.
  */
-const CHANGE_PROFILE = `UPDATE users SET name = ?1, username = ?2, email_address = ?3, bio = ?4, password_digest = coalesce(?5, password_digest), updated_at = ?6,
+const CHANGE_PROFILE = `UPDATE users SET name = ?1, username = ?2, email_address = ?3, bio = ?4, mood = ?5, password_digest = coalesce(?6, password_digest), updated_at = ?7,
     email_verified_at = CASE WHEN email_address IS ?3 THEN email_verified_at END
-  WHERE id = ?7`;
+  WHERE id = ?8`;
 
 /** The same, with whether each is in a room, for its settings. */
 export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
@@ -5551,8 +5573,8 @@ export class WorkspaceStore {
    * they had one and keep an email address to sign in with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it
    * queued any.
    */
-  async changeProfile(userId: UserId, { name, username, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
-    const change = statement(CHANGE_PROFILE, name, username, emailAddress, bio, passwordDigest, now, userId);
+  async changeProfile(userId: UserId, { name, username, emailAddress, bio, mood, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+    const change = statement(CHANGE_PROFILE, name, username, emailAddress, bio, mood && JSON.stringify(mood), passwordDigest, now, userId);
     if (!ended) {
       await this.db.batch([change]);
       return false;
