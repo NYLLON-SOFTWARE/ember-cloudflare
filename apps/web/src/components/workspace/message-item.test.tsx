@@ -102,10 +102,9 @@ function show(
       <FlashProvider workspace>
         <RoomConnection value={connections}>
           <RefusedUnboosts value={refusals}>
-            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} pinnedIds={pinnedIds} />
             <BlockingContext value={blocking}>
               <ReportingContext value={openReport}>
-                <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+                <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} pinnedIds={pinnedIds} />
               </ReportingContext>
             </BlockingContext>
           </RefusedUnboosts>
@@ -1094,7 +1093,7 @@ describe("More actions on a message", () => {
       withMouse();
       const { actions, article, user } = show(message({ creator: grace }), { administrator: true, pinnedIds: new Set<string>() });
       await openMoreActions(user, article);
-      expect(items()).toEqual(["Pin to room", "Quote", "Copy text", "Copy link", "Edit message", "Delete message"]);
+      expect(items()).toEqual(["Pin to room", "Quote", "Copy text", "Copy link", "Block Grace", "Report message", "Edit message", "Delete message"]);
       await user.click(within(moreActions()).getByRole("button", { name: "Pin to room" }));
       expect(actions.pin).toHaveBeenCalledWith("m1");
       cleanup();
@@ -1108,7 +1107,7 @@ describe("More actions on a message", () => {
       const { user } = show(message(), { me: grace });
       await user.click(optionsOn("Hello"));
       expect(within(actionBar()).queryByRole("button", { name: "Pin to room" })).not.toBeInTheDocument();
-      expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link"]);
+      expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Block Ada", "Report message"]);
     });
   });
 });
