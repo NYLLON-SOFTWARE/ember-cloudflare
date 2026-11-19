@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type AccountDeletion, type Blocks, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User, type UserId } from "@ember/protocol";
+import { ALL_HUDDLE_SOUNDS, CAMERAS_OFF, SCREENS_OFF } from "@ember/protocol/huddles";
 import { useFlash } from "@/components/flash";
 import { Xmark } from "@/components/icons/iconoir";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { useAccount } from "@/hooks/use-account";
+import { useAccount, useCamerasAllowed, useScreensAllowed } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, DirectoryReloading, DirectoryStale, GroupsContext, PeopleContext, ReloadDirectory, useDirectory } from "@/hooks/use-directory";
+import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
+import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
@@ -17,13 +20,21 @@ import { useSidebar } from "@/hooks/use-sidebar";
 import { SavesContext, useSaves } from "@/hooks/use-saves";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
+import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/use-reporting";
+import { useSidebar } from "@/hooks/use-sidebar";
+import { agentsToAsk } from "@/lib/agents";
+import { answerHuddleInvitation, ApiError, changeBlock, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
+import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
+import { hasHuddles } from "@/lib/huddle-people";
+import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
 import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
 import { lastRoomVisited } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
+import { takeSsoFlash } from "@/lib/sso";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
-import { markedUnread } from "@/lib/room-list";
+import { isQuietWelcome, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, threadPath, useHash, useRoute, type Route } from "@/hooks/use-route";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
@@ -31,6 +42,11 @@ import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { ReminderNotice } from "./reminder-notice";
 import { NewDirectDialog } from "./new-direct-dialog";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
+import { HuddlesContext, joinsNoHuddle, NO_HUDDLES, type Huddles } from "./huddle-button";
+import { MovedNotice } from "./moved-notice";
+import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
+import { NewDirectDialog, startedWithout } from "./new-direct-dialog";
 import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
@@ -79,6 +95,7 @@ const RARE_PAGES = new Set<Route["page"]>([
   "push-subscriptions",
   "person",
   "search",
+  "huddles",
 ]);
 
 /**
@@ -90,11 +107,11 @@ export function loadPageAhead(pathname: string): Promise<unknown> {
 }
 
 /**
- * What the rail marks on each page: the logo and Home at home, Home on a room's page and the pages that
- * go on to one, Search on search, Admin or Workspace on every page of community settings (a room's
- * forms, the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing on
- * a DM's settings or your push subscriptions, whose addresses none of its links have, nor on New direct
- * message's, which goes on to the last room visited at once.
+ * What the rail marks on each page: the logo and Home at home, Home on a room's page, the pages that
+ * go on to one and the Huddles page, Search on search, Admin or Workspace on every page of community
+ * settings (a room's forms, the bot and agent pages and the Custom CSS page among them), your avatar on
+ * your profile, and nothing on a DM's settings or your push subscriptions, whose addresses none of its
+ * links have, nor on New direct message's, which goes on to the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -120,6 +137,7 @@ const RAIL_PAGES = {
   "push-subscriptions": null,
   person: null,
   search: "search",
+  huddles: "room",
 } as const satisfies Record<Route["page"], RailPage>;
 
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
@@ -135,7 +153,7 @@ interface Redirect {
 const NO_ROOMS: SidebarRoom[] = [];
 const NO_FAVORITES: Favorites = { rooms: [], version: 0 };
 const NO_ORDER: RoomId[] = [];
-const NO_PEOPLE: User[] = [];
+const NO_BLOCKS: Blocks = { userIds: [], version: 0 };
 
 /** What the page shows while its rooms, or the page itself, load. */
 const LOADING = (
@@ -200,19 +218,22 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 
 /**
  * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
- * home to the last room visited, `/rooms` to the room they were put in latest, a room's address for its
- * kind to the room's own, and a DM's settings home, unless it's theirs. New direct message's goes home
- * too, under the dialog it opens, and a message's own address goes on to its permalink.
+ * home to the last room visited, `/rooms` to the room they were put in latest, but for the DMs started
+ * as they joined that their sidebar leaves out (`isQuietWelcome`), a room's address for its kind to the
+ * room's own, and a DM's settings home, unless it's theirs. New direct message's goes home too, under
+ * the dialog it opens, and a message's own address goes on to its permalink.
  */
-function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
+function redirectOf(route: Route, rooms: SidebarRoom[], meId: UserId): Redirect | null {
   switch (route.page) {
     case "home": {
       const room = lastRoomVisited(rooms);
       return room && { path: roomPath(room.id) };
     }
-    case "newest-room":
+    case "newest-room": {
       // With no room to go to, home says there are none.
-      return { path: rooms.length > 0 ? roomPath(rooms.at(-1)!.id) : "/" };
+      const newest = rooms.findLast((room) => !isQuietWelcome(room, meId));
+      return { path: newest ? roomPath(newest.id) : "/" };
+    }
     case "room-of-kind": {
       // A direct message's goes on without looking, and the room's own address checks it.
       if (route.kind === "direct") return { path: roomPath(route.roomId) };
@@ -254,6 +275,8 @@ interface Props {
   onAccountChanged: (account: Account) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
+  /** Deletes your account and goes to sign in, settling once it's deleted, or failing with why not. */
+  onDeleteAccount: (deletion: AccountDeletion) => Promise<void>;
   /**
    * Called when this browser's session stops signing in `me`: with null once it has expired, or with
    * whoever another tab signed in as.
@@ -261,7 +284,7 @@ interface Props {
   onSessionChanged: (me: Me | null) => void;
 }
 
-export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSessionChanged }: Props) {
+export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDeleteAccount, onSessionChanged }: Props) {
   // How many times the workspace socket has said what the account is. A page's answer from the server
   // shows only if no more has been said since it was asked for, since it may have been read before.
   const accountsHeard = useRef(0);
@@ -316,6 +339,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     };
   }, [hearDnd]);
   const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone, reloadReminders, hearDnd, dndConnecting);
+  // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
+  const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -344,19 +370,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // On a page of community settings, the links to their sections take the conversations' place.
   const section = settingsSectionOf(route, hash);
   const administrator = me.administrator;
-  const settings = useMemo<SettingsPlace | null>(() => section && { section, administrator }, [section, administrator]);
+  // How many reports are open, which only an administrator's sidebar says, and how many times it has said.
+  const openReports = administrator ? (list?.openReports ?? 0) : 0;
+  const reportsHeard = administrator ? heard : 0;
+  const settings = useMemo<SettingsPlace | null>(() => section && { section, administrator, openReports, reportsHeard }, [section, administrator, openReports, reportsHeard]);
 
   const rooms = list?.rooms ?? null;
   const invitation = list?.invitation ?? null;
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
-  // Not anyone the directory has heard is removed or banned since the list loaded.
-  const listedSuggestions = list?.suggestions ?? NO_PEOPLE;
-  const suggestions = useMemo(
-    () => listedSuggestions.filter((person) => (directory.people.get(person.id)?.status ?? "active") === "active"),
-    [listedSuggestions, directory.people],
-  );
 
   // Crossing 900px, as a big phone does on its side, closes the drawer.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
@@ -392,6 +415,23 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (route.page === "new-direct") openNewDirect(null);
   }, [route]);
 
+  // Available Agents, while it's open, with the sidebar's row that opened it, which gets focus back, and
+  // how many of them the row says there are, once the people directory lists everyone. On a phone, the
+  // drawer closes as it opens.
+  const [agentsList, setAgentsList] = useState<{ opener: HTMLElement } | null>(null);
+  const openAgents = (opener: HTMLElement) => {
+    setDrawerOpen(false);
+    setAgentsList({ opener });
+  };
+  const agents = useMemo(() => (directory.loaded ? agentsToAsk(directory.people.values(), me) : 0), [directory.loaded, directory.people, me]);
+
+  // Report, while it's open, with what had focus as it opened, which gets it back unless what opened it says what does.
+  const [reporting, setReporting] = useState<{ target: ReportTarget; opener: HTMLElement | null; returnFocus?: () => void } | null>(null);
+  const openReport = useCallback<OpenReport>(
+    (target, returnFocus) => setReporting({ target, opener: document.activeElement instanceof HTMLElement ? document.activeElement : null, returnFocus }),
+    [],
+  );
+
   // The search box, while it's open, with what it opened with. On a phone, the drawer closes as it opens.
   const [searchBox, setSearchBox] = useState<SearchBoxOptions | null>(null);
   const openSearch = useCallback((options: SearchBoxOptions) => {
@@ -401,29 +441,81 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
 
   // The huddle this tab is in, and the preview one is started or joined from, while it's open, by its room.
   const huddle = useHuddle();
+  const huddleRoom = (huddle && rooms?.find((r) => r.id === huddle.roomId)) ?? null;
   const huddlesOn = useAccount().huddles;
+  const camerasAllowed = useCamerasAllowed();
+  const screensAllowed = useScreensAllowed();
   const [huddlePreview, setHuddlePreview] = useState<RoomId | null>(null);
   // Whether the keyboard shortcuts dialog is open.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const closeHuddlePreview = useCallback(() => setHuddlePreview(null), []);
   const liveHuddles = list?.huddles ?? NO_HUDDLES;
   const huddles = useMemo<Huddles>(() => ({ live: liveHuddles, preview: setHuddlePreview }), [liveHuddles]);
-  // Only a room that's still this person's, and only while huddles are on, has a preview to show.
-  const previewedRoom = huddlePreview !== null && huddlesOn ? rooms?.find((r) => r.id === huddlePreview) : undefined;
-  const previewed = previewedRoom?.kind === "direct" ? undefined : previewedRoom;
+  // Whether a room has huddles, once they're on: a shared room whose settings allow them, and a direct message with someone to huddle with.
+  const offersHuddle = (r: Room) => huddlesOn && hasHuddles(r, me.id, (user) => joinsNoHuddle(user, directory.people.get(user.id)));
+  // Only a room that's still this person's, and only while it has huddles, has a preview to show.
+  const previewedRoom = huddlePreview !== null ? rooms?.find((r) => r.id === huddlePreview) : undefined;
+  const previewed = previewedRoom && offersHuddle(previewedRoom) ? previewedRoom : undefined;
   useEffect(() => {
     if (huddlePreview !== null && rooms !== null && !previewed) setHuddlePreview(null);
   }, [huddlePreview, rooms, previewed]);
+  // An invitation rings until this tab sees it has no more reason to: huddles are off, its room is no
+  // longer this person's, they're in its huddle, here or elsewhere, or the huddle is over.
+  const roomIds = useMemo(() => (rooms ? new Set(rooms.map(({ id }) => id)) : null), [rooms]);
+  const joinedRoomId = huddle?.roomId ?? null;
+  useEffect(() => {
+    changeInvitations({ type: "seen", on: huddlesOn, meId: me.id, roomIds, live: liveHuddles, joinedRoomId });
+  }, [invitations, huddlesOn, me.id, roomIds, liveHuddles, joinedRoomId]);
+  // Someone in a huddle already, in this tab or anywhere else, is shown an invitation without its ring.
+  const inAHuddle = huddle !== null || Object.values(liveHuddles).some(({ userIds }) => userIds.includes(me.id));
+  // Which of a huddle's own sounds this person hears, as the switches on their profile leave them, in
+  // any of their tabs: the huddle this tab is in, and the next it joins, plays only those.
+  const soundsHeard = list?.huddleSounds ?? ALL_HUDDLE_SOUNDS;
+  useEffect(() => hearSounds(soundsHeard), [soundsHeard]);
+  // An invitation's ring is one of them, which waits for the server's list to say they hear it.
+  const ringless = inAHuddle || !answered || !soundsHeard.ring;
 
   const flash = useFlash();
   const mounted = useMounted();
-  // Why the room ended this tab's huddle, when it does. Whoever's signed in next starts in none.
-  useEffect(() => hearHuddleEnd((why) => flash("alert", why)), [flash]);
+  // What this tab's huddle has to say: why the room ended it, or why its camera stays off or its screen
+  // isn't shared. Whoever's signed in next starts in none.
+  useEffect(() => hearHuddle((what) => flash("alert", what)), [flash]);
   useEffect(() => leaveHuddle, []);
-  // What connecting a Memberful account came to, as the address Memberful sent this browser back to says.
+  // An administrator who turns cameras off takes down the one this tab shows, and its person is told
+  // why, and so with the screen it shares once screen sharing is off. The room takes down whichever
+  // are on still at its next check.
+  const showsCameraUnallowed = !camerasAllowed && huddle?.camera != null;
   useEffect(() => {
-    const message = takeMemberfulFlash();
-    if (message) flash(message.kind, message.text);
+    if (!showsCameraUnallowed) return;
+    showHuddleCamera(false);
+    flash("alert", CAMERAS_OFF);
+  }, [showsCameraUnallowed, flash]);
+  const sharesScreenUnallowed = !screensAllowed && huddle?.screen != null;
+  useEffect(() => {
+    if (!sharesScreenUnallowed) return;
+    shareHuddleScreen(false);
+    flash("alert", SCREENS_OFF);
+  }, [sharesScreenUnallowed, flash]);
+  // The huddle opened covers the page, so going to a page, the one shown included, minimizes it to its
+  // bar: all but the visit its own link ends in, which opens it.
+  const visit = useVisit();
+  const opensHuddle = useRef(-1);
+  useEffect(() => {
+    openHuddle(opensHuddle.current === visit);
+  }, [visit]);
+  // A room whose settings stop allowing huddles has this tab leave the one it's in there, and its person
+  // is told why, so the huddle is over once everyone's tab has heard. The room ends it at its next check
+  // for whoever is in it still.
+  const inHuddleUnallowed = huddleRoom !== null && huddleRoom.kind !== "direct" && huddleRoom.huddles === false;
+  useEffect(() => {
+    if (!inHuddleUnallowed) return;
+    leaveHuddle();
+    flash("alert", "Huddles have been turned off in this room.");
+  }, [inHuddleUnallowed, flash]);
+  // What connecting a Memberful account, or one at the single sign-on provider, came to, as the address
+  // the browser was sent back to says.
+  useEffect(() => {
+    for (const message of [takeMemberfulFlash(), takeSsoFlash()]) if (message) flash(message.kind, message.text);
   }, [flash]);
   // A session that's ended goes to sign in; anything else is an alert. Once another person's workspace
   // has taken this one's place, as another tab signing in makes it, what this one's pages hear is
@@ -461,6 +553,41 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   useEffect(() => {
     if (route.page === "room" && (route.threadId !== undefined || route.messageId !== undefined)) setSavedOpen(false);
   }, [route]);
+  const invitationOver = useCallback((roomId: RoomId) => changeInvitations({ type: "over", roomId }), []);
+  // An invitation answered stops ringing here at once, and in this person's other tabs once the Workspace
+  // has heard, where one it never hears of rings on until it gives up.
+  const answerInvitation = useCallback(
+    (roomId: RoomId) => {
+      invitationOver(roomId);
+      answerHuddleInvitation(roomId).catch((error: unknown) => isSignedOut(error) && failed(error));
+    },
+    [invitationOver, failed],
+  );
+  // Joining goes by the huddle's preview, as it does from the room, so a click on an invitation that
+  // has just come opens no microphone. A room the list doesn't have, as one made while this tab wasn't
+  // connected, has its preview once the list asked for again has come.
+  const joinInvited = useCallback(
+    (roomId: RoomId) => {
+      answerInvitation(roomId);
+      if (roomIds?.has(roomId) ?? true) return setHuddlePreview(roomId);
+      refresh().then(() => mounted.current && setHuddlePreview(roomId), failed);
+    },
+    [answerInvitation, roomIds, refresh, failed, mounted],
+  );
+  const agentsListFailed = useCallback(
+    (error: unknown) => {
+      setAgentsList(null);
+      failed(error);
+    },
+    [failed],
+  );
+  const reportFailed = useCallback(
+    (error: unknown) => {
+      setReporting(null);
+      failed(error);
+    },
+    [failed],
+  );
   // A room just saved takes its place in the list, and one that's gone leaves it.
   const listRoom = useCallback((room: Room) => changeRooms({ type: "saved", room }), []);
   const unlistRoom = useCallback((roomId: RoomId) => changeRooms({ type: "gone", roomId }), []);
@@ -477,6 +604,27 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     }
   }, [failed]);
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
+  // Blocking someone, or unblocking them, collapses their messages here or shows them again once the
+  // server answers, and hides your DM with them alone or shows it again. The set changes only with
+  // whom you've blocked, so that a sidebar loaded again draws no message again.
+  const setBlocked = useCallback(
+    async (person: User, blocked: boolean) => {
+      const answered = askForRoom();
+      try {
+        const changed = await changeBlock(person.id, blocked);
+        changeRooms({ type: "blocked", blocks: changed.blocks });
+        if (changed.direct) answered({ type: "involved", ...changed.direct });
+        return true;
+      } catch (error) {
+        failed(error);
+        return false;
+      }
+    },
+    [askForRoom, failed],
+  );
+  // Whom you've blocked, by a key that stays the same while they do, so a list loaded again renders no message again.
+  const blockedKey = JSON.stringify((list?.blocks ?? NO_BLOCKS).userIds);
+  const blocking = useMemo<Blocking>(() => ({ blocked: new Set(JSON.parse(blockedKey) as UserId[]), setBlocked }), [blockedKey, setBlocked]);
   // A save's answer can come after a newer order has loaded, so the rooms load again once it's taken.
   const reorderedRooms = useCallback(
     (sharedOrder: RoomId[]) => {
@@ -540,8 +688,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
 
   // Where the address goes on to, once the list it goes by has come.
   const goingOn = useMemo(
-    () => (rooms && !askingAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms) : null),
-    [rooms, askingAgain, goneRoom, unansweredHere, route],
+    () => (rooms && !askingAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms, me.id) : null),
+    [rooms, askingAgain, goneRoom, unansweredHere, route, me.id],
   );
   // Before the page paints, so a page that only goes on to another doesn't show.
   useLayoutEffect(() => {
@@ -571,8 +719,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
   const select = (roomId: string) => navigate(roomPath(roomId));
-  // A suggestion, or the button on someone's page, starts the DM with its person, or opens the one they
-  // have, and goes there, listing it as the server answers.
+  // The button on someone's page starts the DM with its person, or opens the one they have, and goes
+  // there, listing it as the server answers.
   const startDirectWith = async (person: User) => {
     const answered = askForRoom();
     const mark = pageMark();
@@ -676,7 +824,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (togglesMute(event) && huddle) return pressed(() => muteHuddle(!huddle.muted));
     if (!togglesHuddle(event) || (event.target instanceof Element && event.target.closest("[role=dialog]"))) return;
     if (huddle) return pressed(leaveHuddle);
-    if (!huddlesOn || !room || room.kind === "direct" || goneRoom) return;
+    if (!room || !offersHuddle(room) || goneRoom) return;
     pressed(() => setHuddlePreview(room.id));
   });
   // Cmd+/ or Ctrl+/ opens the keyboard shortcuts: from the composer too, which has no
@@ -696,12 +844,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
-  // A huddle's link shows its room and offers the huddle, unless the tab is in it. The address becomes
-  // the room's, so that loading the page again, or coming back to it, doesn't offer it again.
+  // A huddle's link shows its room and offers the huddle, or opens it once the tab is in it. The address
+  // becomes the room's, so that loading the page again, or coming back to it, doesn't offer it again.
   const followHuddleLink = useEffectEvent((room: Room) => {
     if (!huddlesOn) flash("alert", "Huddles are turned off.");
-    else if (room.kind !== "direct" && huddle?.roomId !== room.id) setHuddlePreview(room.id);
+    else if (room.kind !== "direct" && room.huddles === false) flash("alert", "Huddles are turned off in this room.");
+    else if (offersHuddle(room) && huddle?.roomId !== room.id) setHuddlePreview(room.id);
     navigate(roomPath(room.id), { replace: true });
+    if (huddle?.roomId === room.id) opensHuddle.current = pageMark();
   });
   const huddleLinked = route.page === "room" && route.huddle === true && !goneRoom ? room : null;
   useLayoutEffect(() => {
@@ -713,6 +863,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   useAppBadge(answered ? activity.unread : null);
   const rail = (
     <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} dndUntil={dndUntil} saved={saved} newRelease={newRelease} onNewDirect={openNewDirect} />
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
   );
   const sidebar = (
     <Sidebar
@@ -720,16 +871,18 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
-      suggestions={suggestions}
       favorites={favorites}
       sharedOrder={sharedOrder}
       huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
+      onHuddles={route.page === "huddles"}
       currentRoomId={currentRoomId}
       readRoomId={readRoomId}
       unreadOnly={unreadOnly}
+      agents={agents}
+      agentsOpen={agentsList !== null}
       onSelect={select}
       onNewDirect={openNewDirect}
-      onStartDirect={startDirectWith}
+      onOpenAgents={openAgents}
       onStarred={starredRooms}
       onSessionChanged={onSessionChanged}
     />
@@ -782,10 +935,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       case "bots":
         return rarePage(({ BotsPage }) => <BotsPage onFailed={failed} />);
       case "new-bot":
-        return rarePage(({ NewBotPage }) => <NewBotPage me={me} onFailed={failed} />);
+        return rarePage(({ NewBotPage }) => <NewBotPage me={me} rooms={rooms} onFailed={failed} />);
       case "bot-settings":
         return rarePage(({ BotSettingsPage }) => (
-          <BotSettingsPage key={route.userId} botId={route.userId} onMissing={showNotFound} onFailed={failed} />
+          <BotSettingsPage key={route.userId} botId={route.userId} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
       case "new-agent":
         return rarePage(({ NewAgentPage }) => <NewAgentPage me={me} rooms={rooms} onFailed={failed} />);
@@ -803,10 +956,24 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} dndUntil={dndUntil} askForDnd={askForDnd} onDndChanged={hearDnd} onSignOut={onSignOut} onFailed={failed} />);
+        return rarePage(({ ProfilePage }) => (
+          <ProfilePage
+            me={me}
+            rooms={rooms}
+            askForRoom={askForRoom}
+            huddleSounds={huddlesOn && answered ? soundsHeard : null}
+            askForHuddleSounds={askForHuddleSounds}
+            onSignOut={onSignOut}
+            onDeleteAccount={onDeleteAccount}
+            onFailed={failed}
+          />
+        ));
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":
         return rarePage(({ SearchPage }) => <SearchPage me={me} rooms={rooms ?? NO_ROOMS} back={back} onFailed={failed} />);
+      case "huddles":
+        return rarePage(({ HuddlesPage }) => <HuddlesPage me={me} rooms={rooms} changes={huddleChanges} onFailed={failed} />);
       case "person":
         return rarePage(({ PersonPage }) => (
           <PersonPage
@@ -895,9 +1062,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             "min-[1180px]:has-[>[data-thread],>[data-pins]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
             // Or the Saved pane open beside it, which takes the same of the room's width.
             "min-[1180px]:has-[>[data-saved]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
+            // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
+            "min-[1180px]:has-[[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
           )}
         >
-          <SkipLink />
+          <SkipLink to={huddle?.open ? OPEN_HUDDLE : undefined} />
           <div className="contents max-md:hidden [&>*]:row-span-2" onClick={showAllForLink}>
             {rail}
             {!settings && (
@@ -948,7 +1117,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             )}
           </SheetContent>
 
-          {page()}
+          {/* The page, placed in the grid as if it were its own, with nothing of it to reach while the huddle opened covers it. */}
+          <div className="contents" inert={huddle?.open === true}>
+            {page()}
+          </div>
+          {huddle?.open && (
+            <RarePage show={({ HuddleView }) => <HuddleView huddle={huddle} room={huddleRoom} me={me} onFailed={failed} />} loading={null} onFailed={failed} />
+          )}
           <Notices>
             <MovedNotice />
             <UpdatedNotice />
@@ -961,12 +1136,26 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               saves={saver.saves}
               onClose={() => setSavedOpen(false)}
               onForget={(id) => void saver.forget(id)}
+          {huddlesOn && invitations.length > 0 && (
+            <RarePage
+              show={({ HuddleInvitations }) => (
+                <HuddleInvitations
+                  invitations={invitations}
+                  rooms={rooms ?? NO_ROOMS}
+                  quiet={ringless}
+                  onJoin={joinInvited}
+                  onDecline={answerInvitation}
+                  onUnanswered={invitationOver}
+                />
+              )}
+              loading={null}
+              onFailed={failed}
             />
           )}
           {newDirect && (
             <NewDirectDialog
               opener={newDirect.opener}
-              meId={me.id}
+              me={me}
               reloadPeople={directory.reload}
               askForRoom={askForRoom}
               onClose={(startedShown) => {
@@ -975,10 +1164,39 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
                 // opening it would.
                 if (startedShown) roomView.current?.focusComposer();
               }}
+              onLeftOut={(people) => flash("alert", startedWithout(people.map((person) => person.name)))}
               onFailed={failed}
             />
           )}
+          {agentsList && (
+            <RarePage
+              show={({ AvailableAgentsDialog }) => (
+                <AvailableAgentsDialog
+                  me={me}
+                  rooms={rooms ?? NO_ROOMS}
+                  opener={agentsList.opener}
+                  onClose={(started) => {
+                    setAgentsList(null);
+                    // The dialog kept focus while the page went to the DM it started, whose composer takes it
+                    // now, as opening the DM would give it.
+                    if (started) roomView.current?.focusComposer();
+                  }}
+                  onStartDirect={startDirectWith}
+                  onFailed={agentsListFailed}
+                />
+              )}
+              loading={null}
+              onFailed={agentsListFailed}
+            />
+          )}
           <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+          {reporting && (
+            <RarePage
+              show={({ ReportDialog }) => <ReportDialog {...reporting} meId={me.id} onClose={() => setReporting(null)} onFailed={reportFailed} />}
+              loading={null}
+              onFailed={reportFailed}
+            />
+          )}
           {searchBox && <SearchBox {...searchBox} me={me} rooms={rooms ?? NO_ROOMS} onClose={() => setSearchBox(null)} onFailed={failed} />}
           {previewed && (
             <RarePage
@@ -987,12 +1205,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onFailed={huddlePreviewFailed}
             />
           )}
-          {huddle && (
-            <RarePage
-              show={({ HuddleBar }) => <HuddleBar huddle={huddle} room={rooms?.find((r) => r.id === huddle.roomId) ?? null} meId={me.id} />}
-              loading={null}
-              onFailed={failed}
-            />
+          {huddle && !huddle.open && (
+            <RarePage show={({ HuddleBar }) => <HuddleBar huddle={huddle} room={huddleRoom} meId={me.id} />} loading={null} onFailed={failed} />
           )}
           {/* The reminder that has come due, over whatever page it finds the person on, until they're done with it. */}
           {(() => {
@@ -1038,6 +1252,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           </ReloadDirectory>
         </DirectoryReloading>
       </GroupsContext>
+      <DirectoryLoaded value={directory.loaded}>
+        <ActivePeople value={active}>
+          <SettingsLayout value={settings}>
+            <OpenSearchContext value={openSearch}>
+              <HuddlesContext value={huddles}>
+                <BlockingContext value={blocking}>
+                  <ReportingContext value={openReport}>{layout}</ReportingContext>
+                </BlockingContext>
+              </HuddlesContext>
+            </OpenSearchContext>
+          </SettingsLayout>
+        </ActivePeople>
+      </DirectoryLoaded>
     </PeopleContext>
   );
 }

@@ -7,7 +7,10 @@ import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { displayBody } from "./display";
 import { ParseLimitError, type HtmlParser } from "./markup";
 import { editableBody, groupIdsIn, groupIdFromSgid, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
+import { forOneReading, ParseLimitError, type HtmlParser } from "./markup";
+import { editableBody, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
 import { plainParagraphLines } from "./plain-paragraph";
+import { hasPreview } from "./previews";
 import { canonicalize } from "./render";
 import { chompNewlines, isBlank } from "./ruby";
 import { toHtml } from "./serialize";
@@ -34,7 +37,8 @@ export interface PreparedBody {
 
 /** `message.body.to_plain_text`. Throws `ParseLimitError` past the parser's limits. */
 export function plainText(parse: HtmlParser, markup: string, resolve: ResolveMention): string {
-  return contentToPlainText(parse, loadContent(parse, markup), resolve);
+  const read = forOneReading(parse);
+  return contentToPlainText(read, loadContent(read, markup), resolve);
 }
 
 /**
@@ -115,5 +119,6 @@ export function withParser(parse: HtmlParser) {
       editableBody(parse, stored, card, host, groupCard),
     autoLink: (html: string) => autoLink(parse, html),
     displayBody: (html: string, plainText: string, host: string) => displayBody(parse, html, plainText, host),
+    hasPreview: (markup: string) => hasPreview(parse, markup),
   };
 }

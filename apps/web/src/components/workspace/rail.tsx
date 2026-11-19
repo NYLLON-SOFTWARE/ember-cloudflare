@@ -7,9 +7,11 @@ import { useAccount } from "@/hooks/use-account";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
+import { HistoryButtons } from "./history-buttons";
 import { NavigationIcon } from "./navigation-icon";
 import { opensNewDirect } from "./new-direct-dialog";
 import { OpenSearchContext, opensSearch } from "./search-box";
+import { openReportsNamed } from "./settings-navigation";
 import { UserAvatar } from "./user-avatar";
 
 const RAIL_LINK = cn(
@@ -129,6 +131,8 @@ interface Props {
   saved: Saved;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
+  /** How many reports are open, which Admin marks for an administrator too. */
+  openReports?: number;
   /** Opens New direct message, which DMs does in place, from the link that opened it. */
   onNewDirect: (opener: HTMLElement) => void;
 }
@@ -136,18 +140,22 @@ interface Props {
 /**
  * The persistent navigation rail, drawn with the icons an administrator chose in Community settings, or
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
- * out, which General, where it goes, tells of.
+ * out, which General, where it goes, tells of, or while reports are open, which Membership counts.
  */
 export function Rail({ me, workspaceName, current, activity, dndUntil, saved, newRelease, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
+  const notices = [newRelease !== null && `Ember ${newRelease} is available`, openReports > 0 && openReportsNamed(openReports)].filter((notice) => notice !== false);
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
     <nav
       aria-label="Workspace"
       className="flex h-full w-[calc(var(--spacing-rail)+env(safe-area-inset-left))] flex-col items-center gap-3 overflow-y-auto overscroll-contain border-r bg-surface pt-4 pr-3 pb-[max(16px,env(safe-area-inset-bottom))] pl-[calc(12px+env(safe-area-inset-left))] [scrollbar-width:none]"
     >
+      {/* Back and Forward at the top, in line with the page's top bar, for a pointer: fingers have their own way back. */}
+      <HistoryButtons className="touch:hidden" />
       <PageLink
         href="/"
         aria-label="Ember home"
@@ -175,7 +183,7 @@ export function Rail({ me, workspaceName, current, activity, dndUntil, saved, ne
         label={me.administrator ? "Admin" : "Workspace"}
         href={WORKSPACE_SETTINGS_PATH}
         current={marked === "workspace"}
-        notice={newRelease === null ? undefined : `Ember ${newRelease} is available`}
+        notice={notices.length > 0 ? notices.join(". ") : undefined}
       />
       <AppearanceMenu />
       {/* Your avatar, at 36px, links to your profile, where you log out, with a crescent on it while

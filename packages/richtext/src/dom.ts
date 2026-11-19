@@ -24,7 +24,8 @@ let inertDocument: Document | undefined;
  * `parseHtml`'s counterpart: the fragment parsing algorithm, run by setting a context element's
  * `innerHTML`. Gumbo's limits are checked on the tree that results, which can't show the
  * attributes the browser dropped as duplicates, or the elements it closed early. Nor does it show
- * which formatting elements were reopened, so only the server keeps `MAX_REOPENED_ELEMENTS`.
+ * which formatting elements were reopened or copied, so only the server keeps `MAX_REOPENED_ELEMENTS`
+ * and `MAX_COPIED_ATTRIBUTES_LENGTH`.
  */
 export const parseDom: HtmlParser = (markup, context = BODY) => {
   inertDocument ??= new DOMParser().parseFromString("", "text/html");
@@ -77,3 +78,4 @@ function isTemplate(element: globalThis.Element): element is HTMLTemplateElement
 }
 
 export const { prepareBody, plainText, mentionedUsers, userIdsIn, groupIdsIn, writtenBody, editableBody, autoLink, displayBody } = withParser(parseDom);
+export const { prepareBody, plainText, mentionedUsers, userIdsIn, writtenBody, editableBody, autoLink, displayBody, hasPreview } = withParser(parseDom);
