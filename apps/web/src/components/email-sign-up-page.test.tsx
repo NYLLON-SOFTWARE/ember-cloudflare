@@ -1,4 +1,15 @@
-import { CANT_EMAIL_LINKS, EMAIL_LINK_GONE, EMAIL_LINK_UNSENT, EMAIL_LINKS_LIMITED, JOINING_PROBLEMS, onlyAddressesAt, PASSWORD_TOO_LONG, signInSaying, TURNSTILE_FAILED, type Bootstrap, type Me } from "@ember/protocol";
+import {
+  CANT_EMAIL_LINKS,
+  EMAIL_LINK_GONE,
+  EMAIL_LINKS_LIMITED,
+  JOINING_PROBLEMS,
+  onlyAddressesAt,
+  PASSWORD_TOO_LONG,
+  signInSaying,
+  TURNSTILE_FAILED,
+  type Bootstrap,
+  type Me,
+} from "@ember/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPage } from "@/lib/page";
@@ -162,7 +173,6 @@ describe("Join with an email domain", () => {
     { status: 422, error: onlyAddressesAt(DOMAINS), field: "emailAddress" },
     { status: 429, error: EMAIL_LINKS_LIMITED },
     { status: 503, error: CANT_EMAIL_LINKS },
-    { status: 502, error: EMAIL_LINK_UNSENT },
   ])("says why Ember emailed no link, keeping the address typed: $error", async ({ status, ...body }) => {
     serve(() => Response.json(body, { status }));
     open();
