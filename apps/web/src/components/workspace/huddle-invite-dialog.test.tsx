@@ -1,13 +1,13 @@
 import type { DirectoryUser, DirectRoom, Room, RoomSettings, SharedRoom, User } from "@ember/protocol";
 import { MAX_HUDDLE_INVITED, type HuddlePerson } from "@ember/protocol/huddles";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { OPEN_HUDDLE, showHuddle, type JoinedHuddle } from "@/lib/huddle-store";
 import { HuddleInviteDialog, INVITATION_UNSENT } from "./huddle-invite-dialog";
+import userEvent from "@testing-library/user-event";
 
 const ada: User = { id: "ada", name: "Ada Lovelace" };
 const sam: User = { id: "sam", name: "Sam Rivera" };

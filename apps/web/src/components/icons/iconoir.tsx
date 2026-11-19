@@ -564,6 +564,19 @@ export function Hashtag(props: IconoirIconProps) {
   );
 }
 
+export function Hourglass(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="hourglass" {...props}>
+      <path
+        d="M12 12C15.866 12 19 8.86599 19 5H5C5 8.86599 8.13401 12 12 12ZM12 12C15.866 12 19 15.134 19 19H5C5 15.134 8.13401 12 12 12Z"
+        {...LINE}
+      />
+      <path d="M5 2L12 2L19 2" {...LINE} />
+      <path d="M5 22H12L19 22" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function Headset(props: IconoirIconProps) {
   return (
     <IconoirIcon name="headset" {...props}>

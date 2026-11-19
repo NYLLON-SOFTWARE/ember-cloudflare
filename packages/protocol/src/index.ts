@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -129,6 +131,7 @@ export {
   CUSTOM_STYLES_PATH,
   EMAIL_SIGN_UP_PATH,
   emailSignUpLink,
+  guestSignInLink,
   huddlePath,
   HUDDLES_PATH,
   INVITATION_PATH,
@@ -356,9 +359,9 @@ export interface Blocks {
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
  * they've starred, the invitation, when they're an administrator in its room who hasn't dismissed the
- * card, the huddles going on in their rooms, the people they've blocked, and which of a huddle's sounds
- * they hear, once they've turned one off. It comes with an ETag, and a request whose If-None-Match names
- * it gets 304 Not Modified instead.
+ * card, the people suggested for DMs, the huddles going on in their rooms, the people they've blocked,
+ * and which of a huddle's sounds they hear, once they've turned one off. It comes with an ETag, and a
+ * request whose If-None-Match names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
   rooms: SidebarRoom[];
@@ -370,6 +373,11 @@ export interface Sidebar {
    */
   sharedOrder: RoomId[];
   invitation: Invitation | null;
+  /**
+   * People to start a DM with: the active people with the oldest accounts who share no DM with this
+   * person, never them nor a bot or AI agent, as many as `suggestedCount` says.
+   */
+  suggestions: User[];
   /** The huddle going on in each of `rooms` that has one, by the room's id. `room.huddle` frames keep it current. */
   huddles: Record<RoomId, LiveHuddle>;
   /** Whom they've blocked, which `blocks.changed` frames keep current. */
@@ -386,6 +394,16 @@ export interface Sidebar {
   huddleSounds?: HuddleSounds;
 }
 
+/** How many people the sidebar's suggestions start from, Campfire's `DIRECT_PLACEHOLDERS`. */
+export const SUGGESTED_PEOPLE = 20;
+
+/**
+ * How many people the sidebar suggests for DMs to someone with `peopleInDirects` people across their
+ * DMs, them included: `SUGGESTED_PEOPLE` less those people, less one more, so 19 with no DMs, 18 with
+ * only a DM with themselves and 17 with a DM with one other person.
+ */
+export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED_PEOPLE - peopleInDirects - 1);
+
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
  * Without an icon, it has the default `#`.
@@ -395,6 +413,27 @@ export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
   member: boolean;
+  /**
+   * When their stay in this room as one of its guests ends, as an ISO time, while they're a guest of
+   * it, which an administrator added from its settings and can extend or end there. Left out for
+   * anyone else.
+   */
+  guestUntil?: string;
+}
+
+/**
+ * One of a room's guests, as its settings' guest answers name them: who they are and when their stay
+ * ends, as an ISO time.
+ */
+export interface RoomGuest {
+  userId: UserId;
+  name: string;
+  untilAt: string;
+}
+
+/** What `POST /api/rooms/<id>/guests` adds, and `PUT /api/rooms/<id>/guests/<user id>` answers: a guest of the room, as its settings mark them. */
+export interface GuestAnswer {
+  guest: RoomGuest;
 }
 
 /** What `GET /api/rooms/new` answers for the New room forms: everyone active who can be put in a room, by name (`RoomSettings.people`). */
@@ -2101,6 +2140,8 @@ export const ASSISTANT_ID: UserId = "ember";
 /** @ember's name, which nobody else can take (`isReservedName`). */
 export const ASSISTANT_NAME = "Ember";
 export const NAME_RESERVED = `${ASSISTANT_NAME} is the AI assistant's name. Choose another.`;
+/** What saving a profile whose name is another guest's says: their stay is what signs them in with it. */
+export const guestsNameTaken = (name: string) => `${name.trim()} is another guest's way in. Choose another.`;
 
 /**
  * Whether `name` is @ember's, which nobody can take, whether or not Ember AI is on, so that nobody passes
@@ -2350,6 +2391,49 @@ export function parseNewDirect(data: unknown): NewDirect | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const named = data.userIds === undefined ? [] : data.userIds;
   return userIds(named) ? { userIds: named } : `People must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/** How long a name the guest sign-in takes, which a guest of one room signs in with (`MAX_NAME_LENGTH` in the Worker, the sign-in form's own cap). */
+export const MAX_GUEST_NAME_LENGTH = 48;
+
+/** What `POST /api/rooms/<id>/guests` asks for: the guest's name, and when their stay ends, as an ISO time. */
+export interface NewGuest {
+  name: string;
+  until: string;
+}
+
+/**
+ * Parses an untrusted stay to add a guest for. Returns why it's refused instead of the stay. The name
+ * is kept as typed, as the sign-in keeps it, and whether the time has passed, the server checks once
+ * it knows who's asking, by its own clock.
+ */
+export function parseNewGuest(data: unknown): NewGuest | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (!name) return `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`;
+  if (name.length > MAX_GUEST_NAME_LENGTH) return `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`;
+  if (isReservedName(name)) return NAME_RESERVED;
+  const until = aTime(data.until);
+  if (until === null) return "Until must be a time";
+  return { name, until };
+}
+
+/** What `PUT /api/rooms/<id>/guests/<user id>` asks for: when to extend their stay until, as an ISO time. */
+export interface GuestChange {
+  until: string;
+}
+
+/** Parses an untrusted change to when a guest's stay ends, as `parseNewGuest` does its time. */
+export function parseGuestChange(data: unknown): GuestChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const until = aTime(data.until);
+  if (until === null) return "Until must be a time";
+  return { until };
+}
+
+/** The time `v` gives, as given, or null unless it's a non-empty one a date can read. */
+function aTime(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" && !Number.isNaN(Date.parse(v)) ? v : null;
 }
 
 /** The settings `PATCH /api/account` changes, each with the name workspace settings give it. */

@@ -1,6 +1,5 @@
 import type { Account, DirectoryUser, Favorites, LiveHuddle, SidebarRoom, User, UserId } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
@@ -8,6 +7,7 @@ import { ActivePeople, PeopleContext } from "@/hooks/use-directory";
 import { activeStore } from "@/lib/presence";
 import type { DirectSidebarRoom } from "@/lib/room-list";
 import { Sidebar } from "./sidebar";
+import userEvent from "@testing-library/user-event";
 
 const rooms = [
   { id: "general", name: "general", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const },

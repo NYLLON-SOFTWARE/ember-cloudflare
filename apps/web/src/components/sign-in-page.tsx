@@ -1,24 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  domainsInWords,
-  EMAIL_SIGN_UP_PATH,
-  MAX_PASSWORD_LENGTH,
-  MEMBERFUL_CONNECTED,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  memberfulSignInPath,
-  PASSWORD_RESET_PATH,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  SIGN_UP_PATH,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  withEmailAddress,
-  type Me,
-} from "@ember/protocol";
+import { domainsInWords, EMAIL_SIGN_UP_PATH, MAX_PASSWORD_LENGTH, MEMBERFUL_CONNECTED, MEMBERFUL_SIGN_IN_PROBLEMS, memberfulSignInPath, PASSWORD_RESET_PATH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, SIGN_UP_PATH, signsUpOpenly, signsUpWithEmailDomain, withEmailAddress, type Me } from "@ember/protocol";
 import { DEFAULT_SSO_NAME, SSO_CONNECTED, SSO_SIGN_IN_PROBLEMS, ssoSignInPath, type ElsewhereConnection } from "@ember/protocol/sso";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
-import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
 import { GuestSignIn } from "@/components/guest-sign-in";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,7 +61,8 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   // While both are the only ways in, Memberful's link goes beside single sign-on's, unless it signs nobody in, as without its site's keys.
   const eitherOnly = membersOnly && ssoOnly && workspace.signInWithMemberful;
   const [arrival] = useState(problemOnArrival);
-  const [asGuest, setAsGuest] = useState(false);
+  // Someone sent by a guest's link arrives at the name form, which is theirs to fill in; ?guest=1 says so.
+  const [asGuest, setAsGuest] = useState(() => new URLSearchParams(location.search).has("guest"));
   // Someone whose email address elsewhere is someone's here is asked for that someone's password.
   const [withPassword, setWithPassword] = useState(!(membersOnly || ssoOnly) || arrival?.taken === true);
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");

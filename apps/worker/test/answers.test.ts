@@ -3,18 +3,7 @@ import { DEFAULT_LEVELS, MAX_CONVERSATION_LENGTH, maxTokensAt, THINKING_LEVELS, 
 import { CARDS_PROMPT, NAMES_AS_TYPED } from "@ember/protocol/prompts";
 import { MENTION_CONTENT_TYPE, mentionSgid, OPENGRAPH_EMBED_CONTENT_TYPE, prepareBody } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  answerOf,
-  BLOCKED_ANSWER,
-  NOTES,
-  previewAttachment,
-  questionFor,
-  ROOM_MESSAGES_READ,
-  THREAD_REPLIES_READ,
-  waitFor,
-  writtenBy,
-  type Answerer,
-} from "../src/assistant/answers";
+import { answerOf, BLOCKED_ANSWER, NOTES, previewAttachment, questionFor, ROOM_MESSAGES_READ, THREAD_REPLIES_READ, waitFor, writtenBy, type Answerer } from "../src/assistant/answers";
 import { markdownHtml } from "../src/bots/markdown";
 import { keptCards } from "../src/cards";
 import { answerWithKeptModel, api, apiWith, connect, cookieOf, freshDeploy, post, roomSql, settle, shown, startDirect, workspaceSql, type Client, type KeptModel, type Session } from "./support";

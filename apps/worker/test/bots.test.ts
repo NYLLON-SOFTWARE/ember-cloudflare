@@ -1,25 +1,9 @@
-import type {
-  BotAnswer,
-  BotRoom,
-  Bots,
-  BotSettings,
-  DirectRoom,
-  Directory,
-  DirectoryUser,
-  Me,
-  NewRoomForm,
-  NewWorkspace,
-  PersonAnswer,
-  RoomChanges,
-  RoomId,
-  RoomSettings,
-  UserId,
-} from "@ember/protocol";
+import type { BotAnswer, BotRoom, Bots, BotSettings, Directory, DirectoryUser, DirectRoom, Me, NewRoomForm, NewWorkspace, PersonAnswer, RoomChanges, RoomId, RoomSettings, UserId } from "@ember/protocol";
 import { BOT_ROOMS_REFUSED, botMessagesPath, WEBHOOK_URL_REFUSED } from "@ember/protocol/bots";
 import { beforeEach, describe, expect, it } from "vitest";
-import notFoundPage from "../../web/public/404.html";
 import { DEFAULT_BOT_AVATAR } from "../src/default-bot-avatar";
 import { api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, shown, startDirect, workspaceSql, type Session } from "./support";
+import notFoundPage from "../../web/public/404.html";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler design" };

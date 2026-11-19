@@ -1,6 +1,5 @@
 import type { Room, RoomSettings } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
@@ -11,6 +10,7 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { HuddlesContext, type Huddles } from "./huddle-button";
 import { HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED } from "./room-form";
 import { CONFIRM_DELETE, CONFIRM_LEAVE, RoomSettingsPage } from "./room-settings-page";
+import userEvent from "@testing-library/user-event";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
 const grace = { id: "u2", name: "Grace Hopper" };
@@ -327,6 +327,25 @@ describe("Add and remove private room members", () => {
     await answer(Response.json({ room: leads }));
     expect(onLeft).toHaveBeenCalledWith(leads.id);
     expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("keeps a guest the guests panel saved in the private form's chosen, whose saving would otherwise take their membership out", async () => {
+    const guest = { userId: "g9", name: "Pat Doe", untilAt: "2026-11-21T09:00:00.000Z" };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "POST") return Response.json({ guest }, { status: 201 });
+      if (init?.method === "PATCH") return Response.json({ room: leads });
+      return Response.json(closedSettings);
+    });
+    const { onSaved, user } = showPage(leads);
+    await user.type(await screen.findByLabelText("Add a guest"), "Pat Doe");
+    await user.click(screen.getByRole("button", { name: "Add guest" }));
+    // They're listed, with the switch the private form gives them, already on: the form counts no change of theirs.
+    expect(await accessSwitch({ name: "Pat Doe" })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(leads));
+    // What the form saved keeps them: their stay's membership isn't a change the form would have undone.
+    expect(sent()).toEqual({ name: "Leads", icon: "lock", kind: "closed", memberIds: expect.arrayContaining([guest.userId]) });
   });
 });
 

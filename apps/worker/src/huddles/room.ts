@@ -1,29 +1,5 @@
 import { CloseCode, type RoomId, type User, type UserId } from "@ember/protocol";
-import {
-  CAMERA_SIZES,
-  CAMERAS_FULL,
-  CAMERAS_OFF,
-  carriesBothSizes,
-  HUDDLE_FAILED,
-  HUDDLE_TRACK_KINDS,
-  HuddleCloseCode,
-  INVITED_TOO_OFTEN,
-  MAX_HUDDLE_CAMERAS,
-  MAX_HUDDLE_PEOPLE,
-  MAX_HUDDLE_SCREENS,
-  NOBODY_INVITED,
-  parseHuddleClientFrame,
-  SCREENS_FULL,
-  SCREENS_OFF,
-  type CameraSize,
-  type HuddleClientFrame,
-  type HuddleIceServer,
-  type HuddlePerson,
-  type HuddleServerFrame,
-  type HuddleSticker,
-  type HuddleTrack,
-  type HuddleTrackKind,
-} from "@ember/protocol/huddles";
+import { CAMERA_SIZES, CAMERAS_FULL, CAMERAS_OFF, carriesBothSizes, HUDDLE_FAILED, HUDDLE_TRACK_KINDS, HuddleCloseCode, INVITED_TOO_OFTEN, MAX_HUDDLE_CAMERAS, MAX_HUDDLE_PEOPLE, MAX_HUDDLE_SCREENS, NOBODY_INVITED, parseHuddleClientFrame, SCREENS_FULL, SCREENS_OFF, type CameraSize, type HuddleClientFrame, type HuddleIceServer, type HuddlePerson, type HuddleServerFrame, type HuddleSticker, type HuddleTrack, type HuddleTrackKind } from "@ember/protocol/huddles";
 import type { Env } from "../env";
 import { sortableId } from "../ids";
 import { CLOSE_REASONS, closedAtOnce, isTooLarge, MAX_ROOM_FRAME_SIZE, TOO_LARGE } from "../sockets";

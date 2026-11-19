@@ -1,21 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  ACCESS_REFUSED,
-  AGENT_ACCESS,
-  agentsName,
-  DESCRIPTION_REFUSED,
-  INSTRUCTIONS_NEEDED,
-  MAX_AGENT_DESCRIPTION_LENGTH,
-  NAME_REFUSED,
-  parseAgentChanges,
-  parseAgentTrial,
-  parseNewAgent,
-  QUESTION_NEEDED,
-  ROOMS_REFUSED,
-  WEB_SEARCH_UNSAID,
-  type AgentTrial,
-  type NewAgent,
-} from "./agents";
+import { ACCESS_REFUSED, AGENT_ACCESS, agentsName, DESCRIPTION_REFUSED, INSTRUCTIONS_NEEDED, MAX_AGENT_DESCRIPTION_LENGTH, NAME_REFUSED, parseAgentChanges, parseAgentTrial, parseNewAgent, QUESTION_NEEDED, ROOMS_REFUSED, WEB_SEARCH_UNSAID, type AgentTrial, type NewAgent } from "./agents";
 import { INSTRUCTIONS_TOO_LONG, LEVELS_REFUSED, MAX_INSTRUCTIONS_LENGTH, MODEL_REFUSED } from "./assistant";
 import { MAX_MESSAGE_LENGTH, MAX_SHARED_ORDER, MAX_USER_NAME_LENGTH, MESSAGE_TOO_LONG, NAME_RESERVED } from "./index";
 import { AGENT_TEMPLATE, EMBER_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED, TEMPLATE_REFUSED, unknownPlaceholder } from "./prompts";

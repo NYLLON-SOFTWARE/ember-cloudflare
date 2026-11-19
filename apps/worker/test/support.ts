@@ -1,27 +1,4 @@
-import {
-  ROOM_PROTOCOL,
-  roomSocketQuery,
-  startingInvolvement,
-  uploadPartPath,
-  uploadsPath,
-  workspaceSocketQuery,
-  type ClientFrame,
-  type DirectRoom,
-  type Me,
-  type Message,
-  type Room,
-  type RoomIconChoice,
-  type RoomId,
-  type RoomSocketParams,
-  type ServerFrame,
-  type SharedRoom,
-  type StoredFile,
-  type Upload,
-  type User,
-  type UserId,
-  type WorkspaceServerFrame,
-  type WorkspaceSocketParams,
-} from "@ember/protocol";
+import { ROOM_PROTOCOL, roomSocketQuery, startingInvolvement, uploadPartPath, uploadsPath, workspaceSocketQuery, type ClientFrame, type DirectRoom, type Me, type Message, type Room, type RoomIconChoice, type RoomId, type RoomSocketParams, type ServerFrame, type SharedRoom, type StoredFile, type Upload, type User, type UserId, type WorkspaceServerFrame, type WorkspaceSocketParams } from "@ember/protocol";
 import type { ModelFormat, ThinkingLevel } from "@ember/protocol/assistant";
 import { applyD1Migrations, evictDurableObject, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
@@ -29,10 +6,10 @@ import { expect, vi } from "vitest";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER, type ChatRoom } from "../src/chat-room";
 import { toBase64, toBase64url, urlsafeDecode64 } from "../src/encoding";
 import type { Env } from "../src/env";
-import worker from "../src/index";
 import { forgetNewestRelease } from "../src/releases";
 import { searchIndex } from "../src/search-index";
 import { workspace, type Workspace } from "../src/workspace";
+import worker from "../src/index";
 
 export const origin = "https://ember.test";
 
@@ -554,10 +531,21 @@ export async function openWorkspaceSocket(session: Session, params?: WorkspaceSo
     return frames.shift()!;
   }
 
-  /** Whether the Workspace still answers on it. A ping with more than its type reaches the Workspace itself. */
+  /**
+   * Whether the Workspace still answers on it, and nothing else has come: a ping with more than its type
+   * reaches the Workspace itself, whose pong comes after everything it sent before it, so a frame read on
+   * the way to the pong is one that was queued and has landed, and none is one that was never coming.
+   */
   async function answers(): Promise<boolean> {
+    const queued = frames.length;
+    frames.length = 0;
     ws.send(JSON.stringify({ type: "ping", nonce: crypto.randomUUID() }));
-    return (await next()).type === "pong";
+    let heard = queued;
+    for (;;) {
+      const frame = await next();
+      if (frame.type === "pong") return heard === 0;
+      heard++;
+    }
   }
 
   const welcome = await next();

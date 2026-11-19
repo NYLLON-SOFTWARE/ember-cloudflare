@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import path from "node:path";
 
 const SCRIPT = fileURLToPath(new URL("./update-ember.ts", import.meta.url));
 const WORKFLOW = ".github/workflows/update-ember.yml";

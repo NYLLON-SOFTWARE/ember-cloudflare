@@ -1,25 +1,18 @@
-import {
-  AVATAR_TOO_LARGE,
-  JOINING_PROBLEMS,
-  MAX_AVATAR_SIZE,
-  MAX_PASSWORD_LENGTH,
-  MIN_PASSWORD_LENGTH,
-  PASSWORD_TOO_LONG,
-  SIGN_UP_FULL,
-  SIGN_UP_LIMITED,
-  TURNSTILE_FAILED,
-  signInSaying,
-  type Bootstrap,
-} from "@ember/protocol";
+import { AVATAR_TOO_LARGE, JOINING_PROBLEMS, MAX_AVATAR_SIZE, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_TOO_LONG, SIGN_UP_FULL, SIGN_UP_LIMITED, signInSaying, TURNSTILE_FAILED, type Bootstrap } from "@ember/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { loadPage } from "@/lib/page";
 import { CHROME_MAC } from "@/test-platforms";
 import { fakeTurnstile } from "@/test-turnstile";
-import avatarPlaceholder from "./avatar-placeholder.svg";
 import { JoinPage, TURNSTILE_UNAVAILABLE } from "./join-page";
+import userEvent from "@testing-library/user-event";
+
+
+
+
+
+import avatarPlaceholder from "./avatar-placeholder.svg";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));

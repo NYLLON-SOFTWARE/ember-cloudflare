@@ -1,18 +1,6 @@
 import type { Favorites, LiveHuddle, Room, Sidebar, SidebarRoom } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import {
-  apart,
-  inDirectOrder,
-  inSidebarOrder,
-  isQuietWelcome,
-  markedUnread,
-  NO_ROOM_LIST,
-  roomListReducer,
-  withRoom,
-  type DirectSidebarRoom,
-  type RoomListAction,
-  type SharedSidebarRoom,
-} from "./room-list";
+import { apart, inDirectOrder, inSidebarOrder, isQuietWelcome, markedUnread, NO_ROOM_LIST, roomListReducer, withRoom, type DirectSidebarRoom, type RoomListAction, type SharedSidebarRoom } from "./room-list";
 
 const NOON = "2026-10-15T12:00:00.000Z";
 const room = (id: string, name: string, unread = false): SharedSidebarRoom => ({ id, kind: "open", name, icon: null, unread, involvement: "mentions" });
@@ -27,7 +15,7 @@ const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({
 });
 const unstarred: Favorites = { rooms: [], version: 0 };
 /** The sidebar's list of `rooms`, starred as `favorites` says. */
-const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } });
+const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, sharedOrder: [], invitation: null, suggestions: [], huddles: {}, blocks: { userIds: [], version: 0 } });
 
 describe("Create an open room", () => {
   it("puts a new room last, as the room someone was put in most recently, and the sidebar below every other room, whatever its name", () => {

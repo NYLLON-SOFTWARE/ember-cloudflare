@@ -1,13 +1,16 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, type Account, type BotAnswer, type BotSettings, type Me, type SidebarRoom } from "@ember/protocol";
 import { WEBHOOK_URL_REFUSED } from "@ember/protocol/bots";
-import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { BotSettingsPage, CONFIRM_DELETE_BOT, CONFIRM_NEW_KEY, NewBotPage, ROOMS_EXPLAINED } from "./bot-settings-page";
+import userEvent from "@testing-library/user-event";
+
+
+
+import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 

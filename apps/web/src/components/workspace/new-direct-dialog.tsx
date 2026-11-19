@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { leave, navigate, roomPath, useRoute } from "@/hooks/use-route";
-import { isSignedOut, startDirect } from "@/lib/api";
+import { ApiError, isSignedOut, startDirect } from "@/lib/api";
 import { PEOPLE_PAGE, peopleMatching, soughtName } from "@/lib/directs";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
@@ -95,7 +95,8 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
   const [highlighted, setHighlighted] = useState<UserId | null>(null);
   const [loading, setLoading] = useState<"loading" | "failed" | null>("loading");
   const [starting, setStarting] = useState(false);
-  const [startFailed, setStartFailed] = useState(false);
+  /** Why starting a conversation failed, as the server said, when it did. */
+  const [startFailed, setStartFailed] = useState<string | null>(null);
   const route = useRoute();
   // How the dialog closed on starting a DM, which leaves focus for the DM's page to take: "shown" when the
   // page showed it already, and stays as it is.
@@ -121,7 +122,7 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
   useEffect(load, []);
 
   // Anything picked or typed takes the place of a failure to start.
-  const changed = () => setStartFailed(false);
+  const changed = () => setStartFailed(null);
 
   const close = () => {
     if (!starting) setOpen(false);
@@ -185,7 +186,7 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
   /** Starts the DM and goes there, settling with whether it did. */
   const startConversation = async () => {
     setStarting(true);
-    setStartFailed(false);
+    setStartFailed(null);
     const answered = askForRoom();
     try {
       const room = await startDirect(picked.map((person) => person.id));
@@ -201,7 +202,7 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
       if (isSignedOut(error)) onFailed(error);
       else if (mounted.current) {
         setStarting(false);
-        setStartFailed(true);
+        setStartFailed(error instanceof ApiError && error.status !== 500 ? error.message : "Couldn’t start the conversation. Please try again.");
       }
       return false;
     }
@@ -217,7 +218,7 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
   const status = starting
     ? "Starting conversation…"
     : startFailed
-      ? "Couldn’t start the conversation. Please try again."
+      ? startFailed
       : unloaded
         ? loading === "failed"
           ? "Couldn’t load people. Please try again."

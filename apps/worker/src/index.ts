@@ -1,164 +1,19 @@
-import {
-  AVATAR_PATH,
-  CloseCode,
-  CURRENT_PASSWORD_NEEDED,
-  CURRENT_PASSWORD_WRONG,
-  DELETION_NAME_NEEDED,
-  DELETION_PASSWORD_NEEDED,
-  EMAIL_DOMAIN_NEEDS_EMAIL,
-  EMAIL_SIGN_UP_PATH,
-  INVITATION_PATH,
-  LOGO_PATH,
-  LOGO_TOO_LARGE,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MEMBERFUL_CALLBACK_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  MEMBERFUL_DISCONNECT_PASSWORD_NEEDED,
-  MEMBERFUL_DISCONNECT_WITHOUT_EMAIL,
-  MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD,
-  MEMBERFUL_NOT_CONNECTED,
-  MEMBERFUL_PASSWORD_NEEDED,
-  MEMBERFUL_SIGN_IN_PATH,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  MEMBERFUL_WEBHOOK_PATH,
-  NAME_RESERVED,
-  NO_EMAIL_DOMAINS,
-  ONLY_ADMINISTRATOR,
-  PASSWORD_RESET_PATH,
-  PASSWORD_WITH_MEMBERFUL,
-  isPasswordTooLong,
-  isReservedName,
-  isRoomId,
-  notTakingDirects,
-  OPEN_WITH_MEMBERFUL,
-  parseAccountChanges,
-  parseAccountDeletion,
-  parseCustomDomainCheck,
-  parseCustomStyles,
-  parseFavoriteOrder,
-  parseInvolvementChange,
-  parseMemberfulDisconnection,
-  parseSharedOrder,
-  parseNewDirect,
-  parseNewRoom,
-  parseProfileChanges,
-  parseResendApiKey,
-  parseRoleChange,
-  parseSendingDomainCheck,
-  parseRoomChanges,
-  parseTurnstileKeysChange,
-  PROFILE_PATH,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  signOutEndpointOf,
-  signsInElsewhereOnly,
-  SIGN_UP_PATH,
-  TRANSFER_PATH,
-  TURNSTILE_CHECK_PATH,
-  USERNAME_TAKEN,
-  workspacePageOf,
-  type Account,
-  type Bootstrap,
-  type ChangedBlocks,
-  type ChangedPerson,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type CustomStyles,
-  type Directory,
-  type EmailSettings,
-  type Favorites,
-  type Involvement,
-  type MemberfulAccount,
-  type MemberfulStatus,
-  type NewJoinCode,
-  type NewRoomForm,
-  type PersonAnswer,
-  type ProfileAnswer,
-  type ReleaseCheck,
-  type RoomId,
-  type RoomSettings,
-  type SendingDomainCheck,
-  type SentTestEmail,
-  type Sidebar,
-  type StartedDirect,
-  type TurnstileSettings,
-  type UserId,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { AVATAR_PATH, CloseCode, CURRENT_PASSWORD_NEEDED, CURRENT_PASSWORD_WRONG, DELETION_NAME_NEEDED, DELETION_PASSWORD_NEEDED, EMAIL_DOMAIN_NEEDS_EMAIL, EMAIL_SIGN_UP_PATH, guestsNameTaken, INVITATION_PATH, isPasswordTooLong, isReservedName, isRoomId, LOGO_PATH, LOGO_TOO_LARGE, MAX_EMAIL_ADDRESS_LENGTH, MEMBERFUL_CALLBACK_PATH, MEMBERFUL_CONNECTIONS_PATH, MEMBERFUL_DISCONNECT_PASSWORD_NEEDED, MEMBERFUL_DISCONNECT_WITHOUT_EMAIL, MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD, MEMBERFUL_NOT_CONNECTED, MEMBERFUL_PASSWORD_NEEDED, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PATH, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_PATH, NAME_RESERVED, NO_EMAIL_DOMAINS, notTakingDirects, ONLY_ADMINISTRATOR, OPEN_WITH_MEMBERFUL, parseAccountChanges, parseAccountDeletion, parseCustomDomainCheck, parseCustomStyles, parseFavoriteOrder, parseGuestChange, parseInvolvementChange, parseMemberfulDisconnection, parseNewDirect, parseNewGuest, parseNewRoom, parseProfileChanges, parseResendApiKey, parseRoleChange, parseRoomChanges, parseSendingDomainCheck, parseSharedOrder, parseTurnstileKeysChange, PASSWORD_RESET_PATH, PASSWORD_WITH_MEMBERFUL, PROFILE_PATH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, SIGN_UP_PATH, signOutEndpointOf, signsInElsewhereOnly, TRANSFER_PATH, TURNSTILE_CHECK_PATH, USERNAME_TAKEN, workspacePageOf, type Account, type Bootstrap, type ChangedBlocks, type ChangedPerson, type CustomDomainCheck, type CustomDomainLookup, type CustomStyles, type Directory, type EmailSettings, type Favorites, type GuestAnswer, type Involvement, type MemberfulAccount, type MemberfulStatus, type NewJoinCode, type NewRoomForm, type PersonAnswer, type ProfileAnswer, type ReleaseCheck, type RoomId, type RoomSettings, type SendingDomainCheck, type SentTestEmail, type Sidebar, type StartedDirect, type TurnstileSettings, type UserId, type WorkspaceSettings } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSoundChanges, type HuddleSoundsChanged, type PastHuddles } from "@ember/protocol/huddles";
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
 import { parseNewReport, parseReportHandling, type HandledReports, type Reports } from "@ember/protocol/reports";
-import {
-  MEMBERFUL_WITH_SSO,
-  OPEN_WITH_SSO,
-  PASSWORD_WITH_SSO,
-  SSO_CALLBACK_PATH,
-  SSO_CONNECTIONS_PATH,
-  SSO_DISCONNECT_PASSWORD_NEEDED,
-  SSO_DISCONNECT_WITHOUT_EMAIL,
-  SSO_DISCONNECT_WITHOUT_PASSWORD,
-  SSO_LOGOUT_PATH,
-  SSO_NOT_CONNECTED,
-  SSO_PASSWORD_NEEDED,
-  SSO_SETTINGS_PATH,
-  SSO_SIGN_IN_PATH,
-  SSO_SIGN_IN_PROBLEMS,
-  SSO_WITH_MEMBERFUL,
-  type ElsewhereConnection,
-  type SsoStatus,
-} from "@ember/protocol/sso";
+import { MEMBERFUL_WITH_SSO, OPEN_WITH_SSO, PASSWORD_WITH_SSO, SSO_CALLBACK_PATH, SSO_CONNECTIONS_PATH, SSO_DISCONNECT_PASSWORD_NEEDED, SSO_DISCONNECT_WITHOUT_EMAIL, SSO_DISCONNECT_WITHOUT_PASSWORD, SSO_LOGOUT_PATH, SSO_NOT_CONNECTED, SSO_PASSWORD_NEEDED, SSO_SETTINGS_PATH, SSO_SIGN_IN_PATH, SSO_SIGN_IN_PROBLEMS, SSO_WITH_MEMBERFUL, type ElsewhereConnection, type SsoStatus } from "@ember/protocol/sso";
 import { mentionPromptItem } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
-import {
-  clientOf,
-  credentialsFor,
-  credentialsOf,
-  expiredSessionCookie,
-  isCrossSite,
-  isHttps,
-  isSameOriginUpgrade,
-  newSessionToken,
-  sessionCookie,
-  sessionToken,
-  signOut,
-  tokenDigest,
-} from "./auth";
+import { clientOf, credentialsFor, credentialsOf, expiredSessionCookie, isCrossSite, isHttps, isSameOriginUpgrade, newSessionToken, sessionCookie, sessionToken, signOut, tokenDigest } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import {
-  appPage,
-  beginAppSignIn,
-  beginNewAppSignIn,
-  beginOwnAppSignIn,
-  changeApp,
-  clientDocument,
-  connectApp,
-  disconnectApp,
-  finishAppSignIn,
-  listApps,
-  pickAgentTools,
-  readAppTools,
-  showAgentTools,
-  showApp,
-  signOutOfApp,
-} from "./apps/api";
+import { appPage, beginAppSignIn, beginNewAppSignIn, beginOwnAppSignIn, changeApp, clientDocument, connectApp, disconnectApp, finishAppSignIn, listApps, pickAgentTools, readAppTools, showAgentTools, showApp, signOutOfApp } from "./apps/api";
 import { answerOutsideAsk, changeOutsideAi, describeOutsideAsk, disconnectOutside, isOutsideRegistration, outsideAction, outsideConnectPage } from "./outside/api";
 import { CLIENT_DOCUMENT_PATH } from "./apps/oauth";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, listAvailableAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
-import {
-  addAssistantModel,
-  changeAssistantAvatar,
-  changeAssistantSettings,
-  changeWebSearch,
-  changeYourAssistant,
-  deployedAccountIdOf,
-  forgetAssistant,
-  listOfferedModels,
-  removeAssistantAvatar,
-  removeAssistantModel,
-  saveAssistant,
-} from "./assistant/settings";
+import { addAssistantModel, changeAssistantAvatar, changeAssistantSettings, changeWebSearch, changeYourAssistant, deployedAccountIdOf, forgetAssistant, listOfferedModels, removeAssistantAvatar, removeAssistantModel, saveAssistant } from "./assistant/settings";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
@@ -181,16 +36,7 @@ import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./i
 import { askForEmailLink, emailSignUpPage, invitationPage, join, joinCodeOf, joinPage, joinWithEmailLink, signUp, signUpPage } from "./join";
 import { checkResendApiKey } from "./mail";
 import { manifest, manifestFormatOf } from "./manifest";
-import {
-  finishMemberfulSignIn,
-  memberfulConnectionFor,
-  memberfulRefusal,
-  memberfulSiteFor,
-  memberfulWebhook,
-  saveMemberfulKeys,
-  startMemberfulSignIn,
-  withDeployedMemberful,
-} from "./memberful";
+import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulSiteFor, memberfulWebhook, saveMemberfulKeys, startMemberfulSignIn, withDeployedMemberful } from "./memberful";
 import { deployedMemberfulOf } from "./memberful-api";
 import { anyOtherPage, formAnswer } from "./pages";
 import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
@@ -284,20 +130,26 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
 }
 
 /**
+ * Signs someone in with just a name: one of the guests of one room, by the name their stay stays under,
+ * or, when EMBER_GUEST_SIGN_IN allows it, someone new every time. Memberful being members only answers
+ * 403, the name being @ember's or an agent's 422, and the name alone being turned off 403, which a name
+ * no stay stays under hears, as does a stay that ended as it signed them in.
  * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
  * unless Memberful is members only, or single sign-on the only way in, or the name is @ember's or an
  * agent's, or has a word Blocked words keeps out.
  */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
-  if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
   if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
   if (isReservedName(name)) return problem(422, NAME_RESERVED);
 
   const token = newSessionToken();
-  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));
+  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
   if (user === "agent's name") return problem(422, agentsName(name));
   if (user === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
+  if (user === "off") return problem(403, "Signing in with just a name is turned off");
+  if (user === "ended") return problem(403, "Your stay in this workspace has ended. Ask whoever added you for another.");
   if (typeof user === "string") return problem(403, signInNeededWith(user));
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
@@ -823,6 +675,9 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "email address taken") return problem(422, "That email address has an account already");
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
+  if (yours === "another guest's name") return problem(422, guestsNameTaken(rest.name!));
+  if (yours === "guest's name blank" || yours === "guest's name too long")
+    return problem(422, `Your name must be 1 to ${MAX_NAME_LENGTH} characters, as signing in with just a name takes it`);
   if (yours === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
   if (yours === "username taken") return problem(422, USERNAME_TAKEN);
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
@@ -1204,6 +1059,9 @@ async function startDirect(request: Request, env: Env): Promise<Response> {
   if (typeof direct === "string") return problem(422, direct);
   const started = await workspace(env).startDirect(credentials, direct.userIds);
   if (!started) return problem(401, "Not signed in");
+  if (started === "forbidden") return problem(403, "You're a guest of one room, so direct messages aren't yours to start");
+  if (started === "unavailable")
+    return problem(422, "They're a guest of one room, whose stay is the one room they reach, so a direct message with them isn't yours to start");
   if ("refusedBy" in started) return problem(403, notTakingDirects(started.refusedBy));
   return json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 });
 }
@@ -1268,7 +1126,63 @@ async function leaveRoom(request: Request, env: Env, roomId: RoomId): Promise<Re
   if (left === "not found") return problem(404, ROOM_NOT_FOUND);
   if (left === "open") return problem(403, "Everyone is in an open room, so nobody can leave it");
   if (left === "can change") return problem(403, "You can change this room, so take yourself out in its settings");
+  if (left === "guest") return problem(403, "You're a guest of this room, so only whoever added you can take you out");
   if (left === "last") return problem(403, "Nobody else could open this room, so you can't leave it");
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * Adds a guest to a room, as its settings' guests panel asks: a name, and when their stay ends. 404
+ * unless whoever asks is in the room, 403 unless they can change it, 422 for a name it can't read, one
+ * of its guests stays under already, or a time that has passed, and 401 without a valid session.
+ */
+async function addGuest(request: Request, env: Env, roomId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const stay = parseNewGuest(await jsonBodyOf(request));
+  if (typeof stay === "string") return problem(422, stay);
+  const guest = await workspace(env).addGuest(credentials, roomId, stay.name, stay.until);
+  if (!guest) return problem(401, "Not signed in");
+  if (guest === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (guest === "forbidden") return problem(403, "Only administrators and the room's creator can add guests to it");
+  if (guest === "agent's name") return problem(422, agentsName(stay.name));
+  if (guest === "taken") return problem(422, `${stay.name} is already one of this room's guests`);
+  if (guest === "passed") return problem(422, "Pick a time that hasn't passed yet");
+  return json({ guest } satisfies GuestAnswer, { status: 201 });
+}
+
+/**
+ * Extends the stay of a room's guest `userId`, as its settings' guests panel asks, answering the guest:
+ * 404 unless whoever asks can change the room and their stay is in it, 422 for a time that has passed,
+ * and 401 without a valid session.
+ */
+async function extendGuestStay(request: Request, env: Env, roomId: string, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const change = parseGuestChange(await jsonBodyOf(request));
+  if (typeof change === "string") return problem(422, change);
+  const guest = await workspace(env).extendGuestStay(credentials, roomId, userId, change.until);
+  if (!guest) return problem(401, "Not signed in");
+  if (guest === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (guest === "forbidden") return problem(403, "Only administrators and the room's creator can extend a guest's stay");
+  if (guest === "passed") return problem(422, "Pick a time that hasn't passed yet");
+  return json({ guest } satisfies GuestAnswer);
+}
+
+/**
+ * Ends the stay of a room's guest `userId`, as its settings' guests panel asks, answering 204: 404
+ * unless whoever asks can change the room and their stay is in it, and 401 without a valid session.
+ */
+async function endGuestStay(request: Request, env: Env, roomId: string, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const ended = await workspace(env).endGuestStay(credentials, roomId, userId);
+  if (!ended) return problem(401, "Not signed in");
+  if (ended === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (ended === "forbidden") return problem(403, "Only administrators and the room's creator can end a guest's stay");
   return new Response(null, { status: 204 });
 }
 
@@ -1556,6 +1470,15 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
     return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
   const membership = pathname.match(/^\/api\/rooms\/([^/]+)\/membership$/);
   if (membership && request.method === "DELETE") return () => (isRoomId(membership[1]!) ? leaveRoom(request, env, membership[1]!) : problem(404, ROOM_NOT_FOUND));
+  const guests = pathname.match(/^\/api\/rooms\/([^/]+)\/guests$/);
+  if (guests && request.method === "POST") return () => addGuest(request, env, guests[1]!);
+  const guest = pathname.match(/^\/api\/rooms\/([^/]+)\/guests\/([^/]+)$/);
+  // Guest ids are user ids, which never need percent-encoding, so an encoded segment names none.
+  if (guest) {
+    const [roomId, userId] = [guest[1]!, guest[2]!];
+    if (request.method === "PUT") return () => (isRoomId(roomId) ? extendGuestStay(request, env, roomId, userId) : problem(404, ROOM_NOT_FOUND));
+    if (request.method === "DELETE") return () => (isRoomId(roomId) ? endGuestStay(request, env, roomId, userId) : problem(404, ROOM_NOT_FOUND));
+  }
   const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
   if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
   // A file's key never needs percent-encoding either, so an encoded segment names no upload.

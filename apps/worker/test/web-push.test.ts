@@ -7,8 +7,8 @@ import { webPush, type VapidKeys } from "../src/push/keys";
 import { encodedPush, INVITATION_TTL_SECONDS, invitationPayload, MAX_BODY_BYTES, MAX_TITLE_BYTES, messagePayload, type PushPayload } from "../src/push/payload";
 import { encryptPush, InvalidPushKeyError, PushArgumentError, vapidAuthorization } from "../src/push/web-push";
 import type { InvitationPush, MessagePush } from "../src/workspace-store";
-import recorded from "./fixtures/web_push_expected.json";
 import { gemMessage, pushBrowser } from "./support";
+import recorded from "./fixtures/web_push_expected.json";
 
 // A push as the web-push gem writes, encrypts, signs and sends it, checked against what the gem recorded
 // (fixtures/README.md).

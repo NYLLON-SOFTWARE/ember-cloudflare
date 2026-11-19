@@ -73,7 +73,7 @@ export type WorkspacePage =
 /** Rails' names for each kind of room's controller. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
 
-const SIGN_IN_PATH = "/session/new";
+export const SIGN_IN_PATH = "/session/new";
 export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
 export const BOTS_PATH = "/account/bots";
@@ -87,6 +87,9 @@ export const PROFILE_PATH = "/users/me/profile";
 export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
 export const SEARCHES_PATH = "/searches";
 export const HUDDLES_PATH = "/huddles";
+
+/** Where a guest signs in with just the name their stay is under: the link a room's guests panel shows. */
+export const guestSignInLink = (origin: string) => `${origin}${SIGN_IN_PATH}?guest=1`;
 
 /**
  * A message's thread, which opens beside its room, or a reply's permalink there, which opens the thread at

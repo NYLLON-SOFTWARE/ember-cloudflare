@@ -245,13 +245,37 @@ describe("Who gets a push", () => {
     expect(labelsOf(await pushesFor(room, [message(lin, "Back")]))).toEqual(["ada", "grace"]);
   });
 
+  it("pushes a guest of one room nothing once their stay has passed, before the alarm lapses it, and asks again before sending", async () => {
+    const ada = await setUp();
+    const { id: room } = await createRoom("Designers", { closedTo: [ada.user.id] });
+    const until = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString();
+    const added = await api(`/api/rooms/${room}/guests`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name: "Pat", until }) });
+    expect(added.status, await added.clone().text()).toBe(201);
+    const { userId } = ((await added.json()) as { guest: { userId: string } }).guest;
+    // Their stay is their way in, whoever the flag lets stay signed in, and their subscription and involvement are theirs.
+    const signedIn = await api("/api/session", { method: "POST", body: JSON.stringify({ name: "Pat" }) });
+    expect(signedIn.status, await signedIn.clone().text()).toBe(201);
+    const pat = { user: { id: userId, name: "Pat" }, cookie: cookieOf(signedIn) };
+    await involve(pat, room, "everything");
+    await subscribe(pat, "pat");
+    expect(labelsOf(await pushesFor(room, [message(ada, "Hey")]))).toEqual(["pat"]);
+
+    // Their stay passes, which the alarm has yet to lapse: their subscription stays, and neither choosing
+    // the push nor sending it finds them, so the message's text reaches no browser of theirs.
+    await workspaceSql("UPDATE guest_stays SET until_at = ? WHERE user_id = ?", Date.now() - 1, userId);
+    expect(await pushesFor(room, [message(ada, "Later")])).toEqual([]);
+    expect(await subscriptionsOf(pat)).toBe(1);
+    const [{ id }] = (await workspaceSql("SELECT id FROM push_subscriptions WHERE user_id = ?", userId)) as [{ id: number }];
+    expect(await workspaceStub().pushable(id)).toBe(false);
+  });
+
   it("finds a message's pushes through the memberships', people's and subscriptions' keys, and its text by the message's", async () => {
     const room = await freshRoom("plans");
     // Which makes the room's tables, on Durable Object SQLite.
     await connect(room, "Ada");
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1, 1, "[]"));
+    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1, 1, "[]", Date.now()));
     expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
@@ -393,11 +417,11 @@ describe("Who gets a push", () => {
       await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
         const store = (workspace as unknown as { store: WorkspaceStore }).store;
         const pushable = store.pushable.bind(store);
-        store.pushable = async (id) => {
+        store.pushable = async (id, now) => {
           store.pushable = pushable;
           asked = true;
           await released;
-          answers.push(await pushable(id));
+          answers.push(await pushable(id, now));
           return answers.at(-1)!;
         };
       });

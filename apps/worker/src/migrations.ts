@@ -1,3 +1,4 @@
+
 import messages from "../migrations/0001_messages.sql";
 import clientMessageIds from "../migrations/0002_client_message_ids.sql";
 import usersAndSessions from "../migrations/0003_users_and_sessions.sql";
@@ -60,6 +61,7 @@ import appSignInClients from "../migrations/0059_app_sign_in_clients.sql";
 import appScopeWanted from "../migrations/0060_app_scope_wanted.sql";
 import ownAppSignIns from "../migrations/0061_own_app_sign_ins.sql";
 import outsideAi from "../migrations/0062_outside_ai.sql";
+import guests from "../migrations/0080_guests.sql";
 import agentAccess from "../migrations/0063_agent_access.sql";
 import sessionTransfers from "../migrations/0064_session_transfers.sql";
 import newcomersAndUnreadCounts from "../migrations/0065_newcomers_and_unread_counts.sql";
@@ -181,6 +183,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0077_bot_rooms.sql", scope: "workspace", sql: botRooms },
   { name: "0078_cleared_reports.sql", scope: "workspace", sql: clearedReports },
   { name: "0079_sso.sql", scope: "workspace", sql: sso },
+  { name: "0080_guests.sql", scope: "workspace", sql: guests },
 ];
 
 /**
