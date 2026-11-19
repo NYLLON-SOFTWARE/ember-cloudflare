@@ -533,12 +533,12 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     wasBlank.current = body === null;
     keepDraft(key, body);
     const fragment = body !== null && onRunCommand !== undefined ? commandFragmentOf(writtenBody(body).plainText) : null;
+    setBlank(body === null);
+    keep(body);
     if (fragment === null) return setOffered([]);
     needCommands();
     setOffered(commands ? commandsMatching(commands, fragment) : []);
     setHighlighted(0);
-    setBlank(body === null);
-    keep(body);
   };
 
   // Another composer of this draft has gone, as a thread's in its huddle goes from over the thread's own,
@@ -671,7 +671,6 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
         keep(null);
         setAlsoSend(false);
       }
-      showFormatting(false);
       written.focus();
     } finally {
       submitting.current = false;
@@ -714,8 +713,6 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
         return pickedCommand(offered[highlighted]!);
       }
     }
-    if (editor.current?.hasOpenPrompt() || !sendsMessage(event)) return;
-    // Enter picks from an open list, such as the people to mention.
     if (editor.current?.hasOpenPrompt()) return;
     if (breaksLine(event) && editor.current?.startNewBlock()) {
       // Where Enter sends, Shift+Enter starts a list's next item, or ends the list, and ends a heading.

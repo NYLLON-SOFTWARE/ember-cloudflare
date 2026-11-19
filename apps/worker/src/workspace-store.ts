@@ -2329,7 +2329,6 @@ export const MESSAGE_BOTS = `SELECT users.id, bots.answers, bots.subscribed,
     AND (bots.answers = 0 OR NOT EXISTS (SELECT 1 FROM users AS authors WHERE authors.id = ?2 AND authors.role = ${BOT}))
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)
     AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct') OR bots.subscribed = 1)
-    AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct'))
     AND ${answersTo("?2", "?1")}
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   ORDER BY lower(users.name), users.id`;
