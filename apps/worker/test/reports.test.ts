@@ -1,27 +1,8 @@
 import { DELETED_PERSON_NAME, type Message, type RoomId, type Sidebar, type UserId } from "@ember/protocol";
-import {
-  MAX_REPORT_NOTE_LENGTH,
-  REPORT_NOTE_REFUSED,
-  REPORT_REASON_REFUSED,
-  REPORTS_PATH,
-  type HandledReports,
-  type Report,
-  type ReportOutcome,
-  type Reports,
-} from "@ember/protocol/reports";
+import { MAX_REPORT_NOTE_LENGTH, REPORT_NOTE_REFUSED, REPORT_REASON_REFUSED, REPORTS_PATH, type HandledReports, type Report, type ReportOutcome, type Reports } from "@ember/protocol/reports";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CLOSE_MESSAGE_REPORTS,
-  CLOSE_PERSON_REPORTS,
-  HANDLED_REPORTS,
-  KEEP_MESSAGE_REPORT,
-  KEEP_PERSON_REPORT,
-  OPEN_REPORTS,
-  OPEN_REPORTS_BY_ADMINISTRATOR,
-  REPORT_PUSHABLE,
-  REPORT_PUSHES,
-} from "../src/reports/store";
+import { CLOSE_MESSAGE_REPORTS, CLOSE_PERSON_REPORTS, HANDLED_REPORTS, KEEP_MESSAGE_REPORT, KEEP_PERSON_REPORT, OPEN_REPORTS, OPEN_REPORTS_BY_ADMINISTRATOR, REPORT_PUSHABLE, REPORT_PUSHES } from "../src/reports/store";
 import { PUSHES_AT_ONCE } from "../src/at-once";
 import { MIGRATIONS } from "../src/migrations";
 import { CLEAR_REPORTS_OF, OPEN_REPORTS_OF_ADMINISTRATOR } from "../src/workspace-store";
@@ -642,12 +623,12 @@ describe("Handling a report", () => {
           [KEEP_PERSON_REPORT, "r", "a", "b", "{}", "spam", "", "now"],
           [OPEN_REPORTS_BY_ADMINISTRATOR],
           [OPEN_REPORTS_OF_ADMINISTRATOR, "a"],
-          [REPORT_PUSHES, "a", "b"],
+          [REPORT_PUSHES, "a", "b", Date.now()],
           [OPEN_REPORTS, "a"],
           [HANDLED_REPORTS, "a"],
           [CLOSE_MESSAGE_REPORTS, "room", "m", "a", "now"],
           [CLOSE_PERSON_REPORTS, "b", "a", "now", "removed"],
-          [REPORT_PUSHABLE, 1, "a"],
+          [REPORT_PUSHABLE, 1, "a", Date.now()],
           [CLEAR_REPORTS_OF, "Deleted person", "b"],
         ] as const
       ).map(async ([query, ...params]) => ((await workspaceSql(`EXPLAIN QUERY PLAN ${query}`, ...params)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ")),

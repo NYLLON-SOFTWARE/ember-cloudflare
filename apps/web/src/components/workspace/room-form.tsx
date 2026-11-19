@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode, type Ref } from "react";
 import { MAX_ROOM_NAME_LENGTH, type RoomIconName, type User, type UserId } from "@ember/protocol";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { CheckCircle, Community, Headset } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";

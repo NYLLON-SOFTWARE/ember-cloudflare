@@ -1,3 +1,5 @@
+
+
 // The words Blocked words keeps out, as the Workspace and each room keep them to check what they save
 // against. The Workspace keeps the list with the account; a room keeps what the Workspace last gave it,
 // asking again after a while, or as soon as a message it saves comes back with another version, so that

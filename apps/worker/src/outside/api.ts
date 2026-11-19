@@ -1,20 +1,4 @@
-import {
-  MCP_PATH,
-  OUTSIDE_ASK_REFUSED,
-  OUTSIDE_CONNECTION_GONE,
-  OUTSIDE_FORBIDDEN,
-  OUTSIDE_FULL,
-  OUTSIDE_GUEST,
-  OUTSIDE_OFF,
-  grantedOutsideScopes,
-  OUTSIDE_SCOPES,
-  outsideScopesOf,
-  type OutsideAiSettings,
-  type OutsideAnswered,
-  type OutsideAsk,
-  type OutsideAsked,
-  type YourOutsideAi,
-} from "@ember/protocol/outside";
+import { grantedOutsideScopes, MCP_PATH, OUTSIDE_ASK_REFUSED, OUTSIDE_CONNECTION_GONE, OUTSIDE_FORBIDDEN, OUTSIDE_FULL, OUTSIDE_GUEST, OUTSIDE_OFF, OUTSIDE_SCOPES, outsideScopesOf, type OutsideAiSettings, type OutsideAnswered, type OutsideAsk, type OutsideAsked, type YourOutsideAi } from "@ember/protocol/outside";
 import { clientOf, credentialsOf, newSessionToken, tokenDigest } from "../auth";
 import { bodyUpTo, jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
@@ -23,25 +7,7 @@ import { anyOtherPage } from "../pages";
 import { urlOf } from "../request-url";
 import { workspace } from "../workspace";
 import { outsideAi } from "./endpoint";
-import {
-  ACCESS_TTL_SECONDS,
-  clientDocumentAt,
-  isClientDocumentAddress,
-  isResource,
-  OUTSIDE_REGISTER_PATH,
-  OUTSIDE_REVOKE_PATH,
-  OUTSIDE_TOKEN_PATH,
-  registrationOf,
-  RESOURCE_METADATA_PATH,
-  resourceAt,
-  resourceMetadata,
-  sendsBackTo,
-  SERVER_METADATA_PATH,
-  serverMetadata,
-  validAsk,
-  wayBack,
-  type ValidAsk,
-} from "./oauth";
+import { ACCESS_TTL_SECONDS, clientDocumentAt, isClientDocumentAddress, isResource, OUTSIDE_REGISTER_PATH, OUTSIDE_REVOKE_PATH, OUTSIDE_TOKEN_PATH, registrationOf, RESOURCE_METADATA_PATH, resourceAt, resourceMetadata, sendsBackTo, SERVER_METADATA_PATH, serverMetadata, validAsk, wayBack, type ValidAsk } from "./oauth";
 import type { OutsideClient } from "./store";
 
 // What the Worker answers the AI apps that connect to Ember, and the pages that have to do with them.

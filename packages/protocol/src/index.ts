@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -1078,6 +1080,12 @@ export interface Profile {
   apps: YourApp[];
   /** The AI apps connected to Ember as you, newest first, or null when none can be: while an administrator hasn't let AI apps connect, or for a guest. */
   outsideAi: OutsideConnection[] | null;
+  /**
+   * When your hush of push notifications (Do not disturb) ends, as an ISO time, or null while you
+   * haven't hushed them. It hushes push notifications alone: rooms, unread marks, the badge and
+   * banners in the app carry on.
+   */
+  dndUntil: string | null;
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -1105,6 +1113,29 @@ export interface ProfileChanges {
    * others, as signing out names the one it forgets (`SignOut`).
    */
   pushSubscriptionEndpoint?: string;
+}
+
+/** What `PUT` and `DELETE /api/users/me/dnd` answer: when your hush of push notifications ends, or null once it's lifted. */
+export interface DndAnswer {
+  dndUntil: string | null;
+}
+
+/** What `PUT /api/users/me/dnd` asks for: when to hush your push notifications until. */
+export interface DndChange {
+  until: string;
+}
+
+/**
+ * Parses an untrusted change to when your push notifications are hushed until. Returns why it's
+ * refused instead. Whether the time has passed, the server checks once it knows who's asking, by its
+ * own clock.
+ */
+export function parseDndChange(data: unknown): DndChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { until } = data as Record<string, unknown>;
+  if (typeof until !== "string" || until.trim() === "") return "Until must be a time";
+  if (Number.isNaN(Date.parse(until))) return "Until must be a time";
+  return { until };
 }
 
 /** What the Set up Ember form shows in its Name and Email address fields while they're empty. */
@@ -1868,8 +1899,12 @@ export type WorkspaceClientFrame = { type: "ping" } | { type: "presence.active";
 
 /** What the Workspace sends on a tab's workspace socket. */
 export type WorkspaceServerFrame =
-  /** Sent as the Workspace lets the socket in: who its session signs in, and the workspace as it is then. */
-  | { type: "welcome"; you: Me; account: Account }
+  /**
+   * Sent as the Workspace lets the socket in: who its session signs in, the workspace as it is then,
+   * and when this person's hush of push notifications (Do not disturb) ends, or null while it doesn't,
+   * which the rail shows by the crescent on their avatar. Left out by a worker that sends it not yet.
+   */
+  | { type: "welcome"; you: Me; account: Account; dndUntil?: string | null }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when the first
    * of those came. Sent only to the person marked, as their mark changes, and in a DM, as each message
@@ -1926,6 +1961,12 @@ export type WorkspaceServerFrame =
   | { type: "huddles.changed" }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /**
+   * Their hush of push notifications (Do not disturb) is now until `dndUntil`, or no more: they set it
+   * or lifted it, in this tab or another. Sent to their own workspace sockets alone, so their other
+   * tabs lay the crescent on their avatar or take it away as it goes.
+   */
+  | { type: "dnd.changed"; dndUntil: string | null }
   /** They've blocked or unblocked someone, in this tab or another: whom they've blocked now. */
   | { type: "blocks.changed"; blocks: Blocks }
   /**

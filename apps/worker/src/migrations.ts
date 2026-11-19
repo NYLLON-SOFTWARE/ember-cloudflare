@@ -1,3 +1,4 @@
+
 import messages from "../migrations/0001_messages.sql";
 import clientMessageIds from "../migrations/0002_client_message_ids.sql";
 import usersAndSessions from "../migrations/0003_users_and_sessions.sql";
@@ -77,6 +78,7 @@ import sessionAddresses from "../migrations/0076_session_addresses.sql";
 import botRooms from "../migrations/0077_bot_rooms.sql";
 import clearedReports from "../migrations/0078_cleared_reports.sql";
 import sso from "../migrations/0079_sso.sql";
+import dnd from "../migrations/0080_dnd.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -181,6 +183,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0077_bot_rooms.sql", scope: "workspace", sql: botRooms },
   { name: "0078_cleared_reports.sql", scope: "workspace", sql: clearedReports },
   { name: "0079_sso.sql", scope: "workspace", sql: sso },
+  { name: "0080_dnd.sql", scope: "workspace", sql: dnd },
 ];
 
 /**

@@ -1,3 +1,5 @@
+
+
 // Lexxy ships no types. These are the parts of @37signals/lexxy 0.9.24 that rich-text-editor.tsx and its modules use.
 declare module "@37signals/lexxy" {
   /** Settings for every editor (`global`) and for each preset of them (`default`). */

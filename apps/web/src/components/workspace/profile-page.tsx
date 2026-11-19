@@ -1,25 +1,9 @@
 import { useContext, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import {
-  AVATAR_TOO_LARGE,
-  MAX_AVATAR_SIZE,
-  MAX_BIO_LENGTH,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MAX_PASSWORD_LENGTH,
-  MAX_USER_NAME_LENGTH,
-  MEMBERFUL_DISCONNECTED_NOTICE,
-  MIN_PASSWORD_LENGTH,
-  type AccountDeletion,
-  type Me,
-  type MemberfulStatus,
-  type Profile,
-  type ProfileAnswer,
-  type ProfileChanges,
-  type SidebarRoom,
-} from "@ember/protocol";
+import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, MAX_BIO_LENGTH, MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, MEMBERFUL_DISCONNECTED_NOTICE, MIN_PASSWORD_LENGTH, type AccountDeletion, type Me, type MemberfulStatus, type Profile, type ProfileAnswer, type ProfileChanges, type SidebarRoom } from "@ember/protocol";
 import { MEMBERFUL_WITH_SSO, SSO_DISCONNECTED_NOTICE, SSO_WITH_MEMBERFUL, type SsoStatus } from "@ember/protocol/sso";
 import type { HuddleSounds } from "@ember/protocol/huddles";
 import { AUTH_FORM } from "@/components/auth-page";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { LogOut } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
@@ -38,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { AnswerLevels } from "./answer-levels";
 import { BlockedPeople } from "./blocked-people";
 import { ConversationNotifications } from "./conversation-notifications";
+import { DoNotDisturb } from "./do-not-disturb";
 import { DeleteAccount } from "./delete-account";
 import { HuddleSoundSwitches } from "./huddle-sound-switches";
 import { MemberfulConnection } from "./memberful-connection";
@@ -57,6 +42,12 @@ interface Props {
   rooms: SidebarRoom[] | null;
   /** Called as a bell saves your level in a room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
+  /** When your push notifications are hushed until, as the workspace has it, or null while they aren't. */
+  dndUntil: string | null;
+  /** Shows your push notifications as this page loads them and the Do not disturb section saves them. */
+  onDndChanged: (dndUntil: string | null) => void;
+  /** Answers what loading the page read of your hush, which shows only if nothing was heard since the page asked for it, as the workspace's answers do. */
+  askForDnd: () => (dndUntil: string | null) => void;
   /** Which of a huddle's sounds you hear, as the sidebar's list has them, or null while huddles are off, and until the list has loaded. */
   huddleSounds: HuddleSounds | null;
   /** Called as a switch saves one of a huddle's sounds, with what keeps the sounds the server answers. */
@@ -121,23 +112,7 @@ function disconnectsWithNewPassword(memberful: MemberfulStatus | null, sso: SsoS
   return sso?.connected ? " Changing it disconnects single sign-on." : "";
 }
 
-/**
- * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
- * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
- * everywhere.", and Remove avatar takes away, then your name, username, email address, a new password,
- * unless Memberful or single sign-on signs you in without one, your current password while you have
- * one, which changing your email address or password takes, and your
- * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
- * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
- * unlinks with the notice "Your Memberful account is disconnected.", then, likewise, while members sign
- * in with single sign-on, connecting your account at the provider, then, while Ember AI is on, how much
- * @ember thinks and how long it answers you, then, while huddles are on, which of a huddle's sounds you
- * hear, then your notification level in each of your rooms and DMs, then a sign-in
- * link for you, a new one each time the page loads or saves, then Delete my account, and Log out in
- * the top bar. Go Back returns to the page it was opened from. Your avatar, name, username and bio
- * reach everyone's open pages at once, through the workspace socket, as they reach the rail.
- */
-export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleSounds, onSignOut, onDeleteAccount, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndChanged, huddleSounds, askForHuddleSounds, onSignOut, onDeleteAccount, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -188,6 +163,9 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
 
   useEffect(() => {
     let stopped = false;
+    // What the page reads of the hush shows only if nothing was heard since it asked, as the account's
+    // answers do, since the profile may have read before a change made meanwhile.
+    const heard = askForDnd();
     fetchProfile().then(
       (answer) => {
         if (stopped) return;
@@ -202,6 +180,9 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         // The same goes for the Apps section, which signing out there changes.
         setApps(answer.profile.apps);
         setOutsideAi(answer.profile.outsideAi);
+        // The hush too, which the section saves, and the rail shows by its crescent, unless one was
+        // heard while the page was loading, which may have read before it did.
+        heard(answer.profile.dndUntil ?? null);
       },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
@@ -209,7 +190,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
       },
     );
     return () => void (stopped = true);
-  }, [onFailed]);
+  }, [askForDnd, onFailed, onDndChanged]);
 
   // The picked photo's address is let go of once the saved one takes its place.
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
@@ -463,6 +444,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {apps.length > 0 && <YourApps apps={apps} onChanged={setApps} onFailed={onFailed} />}
         {outsideAi && <YourOutsideAi connections={outsideAi} onChanged={setOutsideAi} onFailed={onFailed} />}
+        <DoNotDisturb dndUntil={dndUntil} askForDnd={askForDnd} onChanged={onDndChanged} onFailed={onFailed} />
         {huddleSounds && <HuddleSoundSwitches sounds={huddleSounds} askForSounds={askForHuddleSounds} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         <BlockedPeople />

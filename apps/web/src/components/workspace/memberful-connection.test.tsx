@@ -1,18 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CURRENT_PASSWORD_WRONG,
-  MAX_PASSWORD_LENGTH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  type MemberfulAccount,
-  type MemberfulConnectionStart,
-  type MemberfulDisconnection,
-  type ProfileAnswer,
-} from "@ember/protocol";
+import { CURRENT_PASSWORD_WRONG, MAX_PASSWORD_LENGTH, MEMBERFUL_CONNECTIONS_PATH, type MemberfulAccount, type MemberfulConnectionStart, type MemberfulDisconnection, type ProfileAnswer } from "@ember/protocol";
 import { ApiError } from "@/lib/api";
 import { openPage } from "@/lib/page";
 import { MemberfulConnection } from "./memberful-connection";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn(), openPage: vi.fn() }));
 
@@ -36,6 +28,7 @@ const DISCONNECTED: ProfileAnswer = {
     assistant: null,
     apps: [],
     outsideAi: null,
+    dndUntil: null,
   },
   transferId: "u2.mgk3x2b0.saved",
 };

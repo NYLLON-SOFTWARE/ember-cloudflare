@@ -1,5 +1,4 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings, AvailableAgent } from "@ember/protocol/agents";
@@ -18,7 +17,8 @@ import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
-import { Workspace, loadPageAhead } from "./workspace";
+import { loadPageAhead, Workspace } from "./workspace";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 // A huddle's own tests join one. Here joining shows the tab as in the huddle, as a test has it.
@@ -134,15 +134,18 @@ function goneRoom(roomId: string, messages: Message[] = []) {
 /** The workspace socket, which welcomes Ada, then brings what a test has it bring. */
 class WorkspaceSocket extends QuietSocket {
   static last: WorkspaceSocket | null = null;
+  /** When Ada's push notifications are hushed until, as the welcome says, or null while they aren't. */
+  static dndUntil: string | null = null;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
   constructor(url: string) {
     super();
     if (!url.includes("/api/socket")) return;
     WorkspaceSocket.last = this;
     setTimeout(() => {
       this.onopen?.();
-      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
+      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: WorkspaceSocket.dndUntil }) });
     });
   }
 }
@@ -208,6 +211,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  WorkspaceSocket.dndUntil = null;
   history.replaceState(null, "", "/");
 });
 
@@ -1044,6 +1048,130 @@ describe("Rail", () => {
   });
 });
 
+describe("Do not disturb", () => {
+  const HUSHED = new Date(Date.now() + 60 * 60_000).toISOString();
+  const profileLink = () => screen.getByRole("link", { name: "Your profile" });
+
+  it("lays the crescent on your avatar when you reload straight into a room with your hush on", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = HUSHED;
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // The welcome brought the hush, which the rail shows by the crescent on your avatar.
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+  });
+
+  it("drops the crescent of a hush ending further out than a timer may wait, once its time has come", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = new Date(Date.now() + 40 * 24 * 60 * 60_000).toISOString();
+    showWorkspace("/rooms/random");
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Under the test's own timers, the welcome says the hush again, 50 days out, which arms its lapse anew.
+    vi.useFakeTimers();
+    try {
+      const later = new Date(Date.now() + 50 * 24 * 60 * 60_000).toISOString();
+      act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: later }) }));
+      const avatar = profileLink();
+      // The timer fires at the most a delay may be, about 24.8 days out, and arms again, the crescent staying.
+      act(() => vi.advanceTimersByTime(2_147_483_647));
+      expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed");
+      // Its time has come, and the crescent goes without a reload.
+      act(() => vi.advanceTimersByTime(2_147_483_647 + 24 * 60 * 60_000));
+      expect(avatar).toHaveAttribute("title", "Ada");
+      expect(avatar.querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lays the crescent on and takes it off as the socket says a tab of yours hushed and unhushed", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps a hush saved here when a welcome brings what it read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => Response.json({ dndUntil: HUSHED }),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // A welcome that read before the save, arriving after its answer, doesn't undo it.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: null }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The next welcome, which read after it, is heard again.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: HUSHED }) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("keeps a hush heard while the profile was loading over what the page's answer read before it", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({ "GET /api/users/me/profile": () => new Promise((resolve) => (answer = resolve)) });
+    showWorkspace("/users/me/profile");
+    // Another tab hushes while the page's profile is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    // The page's answer read before that, and doesn't take the hush back off.
+    await act(async () => answer(Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: null } })));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("shows the hush as a connection's welcome brings it back, over what the one before it heard", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // A tab of yours hushes, which the rail shows, and the connection drops before another lifts the
+    // hush, which this tab misses.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    act(() => WorkspaceSocket.last!.onclose?.({ code: 1006 }));
+    // The connection comes back, and its welcome reads over what the last one heard: the hush is lifted.
+    WorkspaceSocket.dndUntil = null;
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada"), { timeout: 4000 });
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps the hush the socket brought while a save was on its way over what the save's answer says", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => new Promise((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Another tab lifts the hush while this save is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    // The save's answer read before that, and doesn't hush the rail again.
+    await act(async () => answer(Response.json({ dndUntil: HUSHED })));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(hush).not.toBeDisabled();
+  });
+});
+
 describe("New releases", () => {
   const NOTES = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases/tag/v0.2.0";
   const asAdministrator = { ...ada, administrator: true };
@@ -1336,6 +1464,16 @@ describe("Edit your profile", () => {
 
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await roomHeading()).toHaveTextContent("random");
+  });
+
+  it("drops the rail's crescent the moment your hush lapses, without a reload", async () => {
+    const hushedUntil = new Date(Date.now() + 300).toISOString();
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: hushedUntil } }) });
+    showWorkspace("/users/me/profile");
+    const avatar = screen.getByRole("link", { name: "Your profile" });
+    await waitFor(() => expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // The hush ends of its own accord, and the crescent goes with it.
+    await waitFor(() => expect(avatar).toHaveAttribute("title", "Ada"), { timeout: 2_000 });
   });
 
   it("logs out from your profile", async () => {

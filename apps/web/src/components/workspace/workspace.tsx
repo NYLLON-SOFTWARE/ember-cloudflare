@@ -246,6 +246,9 @@ function redirectOf(route: Route, rooms: SidebarRoom[], meId: UserId): Redirect 
  */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
+/** The longest a delay may be, past which a browser fires a timer late or never: about 24.8 days. */
+const TIMER_CAP_MS = 2_147_483_647;
+
 /** The signed-in layout: rail | sidebar | header over main, or the drawer layout. */
 interface Props {
   me: Me;
@@ -287,9 +290,40 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
+  // When your push notifications are hushed until, which the workspace socket's welcome brings, Do not
+  // disturb on your profile saves, and the socket tells your other tabs of, and the rail shows by the
+  // crescent on your avatar. How many hushes have been heard counts as each change is applied, so a
+  // page's answer about them shows only if none has been heard since it was asked for, as about the
+  // account. A welcome speaks of what the hush was as the socket let it in, so it stands down to
+  // whatever was heard since the last one — counted again at each connection, whose welcome reads over
+  // what the one before it heard — and the next is trusted again.
+  const [dndUntil, setDndUntil] = useState<string | null>(null);
+  const dndsHeard = useRef(0);
+  const heardAtWelcome = useRef(0);
+  const hearDnd = useCallback((until: string | null, read?: boolean) => {
+    if (read) {
+      const stale = heardAtWelcome.current !== dndsHeard.current;
+      heardAtWelcome.current = dndsHeard.current;
+      if (stale) return;
+    } else {
+      dndsHeard.current++;
+    }
+    setDndUntil(until);
+  }, []);
+  // What was heard of the hush before a connection began belongs to the connection that brought it,
+  // which its own welcome says over, so only what this one hears or the page saves first can stale it.
+  const dndConnecting = useCallback(() => {
+    heardAtWelcome.current = dndsHeard.current;
+  }, []);
+  const askForDnd = useCallback(() => {
+    const heard = dndsHeard.current;
+    return (until: string | null) => {
+      if (dndsHeard.current === heard) hearDnd(until);
+    };
+  }, [hearDnd]);
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, hearDnd, dndConnecting, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -297,6 +331,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // Activity's filter, which lives as long as the page: other pages keep it on, and loading the page
   // again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
+  // The hush ends of its own accord, so the crescent goes the moment it lapses, without a reload. The
+  // longest a delay may be is about 24.8 days, past which a browser fires a timer late or never, so a
+  // hush ending further out arms again at that until its time has come.
+  useEffect(() => {
+    if (dndUntil === null) return;
+    let lapse: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const wait = Math.min(TIMER_CAP_MS, Math.max(0, Date.parse(dndUntil) - Date.now()));
+      lapse = setTimeout(() => (Date.parse(dndUntil) > Date.now() ? arm() : setDndUntil(null)), wait);
+    };
+    arm();
+    return () => clearTimeout(lapse);
+  }, [dndUntil]);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const drawerRail = useRef<HTMLDivElement>(null);
   const roomView = useRef<RoomViewHandle>(null);
@@ -756,7 +803,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} dndUntil={dndUntil} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
   );
   const sidebar = (
     <Sidebar
@@ -852,6 +899,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             me={me}
             rooms={rooms}
             askForRoom={askForRoom}
+            dndUntil={dndUntil}
+            askForDnd={askForDnd}
+            onDndChanged={hearDnd}
             huddleSounds={huddlesOn && answered ? soundsHeard : null}
             askForHuddleSounds={askForHuddleSounds}
             onSignOut={onSignOut}

@@ -1,13 +1,13 @@
 import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { Typist } from "@/lib/room-state";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import userEvent from "@testing-library/user-event";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.

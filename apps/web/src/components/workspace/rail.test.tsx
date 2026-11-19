@@ -1,17 +1,17 @@
 import { avatarSvg, type Account } from "@ember/protocol";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { Rail, type Activity, type RailPage } from "./rail";
 import { OpenSearchContext } from "./search-box";
+import userEvent from "@testing-library/user-event";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
-/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
-const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} />
+/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's, and `dndUntil` while pushes are hushed. */
+const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null, dndUntil: string | null = null) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} dndUntil={dndUntil} newRelease={newRelease} onNewDirect={onNewDirect} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -56,6 +56,16 @@ describe("Rail", () => {
     expect(location.pathname).toBe("/users/me/profile");
   });
 
+  it("lays a crescent on your avatar while Do not disturb hushes your push notifications, saying so in the title", () => {
+    const { rerender } = render(railAt("home", activityOff, ada, () => {}, null, "2026-11-14T09:00:00.000Z"));
+    const profile = screen.getByRole("link", { name: "Your profile" });
+    expect(profile).toHaveAttribute("title", "Ada Lovelace — push notifications hushed");
+    expect(profile.querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+    rerender(railAt("home"));
+    expect(profile).toHaveAttribute("title", "Ada Lovelace");
+    expect(profile.querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
   it("names the settings link Admin for administrators, and Workspace for everyone else", () => {
     const { rerender } = render(railAt("workspace", activityOff, { ...ada, administrator: true }));
     const settings = screen.getByRole("link", { name: "Admin" });
@@ -83,7 +93,7 @@ describe("Rail", () => {
   it("marks Admin with a dot while reports are open too, saying how many", () => {
     const grace = { ...ada, administrator: true };
     const rail = (openReports: number, newRelease: string | null = null) => (
-      <Rail me={grace} workspaceName="Analytical Engines" current="home" activity={activityOff} newRelease={newRelease} openReports={openReports} onNewDirect={() => {}} />
+      <Rail me={grace} workspaceName="Analytical Engines" current="home" activity={activityOff} dndUntil={null} newRelease={newRelease} openReports={openReports} onNewDirect={() => {}} />
     );
     const { rerender } = render(rail(1));
     const admin = screen.getByRole("link", { name: "Admin" });

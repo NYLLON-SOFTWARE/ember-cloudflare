@@ -57,10 +57,11 @@ class FakeSocket {
     });
   }
 
-  /** Opens, and lets the socket in with a welcome for `you`, with the workspace as `account`. */
-  connect(you = ada, account = ember) {
+  /** Opens, and lets the socket in with a welcome for `you`, with the workspace as `account`, and the
+   *  hush of push notifications (Do not disturb) until `dndUntil`, as the welcome brings it. */
+  connect(you = ada, account = ember, dndUntil?: string | null) {
     this.open();
-    this.receive({ type: "welcome", you, account });
+    this.receive({ type: "welcome", you, account, dndUntil });
   }
 
   receive(frame: WorkspaceServerFrame) {
@@ -493,7 +494,7 @@ describe("Huddles in your rooms", () => {
 
   it("tells of each invitation into a huddle the workspace socket brings, when it came, and of each that's answered", async () => {
     const onInvitation = vi.fn();
-    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onInvitation));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, onInvitation));
     await settle();
     socket().connect();
     await settle();
@@ -512,7 +513,7 @@ describe("Huddles in your rooms", () => {
   it("tells that an invitation into a room's huddle is over once the workspace socket says the room is gone, a room it never listed too", async () => {
     const onInvitation = vi.fn();
     server.change(unstarred([design]));
-    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onInvitation));
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, onInvitation));
     await settle();
     socket().connect();
     await settle();
@@ -1132,5 +1133,51 @@ describe("Custom CSS", () => {
     await settle();
     socket().connect(grace);
     expect(onAccountChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("Do not disturb", () => {
+  const HUSHED = "2026-11-14T09:00:00.000Z";
+
+  it("says when your push notifications are hushed until, as the welcome read them", async () => {
+    const onDndChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged));
+    await settle();
+    socket().connect(ada, ember, HUSHED);
+    expect(onDndChanged).toHaveBeenLastCalledWith(HUSHED, true);
+    // A welcome without one says they aren't hushed, as a read all the same.
+    socket().connect(ada, ember, null);
+    expect(onDndChanged).toHaveBeenLastCalledWith(null, true);
+  });
+
+  it("says when the socket brings what a tab of yours did to them", async () => {
+    const onDndChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged));
+    await settle();
+    socket().connect();
+    socket().receive({ type: "dnd.changed", dndUntil: HUSHED });
+    expect(onDndChanged).toHaveBeenLastCalledWith(HUSHED);
+    socket().receive({ type: "dnd.changed", dndUntil: null });
+    expect(onDndChanged).toHaveBeenLastCalledWith(null);
+  });
+
+  it("says what the hush has become once a connection that dropped has come back", async () => {
+    const onDndChanged = vi.fn();
+    const onDndConnecting = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged, onDndConnecting));
+    await settle();
+    socket().connect();
+    expect(onDndConnecting).toHaveBeenCalled();
+    // A tab of yours hushes, and the connection drops before another lifts the hush, which this tab misses.
+    socket().receive({ type: "dnd.changed", dndUntil: HUSHED });
+    expect(onDndChanged).toHaveBeenLastCalledWith(HUSHED);
+    socket().drop();
+    const heardOnConnecting = onDndConnecting.mock.calls.length;
+    await wait(500);
+    // The next try to connect says so before its welcome, whose read over what the last one heard
+    // counts from there.
+    expect(onDndConnecting.mock.calls.length).toBeGreaterThan(heardOnConnecting);
+    socket().connect(ada, ember, null);
+    expect(onDndChanged).toHaveBeenLastCalledWith(null, true);
   });
 });

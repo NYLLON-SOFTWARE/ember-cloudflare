@@ -1,30 +1,11 @@
-import {
-  EMAIL_ADDRESS_TOO_LONG,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MAX_PASSWORD_LENGTH,
-  MAX_USER_NAME_LENGTH,
-  NAME_TOO_LONG,
-  PASSWORD_TOO_LONG,
-  PASSWORD_TOO_SHORT,
-  type Bootstrap,
-  type NewWorkspace,
-  type Room,
-  type Sidebar,
-} from "@ember/protocol";
+import { EMAIL_ADDRESS_TOO_LONG, MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, NAME_TOO_LONG, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Bootstrap, type NewWorkspace, type Room, type Sidebar } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
-import worker from "../src/index";
 import { verifyPassword } from "../src/passwords";
-import {
-  NO_SETUP_PASSWORD,
-  SETUP_LINK_NEEDED,
-  SETUP_LINK_REFUSED,
-  SETUP_PASSWORD_NEEDED,
-  SETUP_PASSWORD_REFUSED,
-  SETUP_TRIES_LIMITED,
-} from "../src/setup";
+import { NO_SETUP_PASSWORD, SETUP_LINK_NEEDED, SETUP_LINK_REFUSED, SETUP_PASSWORD_NEEDED, SETUP_PASSWORD_REFUSED, SETUP_TRIES_LIMITED } from "../src/setup";
 import { api, apiWith, builtPages, cookieOf, freshDeploy, listedRoom, origin, SETUP_TOKEN, signIn, workspaceSql, workspaceStub } from "./support";
+import worker from "../src/index";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "12345678" };
 

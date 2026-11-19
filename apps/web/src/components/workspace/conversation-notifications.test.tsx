@@ -1,10 +1,10 @@
 import type { Me, SidebarRoom, User } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import type { DirectSidebarRoom } from "@/lib/room-list";
 import { ConversationNotifications } from "./conversation-notifications";
+import userEvent from "@testing-library/user-event";
 
 const ada: Me = { id: "ada", name: "Ada Lovelace", administrator: false };
 const [grace, linus]: User[] = [

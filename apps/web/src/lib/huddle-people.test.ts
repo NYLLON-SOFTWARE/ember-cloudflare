@@ -1,20 +1,6 @@
 import type { DirectRoom, Room, User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import {
-  hasHuddles,
-  huddledWith,
-  huddleLasted,
-  huddlePlace,
-  inItNow,
-  inItsHuddle,
-  inTheHuddle,
-  invitable,
-  invitedNow,
-  invitedOnceItStarts,
-  sharingScreens,
-  wereInItsHuddle,
-  wereInTheHuddle,
-} from "./huddle-people";
+import { hasHuddles, huddledWith, huddleLasted, huddlePlace, inItNow, inItsHuddle, inTheHuddle, invitable, invitedNow, invitedOnceItStarts, sharingScreens, wereInItsHuddle, wereInTheHuddle } from "./huddle-people";
 
 const [ada, priya, sam, deploys]: User[] = [
   { id: "ada", name: "Ada Lovelace" },

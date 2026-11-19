@@ -1,10 +1,10 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProfileAnswer } from "@ember/protocol";
 import { SSO_CONNECTIONS_PATH, type SsoAccount } from "@ember/protocol/sso";
 import { openPage } from "@/lib/page";
 import { SingleSignOnConnection } from "./sso-connection";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn(), openPage: vi.fn() }));
 
@@ -26,6 +26,7 @@ const DISCONNECTED: ProfileAnswer = {
     assistant: null,
     apps: [],
     outsideAi: null,
+    dndUntil: null,
   },
   transferId: "u2.mgk3x2b0.saved",
 };

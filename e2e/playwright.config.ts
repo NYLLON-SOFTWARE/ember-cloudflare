@@ -1,20 +1,12 @@
-import path from "node:path";
 import { defineConfig } from "@playwright/test";
 import { featureProjects, RECOVERY_TOKEN } from "./projects/features";
 import { FIRST_RUN, firstRunProjects, SETUP_TOKEN } from "./projects/first-run";
 import { mobileProjects } from "./projects/mobile";
 import { screenshotProjects } from "./projects/screenshots";
 import { webkitProjects } from "./projects/webkit";
-import {
-  AI_GATEWAY_ACCOUNT,
-  AI_GATEWAY_PORT,
-  RESEND_API_PORT,
-  SETTINGS_SERVER_PORT,
-  SFU_PORT,
-  SITEVERIFY_PORT,
-  workspaceSettingsProjects,
-} from "./projects/workspace-settings";
+import { AI_GATEWAY_ACCOUNT, AI_GATEWAY_PORT, RESEND_API_PORT, SETTINGS_SERVER_PORT, SFU_PORT, SITEVERIFY_PORT, workspaceSettingsProjects } from "./projects/workspace-settings";
 import type { MobileOptions } from "./tests/mobile/fixtures";
+import path from "node:path";
 
 /**
  * The one Playwright config for every browser suite. Each suite adds its projects from ./projects/

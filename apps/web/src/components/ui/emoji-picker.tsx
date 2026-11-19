@@ -1,7 +1,7 @@
 import { EmojiPicker as EmojiPickerPrimitive, type EmojiPickerListCategoryHeaderProps, type EmojiPickerListEmojiProps, type EmojiPickerListRowProps } from "frimousse";
-import type * as React from "react";
 import { Search } from "@/components/icons/iconoir";
 import { cn } from "@/lib/utils";
+import type * as React from "react";
 
 // frimousse's shadcn/ui emoji picker (https://frimousse.liveblocks.io/r/emoji-picker), with Iconoir's search
 // icon and Ember's spinner in place of Lucide's, emoji drawn at Slack's picker's size, a footer that

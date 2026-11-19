@@ -90,6 +90,14 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
+ * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
+ * it connects and whenever an administrator changes it. `onDndChanged` hears when your push
+ * notifications are hushed until (Do not disturb), as the welcome says they were when it let the
+ * socket in, with `read`, and as the socket says a tab of yours has changed them, without it, since
+ * the welcome may have read before a change the page made meanwhile. `onDndConnecting` hears of each
+ * try to connect the socket, as what was heard of the hush before it belongs to the connection that
+ * brought it, which its own welcome says over. `onGone` hears of each room the
+ * socket says is gone as it leaves the list.
  * socket says has changed, or says this person is no longer told of, as an AI agent kept to
  * administrators' direct messages is. `onAccountChanged` hears the workspace as the socket says it is,
  * each time it connects and whenever an administrator changes it. `onGone` hears of each room the
@@ -106,6 +114,8 @@ export function useSidebar(
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
+  onDndChanged: (dndUntil: string | null, read?: boolean) => void = () => {},
+  onDndConnecting: () => void = () => {},
   onInvitation: (change: InvitationsChange) => void = () => {},
 ) {
   const [{ list, askAgain }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
@@ -147,6 +157,8 @@ export function useSidebar(
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const gone = useEffectEvent(onGone);
+  const dndChanged = useEffectEvent(onDndChanged);
+  const dndConnecting = useEffectEvent(onDndConnecting);
   const invitation = useEffectEvent(onInvitation);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Who the session signs in as last heard, ahead of `me` until the page takes the change: two changes
@@ -197,6 +209,7 @@ export function useSidebar(
     const onConnecting = () => {
       toldOf = { you: false, account: false };
       unheard = true;
+      dndConnecting();
     };
 
     // Tells the Workspace whether the tab is shown, unless its socket's address or an earlier frame said
@@ -225,6 +238,9 @@ export function useSidebar(
           tellVisibility();
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
+          // The welcome speaks of what the hush was as the socket let it in, which may have read before
+          // a change the page made or heard since.
+          dndChanged(frame.dndUntil ?? null, true);
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
@@ -267,6 +283,8 @@ export function useSidebar(
           return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
+        case "dnd.changed":
+          return dndChanged(frame.dndUntil);
         case "blocks.changed":
           return change({ type: "blocked", blocks: frame.blocks });
         case "reports.changed":

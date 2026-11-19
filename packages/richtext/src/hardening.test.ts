@@ -3,7 +3,6 @@ import { OPENGRAPH_EMBED_CONTENT_TYPE } from "./attachments";
 import { autoLink } from "./autolink";
 import { plainText, prepareBody } from "./body";
 import { displayBody } from "./display";
-import * as worker from "./index";
 import { MAX_ATTRIBUTES, ParseLimitError } from "./markup";
 import { mentionSgid, userIdsIn } from "./mentions";
 import { parseHtml } from "./parse";
@@ -12,6 +11,7 @@ import { htmlEscape } from "./ruby";
 import { cgiUnescapeHtml } from "./sanitize";
 import { testUserId, testUsers } from "./testing/users";
 import { descendants, getAttr, isElement } from "./tree";
+import * as worker from "./index";
 
 // Where Ember deliberately diverges from Rails to close a hole or bound the work a message body can
 // cause. Bodies come from clients, and the Durable Object that prepares them has little CPU time to
