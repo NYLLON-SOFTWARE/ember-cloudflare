@@ -60,9 +60,9 @@ import appSignInClients from "../migrations/0059_app_sign_in_clients.sql";
 import appScopeWanted from "../migrations/0060_app_scope_wanted.sql";
 import ownAppSignIns from "../migrations/0061_own_app_sign_ins.sql";
 import outsideAi from "../migrations/0062_outside_ai.sql";
-import reminders from "../migrations/0067_reminders.sql";
-import reminderPushes from "../migrations/0074_reminder_pushes.sql";
-import reminderPushRetries from "../migrations/0068_reminder_push_retries.sql";
+import reminders from "../migrations/0080_reminders.sql";
+import reminderPushRetries from "../migrations/0081_reminder_push_retries.sql";
+import reminderPushes from "../migrations/0082_reminder_pushes.sql";
 import agentAccess from "../migrations/0063_agent_access.sql";
 import sessionTransfers from "../migrations/0064_session_transfers.sql";
 import newcomersAndUnreadCounts from "../migrations/0065_newcomers_and_unread_counts.sql";
@@ -167,9 +167,6 @@ export const MIGRATIONS: Migration[] = [
   { name: "0060_app_scope_wanted.sql", scope: "workspace", sql: appScopeWanted },
   { name: "0061_own_app_sign_ins.sql", scope: "workspace", sql: ownAppSignIns },
   { name: "0062_outside_ai.sql", scope: "workspace", sql: outsideAi },
-  { name: "0067_reminders.sql", scope: "workspace", sql: reminders },
-  { name: "0068_reminder_push_retries.sql", scope: "workspace", sql: reminderPushRetries },
-  { name: "0074_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
   { name: "0063_agent_access.sql", scope: "workspace", sql: agentAccess },
   { name: "0064_session_transfers.sql", scope: "workspace", sql: sessionTransfers },
   { name: "0065_newcomers_and_unread_counts.sql", scope: "workspace", sql: newcomersAndUnreadCounts },
@@ -187,6 +184,9 @@ export const MIGRATIONS: Migration[] = [
   { name: "0077_bot_rooms.sql", scope: "workspace", sql: botRooms },
   { name: "0078_cleared_reports.sql", scope: "workspace", sql: clearedReports },
   { name: "0079_sso.sql", scope: "workspace", sql: sso },
+  { name: "0080_reminders.sql", scope: "workspace", sql: reminders },
+  { name: "0081_reminder_push_retries.sql", scope: "workspace", sql: reminderPushRetries },
+  { name: "0082_reminder_pushes.sql", scope: "workspace", sql: reminderPushes },
 ];
 
 /**
@@ -221,15 +221,15 @@ export function migrate(storage: DurableObjectStorage, scope: Scope): void {
     ["0058_user_groups.sql", "0064_user_groups.sql"],
     ["0059_dnd.sql", "0065_dnd.sql"],
     ["0060_profile_fields.sql", "0066_profile_fields.sql"],
-    ["0061_reminders.sql", "0067_reminders.sql"],
+    ["0061_reminders.sql", "0080_reminders.sql"],
     ["0062_statuses.sql", "0069_statuses.sql"],
     ["0063_saves.sql", "0070_saves.sql"],
     ["0064_guests.sql", "0071_guests.sql"],
     ["0065_commands.sql", "0072_commands.sql"],
     ["0066_tokens.sql", "0073_tokens.sql"],
-    ["0073_reminder_push_retries.sql", "0068_reminder_push_retries.sql"],
-    ["0062_reminder_pushes.sql", "0074_reminder_pushes.sql"],
-    ["0072_reminder_pushes.sql", "0074_reminder_pushes.sql"],
+    ["0073_reminder_push_retries.sql", "0081_reminder_push_retries.sql"],
+    ["0062_reminder_pushes.sql", "0082_reminder_pushes.sql"],
+    ["0072_reminder_pushes.sql", "0082_reminder_pushes.sql"],
   ] as const) {
     storage.sql.exec(
       "UPDATE d1_migrations SET name = ? WHERE name = ? AND NOT EXISTS (SELECT 1 FROM (SELECT name FROM d1_migrations WHERE name = ?) AS there)",

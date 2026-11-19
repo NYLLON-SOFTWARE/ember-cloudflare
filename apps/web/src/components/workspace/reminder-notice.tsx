@@ -22,7 +22,7 @@ export function ReminderNotice({ reminder, roomName, onOpen, onDone }: Props) {
     <div
       role="alert"
       className={cn(
-        "fixed bottom-3 z-30 flex w-max max-w-[calc(100dvw-24px)] items-stretch gap-3 rounded-[11px] border bg-background p-3 shadow-[0_8px_24px_#0000001a]",
+        "fixed bottom-3 z-30 flex w-max max-w-[calc(100dvw-24px)] items-stretch gap-3 rounded-[11px] border bg-background p-3 shadow-[0_8px_24px_var(--menu-shadow)]",
         "right-3 max-md:inset-x-3 max-md:w-auto",
       )}
     >

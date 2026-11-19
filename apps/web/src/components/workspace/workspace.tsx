@@ -1104,9 +1104,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
                 onOpen={() => {
                   navigate(dueReminder.parentId === undefined ? messagePath(dueReminder.roomId, dueReminder.messageId) : threadPath(dueReminder.roomId, dueReminder.parentId, dueReminder.messageId));
                   // The page may hold the person with unsaved changes, so it's done with only once they've gone there.
-                  afterNavigating(() => void dismissReminder(dueReminder.id));
+                  afterNavigating(() => void dismissReminder(dueReminder.id).catch(failed));
                 }}
-                onDone={() => void dismissReminder(dueReminder.id)}
+                onDone={() => void dismissReminder(dueReminder.id).catch(failed)}
               />
             );
           })()}
@@ -1117,19 +1117,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   return (
     <PeopleContext value={directory.people}>
       <DirectoryLoaded value={directory.loaded}>
-        <SettingsLayout value={settings}>
-          <OpenSearchContext value={openSearch}>
-            <HuddlesContext value={huddles}>
-              <DismissReminder value={dismissReminder}>{layout}</DismissReminder>
-            </HuddlesContext>
-          </OpenSearchContext>
-        </SettingsLayout>
         <ActivePeople value={active}>
           <SettingsLayout value={settings}>
             <OpenSearchContext value={openSearch}>
               <HuddlesContext value={huddles}>
                 <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
+                  <ReportingContext value={openReport}>
+                    <DismissReminder value={dismissReminder}>{layout}</DismissReminder>
+                  </ReportingContext>
                 </BlockingContext>
               </HuddlesContext>
             </OpenSearchContext>
