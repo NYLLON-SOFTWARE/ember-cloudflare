@@ -1,10 +1,10 @@
-import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
+import { avatarSvg, type DirectoryUser, type User, type UserGroup } from "@ember/protocol";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PeopleContext, type People } from "@/hooks/use-directory";
+import { GroupsContext, PeopleContext, type Groups, type People } from "@/hooks/use-directory";
 import { marksFor } from "@/lib/search";
 import { MessageBody } from "./message-body";
 import { SearchMarks } from "./search-marks";
@@ -154,6 +154,12 @@ describe("Rich text, safely", () => {
 });
 
 const grace: DirectoryUser = { id: "0123456789abcdef", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/g.abc/avatar?v=1" };
+const ada: DirectoryUser = { id: "0123456789abcdefg", name: "Ada Lovelace", bio: null, role: "administrator", status: "active", avatarUrl: "/users/a.abc/avatar?v=1" };
+const design: UserGroup = { id: "g0123456789abcde", name: "design", memberIds: [grace.id, ada.id] };
+const people: People = new Map([
+  [grace.id, grace],
+  [ada.id, ada],
+]);
 
 const GRACE_MENTION = `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${grace.id}"></action-text-attachment>`;
 
@@ -165,6 +171,21 @@ function mention(people: People, mentions: User[], body = `<p>Hi ${GRACE_MENTION
   const { container } = render(
     <PeopleContext value={people}>
       <MessageBody nodes={shown(body)} mentions={mentions} />
+    </PeopleContext>,
+  );
+  return container.querySelector(".message-content")!;
+}
+
+/**
+ * Shows a message mentioning `groups`' groups, with the directory listing them and `people`, as a mention
+ * of a group shows.
+ */
+function renderGroups(body: string, groups: Groups, people: People) {
+  const { container } = render(
+    <PeopleContext value={people}>
+      <GroupsContext value={groups}>
+        <MessageBody nodes={shown(body)} mentions={[]} />
+      </GroupsContext>
     </PeopleContext>,
   );
   return container.querySelector(".message-content")!;
@@ -188,6 +209,20 @@ describe("How mentions look", () => {
   it("shows ☒ for someone no one knows, as a message from before messages named the people they mention doesn't", () => {
     expect(mention(new Map(), []).innerHTML).toBe("<p>Hi ☒!</p>");
     expect(mention(new Map(), [{ id: grace.id, name: "" }]).innerHTML).toBe("<p>Hi ☒!</p>");
+  });
+
+  it("shows a group's mention as its name, over a title naming everyone it stands for", () => {
+    const body = `<p>Hi <action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="group-${design.id}"></action-text-attachment>!</p>`;
+    const shown = renderGroups(body, new Map([[design.id, design]]), people);
+    expect(shown).toHaveTextContent("Hi design!");
+    const mention = shown.querySelector("p > span")!;
+    expect(mention).toHaveAttribute("title", "Grace Hopper, Ada Lovelace");
+    expect(mention.querySelector("img")).toBeNull();
+  });
+
+  it("shows ☒ for a group the directory doesn't list, as a deleted one's mention isn't", () => {
+    const body = `<p>Hi <action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="group-${design.id}"></action-text-attachment>!</p>`;
+    expect(renderGroups(body, new Map(), new Map()).innerHTML).toBe("<p>Hi ☒!</p>");
   });
 });
 

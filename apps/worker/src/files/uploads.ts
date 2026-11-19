@@ -1,14 +1,4 @@
-import {
-  FILE_TOO_LARGE,
-  MAX_PREVIEW_SIZE,
-  parseNewUpload,
-  PREVIEW_MAX_HEIGHT,
-  PREVIEW_MAX_WIDTH,
-  type Message,
-  type RoomId,
-  type Upload,
-  type User,
-} from "@ember/protocol";
+import { FILE_TOO_LARGE, MAX_PREVIEW_SIZE, parseNewUpload, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type Message, type RoomId, type Upload, type User } from "@ember/protocol";
 import { credentialsOf } from "../auth";
 import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";

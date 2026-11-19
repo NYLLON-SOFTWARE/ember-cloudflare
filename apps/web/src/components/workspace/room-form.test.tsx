@@ -1,10 +1,10 @@
 import { MAX_ROOM_NAME_LENGTH, TRANSLATIONS, type User } from "@ember/protocol";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { AccessSwitch, CheckMark, HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED, RoomForm } from "./room-form";
+import userEvent from "@testing-library/user-event";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
 const grace = { id: "grace", name: "Grace Hopper" };

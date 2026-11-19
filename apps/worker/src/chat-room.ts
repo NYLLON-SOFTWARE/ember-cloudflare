@@ -1,68 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  HISTORY_PAGE_SIZE,
-  isMessageTooLong,
-  LATE_PREVIEW_MS,
-  MAX_BOOST_LENGTH,
-  MAX_MESSAGE_HTML_LENGTH,
-  MESSAGE_TOO_LONG,
-  parseClientFrame,
-  parseRoomSocketParams,
-  ROOM_PROTOCOL,
-  type Boost,
-  type Card,
-  type CardAction,
-  type ClientFrame,
-  type LinkPreview,
-  type Message,
-  type NewUpload,
-  type RoomId,
-  type ServerFrame,
-  type TimelinePage,
-  type User,
-  type UserId,
-} from "@ember/protocol";
+import { ASSISTANT_ID, CloseCode, DELETED_PERSON_NAME, HISTORY_PAGE_SIZE, isMessageTooLong, LATE_PREVIEW_MS, MAX_BOOST_LENGTH, MAX_MESSAGE_HTML_LENGTH, MESSAGE_TOO_LONG, parseClientFrame, parseRoomSocketParams, ROOM_PROTOCOL, type Boost, type Card, type CardAction, type ClientFrame, type LinkPreview, type Message, type NewUpload, type RoomId, type ServerFrame, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
-import { hasPreview, prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
-import {
-  AGENT_NOTES,
-  AnswerError,
-  answerOf,
-  BLOCKED_ANSWER,
-  NOTES,
-  PICKED_MODEL_NOTES,
-  previewAttachment,
-  questionFor,
-  readable,
-  ROOM_MESSAGES_READ,
-  THREAD_REPLIES_READ,
-  waitFor,
-  writtenBy,
-  type Answer,
-} from "./assistant/answers";
+import { hasPreview, mentionedIdsIn, mentionGroupSgid, mentionSgid, parseHtml, prepareBody, userIdFromSgid, userIdsIn, type MentionUser, type PreparedBody } from "@ember/richtext";
+import { AGENT_NOTES, AnswerError, answerOf, BLOCKED_ANSWER, NOTES, PICKED_MODEL_NOTES, previewAttachment, questionFor, readable, ROOM_MESSAGES_READ, THREAD_REPLIES_READ, waitFor, writtenBy, type Answer } from "./assistant/answers";
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal, type Question } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
 import { roomSearch } from "./assistant/room-search";
 import { ToolError, type EmberTool } from "./assistant/tool-calls";
 import { saidCard, toolCallOf, toolCards, type CardCall } from "./apps/cards";
-import {
-  appTool,
-  callCard,
-  callDecisionOf,
-  CALL_OUTCOMES,
-  calledFromCard,
-  givenAs,
-  givenTools,
-  ToolGone,
-  type AllowsCall,
-  type GivenTool,
-  type PickedTool,
-  type ShowsCard,
-} from "./apps/tools";
+import { appTool, CALL_OUTCOMES, callCard, callDecisionOf, calledFromCard, givenAs, givenTools, ToolGone, type AllowsCall, type GivenTool, type PickedTool, type ShowsCard } from "./apps/tools";
 import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
 import { isFresh, keptBlockedWords, NO_BLOCKED_WORDS, outdated, type KeptBlockedWords } from "./blocked-words";
@@ -82,7 +29,7 @@ import { Huddle, HUDDLE_CHECK_MS, HUDDLE_TAG } from "./huddles/room";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
 import { urlOf } from "./request-url";
-import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
+import { addressTag, EVERYONE, Revocations, REVOCATIONS_KEPT_MS, sessionTag, type Revocation } from "./revocations";
 import { RoomLog, type RoomEvent } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, closeTooLarge, isTooLarge, MAX_ROOM_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
@@ -1395,7 +1342,10 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * What the room keeps of a body a client sent, naming the people it mentions as they are now, or
-   * why it keeps nothing, which is `BLOCKED_WORDS_REFUSED` when what its writer wrote has a blocked word.
+   * why it keeps nothing, which is `BLOCKED_WORDS_REFUSED` when what its writer wrote has a blocked
+   * word. A group's mention keeps the group's name in the body, and stands for everyone in it, whom
+   * the message's mentions list keeps once each, so that "mentions me", the unread marks and the
+   * pushes know it as they know a person's mention.
    */
   private async prepare(markup: string): Promise<PreparedBody | string> {
     const read = await this.readBody(markup);
@@ -1404,18 +1354,32 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * A body a client sent as the room keeps it, naming the people it mentions as they are now, with what
-   * its writer wrote (`writtenText`), not yet checked for blocked words, or why the room can't keep it.
+   * A body a client sent as the room keeps it, naming the people and groups it mentions as they are
+   * now, with what its writer wrote (`writtenText`), not yet checked for blocked words, or why the
+   * room can't keep it.
    */
   private async readBody(markup: string): Promise<{ body: PreparedBody; written: string } | string> {
-    const ids = userIdsIn(markup);
-    const people = new Map<UserId, User>(ids.length === 0 ? [] : (await workspace(this.env).mentionedPeople(ids)).map((person) => [person.id, person]));
-    const named = (sgid: string) => people.get(userIdFromSgid(sgid) ?? "");
-    const body = prepareBody(markup, named);
+    const { userIds, groupIds } = mentionedIdsIn(parseHtml, markup);
+    const [people, groups] = await Promise.all([
+      userIds.length === 0 ? [] : workspace(this.env).mentionedPeople(userIds),
+      groupIds.length === 0 ? [] : workspace(this.env).mentionedGroups(groupIds),
+    ]);
+    const named = new Map<string, MentionUser>(people.map((person) => [mentionSgid(person.id), person]));
+    for (const { id, name } of groups) named.set(mentionGroupSgid(id), { id, name, group: true });
+    const lookup = (sgid: string) => named.get(sgid);
+    const body = prepareBody(markup, lookup);
     if (body === null) return UNREADABLE;
     if (body.blank) return EMPTY;
     if (isMessageTooLong(body.plainText)) return MESSAGE_TOO_LONG;
-    return { body, written: writtenText(body, named) };
+    const membersOf = new Map(groups.map((group) => [group.id, group.members]));
+    const mentions: User[] = [];
+    const seen = new Set<string>();
+    for (const mentioned of body.mentions) {
+      for (const member of mentioned.group ? (membersOf.get(mentioned.id) ?? []) : [mentioned]) {
+        if (!seen.has(member.id)) (seen.add(member.id), mentions.push(member));
+      }
+    }
+    return { body: { ...body, mentions }, written: writtenText(body, lookup) };
   }
 
   /**

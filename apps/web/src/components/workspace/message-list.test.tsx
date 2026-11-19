@@ -2,11 +2,11 @@ import type { Invitation, Me, Message } from "@ember/protocol";
 import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { initialRoomState, type RoomState } from "@/lib/room-state";
 import { MessageList } from "./message-list";
+import userEvent from "@testing-library/user-event";
 
 /**
  * jsdom has no layout, so tests say whether each end of the timeline is in view. Like the real

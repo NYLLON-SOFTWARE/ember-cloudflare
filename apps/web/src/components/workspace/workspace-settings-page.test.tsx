@@ -1,31 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  LOGO_PATH,
-  LOGO_TOO_LARGE,
-  MAX_LOGO_SIZE,
-  MAX_TAGLINE_LENGTH,
-  NO_EMAIL_DOMAINS,
-  OPEN_WITH_MEMBERFUL,
-  TRYING_BETAS,
-  UPDATING_EMBER,
-  type Account,
-  type AccountChanges,
-  type AssistantSetup,
-  type CopyOnGitHub,
-  type DirectoryUser,
-  type EmailInvitation,
-  type Invited,
-  type Me,
-  type ReleaseCheck,
-  type RoleChange,
-  type RoomId,
-  type SidebarRoom,
-  type WorkspaceSettings,
-} from "@ember/protocol";
-import { formatOf, TOP_LEVELS, modelName, type AssistantChanges, type AssistantSettings, type NewAssistantModel } from "@ember/protocol/assistant";
+import { LOGO_PATH, LOGO_TOO_LARGE, MAX_LOGO_SIZE, MAX_TAGLINE_LENGTH, NO_EMAIL_DOMAINS, OPEN_WITH_MEMBERFUL, TRYING_BETAS, UPDATING_EMBER, type Account, type AccountChanges, type AssistantSetup, type CopyOnGitHub, type DirectoryUser, type EmailInvitation, type Invited, type Me, type ReleaseCheck, type RoleChange, type RoomId, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
+import { formatOf, modelName, TOP_LEVELS, type AssistantChanges, type AssistantSettings, type NewAssistantModel } from "@ember/protocol/assistant";
 import { blockedWordUnmatchable } from "@ember/protocol/blocked-words";
 import type { Agent, Agents } from "@ember/protocol/agents";
 import { RELAY_WITHOUT_HUDDLES, type HuddleRelaySetup, type HuddlesSetup } from "@ember/protocol/huddles";
@@ -39,6 +16,8 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { timeLabel } from "@/lib/messages";
+import userEvent from "@testing-library/user-event";
+
 // Ember's own Update Ember workflow, which the card offers a copy without one: the copy beside the deploy
 // script, which CI keeps the same as .github's, since a copy's .github keeps its own workflow, or none.
 import EMBERS_WORKFLOW from "../../../../worker/scripts/update-ember.yml?raw";
@@ -285,6 +264,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         const { site } = JSON.parse(String(init?.body)) as MemberfulKeysChange;
         return Response.json({ memberfulSite: site, memberfulWebhooks: true, memberfulKeys: "saved", memberfulSiteKept: settings.memberfulSiteKept } satisfies MemberfulSaved);
       }
+      case "GET /api/user_groups":
+        return Response.json({ groups: [] });
       case "PUT /api/account/huddles":
         // The relay's TURN key is the account's, so it's kept through a change of app.
         huddles = { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId, relayKeyId: huddles?.relayKeyId ?? null };

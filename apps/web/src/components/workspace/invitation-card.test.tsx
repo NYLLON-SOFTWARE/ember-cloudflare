@@ -1,9 +1,9 @@
 import { TRANSLATIONS } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { InvitationCard } from "./invitation-card";
+import userEvent from "@testing-library/user-event";
 
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const LINK = `http://localhost:3000/join/${JOIN_CODE}`;

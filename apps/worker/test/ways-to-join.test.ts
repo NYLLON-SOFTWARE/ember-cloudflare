@@ -1,21 +1,4 @@
-import {
-  JOINING_PROBLEMS,
-  MAX_TURNSTILE_TOKEN_LENGTH,
-  OPEN_WITH_MEMBERFUL,
-  PASSWORD_TOO_SHORT,
-  SIGN_UP_FULL,
-  SIGN_UP_LIMITED,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  TURNSTILE_FAILED,
-  type Account,
-  type Bootstrap,
-  type Directory,
-  type Me,
-  type NewWorkspace,
-  type Sidebar,
-  type WorkspaceServerFrame,
-} from "@ember/protocol";
+import { JOINING_PROBLEMS, MAX_TURNSTILE_TOKEN_LENGTH, OPEN_WITH_MEMBERFUL, PASSWORD_TOO_SHORT, SIGN_UP_FULL, SIGN_UP_LIMITED, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, TURNSTILE_FAILED, type Account, type Bootstrap, type Directory, type Me, type NewWorkspace, type Sidebar, type WorkspaceServerFrame } from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";

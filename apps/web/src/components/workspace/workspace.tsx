@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount, useCamerasAllowed, useScreensAllowed } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
+import { ActivePeople, DirectoryLoaded, DirectoryReloading, DirectoryStale, GroupsContext, PeopleContext, ReloadDirectory, useDirectory } from "@/hooks/use-directory";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
-import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -1092,19 +1092,27 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   );
   return (
     <PeopleContext value={directory.people}>
-      <DirectoryLoaded value={directory.loaded}>
-        <ActivePeople value={active}>
-          <SettingsLayout value={settings}>
-            <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>
-                <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
-                </BlockingContext>
-              </HuddlesContext>
-            </OpenSearchContext>
-          </SettingsLayout>
-        </ActivePeople>
-      </DirectoryLoaded>
+      <GroupsContext value={directory.groups}>
+        <DirectoryReloading value={directory.reloading}>
+          <ReloadDirectory value={directory.reload}>
+            <DirectoryStale value={directory.stale}>
+              <DirectoryLoaded value={directory.loaded}>
+                <ActivePeople value={active}>
+                  <SettingsLayout value={settings}>
+                    <OpenSearchContext value={openSearch}>
+                      <HuddlesContext value={huddles}>
+                        <BlockingContext value={blocking}>
+                          <ReportingContext value={openReport}>{layout}</ReportingContext>
+                        </BlockingContext>
+                      </HuddlesContext>
+                    </OpenSearchContext>
+                  </SettingsLayout>
+                </ActivePeople>
+              </DirectoryLoaded>
+            </DirectoryStale>
+          </ReloadDirectory>
+        </DirectoryReloading>
+      </GroupsContext>
     </PeopleContext>
   );
 }

@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withNavigationIcons, type Account, type AccountChanges, type CustomStyles } from "@ember/protocol";
@@ -8,6 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { CustomStylesPage } from "./custom-styles-page";
 import { CHANGES_SAVED } from "./settings-page";
+import userEvent from "@testing-library/user-event";
 
 const CSS = ".mb-app { --mb-ink: rebeccapurple; }";
 const styled: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: CSS, restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };

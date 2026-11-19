@@ -1,17 +1,17 @@
 import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useMemo, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
+import { DirectoryLoaded, GroupsContext, PeopleContext, ReloadDirectory, type Groups, type People } from "@/hooks/use-directory";
 import { BlockingContext } from "@/hooks/use-blocking";
 import { ReportingContext } from "@/hooks/use-reporting";
-import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { BLOCKED_MESSAGE, MessageItem, type ThreadPlace } from "./message-item";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -1556,15 +1556,22 @@ describe("How mentions look", () => {
   const hopper: User = { id: "0123456789abcdef", name: "Grace" };
   const listed = { ...hopper, name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "" } as const;
 
-  /** A message open in its editor, seen by Ada with `people` in the people directory, which has `loaded`. */
-  const editing = (m: Message, people: People, loaded = true) => {
+  /**
+   * A message open in its editor, seen by Ada with `people` in the people directory, which has
+   * `loaded`, and `groups` in it, and which `reloadDirectory` loads again, settling at once by default.
+   */
+  const editing = (m: Message, people: People, loaded = true, groups: Groups = new Map(), reloadDirectory = () => Promise.resolve()) => {
     const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     return (
       <PeopleContext value={people}>
-        <DirectoryLoaded value={loaded}>
-          <MessageItem message={m} me={{ ...ada, administrator: false }} threaded={false} editing actions={actions} editors={editors} />
-        </DirectoryLoaded>
+        <GroupsContext value={groups}>
+          <ReloadDirectory value={reloadDirectory}>
+            <DirectoryLoaded value={loaded}>
+              <MessageItem message={m} me={{ ...ada, administrator: false }} threaded={false} editing actions={actions} editors={editors} />
+            </DirectoryLoaded>
+          </ReloadDirectory>
+        </GroupsContext>
       </PeopleContext>
     );
   };
@@ -1584,6 +1591,35 @@ describe("How mentions look", () => {
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     rerender(editing(old, new Map([[ada.id, changed], [hopper.id, listed]])));
     expect(await editBox()).toHaveValue("Thanks @Grace Hopper!");
+  });
+
+  it("waits for the people directory to edit a message naming a group, whose groups it loads with it", async () => {
+    const groupMention = (id: string) => `<action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="group-${id}"></action-text-attachment>`;
+    const design = { id: "g000000000000000", name: "design", memberIds: [grace.id] };
+    const named = message({ body: `<p>Thanks ${groupMention(design.id)}!</p>`, plainText: "Thanks @design!", mentions: [hopper] });
+    // The people a message names are known already, so only the group keeps the editor waiting.
+    const { rerender } = render(editing(named, new Map([[hopper.id, listed]]), false));
+    await act(() => Promise.resolve());
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    rerender(editing(named, new Map([[hopper.id, listed]]), true, new Map([[design.id, design]])));
+    expect(await editBox()).toHaveValue("Thanks @design!");
+  });
+
+  it("asks the directory again once for a group it doesn't list, opening once its answer names the group", async () => {
+    const groupMention = (id: string) => `<action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="group-${id}"></action-text-attachment>`;
+    const design = { id: "g000000000000000", name: "design", memberIds: [grace.id] };
+    const named = message({ body: `<p>Thanks ${groupMention(design.id)}!</p>`, plainText: "Thanks @design!", mentions: [hopper] });
+    // The directory has loaded already, before another administrator made the group, so the editor asks
+    // for it again rather than open knowing none for the mention. Its answer is held until the groups
+    // have come.
+    const reloadDirectory = vi.fn(() => new Promise<void>(() => {}));
+    const { rerender } = render(editing(named, new Map([[hopper.id, listed]]), true, new Map(), reloadDirectory));
+    await act(() => Promise.resolve());
+    expect(reloadDirectory).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    // The answer has brought the group, and the edit opens with the mention kept.
+    rerender(editing(named, new Map([[hopper.id, listed]]), true, new Map([[design.id, design]]), reloadDirectory));
+    expect(await editBox()).toHaveValue("Thanks @design!");
   });
 });
 

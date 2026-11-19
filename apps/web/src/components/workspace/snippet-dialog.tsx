@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { MAX_FILE_NAME_LENGTH } from "@ember/protocol";
-import { FIELD_INPUT, Field } from "@/components/field";
+import { Field, FIELD_INPUT } from "@/components/field";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

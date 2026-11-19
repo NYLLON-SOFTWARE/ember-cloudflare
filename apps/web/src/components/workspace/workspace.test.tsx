@@ -1,5 +1,4 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings, AvailableAgent } from "@ember/protocol/agents";
@@ -18,7 +17,8 @@ import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
-import { Workspace, loadPageAhead } from "./workspace";
+import { loadPageAhead, Workspace } from "./workspace";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 // A huddle's own tests join one. Here joining shows the tab as in the huddle, as a test has it.
@@ -80,7 +80,7 @@ const workspaceSettings: WorkspaceSettings = {
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
-    "GET /api/users": () => Response.json({ users: [] }),
+    "GET /api/users": () => Response.json({ users: [], groups: [] }),
     "GET /api/reports": () => Response.json({ open: [], handled: [] }),
     ...responses,
   };
@@ -727,7 +727,7 @@ describe("New direct message dialog", () => {
   const newDirect = () => screen.queryByRole("dialog", { name: "New direct message" });
   const dms = () => within(screen.getByRole("navigation", { name: "Workspace", hidden: true })).getByRole("link", { name: "DMs", hidden: true });
 
-  beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
+  beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people, groups: [] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
 
   it("opens over the page from the rail's DMs and the sidebar's New direct message, turning Activity off, and closes back on the link", async () => {
     const { user } = showWorkspace("/rooms/general");
@@ -793,7 +793,7 @@ describe("New direct message dialog", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
-      "GET /api/users": () => Response.json({ users: people }),
+      "GET /api/users": () => Response.json({ users: people, groups: [] }),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/d1");
@@ -810,7 +810,7 @@ describe("New direct message dialog", () => {
   it("tells an administrator that a DM started without an agent only available in admin DMs, which was picked with someone who isn't one", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     const steward: DirectoryUser = { id: "a9", name: "Steward", bio: null, role: "bot", status: "active", avatarUrl: "/users/a9/avatar", agent: true, adminsOnly: true };
-    serve({ "GET /api/users": () => Response.json({ users: [...people, steward] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) });
+    serve({ "GET /api/users": () => Response.json({ users: [...people, steward], groups: [] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) });
     const { user } = showWorkspace("/rooms/general", { ...ada, administrator: true });
     await roomHeading();
     await user.click(dms());
@@ -824,7 +824,7 @@ describe("New direct message dialog", () => {
 
   it("asks before leaving a room's unsaved settings for the DM, keeping the people picked to come back to", async () => {
     serve({
-      "GET /api/users": () => Response.json({ users: people }),
+      "GET /api/users": () => Response.json({ users: people, groups: [] }),
       "GET /api/rooms/general/settings": () => Response.json(generalSettings),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
@@ -860,7 +860,7 @@ describe("Available Agents", () => {
 
   beforeEach(() =>
     serve({
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap, herald] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap, herald], groups: [] }),
       "GET /api/agents": () => Response.json({ agents: [available(ember), available(recap)] }),
       "POST /api/directs": () => Response.json({ room: withRecap }, { status: 201 }),
     }),
@@ -891,14 +891,14 @@ describe("Available Agents", () => {
   });
 
   it("has no row while there's no agent to ask, as while Ember AI is off, nor while Activity shows only what's unread", async () => {
-    serve({ "GET /api/users": () => Response.json({ users: [grace, { ...ember, status: "deactivated" }, { ...recap, status: "deactivated" }] }) });
+    serve({ "GET /api/users": () => Response.json({ users: [grace, { ...ember, status: "deactivated" }, { ...recap, status: "deactivated" }], groups: [] }) });
     const { user, unmount } = showWorkspace("/rooms/general");
     await roomHeading();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/users")).toBe(true));
     expect(row()).not.toBeInTheDocument();
     unmount();
 
-    serve({ "GET /api/users": () => Response.json({ users: [grace, ember, recap] }) });
+    serve({ "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }) });
     showWorkspace("/rooms/general");
     await waitFor(() => expect(row()).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Activity" }));
@@ -953,7 +953,7 @@ describe("Available Agents", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withRecap])),
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }),
       "GET /api/agents": () => Response.json({ agents: [available(ember), available(recap)] }),
       "POST /api/directs": () => Response.json({ room: withRecap }, { status: 201 }),
     });
@@ -971,7 +971,7 @@ describe("Available Agents", () => {
 
   it("closes, saying why, when its agents can't load", async () => {
     serve({
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }),
       "GET /api/agents": () => Promise.reject(new TypeError("Failed to fetch")),
     });
     const { user } = showWorkspace("/rooms/general");

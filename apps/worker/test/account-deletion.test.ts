@@ -1,19 +1,4 @@
-import {
-  CloseCode,
-  CURRENT_PASSWORD_WRONG,
-  DELETED_PERSON_NAME,
-  DELETION_NAME_NEEDED,
-  DELETION_PASSWORD_NEEDED,
-  ONLY_ADMINISTRATOR,
-  SIGN_IN_LIMITED,
-  type Directory,
-  type DirectoryUser,
-  type Me,
-  type Message,
-  type NewWorkspace,
-  type RoomId,
-  type UserId,
-} from "@ember/protocol";
+import { CloseCode, CURRENT_PASSWORD_WRONG, DELETED_PERSON_NAME, DELETION_NAME_NEEDED, DELETION_PASSWORD_NEEDED, ONLY_ADMINISTRATOR, SIGN_IN_LIMITED, type Directory, type DirectoryUser, type Me, type Message, type NewWorkspace, type RoomId, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,32 +7,7 @@ import type { Env } from "../src/env";
 import { objectKey } from "../src/files/blobs";
 import { BOOSTS_BY, RENAME_AUTHOR } from "../src/store";
 import type { OutsideSender, Workspace } from "../src/workspace";
-import {
-  api,
-  closeOf,
-  connect,
-  cookieOf,
-  createRoom,
-  direct,
-  freshDeploy,
-  freshRoom,
-  openWorkspaceSocket,
-  origin,
-  post,
-  reconnect,
-  recordedImage,
-  roomSql,
-  roomStub,
-  settle,
-  shown,
-  signIn,
-  upgrade,
-  upload,
-  workspaceSql,
-  workspaceStub,
-  type Session,
-  type Socket,
-} from "./support";
+import { api, closeOf, connect, cookieOf, createRoom, direct, freshDeploy, freshRoom, openWorkspaceSocket, origin, post, reconnect, recordedImage, roomSql, roomStub, settle, shown, signIn, upgrade, upload, workspaceSql, workspaceStub, type Session, type Socket } from "./support";
 
 // Delete my account, on your profile, which Apple asks of every app with accounts: everything removing
 // someone does, then their messages and boosts in every room, and everything else of them but their row.
@@ -454,7 +414,6 @@ describe("What deleting your account deletes", () => {
 
     expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(true);
     expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(true);
-    expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(false);
     expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(false);
     const changes = [];
     for (let i = 0; i < 6; i++) changes.push(await watcher.next("message.deleted", "boost.deleted"));

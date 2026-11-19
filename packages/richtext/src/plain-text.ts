@@ -1,3 +1,5 @@
+
+
 // `ActionText::PlainTextConversion`, with a heading of any size ending a block, as `h1` does there, since Ember's
 // formatting row writes `h2` and `h3` as well as Campfire's `h1`.
 

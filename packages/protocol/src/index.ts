@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -246,13 +248,41 @@ export interface DirectoryUser extends User {
   adminsOnly?: true;
 }
 
+/** What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too, and the workspace's groups. */
 /**
  * What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too,
  * but, for anyone who isn't an administrator, the AI agents only administrators' direct messages reach.
  */
 export interface Directory {
   users: DirectoryUser[];
+  groups: UserGroup[];
 }
+
+export type GroupId = string;
+
+/** A group of people one mention stands for, as the people directory lists it. */
+export interface UserGroup {
+  id: GroupId;
+  /** As it's kept: lowercased, as people's names are compared. */
+  name: string;
+  /** Everyone in it, by id, in no order a mention would keep. */
+  memberIds: UserId[];
+}
+
+/** The most people a group can have, which creating or changing one is refused past. */
+export const MAX_GROUP_MEMBERS = 100;
+export const GROUP_TOO_BIG = `A group can have at most ${MAX_GROUP_MEMBERS.toLocaleString("en-US")} members.`;
+/** What a workspace's groups are called in the settings' list, which is a row each. */
+export const MAX_GROUP_NAME_LENGTH = 100;
+export const GROUP_NAME_TOO_LONG = `Name must be at most ${MAX_GROUP_NAME_LENGTH} characters.`;
+/** Why a group is refused the name another has, however it's capitalised. */
+export const GROUP_NAME_TAKEN = "A group is already named that.";
+/** Why a group is refused a member list naming someone who isn't an active person. */
+export const GROUP_MEMBER_UNKNOWN = "A group's members are people in the workspace.";
+/** The most groups a workspace keeps, as one settings list shows. */
+export const MAX_GROUPS = 1_000;
+/** Why a group is refused once the workspace keeps as many as it can. */
+export const GROUPS_FULL = `The workspace can have at most ${MAX_GROUPS.toLocaleString("en-US")} groups. Delete one first.`;
 
 export type RoomKind = "open" | "closed" | "direct";
 
@@ -450,6 +480,31 @@ export interface RoomSettings {
  * the people `memberIds` names, which takes anyone else out of it.
  */
 export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+
+/** What `POST /api/user_groups` makes: a group named `name` with the people `memberIds` names. */
+export interface NewUserGroup {
+  name: string;
+  memberIds: UserId[];
+}
+
+/**
+ * What `PATCH /api/user_groups/<id>` changes in a group: its name, its members, which takes everyone
+ * left out of it, or both.
+ */
+export interface UserGroupChanges {
+  name?: string;
+  memberIds?: UserId[];
+}
+
+/** What `POST /api/user_groups` and `PATCH /api/user_groups/<id>` answer: the group as it then is. */
+export interface UserGroupAnswer {
+  group: UserGroup;
+}
+
+/** What `GET /api/user_groups` answers: the workspace's groups, by name, each with everyone in it. */
+export interface UserGroupsAnswer {
+  groups: UserGroup[];
+}
 
 /**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
@@ -1961,10 +2016,11 @@ export type WorkspaceServerFrame =
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
  * tells a tab running an older app to reload, and refuses its messages and edits: before revision 2,
  * tabs sent a message's text rather than its markup, which the room would now read as markup, before
- * revision 3, an edit dropped the message's mentions, and before revision 4, tabs knew nothing of
- * threads, and showed every reply in the room.
+ * revision 3, an edit dropped the message's mentions, before revision 4, tabs knew nothing of
+ * threads, and showed every reply in the room, and before revision 5, an edit dropped a group's
+ * mention, which a tab that knew no groups detached as one of no one.
  */
-export const ROOM_PROTOCOL = 4;
+export const ROOM_PROTOCOL = 5;
 
 /** What a room socket's address tells the room about the tab opening it. */
 export interface RoomSocketParams {
@@ -2341,6 +2397,38 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
 
 /** Whether `data` is a JSON object: an array is an object too, but not one that can name a change. */
 const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof data === "object" && data !== null && !Array.isArray(data);
+
+/**
+ * A group's name a request names, or null for one refused: as `text` reads it, and no longer than the
+ * limit as the Workspace keeps it too, since lowercasing a name can lengthen it (`İ` folds to i and
+ * its dot), which a name sent within the limit could otherwise outgrow once kept.
+ */
+const sentGroupName = (value: unknown): string | null => {
+  const name = text(value, MAX_GROUP_NAME_LENGTH);
+  return name !== null && name.toLowerCase().length <= MAX_GROUP_NAME_LENGTH ? name : null;
+};
+
+/**
+ * Parses an untrusted request to make a group. Returns why it's refused instead of the group. The name
+ * is kept as it's sent; the Workspace lowercases it, so that two names that differ only in capitals
+ * can't both be kept.
+ */
+export function parseNewUserGroup(data: unknown): NewUserGroup | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = sentGroupName(data.name);
+  if (!name) return `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters`;
+  const memberIds = data.memberIds ?? [];
+  return userIds(memberIds) ? { name, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/** Parses an untrusted change to a group. Returns why it's refused instead of the changes. */
+export function parseUserGroupChanges(data: unknown): UserGroupChanges | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = data.name === undefined ? undefined : sentGroupName(data.name);
+  if (name === null) return `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters`;
+  if (data.memberIds === undefined) return name === undefined ? "Expected a name or members to change" : { name };
+  return userIds(data.memberIds) ? { name, memberIds: data.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
 
 /**
  * Parses an untrusted request to start a DM. Returns why it's refused instead of the DM. Naming nobody,

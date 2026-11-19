@@ -1,17 +1,4 @@
-import {
-  startingInvolvement,
-  type Blocks,
-  type Favorites,
-  type HuddleSounds,
-  type Involvement,
-  type LiveHuddle,
-  type Room,
-  type RoomId,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type UserId,
-} from "@ember/protocol";
+import { startingInvolvement, type Blocks, type Favorites, type HuddleSounds, type Involvement, type LiveHuddle, type Room, type RoomId, type SharedRoom, type Sidebar, type SidebarRoom, type UserId } from "@ember/protocol";
 import { hearsAllHuddleSounds } from "@ember/protocol/huddles";
 import { isHidden } from "./involvement";
 

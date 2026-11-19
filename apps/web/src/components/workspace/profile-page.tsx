@@ -1,25 +1,9 @@
 import { useContext, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import {
-  AVATAR_TOO_LARGE,
-  MAX_AVATAR_SIZE,
-  MAX_BIO_LENGTH,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MAX_PASSWORD_LENGTH,
-  MAX_USER_NAME_LENGTH,
-  MEMBERFUL_DISCONNECTED_NOTICE,
-  MIN_PASSWORD_LENGTH,
-  type AccountDeletion,
-  type Me,
-  type MemberfulStatus,
-  type Profile,
-  type ProfileAnswer,
-  type ProfileChanges,
-  type SidebarRoom,
-} from "@ember/protocol";
+import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, MAX_BIO_LENGTH, MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, MEMBERFUL_DISCONNECTED_NOTICE, MIN_PASSWORD_LENGTH, type AccountDeletion, type Me, type MemberfulStatus, type Profile, type ProfileAnswer, type ProfileChanges, type SidebarRoom } from "@ember/protocol";
 import { MEMBERFUL_WITH_SSO, SSO_DISCONNECTED_NOTICE, SSO_WITH_MEMBERFUL, type SsoStatus } from "@ember/protocol/sso";
 import type { HuddleSounds } from "@ember/protocol/huddles";
 import { AUTH_FORM } from "@/components/auth-page";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { LogOut } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";

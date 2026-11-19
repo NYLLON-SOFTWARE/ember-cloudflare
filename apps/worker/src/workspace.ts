@@ -1,124 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  CANT_SEND_EMAIL,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  domainOfEmailAddress,
-  EMAILS_PER_ADDRESS,
-  EMAIL_LINKS_PER_NETWORK,
-  emailSignUpLink,
-  INVITATION_DAYS,
-  invitationLink,
-  isReservedName,
-  isRoomId,
-  mailboxOf,
-  mailboxUnder,
-  NAVIGATION_SLOTS,
-  othersAfterMove,
-  parseWorkspaceClientFrame,
-  parseWorkspaceSocketParams,
-  PASSWORD_RESET_CODE_MINUTES,
-  PASSWORD_RESETS_PER_NETWORK,
-  sameName,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  signsInElsewhereOnly,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  usernameFrom,
-  withNavigationIcons,
-  type Account,
-  type AccountChanges,
-  type AccountSettings,
-  type AssistantSettings,
-  type Bot,
-  type BotChanges,
-  type BotSettings,
-  type ChangedBlocks,
-  type CustomStyles,
-  type DirectoryUser,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailSettings,
-  type Favorites,
-  type HuddlesSettings,
-  type LiveHuddle,
-  type Mailbox,
-  type Invited,
-  type Involvement,
-  type Me,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type NewBot,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewWorkspace,
-  type PersonRole,
-  type Profile,
-  type ProfileChanges,
-  type PushSubscriptionSave,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-  type WorkspaceServerFrame,
-  type WorkspaceSettings,
-  type SsoSettings,
-} from "@ember/protocol";
+import { ASSISTANT_ID, ASSISTANT_NAME, CANT_SEND_EMAIL, CloseCode, DELETED_PERSON_NAME, domainOfEmailAddress, EMAIL_LINKS_PER_NETWORK, EMAILS_PER_ADDRESS, emailSignUpLink, INVITATION_DAYS, invitationLink, isReservedName, isRoomId, mailboxOf, mailboxUnder, MAX_GROUP_MEMBERS, MAX_GROUPS, MEMBERFUL_SIGN_IN_NEEDED, NAVIGATION_SLOTS, othersAfterMove, parseWorkspaceClientFrame, parseWorkspaceSocketParams, PASSWORD_RESET_CODE_MINUTES, PASSWORD_RESETS_PER_NETWORK, sameName, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, signsInElsewhereOnly, signsUpOpenly, signsUpWithEmailDomain, usernameFrom, withNavigationIcons, type Account, type AccountChanges, type AccountSettings, type AssistantSettings, type Bot, type BotChanges, type BotSettings, type ChangedBlocks, type CustomStyles, type DirectoryUser, type DirectRoom, type EmailInvitation, type EmailLinkFor, type EmailLinkKind, type EmailSettings, type Favorites, type GroupId, type HuddlesSettings, type Invited, type Involvement, type LiveHuddle, type Mailbox, type Me, type NavigationIconChanges, type NavigationIcons, type NewBot, type NewJoinCode, type NewRoom, type NewRoomForm, type NewUserGroup, type NewWorkspace, type PersonRole, type Profile, type ProfileChanges, type PushSubscriptionSave, type ResentInvitation, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SentTestEmail, type SharedRoom, type Sidebar, type SidebarRoom, type SsoSettings, type User, type UserGroup, type UserGroupChanges, type UserId, type UserStatus, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import { MAX_OUTSIDE_CONNECTIONS, outsideScopesOf, type OutsideAiSettings, type OutsideConnection, type OutsideScope } from "@ember/protocol/outside";
-import {
-  ASSISTANT_MODELS,
-  DEFAULT_LEVELS,
-  isWorkersAiModel,
-  MAX_ASSISTANT_MODELS,
-  modelName,
-  offeredModelOf,
-  searchFormatOf,
-  TOP_LEVELS,
-  webToolsOf,
-  withinMost,
-  type AnswerLevels,
-  type AssistantChanges,
-  type ModelFormat,
-  type OfferedModel,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistant,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, DEFAULT_LEVELS, isWorkersAiModel, MAX_ASSISTANT_MODELS, modelName, offeredModelOf, searchFormatOf, TOP_LEVELS, webToolsOf, withinMost, type AnswerLevels, type AssistantChanges, type ModelFormat, type OfferedModel, type ThinkingLevel, type WebTool, type YourAssistant, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
-import {
-  isAtHost,
-  MAX_APP_SCOPE_LENGTH,
-  MAX_APPS,
-  type App,
-  type AppChanges,
-  type AppId,
-  type AppSummary,
-  type NewApp,
-  type OfferedApp,
-  type SetAsideTool,
-  type ToolPick,
-  type YourApp,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import { isAtHost, MAX_APP_SCOPE_LENGTH, MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick, type YourApp, type YourAppSignedOut } from "@ember/protocol/apps";
 import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/blocked-words";
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
@@ -139,18 +25,7 @@ import type { RelayKey } from "./huddles/relay";
 import type { HuddleApp, RoomHuddles, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import {
-  deployedMemberfulOf,
-  memberfulApiOf,
-  memberfulWebhooksOf,
-  membershipsOf,
-  namelessMember,
-  openMemberfulSecrets,
-  sealMemberfulSecrets,
-  type MemberfulApi,
-  type MemberfulMember,
-  type MemberfulSetup,
-} from "./memberful-api";
+import { deployedMemberfulOf, memberfulApiOf, memberfulWebhooksOf, membershipsOf, namelessMember, openMemberfulSecrets, sealMemberfulSecrets, type MemberfulApi, type MemberfulMember, type MemberfulSetup } from "./memberful-api";
 import { discover, refreshTokens } from "./oidc";
 import { Presence } from "./presence";
 import { sendPushes } from "./push/delivery";
@@ -175,54 +50,7 @@ import { claimsOf, isAllowed, sameSignInRules, ssoProviderOf, ssoSettingsOf, tol
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
-import {
-  allowingHuddles,
-  NEW_ACCOUNT_LOOKS,
-  WorkspaceStore,
-  type AccountChange,
-  type AgentSetup,
-  type AvatarOwner,
-  type BotKey,
-  type Client,
-  type Connecting,
-  type AssistantPicks,
-  type DeletedAccount,
-  type DirectoryEntry,
-  type Disconnection,
-  type InvitationPush,
-  type JoinableAccount,
-  type LinkedAccount,
-  type LinkedPerson,
-  type LoggedOut,
-  type LoggedOutSessions,
-  type OtherWays,
-  type MovedModel,
-  type NewPerson,
-  type OwnAppSignIn,
-  type OwnProfileEntry,
-  type PendingRevocation,
-  type ProfileEntry,
-  type PushDelivery,
-  type RoomEventDeliveries,
-  type SavedAssistant,
-  type SavedModel,
-  type SavedRoomChange,
-  type SavedSso,
-  type SignInKept,
-  type SignInClient,
-  type StoredAgent,
-  type StoredApp,
-  type StoredAppRead,
-  type AgentToolPicks,
-  type ChangedPicks,
-  type StoredToolPick,
-  type StoredAgentSettings,
-  type StoredBot,
-  type StoredBotSettings,
-  type StoredPushSubscription,
-  type StoredSession,
-  type Welcome,
-} from "./workspace-store";
+import { allowingHuddles, NEW_ACCOUNT_LOOKS, WorkspaceStore, type AccountChange, type AgentSetup, type AgentToolPicks, type AssistantPicks, type AvatarOwner, type BotKey, type ChangedPicks, type Client, type Connecting, type DeletedAccount, type DirectoryEntry, type Disconnection, type InvitationPush, type JoinableAccount, type LinkedAccount, type LinkedPerson, type LoggedOut, type LoggedOutSessions, type MovedModel, type NewPerson, type OtherWays, type OwnAppSignIn, type OwnProfileEntry, type PendingRevocation, type ProfileEntry, type PushDelivery, type RoomEventDeliveries, type SavedAssistant, type SavedModel, type SavedRoomChange, type SavedSso, type SignInClient, type SignInKept, type StoredAgent, type StoredAgentSettings, type StoredApp, type StoredAppRead, type StoredBot, type StoredBotSettings, type StoredGroup, type StoredPushSubscription, type StoredSession, type StoredToolPick, type Welcome } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -928,6 +756,17 @@ const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, adminis
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
 
 /**
+ * A group's name as it's kept: lowercased as JavaScript lowercases, as the mentions prompt lowercases
+ * its query, so a group named Équipe is found as @équipe however it's typed, and SQLite's
+ * case-sensitive UNIQUE keeps two names apart however they're capitalised.
+ */
+const groupName = (name: string) => name.toLowerCase();
+
+/**
+ * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
+ * without one, whom it suspends, "renewed" for a suspended member with one, whom it lets back, and null
+ * for anyone else, administrators and the people they invited included, who are let in whatever their
+ * membership.
  * What reading that `person`'s membership is `subscribed`, or not, at a way in that's `open`, changes:
  * "lapsed" for an active member without one, whom it suspends, unless another account of theirs, at a way
  * in that's open, lets them in, "renewed" for a suspended member with one, whom it lets back, as long as
@@ -3984,6 +3823,128 @@ export class Workspace extends DurableObject<Env> {
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);
     return user && this.store.directory(user.id);
+  }
+
+  /**
+   * The groups of `ids` that exist, each with the people in it, for a room saying whom a group's mention
+   * stands for, as `mentionedPeople` says whom a person's does.
+   */
+  async mentionedGroups(ids: GroupId[]): Promise<StoredGroup[]> {
+    return this.store.mentionedGroups(ids);
+  }
+
+  /**
+   * The workspace's groups, by name, for the people directory and the settings' list, to the person
+   * `credentials` signs in, or null without a valid session.
+   */
+  async userGroups(credentials: Credentials): Promise<UserGroup[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.userGroups();
+  }
+
+  /** The groups whose name contains `query`, each with how many it stands for, for the mentions prompt, or null without a valid session. */
+  async mentionableGroups(credentials: Credentials, query: string): Promise<Array<{ id: GroupId; name: string; memberCount: number }> | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.groupsMatching(query);
+  }
+
+  /**
+   * Makes `group` as the person `credentials` signs in: named `name`, with the active people `memberIds`
+   * names, bots left out, as the settings' form lists none. Answers it as it then is: "forbidden" unless
+   * that's an administrator, "full" once the workspace keeps as many groups as it can, "too big" past
+   * `MAX_GROUP_MEMBERS`, "member unknown" for a member who isn't an active person, or "name taken" for a
+   * name another group has, however it's capitalised, or null without a valid session.
+   */
+  async createUserGroup(
+    credentials: Credentials,
+    group: NewUserGroup,
+  ): Promise<UserGroup | "forbidden" | "full" | "too big" | "member unknown" | "name taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const name = groupName(group.name);
+      const memberIds = await this.keptMembers(group.memberIds);
+      if (memberIds === "member unknown") return "member unknown";
+      if (memberIds.length > MAX_GROUP_MEMBERS) return "too big";
+      if (await this.store.groupNamed(name)) return "name taken";
+      if ((await this.store.userGroups()).length >= MAX_GROUPS) return "full";
+      const id = sortableId();
+      await this.store.createUserGroup({ id, name, memberIds, createdBy: user.id }, new Date().toISOString());
+      return this.shownGroup(id);
+    });
+  }
+
+  /**
+   * Changes the group `groupId` as the person `credentials` signs in, renaming it or making the active
+   * people `changes.memberIds` names its only members, bots left out, as they're sent, together in one
+   * save. Answers it as it then is: "forbidden" unless that's an administrator, "not found" unless
+   * `groupId` names one, then "too big", "member unknown" or "name taken" as making one is, or null
+   * without a valid session.
+   */
+  async changeUserGroup(
+    credentials: Credentials,
+    groupId: GroupId,
+    changes: UserGroupChanges,
+  ): Promise<UserGroup | "forbidden" | "not found" | "too big" | "member unknown" | "name taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.userGroupWithId(groupId))) return "not found";
+      let memberIds: UserId[] | undefined;
+      if (changes.memberIds !== undefined) {
+        const kept = await this.keptMembers(changes.memberIds);
+        if (kept === "member unknown") return "member unknown";
+        if (kept.length > MAX_GROUP_MEMBERS) return "too big";
+        memberIds = kept;
+      }
+      const name = changes.name === undefined ? undefined : groupName(changes.name);
+      if (name !== undefined) {
+        const taken = await this.store.groupNamed(name);
+        if (taken !== null && taken !== groupId) return "name taken";
+      }
+      await this.store.changeUserGroup(groupId, { name, memberIds }, new Date().toISOString());
+      return this.shownGroup(groupId);
+    });
+  }
+
+  /**
+   * Deletes the group `groupId` as the person `credentials` signs in, and everyone in it with it.
+   * Answers "forbidden" unless that's an administrator, "not found" unless `groupId` names one, or null
+   * without a valid session.
+   */
+  async deleteUserGroup(credentials: Credentials, groupId: GroupId): Promise<"deleted" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.userGroupWithId(groupId))) return "not found";
+      await this.store.deleteUserGroup(groupId);
+      return "deleted";
+    });
+  }
+
+  /**
+   * The people of `ids` a group keeps, once each: active people, with bots left out, as the settings'
+   * form lists none — or "member unknown" while an id names no active person.
+   */
+  private async keptMembers(ids: UserId[]): Promise<UserId[] | "member unknown"> {
+    const unique = [...new Set(ids)];
+    const active = new Map((await this.store.activePeopleWithIds(unique)).map((person) => [person.id, person.bot]));
+    const members: UserId[] = [];
+    for (const id of unique) {
+      const bot = active.get(id);
+      if (bot === undefined) return "member unknown";
+      if (!bot) members.push(id);
+    }
+    return members;
+  }
+
+  /** The group `groupId` as it then is, or null unless it's one. */
+  private async shownGroup(groupId: GroupId): Promise<UserGroup | null> {
+    const [group] = await this.store.mentionedGroups([groupId]);
+    return group ? { id: group.id, name: group.name, memberIds: group.members.map((member) => member.id) } : null;
   }
 
   /**

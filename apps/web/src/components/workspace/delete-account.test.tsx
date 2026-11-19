@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CURRENT_PASSWORD_WRONG, type AccountDeletion } from "@ember/protocol";
 import { ApiError } from "@/lib/api";
 import { DeleteAccount } from "./delete-account";
+import userEvent from "@testing-library/user-event";
 
 /** Delete my account for Ada, with a password unless `hasPassword` says not, deleting as `onDelete` does. */
 function show(hasPassword = true, onDelete = vi.fn(async (_deletion: AccountDeletion) => {})) {

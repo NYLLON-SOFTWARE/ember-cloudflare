@@ -1,27 +1,11 @@
 import { ASSISTANT_ID, type Message, type NewWorkspace, type RoomId, type WorkspaceSettings } from "@ember/protocol";
-import {
-  ASSISTANT_MODELS,
-  MODEL_REFUSED,
-  MODELS_FILE_VERSION,
-  SUGGESTED_MODEL,
-  WEB_SEARCHES_PER_ANSWER,
-  type AssistantSaved,
-  type OfferedModel,
-  type OfferedModels,
-  type WebSearchChanged,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, MODEL_REFUSED, MODELS_FILE_VERSION, SUGGESTED_MODEL, WEB_SEARCHES_PER_ANSWER, type AssistantSaved, type OfferedModel, type OfferedModels, type WebSearchChanged } from "@ember/protocol/assistant";
 import type { AgentAnswer, NewAgent } from "@ember/protocol/agents";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NOTES, PICKED_MODEL_NOTES } from "../src/assistant/answers";
 import { SEARCH_TOKEN_REFUSED } from "../src/assistant/gateway";
-import {
-  MODELS_FILE_RETRY_MS,
-  OFFERED_FRESH_MS,
-  thinkingLevelsIn,
-  WORKERS_AI_TOKEN_REFUSED,
-  workersAiModelOf,
-} from "../src/assistant/offered";
+import { MODELS_FILE_RETRY_MS, OFFERED_FRESH_MS, thinkingLevelsIn, WORKERS_AI_TOKEN_REFUSED, workersAiModelOf } from "../src/assistant/offered";
 import { API_TOKEN_NEEDED } from "../src/assistant/settings";
 import { addKeptModels, agentWithKeptModel, api, apiWith, connect, cookieOf, freshDeploy, post, shown, withWorkspaceEnv, workspaceSql, workspaceStub, type Client, type Session } from "./support";
 

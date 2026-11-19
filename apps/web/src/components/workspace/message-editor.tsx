@@ -1,8 +1,8 @@
-import { Suspense, useContext, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
+import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Message } from "@ember/protocol";
-import { editableBody } from "@ember/richtext/dom";
+import { editableBody, groupIdsIn, writtenMentions } from "@ember/richtext/dom";
 import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
-import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { DirectoryLoaded, GroupsContext, mentionedPerson, PeopleContext, ReloadDirectory } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
@@ -45,11 +45,39 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const container = useRef<HTMLDivElement>(null);
   const formatting = useFormatting(editor);
   const people = useContext(PeopleContext);
-  // The editable body: its mentions as the editor draws them, of the people as they are now, and its link previews
-  // as the message shows them here. It drops a mention of no one, and a message from before messages named the
-  // people they mention knows them only from the directory, so for such a message the editor waits for the
-  // directory to load, when it lists everyone.
-  const knowsMentions = useContext(DirectoryLoaded) || message.mentions.every((person) => person.name !== "");
+  const groups = useContext(GroupsContext);
+  const directoryLoaded = useContext(DirectoryLoaded);
+  const reloadDirectory = useContext(ReloadDirectory);
+  const groupIds = groupIdsIn(message.body);
+  // The groups the body names, which it knows once the directory lists each of them.
+  const knowsGroups = groupIds.every((groupId) => groups.has(groupId));
+  // The names the body's group mentions carry, for one the directory still doesn't list.
+  const storedGroupNames = new Map(writtenMentions(message.body).filter((mention) => mention.group).map((mention) => [mention.id, mention.name]));
+  const [refreshed, setRefreshed] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  // The editable body: its mentions as the editor draws them, of the people and the groups as they are
+  // now, and its link previews as the message shows them here. It drops a mention of no one, and a
+  // message from before messages named the people they mention knows them only from the directory, so
+  // for such a message the editor waits for the directory to load, when it lists everyone. A body
+  // naming a group waits for it too, whose groups the directory loads with it: opened before, the
+  // editor would know no group to draw the mention by, and keep none once the groups arrived. And a
+  // group the directory doesn't list, as one another administrator has made since this tab loaded, has
+  // the directory asked for again, once: opened without waiting for its answer, the editor would open
+  // knowing no group for the mention, and keep none. A refresh that fails still opens the editor, but
+  // keeps such a group's mention as the message stored it, so saving doesn't lose it.
+  useEffect(() => {
+    if (!directoryLoaded || knowsGroups || refreshed || refreshFailed) return;
+    let stopped = false;
+    reloadDirectory().then(
+      () => !stopped && setRefreshed(true),
+      () => !stopped && setRefreshFailed(true),
+    );
+    return () => void (stopped = true);
+  }, [directoryLoaded, knowsGroups, refreshed, refreshFailed, reloadDirectory]);
+  const knowsMentions =
+    (directoryLoaded || groupIds.length === 0) &&
+    (directoryLoaded || message.mentions.every((person) => person.name !== "")) &&
+    (knowsGroups || refreshed || refreshFailed);
   const editableNow = () =>
     editableBody(
       message.body,
@@ -58,6 +86,14 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
         return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
       },
       location.hostname,
+      (groupId) => {
+        const group = groups.get(groupId);
+        if (group) return { id: group.id, name: group.name, group: true };
+        // A refresh that failed leaves the directory short of a group it may only not have loaded:
+        // the mention keeps the name the message stored for it, as dropping it would lose it on save.
+        const stored = refreshFailed ? storedGroupNames.get(groupId) : undefined;
+        return stored === undefined ? undefined : { id: groupId, name: stored, group: true };
+      },
     );
   const [editable, setEditable] = useState(() => (knowsMentions ? editableNow() : null));
   if (editable === null && knowsMentions) setEditable(editableNow());

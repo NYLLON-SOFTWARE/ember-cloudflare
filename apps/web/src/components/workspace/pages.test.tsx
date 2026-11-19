@@ -17,7 +17,7 @@ const ANSWERS: Record<string, () => Response> = {
       huddles: {},
       blocks: { userIds: [], version: 0 },
     }),
-  "GET /api/users": () => Response.json({ users: [] }),
+  "GET /api/users": () => Response.json({ users: [], groups: [] }),
   "GET /api/searches?q=": () => Response.json({ search: null, matches: [], next: null, rooms: [], recent: [] }),
   "GET /api/users/me/profile": () => Response.json({ profile: adasProfile }),
   "GET /api/huddles": () => Response.json({ huddles: [] }),

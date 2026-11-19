@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import type { HuddlesSettings } from "@ember/protocol";
 import { RELAY_API_TOKEN_REFUSED, RELAY_KEY_ID_REFUSED, relayApiTokenOf, relayKeyIdOf, type HuddleRelayField } from "@ember/protocol/huddles";
-import { FIELD_INPUT, Field } from "@/components/field";
+import { Field, FIELD_INPUT } from "@/components/field";
 import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

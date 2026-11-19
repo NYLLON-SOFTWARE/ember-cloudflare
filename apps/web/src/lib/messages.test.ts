@@ -133,12 +133,12 @@ describe("Quote a message", () => {
     return attachment.outerHTML;
   }
 
-  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace");
+  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace", () => "Grace");
 
   it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
     const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`, "", "");
     const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
-    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
+    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!, () => "Design")).toBe(
       "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
         '<a href="https://example.com">https://example.com</a></p></blockquote>' +
         '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
@@ -156,5 +156,11 @@ describe("Quote a message", () => {
     expect(quote(solo, "https://basecamp.com")).toBe(`<blockquote>https://basecamp.com/</blockquote>${CITE}`);
     expect(quote(preview({ filename: "Free cookies", description: "At www.example.com" }), "")).toBe(`<blockquote>http://www.example.com/</blockquote>${CITE}`);
     expect(quote(preview({ filename: "Unlinked" }), "")).toBe(`<blockquote></blockquote>${CITE}`);
+  });
+
+  it("counts a group's mention as text, quoting it rather than the link its preview alone would give", () => {
+    const GROUP_MENTION = 'content-type="application/vnd.campfire.group-mention" sgid="group-0123456789abcdef"';
+    const nodes = displayBody(`<p><action-text-attachment ${GROUP_MENTION}></action-text-attachment></p>${preview({ href: "https://basecamp.com/", filename: "Basecamp" })}`, "@Design https://basecamp.com", "");
+    expect(replyQuote(nodes, "Ada", LINK, () => "Grace", () => "Design")).toBe(`<blockquote><p>Design</p></blockquote>${CITE}`);
   });
 });

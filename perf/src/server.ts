@@ -1,13 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, rmSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { experimental_readRawConfig } from "wrangler";
+import path from "node:path";
 
 // Runs the real Worker under `wrangler dev`, once per storage backend, each time with fresh local state.
 

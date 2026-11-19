@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { prepareBody } from "./body";
-import { mentionSgid } from "./mentions";
+import { mentionGroupSgid, mentionSgid } from "./mentions";
 import { parseHtml } from "./parse";
-import { testUserId, testUsers } from "./testing/users";
+import { testGroupId, testUserId, testUsers, testGroups, testResolver } from "./testing/users";
 
 const { resolve } = testUsers("David", "Jason");
+const { groups } = testGroups("Design");
+const resolveBoth = testResolver(testUsers("David", "Jason").users, groups);
 const prepare = (html: string) => prepareBody(parseHtml, html, resolve);
+const prepareBoth = (html: string) => prepareBody(parseHtml, html, resolveBoth);
 const mention = (n: number, attributes = "") =>
   `<action-text-attachment sgid="${mentionSgid(testUserId(n))}" content-type="application/vnd.campfire.mention"${attributes}></action-text-attachment>`;
 const storedMention = (n: number) =>
   `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${mentionSgid(testUserId(n))}"></action-text-attachment>`;
+const groupMention = (n: number, attributes = "") =>
+  `<action-text-attachment sgid="${mentionGroupSgid(testGroupId(n))}" content-type="application/vnd.campfire.group-mention"${attributes}></action-text-attachment>`;
+const storedGroupMention = (n: number) =>
+  `<action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="${mentionGroupSgid(testGroupId(n))}"></action-text-attachment>`;
 
 describe("Rich text, safely", () => {
   it("stores Lexxy's formatting, without classes, styles, targets or scripts", () => {
@@ -82,6 +89,30 @@ describe("How mentions look", () => {
       '<p><action-text-attachment content-type="application/vnd.campfire.mention" sgid="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;"></action-text-attachment></p>',
     );
     expect(stored?.mentions).toEqual([user]);
+  });
+
+  it("stores a group's mention as an attachment of its own kind, and names the group, not a person", () => {
+    const body = `<p>Hi ${groupMention(1)} and ${mention(1)}!</p>`;
+    expect(prepareBoth(body)).toEqual({
+      html: `<p>Hi ${storedGroupMention(1)} and ${storedMention(1)}!</p>`,
+      plainText: "Hi @Design and @David!",
+      mentions: [
+        { id: testGroupId(1), name: "Design", group: true },
+        { id: testUserId(1), name: "David" },
+      ],
+      blank: false,
+    });
+    // Stored again, it comes back the same.
+    const prepared = prepareBoth(body)!;
+    expect(prepareBoth(prepared.html)).toEqual(prepared);
+  });
+
+  it("stores ☒ for a mention of a group that doesn't exist, as a person's", () => {
+    expect(prepareBoth(`<p>Hi ${groupMention(9)}</p>`)).toEqual({ html: "<p>Hi ☒</p>", plainText: "Hi ☒", mentions: [], blank: false });
+  });
+
+  it("keeps a message of only a group's mention, as one of only a person's", () => {
+    expect(prepareBoth(`<p>${groupMention(1)}</p>`)?.blank).toBe(false);
   });
 });
 

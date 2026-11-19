@@ -1,24 +1,8 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import {
-  LOGO_TOO_LARGE,
-  MAX_ACCOUNT_NAME_LENGTH,
-  MAX_LOGO_SIZE,
-  MAX_TAGLINE_LENGTH,
-  type Account,
-  type AccountSettings,
-  type DirectoryUser,
-  type EmailInvitation,
-  type EmberAddresses,
-  type Me,
-  type PersonRole,
-  type ReleaseCheck,
-  type RoomId,
-  type SidebarRoom,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { LOGO_TOO_LARGE, MAX_ACCOUNT_NAME_LENGTH, MAX_LOGO_SIZE, MAX_TAGLINE_LENGTH, type Account, type AccountSettings, type DirectoryUser, type EmailInvitation, type EmberAddresses, type Me, type PersonRole, type ReleaseCheck, type RoomId, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
 import type { MemberfulSaved } from "@ember/protocol/memberful";
 import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { Crown, Plus } from "@/components/icons/iconoir";
 import { scrollMainContentToTop } from "@/components/main-content";
@@ -60,6 +44,7 @@ import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE
 import { SsoSetup } from "./sso-setup";
 import { TurnstileSettings } from "./turnstile-settings";
 import { TurnstileSetup } from "./turnstile-setup";
+import { UserGroups } from "./user-groups-settings";
 import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
 
 interface Props {
@@ -112,6 +97,8 @@ interface Props {
  *   sets up, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
  *   or for members, the links that let people in, then the administrators and members, whom
  *   administrators can make administrators or members and remove.
+ * - User groups: for administrators, the groups of people a mention stands for, which they name, fill
+ *   and delete.
  * - Domain settings: for administrators, the custom domain Ember answers at.
  * - AI assistant: for administrators, whether Ember's AI agents run on models through Cloudflare AI
  *   Gateway, which Set up Ember AI connects, and while they do, the agents, @ember first, each linking to
@@ -652,6 +639,17 @@ export function WorkspaceSettingsPage({
             />
           </div>
         )}
+      </Panel>
+      <Panel id="user-groups-settings" hidden={section !== "user-groups-settings"} aria-labelledby="user-groups-settings-heading" className="flex flex-col gap-6">
+        <PageHeading id="user-groups-settings-heading" title="User groups" className={SECTION_HEADING}>
+          Name groups of people a mention stands for.
+        </PageHeading>
+        {settings &&
+          (settings.canAdminister ? (
+            <UserGroups onSaved={() => flash("notice", CHANGES_SAVED)} reloadDirectory={listPeople} onFailed={onFailed} />
+          ) : (
+            <p className="text-muted-foreground">Community admins manage user groups.</p>
+          ))}
       </Panel>
       <Panel id="domain-settings" hidden={section !== "domain-settings"} aria-labelledby="domain-settings-heading" className="flex flex-col gap-6">
         <PageHeading id="domain-settings-heading" title="Domain settings" className={SECTION_HEADING}>

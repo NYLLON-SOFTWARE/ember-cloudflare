@@ -1,17 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  BLOCKED_WORDS_NOT_A_LIST,
-  blockedWordsCheck,
-  blockedWordsRefusal,
-  blockedWordsTyped,
-  blockedWordTooLong,
-  blockedWordUnmatchable,
-  MAX_BLOCKED_WORD_LENGTH,
-  MAX_BLOCKED_WORDS,
-  parseBlockedWords,
-  TOO_MANY_BLOCKED_WORDS,
-  wordsOf,
-} from "./blocked-words";
+import { BLOCKED_WORDS_NOT_A_LIST, blockedWordsCheck, blockedWordsRefusal, blockedWordsTyped, blockedWordTooLong, blockedWordUnmatchable, MAX_BLOCKED_WORD_LENGTH, MAX_BLOCKED_WORDS, parseBlockedWords, TOO_MANY_BLOCKED_WORDS, wordsOf } from "./blocked-words";
 
 describe("wordsOf", () => {
   it("reads runs of letters and numbers, lowercased and without accents", () => {

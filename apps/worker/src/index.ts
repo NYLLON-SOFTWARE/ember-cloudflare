@@ -1,164 +1,19 @@
-import {
-  AVATAR_PATH,
-  CloseCode,
-  CURRENT_PASSWORD_NEEDED,
-  CURRENT_PASSWORD_WRONG,
-  DELETION_NAME_NEEDED,
-  DELETION_PASSWORD_NEEDED,
-  EMAIL_DOMAIN_NEEDS_EMAIL,
-  EMAIL_SIGN_UP_PATH,
-  INVITATION_PATH,
-  LOGO_PATH,
-  LOGO_TOO_LARGE,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MEMBERFUL_CALLBACK_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  MEMBERFUL_DISCONNECT_PASSWORD_NEEDED,
-  MEMBERFUL_DISCONNECT_WITHOUT_EMAIL,
-  MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD,
-  MEMBERFUL_NOT_CONNECTED,
-  MEMBERFUL_PASSWORD_NEEDED,
-  MEMBERFUL_SIGN_IN_PATH,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  MEMBERFUL_WEBHOOK_PATH,
-  NAME_RESERVED,
-  NO_EMAIL_DOMAINS,
-  ONLY_ADMINISTRATOR,
-  PASSWORD_RESET_PATH,
-  PASSWORD_WITH_MEMBERFUL,
-  isPasswordTooLong,
-  isReservedName,
-  isRoomId,
-  notTakingDirects,
-  OPEN_WITH_MEMBERFUL,
-  parseAccountChanges,
-  parseAccountDeletion,
-  parseCustomDomainCheck,
-  parseCustomStyles,
-  parseFavoriteOrder,
-  parseInvolvementChange,
-  parseMemberfulDisconnection,
-  parseSharedOrder,
-  parseNewDirect,
-  parseNewRoom,
-  parseProfileChanges,
-  parseResendApiKey,
-  parseRoleChange,
-  parseSendingDomainCheck,
-  parseRoomChanges,
-  parseTurnstileKeysChange,
-  PROFILE_PATH,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  signOutEndpointOf,
-  signsInElsewhereOnly,
-  SIGN_UP_PATH,
-  TRANSFER_PATH,
-  TURNSTILE_CHECK_PATH,
-  USERNAME_TAKEN,
-  workspacePageOf,
-  type Account,
-  type Bootstrap,
-  type ChangedBlocks,
-  type ChangedPerson,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type CustomStyles,
-  type Directory,
-  type EmailSettings,
-  type Favorites,
-  type Involvement,
-  type MemberfulAccount,
-  type MemberfulStatus,
-  type NewJoinCode,
-  type NewRoomForm,
-  type PersonAnswer,
-  type ProfileAnswer,
-  type ReleaseCheck,
-  type RoomId,
-  type RoomSettings,
-  type SendingDomainCheck,
-  type SentTestEmail,
-  type Sidebar,
-  type StartedDirect,
-  type TurnstileSettings,
-  type UserId,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { AVATAR_PATH, CloseCode, CURRENT_PASSWORD_NEEDED, CURRENT_PASSWORD_WRONG, DELETION_NAME_NEEDED, DELETION_PASSWORD_NEEDED, EMAIL_DOMAIN_NEEDS_EMAIL, EMAIL_SIGN_UP_PATH, GROUP_MEMBER_UNKNOWN, GROUP_NAME_TAKEN, GROUP_TOO_BIG, GROUPS_FULL, INVITATION_PATH, isPasswordTooLong, isReservedName, isRoomId, LOGO_PATH, LOGO_TOO_LARGE, MAX_EMAIL_ADDRESS_LENGTH, MEMBERFUL_CALLBACK_PATH, MEMBERFUL_CONNECTIONS_PATH, MEMBERFUL_DISCONNECT_PASSWORD_NEEDED, MEMBERFUL_DISCONNECT_WITHOUT_EMAIL, MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD, MEMBERFUL_NOT_CONNECTED, MEMBERFUL_PASSWORD_NEEDED, MEMBERFUL_SIGN_IN_PATH, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_PATH, NAME_RESERVED, NO_EMAIL_DOMAINS, notTakingDirects, ONLY_ADMINISTRATOR, OPEN_WITH_MEMBERFUL, parseAccountChanges, parseAccountDeletion, parseCustomDomainCheck, parseCustomStyles, parseFavoriteOrder, parseInvolvementChange, parseMemberfulDisconnection, parseNewDirect, parseNewRoom, parseNewUserGroup, parseProfileChanges, parseResendApiKey, parseRoleChange, parseRoomChanges, parseSendingDomainCheck, parseSharedOrder, parseTurnstileKeysChange, parseUserGroupChanges, PASSWORD_RESET_PATH, PASSWORD_WITH_MEMBERFUL, PROFILE_PATH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, SIGN_UP_PATH, signOutEndpointOf, signsInElsewhereOnly, TRANSFER_PATH, TURNSTILE_CHECK_PATH, USERNAME_TAKEN, workspacePageOf, type Account, type Bootstrap, type ChangedBlocks, type ChangedPerson, type CustomDomainCheck, type CustomDomainLookup, type CustomStyles, type Directory, type EmailSettings, type Favorites, type Involvement, type MemberfulAccount, type MemberfulStatus, type NewJoinCode, type NewRoomForm, type PersonAnswer, type ProfileAnswer, type ReleaseCheck, type RoomId, type RoomSettings, type SendingDomainCheck, type SentTestEmail, type Sidebar, type StartedDirect, type TurnstileSettings, type UserGroup, type UserGroupAnswer, type UserGroupsAnswer, type UserId, type WorkspaceSettings } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSoundChanges, type HuddleSoundsChanged, type PastHuddles } from "@ember/protocol/huddles";
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
+import { groupPromptItem, mentionPromptItem } from "@ember/richtext";
 import { parseNewReport, parseReportHandling, type HandledReports, type Reports } from "@ember/protocol/reports";
-import {
-  MEMBERFUL_WITH_SSO,
-  OPEN_WITH_SSO,
-  PASSWORD_WITH_SSO,
-  SSO_CALLBACK_PATH,
-  SSO_CONNECTIONS_PATH,
-  SSO_DISCONNECT_PASSWORD_NEEDED,
-  SSO_DISCONNECT_WITHOUT_EMAIL,
-  SSO_DISCONNECT_WITHOUT_PASSWORD,
-  SSO_LOGOUT_PATH,
-  SSO_NOT_CONNECTED,
-  SSO_PASSWORD_NEEDED,
-  SSO_SETTINGS_PATH,
-  SSO_SIGN_IN_PATH,
-  SSO_SIGN_IN_PROBLEMS,
-  SSO_WITH_MEMBERFUL,
-  type ElsewhereConnection,
-  type SsoStatus,
-} from "@ember/protocol/sso";
-import { mentionPromptItem } from "@ember/richtext";
+import { MEMBERFUL_WITH_SSO, OPEN_WITH_SSO, PASSWORD_WITH_SSO, SSO_CALLBACK_PATH, SSO_CONNECTIONS_PATH, SSO_DISCONNECT_PASSWORD_NEEDED, SSO_DISCONNECT_WITHOUT_EMAIL, SSO_DISCONNECT_WITHOUT_PASSWORD, SSO_LOGOUT_PATH, SSO_NOT_CONNECTED, SSO_PASSWORD_NEEDED, SSO_SETTINGS_PATH, SSO_SIGN_IN_PATH, SSO_SIGN_IN_PROBLEMS, SSO_WITH_MEMBERFUL, type ElsewhereConnection, type SsoStatus } from "@ember/protocol/sso";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
-import {
-  clientOf,
-  credentialsFor,
-  credentialsOf,
-  expiredSessionCookie,
-  isCrossSite,
-  isHttps,
-  isSameOriginUpgrade,
-  newSessionToken,
-  sessionCookie,
-  sessionToken,
-  signOut,
-  tokenDigest,
-} from "./auth";
+import { clientOf, credentialsFor, credentialsOf, expiredSessionCookie, isCrossSite, isHttps, isSameOriginUpgrade, newSessionToken, sessionCookie, sessionToken, signOut, tokenDigest } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import {
-  appPage,
-  beginAppSignIn,
-  beginNewAppSignIn,
-  beginOwnAppSignIn,
-  changeApp,
-  clientDocument,
-  connectApp,
-  disconnectApp,
-  finishAppSignIn,
-  listApps,
-  pickAgentTools,
-  readAppTools,
-  showAgentTools,
-  showApp,
-  signOutOfApp,
-} from "./apps/api";
+import { appPage, beginAppSignIn, beginNewAppSignIn, beginOwnAppSignIn, changeApp, clientDocument, connectApp, disconnectApp, finishAppSignIn, listApps, pickAgentTools, readAppTools, showAgentTools, showApp, signOutOfApp } from "./apps/api";
 import { answerOutsideAsk, changeOutsideAi, describeOutsideAsk, disconnectOutside, isOutsideRegistration, outsideAction, outsideConnectPage } from "./outside/api";
 import { CLIENT_DOCUMENT_PATH } from "./apps/oauth";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, listAvailableAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
-import {
-  addAssistantModel,
-  changeAssistantAvatar,
-  changeAssistantSettings,
-  changeWebSearch,
-  changeYourAssistant,
-  deployedAccountIdOf,
-  forgetAssistant,
-  listOfferedModels,
-  removeAssistantAvatar,
-  removeAssistantModel,
-  saveAssistant,
-} from "./assistant/settings";
+import { addAssistantModel, changeAssistantAvatar, changeAssistantSettings, changeWebSearch, changeYourAssistant, deployedAccountIdOf, forgetAssistant, listOfferedModels, removeAssistantAvatar, removeAssistantModel, saveAssistant } from "./assistant/settings";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
@@ -181,16 +36,7 @@ import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./i
 import { askForEmailLink, emailSignUpPage, invitationPage, join, joinCodeOf, joinPage, joinWithEmailLink, signUp, signUpPage } from "./join";
 import { checkResendApiKey } from "./mail";
 import { manifest, manifestFormatOf } from "./manifest";
-import {
-  finishMemberfulSignIn,
-  memberfulConnectionFor,
-  memberfulRefusal,
-  memberfulSiteFor,
-  memberfulWebhook,
-  saveMemberfulKeys,
-  startMemberfulSignIn,
-  withDeployedMemberful,
-} from "./memberful";
+import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulSiteFor, memberfulWebhook, saveMemberfulKeys, startMemberfulSignIn, withDeployedMemberful } from "./memberful";
 import { deployedMemberfulOf } from "./memberful-api";
 import { anyOtherPage, formAnswer } from "./pages";
 import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
@@ -1067,6 +913,9 @@ async function dismissInvitation(request: Request, env: Env): Promise<Response> 
 }
 
 /**
+ * Everyone in the workspace, deactivated and banned people too, with their avatars' addresses, and the
+ * workspace's groups with everyone in each, for the app to show people by and a mention of a group to
+ * say whom it stands for. No cache keeps it, as none keeps the sidebar, so the app keeps its own copy.
  * Stops an invitation into room `roomId`'s huddle ringing in every tab of the signed-in person's, as
  * joining from it or declining it in one of them does, answering 204. Nothing is kept of an invitation,
  * so it answers the same for a room with none.
@@ -1109,9 +958,59 @@ async function pastHuddles(request: Request, env: Env): Promise<Response> {
  */
 async function directory(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const entries = credentials && (await workspace(env).directory(credentials));
-  if (!entries) return problem(401, "Not signed in");
-  return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET) } satisfies Directory, { "Cache-Control": "no-store" });
+  const [entries, groups] = await Promise.all([
+    credentials && workspace(env).directory(credentials),
+    credentials && workspace(env).userGroups(credentials),
+  ]);
+  if (!entries || !groups) return problem(401, "Not signed in");
+  return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET), groups } satisfies Directory, { "Cache-Control": "no-store" });
+}
+
+/** The workspace's groups, by name, as the settings' User groups list shows them. */
+async function userGroups(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const groups = credentials && (await workspace(env).userGroups(credentials));
+  return groups ? Response.json({ groups } satisfies UserGroupsAnswer, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
+}
+
+/** Makes a group, as the settings' User groups section does, answering 201 with it as it then is. */
+async function createUserGroup(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const group = parseNewUserGroup(await jsonBodyOf(request));
+  if (typeof group === "string") return problem(422, group);
+  return groupAnswer(await workspace(env).createUserGroup(credentials, group), 201);
+}
+
+/** Changes a group's name or members, as the settings' User groups section does, answering it as it then is. */
+async function changeUserGroup(request: Request, env: Env, groupId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const changes = parseUserGroupChanges(await jsonBodyOf(request));
+  if (typeof changes === "string") return problem(422, changes);
+  return groupAnswer(await workspace(env).changeUserGroup(credentials, groupId, changes));
+}
+
+/** Deletes a group and everyone in it, as the settings' User groups section does, answering 204. */
+async function deleteUserGroup(request: Request, env: Env, groupId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const deleted = credentials && (await workspace(env).deleteUserGroup(credentials, groupId));
+  if (!deleted) return problem(401, "Not signed in");
+  if (deleted === "forbidden") return problem(403, "Only administrators can manage user groups");
+  if (deleted === "not found") return problem(404, "Not found");
+  return new Response(null, { status: 204 });
+}
+
+/** What the User groups section shows of an answer: the group, or what the Workspace refused it with. */
+function groupAnswer(group: UserGroup | "forbidden" | "not found" | "full" | "too big" | "member unknown" | "name taken" | null, created?: number): Response {
+  if (!group) return problem(401, "Not signed in");
+  if (group === "forbidden") return problem(403, "Only administrators can manage user groups");
+  if (group === "not found") return problem(404, "Not found");
+  if (group === "full") return problem(422, GROUPS_FULL);
+  if (group === "too big") return problem(422, GROUP_TOO_BIG);
+  if (group === "member unknown") return problem(422, GROUP_MEMBER_UNKNOWN);
+  if (group === "name taken") return problem(422, GROUP_NAME_TAKEN);
+  return Response.json({ group } satisfies UserGroupAnswer, { status: created, headers: { "Cache-Control": "no-store" } });
 }
 
 /** A path segment as text, or "" for malformed percent-encoding, which names nobody. */
@@ -1151,7 +1050,8 @@ async function personPage(request: Request, env: Env, pathname: string, userId: 
 /**
  * Whom the mentions prompt offers: the first 20 by name of the active people in `room_id`, or anywhere
  * without one, whose names contain `filter` (or `query`), as `<lexxy-prompt-item>`s, with the AI agents'
- * badged, @ember's among them. A room someone isn't in is 404.
+ * badged, @ember's among them, and the workspace's groups after them, each with how many it stands for.
+ * A room someone isn't in is 404.
  */
 async function mentionable(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1160,10 +1060,11 @@ async function mentionable(request: Request, env: Env): Promise<Response> {
   const roomId = present(params.get("room_id"));
   if (roomId !== undefined && !isRoomId(roomId)) return problem(404, ROOM_NOT_FOUND);
   const query = present(params.get("filter")) ?? present(params.get("query")) ?? "";
-  const people = await workspace(env).mentionable(credentials, roomId ?? null, query);
+  const [people, groups] = await Promise.all([workspace(env).mentionable(credentials, roomId ?? null, query), workspace(env).mentionableGroups(credentials, query)]);
   if (!people) return problem(401, "Not signed in");
   if (people === "not found") return problem(404, ROOM_NOT_FOUND);
   const items = (await directoryOf(people, env.SESSION_SECRET)).map((person) => mentionPromptItem(person));
+  items.push(...(groups ?? []).map((group) => groupPromptItem({ id: group.id, name: group.name }, group.memberCount)));
   return new Response(items.join(""), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
@@ -1471,6 +1372,12 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
   if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
+  if (pathname === "/api/user_groups" && request.method === "GET") return () => userGroups(request, env);
+  if (pathname === "/api/user_groups" && request.method === "POST") return () => createUserGroup(request, env);
+  // Groups' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
+  const userGroup = pathname.match(/^\/api\/user_groups\/([^/]+)$/);
+  if (userGroup && request.method === "PATCH") return () => changeUserGroup(request, env, userGroup[1]!);
+  if (userGroup && request.method === "DELETE") return () => deleteUserGroup(request, env, userGroup[1]!);
   if (pathname === "/api/agents" && request.method === "GET") return () => listAvailableAgents(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);

@@ -1,29 +1,9 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSISTANT_ID, AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, type DirectoryUser, type Me, type WorkspaceSettings } from "@ember/protocol";
 import { AGENTS_FORBIDDEN } from "@ember/protocol/agents";
-import {
-  ASSISTANT_MODELS,
-  ASSISTANT_OFF,
-  cannotSearchWith,
-  DEFAULT_MODEL_KEPT,
-  MAX_ASSISTANT_MODELS,
-  MODELS_FULL,
-  SUGGESTED_MODEL,
-  TOP_LEVELS,
-  WEB_SEARCH_CHANGED,
-  type AnswerLevels,
-  type AssistantChanges,
-  type AssistantModel,
-  type AssistantSettings as Assistant,
-  type NewAssistantModel,
-  type OfferedModel,
-  type OfferedModels,
-  type WebSearchChanged,
-  type WebTool,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, ASSISTANT_OFF, cannotSearchWith, DEFAULT_MODEL_KEPT, MAX_ASSISTANT_MODELS, MODELS_FULL, SUGGESTED_MODEL, TOP_LEVELS, WEB_SEARCH_CHANGED, type AnswerLevels, type AssistantChanges, type AssistantModel, type AssistantSettings as Assistant, type NewAssistantModel, type OfferedModel, type OfferedModels, type WebSearchChanged, type WebTool } from "@ember/protocol/assistant";
 import { EMBER_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED } from "@ember/protocol/prompts";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
@@ -34,24 +14,10 @@ import { ApiError } from "@/lib/api";
 import { AGENTS_PATH } from "./agent-list";
 import { toolsExplained } from "./agent-tools";
 import { searchTurnedOff } from "./assistant-setup";
-import {
-  AVATAR_EXPLAINED,
-  EMBER_EXPLAINED,
-  EmberPage,
-  EVERY_MODEL_ADDED,
-  EmberSettings,
-  INSTRUCTIONS_EXPLAINED,
-  INSTRUCTIONS_UNSAVED,
-  lengthOf,
-  LIMITS_EXPLAINED,
-  MODELS_EXPLAINED,
-  searchingWith,
-  UPLOADED_AVATAR_EXPLAINED,
-  WEB_SEARCH_OFF,
-  webSearchOn,
-} from "./ember-settings";
+import { AVATAR_EXPLAINED, EMBER_EXPLAINED, EmberPage, EmberSettings, EVERY_MODEL_ADDED, INSTRUCTIONS_EXPLAINED, INSTRUCTIONS_UNSAVED, lengthOf, LIMITS_EXPLAINED, MODELS_EXPLAINED, searchingWith, UPLOADED_AVATAR_EXPLAINED, WEB_SEARCH_OFF, webSearchOn } from "./ember-settings";
 import { aroundExplained, cautionFor } from "./prompt-preview";
 import { CHANGES_SAVED } from "./settings-page";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 

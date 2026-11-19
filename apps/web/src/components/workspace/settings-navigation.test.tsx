@@ -1,8 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routeOf } from "@/hooks/use-route";
 import { SettingsNavigation, settingsSectionOf, workspaceSectionOf, workspaceSectionPath, type SettingsSection } from "./settings-navigation";
+import userEvent from "@testing-library/user-event";
 
 /** The links the navigation shows, by their labels, top to bottom. */
 const links = () => within(screen.getByRole("navigation", { name: "Community settings" })).getAllByRole("link");
@@ -127,9 +127,24 @@ describe("Chat bots page", () => {
     const { rerender } = render(<SettingsNavigation section="chat-bots" administrator />);
     expect(screen.getByRole("link", { name: "Chat bots" })).toHaveAttribute("href", "/account/bots");
     expect(current()).toHaveTextContent("Chat bots");
-    expect(links().map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership", "Domain settings", "Chat bots", "AI assistant", "Huddles", "Custom styles"]);
+    expect(links().map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership", "User groups", "Domain settings", "Chat bots", "AI assistant", "Huddles", "Custom styles"]);
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Chat bots" })).not.toBeInTheDocument();
+  });
+});
+
+describe("User groups", () => {
+  it("links administrators to User groups, after Membership, under the community, and members not at all", () => {
+    const { rerender } = render(<SettingsNavigation section="user-groups-settings" administrator />);
+    const groups = screen.getByRole("link", { name: "User groups" });
+    expect(groups).toHaveAttribute("href", "/account/edit#user-groups-settings");
+    expect(groups.querySelector("svg")).toHaveClass("iconoir-community");
+    expect(groups.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(links()[3]).toBe(groups);
+    expect(current()).toBe(groups);
+    expect(workspaceSectionOf("#user-groups-settings")).toBe("user-groups-settings");
+    rerender(<SettingsNavigation section="community-settings" administrator={false} />);
+    expect(screen.queryByRole("link", { name: "User groups" })).not.toBeInTheDocument();
   });
 });
 
@@ -173,12 +188,12 @@ describe("Custom CSS", () => {
 });
 
 describe("Custom domain", () => {
-  it("links administrators to Domain settings, after Membership, and members not at all", () => {
+  it("links administrators to Domain settings, after User groups, and members not at all", () => {
     const { rerender } = render(<SettingsNavigation section="domain-settings" administrator />);
     const domain = screen.getByRole("link", { name: "Domain settings" });
     expect(domain).toHaveAttribute("href", "/account/edit#domain-settings");
     expect(domain.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(links()[3]).toBe(domain);
+    expect(links()[4]).toBe(domain);
     expect(current()).toBe(domain);
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Domain settings" })).not.toBeInTheDocument();

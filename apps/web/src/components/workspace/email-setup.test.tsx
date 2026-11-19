@@ -1,10 +1,10 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EMAIL_FROM_REFUSED, RESEND_API_KEY_REFUSED, type Account, type AccountChanges, type EmailSettings as Email } from "@ember/protocol";
 import { ApiError } from "@/lib/api";
 import { EMAIL_SENDING_DASHBOARD, EmailSetup, WORKERS_PLANS } from "./email-setup";
+import userEvent from "@testing-library/user-event";
 
 const EMBER: Account = {
   name: "Ember",

@@ -1,20 +1,21 @@
-import type { DirectoryUser } from "@ember/protocol";
+import type { DirectoryUser, UserGroup } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDirectory } from "./use-directory";
 
 const ada: DirectoryUser = { id: "u1", name: "Ada", bio: null, role: "administrator", status: "active", avatarUrl: "/users/u1.abc/avatar?v=20261014120000" };
 const grace: DirectoryUser = { id: "u2", name: "Grace", bio: "Compilers", role: "member", status: "active", avatarUrl: "/users/u2.def/avatar?v=20261014120000" };
+const design: UserGroup = { id: "g1", name: "design", memberIds: [ada.id, grace.id] };
 
 /** Plays the server: the directory, with an ETag that changes with it, or no answer at all while `down`. */
-const server = { users: [ada], version: 1, down: false };
+const server = { users: [ada], groups: [] as UserGroup[], version: 1, down: false };
 
 async function answer(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (String(input) !== "/api/users") throw new Error(`No answer for ${String(input)}`);
   if (server.down) throw new TypeError("Failed to fetch");
   const etag = `W/"${server.version}"`;
   if (new Headers(init?.headers).get("If-None-Match") === etag) return new Response(null, { status: 304, headers: { ETag: etag } });
-  return Response.json({ users: server.users }, { headers: { ETag: etag } });
+  return Response.json({ users: server.users, groups: server.groups }, { headers: { ETag: etag } });
 }
 
 /** The ETag each request named, null for none, in order. */
@@ -24,7 +25,7 @@ const requests = () => vi.mocked(fetch).mock.calls.map(([, init]) => new Headers
 const reload = (hook: { current: ReturnType<typeof useDirectory> }) => act(() => hook.current.reload());
 
 beforeEach(() => {
-  Object.assign(server, { users: [ada], version: 1, down: false });
+  Object.assign(server, { users: [ada], groups: [], version: 1, down: false });
   vi.stubGlobal("fetch", vi.fn(answer));
 });
 
@@ -74,6 +75,49 @@ describe("Initials avatars", () => {
     await expect(reload(result)).rejects.toThrow("Failed to fetch");
     expect(result.current.people).toBe(people);
   });
+
+  it("says a load that has failed has left it stale, until a load comes", async () => {
+    const { result } = renderHook(() => useDirectory());
+    await reload(result);
+    expect(result.current.stale).toBe(false);
+    server.down = true;
+    await act(async () => {
+      await expect(reload(result)).rejects.toThrow("Failed to fetch");
+    });
+    expect(result.current.stale).toBe(true);
+    // A load that comes, even one the server answers with what it has, has it current again.
+    server.down = false;
+    await reload(result);
+    expect(result.current.stale).toBe(false);
+  });
+
+  it("says while a load it has asked for is still to settle, and once it has, come or fail", async () => {
+    const { result } = renderHook(() => useDirectory());
+    expect(result.current.reloading).toBe(false);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    vi.mocked(fetch).mockImplementationOnce(async (input, init) => {
+      await held;
+      return answer(input, init);
+    });
+    let loaded!: Promise<void>;
+    act(() => void (loaded = result.current.reload()));
+    expect(result.current.reloading).toBe(true);
+    await act(async () => {
+      release();
+      await loaded;
+    });
+    expect(result.current.reloading).toBe(false);
+
+    server.down = true;
+    let failed!: Promise<void>;
+    act(() => void (failed = result.current.reload()));
+    expect(result.current.reloading).toBe(true);
+    await act(async () => {
+      await expect(failed).rejects.toThrow("Failed to fetch");
+    });
+    expect(result.current.reloading).toBe(false);
+  });
 });
 
 describe("Make or revoke administrators", () => {
@@ -107,6 +151,17 @@ describe("Make or revoke administrators", () => {
     Object.assign(server, { users: [ada, { ...grace, role: "member" }], version: 2 });
     await reload(result);
     expect(result.current.people.get("u2")).toEqual(grace);
+  });
+});
+
+describe("Groups", () => {
+  it("lists the workspace's groups by id once a load has brought them", async () => {
+    const { result } = renderHook(() => useDirectory());
+    expect(result.current.groups.size).toBe(0);
+    Object.assign(server, { groups: [design], version: 2 });
+    await reload(result);
+    expect(result.current.groups.get(design.id)).toEqual(design);
+    expect(result.current.loaded).toBe(true);
   });
 });
 
