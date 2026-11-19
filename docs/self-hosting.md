@@ -1756,6 +1756,10 @@ What a self-hoster should know, beyond keeping the setup password and link to th
   and signs in with it alone. A webhook whose signature the webhook's secret key doesn't check is
   refused, and even a signed one only has Ember ask Memberful's API about a member, so one forged or
   sent again changes nothing.
+- A search with words finds them in every room's messages, and keeps those in rooms the searcher can
+  read until it has a page of them, so it takes longer the more messages elsewhere have the words:
+  about 0.1 to 0.3 ms more for each thousand of them, in tests on one machine. It never shows or
+  counts those.
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
   the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
   resetting a password, as above.
