@@ -11,6 +11,7 @@ import {
   type Me,
   type Message,
   type NewWorkspace,
+  type PersonAnswer,
   type RoomId,
   type UserId,
 } from "@ember/protocol";
@@ -222,9 +223,13 @@ describe("Delete my account", () => {
       now,
     );
     await workspaceSql("INSERT INTO identities (issuer, subject, user_id, created_at, updated_at) VALUES ('https://fernwood.memberful.com', '42', ?, ?, ?)", member.user.id, now, now);
+    await workspaceSql("INSERT INTO profile_fields (id, name, options, position, created_at, updated_at) VALUES ('field-1', 'Phone', NULL, 0, ?, ?)", now, now);
+    await workspaceSql("INSERT INTO profile_field_values (field_id, user_id, value) VALUES ('field-1', ?, '555-0100')", member.user.id);
 
     await deleteGraces(member);
-    for (const table of ["favorites", "recent_searches", "push_subscriptions", "identities", "sessions"]) expect(await rowsOf(table, member.user.id), table).toBe(0);
+    for (const table of ["favorites", "recent_searches", "push_subscriptions", "identities", "profile_field_values", "sessions"]) expect(await rowsOf(table, member.user.id), table).toBe(0);
+    // No one signed in can read their answers any more; the field itself stays for everyone else, with no value.
+    expect(((await (await api(`/api/users/${member.user.id}`, { headers: { Cookie: administrator.cookie } })).json()) as PersonAnswer).fields.map(({ value }) => value)).toEqual([""]);
     // Their DMs keep them, so the people in them still see whom they were with.
     expect(((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", member.user.id)) as Array<{ room_id: string }>).map(({ room_id }) => room_id)).toEqual([dm]);
   });

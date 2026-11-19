@@ -40,7 +40,7 @@ describe("Someone's profile page", () => {
     const response = await personAt(grace, administrator.user.id);
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({ person: await listed(grace, administrator.user.id) } satisfies PersonAnswer);
+    expect(await response.json()).toEqual({ person: await listed(grace, administrator.user.id), fields: [] } satisfies PersonAnswer);
     expect((await listed(grace, administrator.user.id)).bio).toBe("Mathematician");
     expect(await personOf(grace, grace.user.id)).toEqual(await listed(grace, grace.user.id));
   });

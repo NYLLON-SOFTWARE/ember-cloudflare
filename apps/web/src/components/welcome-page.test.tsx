@@ -40,6 +40,7 @@ const profile: Profile = {
   memberful: { membersOnly: true, connected: { name: "Katherine Johnson", emailAddress: "katherine@example.com" } },
   sso: null,
   assistant: null,
+  fields: [],
   apps: [],
   outsideAi: null,
 };

@@ -6,6 +6,7 @@ import {
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_USER_NAME_LENGTH,
+  MAX_PROFILE_FIELD_VALUE_LENGTH,
   MEMBERFUL_DISCONNECTED_NOTICE,
   MIN_PASSWORD_LENGTH,
   type AccountDeletion,
@@ -14,6 +15,7 @@ import {
   type Profile,
   type ProfileAnswer,
   type ProfileChanges,
+  type ProfileFieldEntry,
   type SidebarRoom,
 } from "@ember/protocol";
 import { MEMBERFUL_WITH_SSO, SSO_DISCONNECTED_NOTICE, SSO_WITH_MEMBERFUL, type SsoStatus } from "@ember/protocol/sso";
@@ -30,7 +32,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { usePush } from "@/hooks/use-push";
 import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeAvatar, changeProfile, fetchProfile, isSignedOut, removeAvatar } from "@/lib/api";
+import { ApiError, changeAvatar, changeProfile, fetchProfile, isSignedOut, removeAvatar } from "@/lib/api";
 import { avatarVariantOf } from "@/lib/previews";
 import { pushEndpoint } from "@/lib/push";
 import type { RoomAnswer } from "@/lib/room-list";
@@ -44,6 +46,7 @@ import { MemberfulConnection } from "./memberful-connection";
 import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PicturePicker } from "./picture-picker";
+import { SELECT } from "./model-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { SingleSignOnConnection } from "./sso-connection";
@@ -95,6 +98,31 @@ function changesOf(saved: Fields, typed: Fields, password: string, currentPasswo
   return changes;
 }
 
+/** What someone saved for the workspace's fields, by their ids. */
+type FieldValues = Record<string, string>;
+
+/** The fields' values `typed` differently from `saved`, which is all that's sent, or none when nothing differs. */
+function fieldChangesOf(saved: FieldValues, typed: FieldValues): Record<string, string> | null {
+  const changes: Record<string, string> = {};
+  for (const [id, value] of Object.entries(typed)) if (saved[id] !== value) changes[id] = value;
+  return Object.keys(changes).length > 0 ? changes : null;
+}
+
+/**
+ * The fields' values once `sent` is saved as `saved`: the fields the answer still asks, each still as
+ * it was typed shows what's typed, which may hold another tab's change, and the rest what the server
+ * answered. Its added fields are taken up, and its deleted ones dropped, so no later save names a
+ * field that's gone.
+ */
+function settledFieldValues(typed: FieldValues, sent: FieldValues, saved: FieldValues): FieldValues {
+  const values: FieldValues = {};
+  for (const id of Object.keys(saved)) values[id] = typed[id] === sent[id] ? (saved[id] ?? "") : (typed[id] ?? "");
+  return values;
+}
+
+/** What a profile's fields say someone saved, "" where they saved none. */
+const fieldValuesOf = (fields: ProfileFieldEntry[] | undefined): FieldValues => Object.fromEntries((fields ?? []).map(({ id, value }) => [id, value]));
+
 /**
  * `changes` with this browser's push subscription named, if it has one and they hold a new password,
  * which forgets the rest of your browsers' subscriptions.
@@ -124,6 +152,12 @@ function disconnectsWithNewPassword(memberful: MemberfulStatus | null, sso: SsoS
 /**
  * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
  * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
+ * everywhere.", and Remove avatar takes away, then your name, email address, a new password, unless
+ * Memberful signs you in without one, your current password while you have one, which changing your
+ * email address or password takes, and your
+ * bio, which Save changes saves with the notice "✓", keeping the page, then the workspace's profile
+ * fields its administrators asked, an input each, or a menu of its choices for one that has them, saved
+ * with the rest, then, while members sign in with
  * everywhere.", and Remove avatar takes away, then your name, username, email address, a new password,
  * unless Memberful or single sign-on signs you in without one, your current password while you have
  * one, which changing your email address or password takes, and your
@@ -141,6 +175,19 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
+  /** The workspace's fields, in the order the profile shows them, or null until it has loaded. */
+  const [askedFields, setAskedFields] = useState<ProfileFieldEntry[] | null>(null);
+  /** What's typed for each of them. */
+  const [fieldValues, setFieldValues] = useState<FieldValues | null>(null);
+  /** What was saved for each of them, as the page last loaded or saved it. */
+  const savedFieldValues = useRef<FieldValues>({});
+  // What's typed now, for a recovery refresh to tell an untouched answer from an edit of it.
+  const typedFieldValues = useRef<FieldValues>({});
+  useEffect(() => {
+    typedFieldValues.current = fieldValues ?? {};
+  }, [fieldValues]);
+  // How many saves have been made, for a recovery refresh to ignore answers superseded by a later save.
+  const savesMade = useRef(0);
   const [picture, setPicture] = useState<Picture | null>(null);
   /** The address of the photo picked, shown while it saves. */
   const [picked, setPicked] = useState<string | null>(null);
@@ -193,6 +240,9 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         if (stopped) return;
         saved.current = fieldsOf(answer.profile);
         setFields(saved.current);
+        savedFieldValues.current = fieldValuesOf(answer.profile.fields);
+        setFieldValues(savedFieldValues.current);
+        setAskedFields(answer.profile.fields ?? []);
         setSavedName(answer.profile.name);
         setHasEmailAddress(answer.profile.emailAddress !== null);
         showAnswer(answer);
@@ -278,14 +328,20 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const change = (field: keyof Fields) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setFields((fields) => fields && { ...fields, [field]: event.target.value });
 
+  const changeFieldValue = (id: string) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setFieldValues((values) => values && { ...values, [id]: event.target.value });
+
   const save = (event: FormEvent) => {
     event.preventDefault();
-    if (!fields || !saved.current || saving) return;
+    if (!fields || !saved.current || !fieldValues || saving) return;
+    savesMade.current++;
     setSaving(true);
     const sent = fields;
+    const sentFieldValues = fieldValues;
     const password = passwordInput.current?.value ?? "";
     const currentPassword = currentPasswordInput.current?.value ?? "";
-    keepingThisBrowsersPush(changesOf(saved.current, sent, password, currentPassword)).then(changeProfile).then(
+    const asked = fieldChangesOf(savedFieldValues.current, sentFieldValues);
+    keepingThisBrowsersPush({ ...changesOf(saved.current, sent, password, currentPassword), ...(asked && { fieldValues: asked }) }).then(changeProfile).then(
       (answer) => {
         if (!mounted.current) return;
         setSaving(false);
@@ -293,6 +349,10 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         saved.current = now;
         setSavedName(answer.profile.name);
         setFields((fields) => fields && settled(fields, sent, now));
+        const nowFieldValues = fieldValuesOf(answer.profile.fields);
+        savedFieldValues.current = nowFieldValues;
+        setFieldValues((values) => values && settledFieldValues(values, sentFieldValues, nowFieldValues));
+        setAskedFields(answer.profile.fields ?? []);
         setHasEmailAddress(answer.profile.emailAddress !== null);
         // The passwords leave their fields, unless others were typed meanwhile.
         if (passwordInput.current?.value === password) passwordInput.current.value = "";
@@ -310,6 +370,28 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         if (!mounted.current && !isSignedOut(error)) return;
         setSaving(false);
         onFailed(error);
+        // A save refused because a field was deleted since this page loaded (422): ask the profile
+        // again for the fields of now, take the deleted ones out of what's typed, and keep every
+        // other edit, so saving on works with what's left.
+        if (error instanceof ApiError && error.status === 422) {
+          const made = savesMade.current;
+          fetchProfile().then((answer) => {
+            // A save made since this refresh asked is newer: its answer, not this older one, stands.
+            if (!mounted.current || savesMade.current !== made) return;
+            const kept = new Set((answer.profile.fields ?? []).map(({ id }) => id));
+            setAskedFields(answer.profile.fields ?? []);
+            setFieldValues((values) => values && Object.fromEntries(Object.entries(values).filter(([id]) => kept.has(id))));
+            // The fields of now replace the saved baseline of the untouched ones, so a retry sends
+            // no stale answer back over another tab's change; a field typed since keeps its old
+            // baseline, so the edit still goes.
+            const refreshed = fieldValuesOf(answer.profile.fields);
+            const previous = savedFieldValues.current;
+            const typed = typedFieldValues.current;
+            savedFieldValues.current = Object.fromEntries(
+              Object.entries(refreshed).map(([id, value]) => [id, typed[id] !== undefined && typed[id] !== previous[id] ? previous[id]! : value]),
+            );
+          }, onFailed);
+        }
       },
     );
   };
@@ -431,6 +513,43 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
               className={cn("w-full border placeholder:text-muted-foreground disabled:opacity-50", FIELD_INPUT, "resize-y")}
             />
           </Field>
+          {/* The workspace's fields, an input each, or a menu of its choices for one that has them. */}
+          {askedFields?.map((asked) => {
+            // What they saved for it, which a menu shows even when it's no longer one of the choices.
+            const kept = fieldValues?.[asked.id] ?? "";
+            return (
+              <Field key={asked.id} id={`user_field_${asked.id}`} label={asked.name}>
+                {asked.options === null ? (
+                  <Input
+                    id={`user_field_${asked.id}`}
+                    autoComplete="off"
+                    maxLength={MAX_PROFILE_FIELD_VALUE_LENGTH}
+                    disabled={!fieldValues}
+                    value={fieldValues?.[asked.id] ?? ""}
+                    onChange={changeFieldValue(asked.id)}
+                    className={FIELD_INPUT}
+                  />
+                ) : (
+                  <select
+                    id={`user_field_${asked.id}`}
+                    disabled={!fieldValues}
+                    value={fieldValues?.[asked.id] ?? ""}
+                    onChange={changeFieldValue(asked.id)}
+                    className={SELECT}
+                  >
+                    <option value="">Not set</option>
+                    {asked.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                    {/* The Worker keeps an answer that's no longer a choice until one of the choices now takes its place, so it shows, and Not set can take it away. */}
+                    {kept !== "" && !asked.options.includes(kept) && <option value={kept}>{kept}</option>}
+                  </select>
+                )}
+              </Field>
+            );
+          })}
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
         {memberful && (

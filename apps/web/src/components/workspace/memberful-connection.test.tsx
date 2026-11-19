@@ -31,6 +31,7 @@ const DISCONNECTED: ProfileAnswer = {
     avatar: false,
     password: true,
     membershipNeeded: true,
+    fields: [],
     memberful: { membersOnly: true, connected: null },
     sso: null,
     assistant: null,

@@ -24,6 +24,7 @@ const DISCONNECTED: ProfileAnswer = {
     memberful: null,
     sso: { name: "Acme", ssoOnly: true, connected: null },
     assistant: null,
+    fields: [],
     apps: [],
     outsideAi: null,
   },
