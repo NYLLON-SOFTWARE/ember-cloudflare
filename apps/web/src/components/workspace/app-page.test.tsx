@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "@ember/protocol";
-import { APPS_FORBIDDEN, APPS_FULL, type App, type AppAnswer, type AppSignInBegun } from "@ember/protocol/apps";
+import { APP_TOKEN_STAYS, APPS_FORBIDDEN, APPS_FULL, type App, type AppAnswer, type AppSignInBegun } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
@@ -597,6 +597,25 @@ describe("A connected app's page", () => {
     expect(await flashed()).toHaveTextContent("Changes saved. Ember read 1 tool from Linear.");
     expect(within(tools()).getByRole("heading", { name: "Tools (1)" })).toBeVisible();
     expect(tokenField()).toHaveValue("");
+  });
+
+  it("asks for the token again, or none, while the form has another address than the app's, as Ember sends it only to the one it was given for", async () => {
+    const requests = serve({ sent: () => refused(422, APP_TOKEN_STAYS, "token") });
+    const { user } = showSettings();
+    await nameField();
+    await user.type(urlField(), "/v2");
+    expect(tokenField()).toHaveAccessibleDescription(APP_TOKEN_STAYS);
+    expect(tokenField()).toHaveAttribute("placeholder", "Type it again");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(tokenField()).toBeInvalid());
+    expect(requests).toEqual([{ request: `PATCH /api/account/apps/${LINEAR.id}`, body: { url: `${LINEAR.url}/v2` } }]);
+
+    // Back at the app's address, the token it has is kept.
+    await user.clear(urlField());
+    await user.type(urlField(), LINEAR.url);
+    expect(tokenField()).toBeValid();
+    expect(tokenField()).toHaveAccessibleDescription(TOKEN_KEPT);
+    expect(tokenField()).toHaveAttribute("placeholder", "Unchanged");
   });
 
   it("stops sending the token once Send no token is checked, which turns the token field off", async () => {

@@ -3,6 +3,7 @@ import {
   APP_IS_EMBER,
   APP_SIGN_IN_ENDED,
   APP_SIGNED_IN,
+  APP_TOKEN_STAYS,
   APPS_FORBIDDEN,
   APPS_FULL,
   TOOL_GONE,
@@ -247,6 +248,8 @@ export function clientDocument(request: Request): Response {
  * As with connecting one, someone who isn't an administrator hears so first, then that Ember AI is off,
  * then that there's no such app, before anything that was sent is read. An app that's signed in to
  * keeps its address and takes no token: Ember's sign-in is to the server there, and is sent nowhere else.
+ * A token, too, goes only to the address it was given for, so another address needs it given again, or
+ * "" for none.
  */
 export async function changeApp(request: Request, env: Env, appId: AppId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -263,6 +266,7 @@ export async function changeApp(request: Request, env: Env, appId: AppId): Promi
     if (url !== access.url || changes.token !== undefined) return formAnswer(signedInRefusal(url !== access.url), 422);
     return appAnswer(await ember.changeApp(credentials, appId, changes, null));
   }
+  if (url !== access.url && changes.token === undefined && access.sealedToken !== null) return formAnswer(TOKEN_STAYS, 422);
   const token = changes.token === undefined ? (access.key?.token ?? null) : changes.token === "" ? null : changes.token;
   if (url === access.url && token === (access.key?.token ?? null)) return appAnswer(await ember.changeApp(credentials, appId, changes, null));
   const read = await appConnector(env).read(url, token === null ? null : { token });
@@ -340,6 +344,9 @@ type Refusal = "off" | "full" | "changed" | "signed in" | "gone" | "not found" |
 
 /** Why an app that's signed in to keeps its address, or else takes no token, said on that field. */
 const signedInRefusal = (moved: boolean): AppRefused => ({ error: APP_SIGNED_IN, field: moved ? "url" : "token" });
+
+/** Why an app's token isn't sent to another address than the one it was given for, said on its field. */
+const TOKEN_STAYS: AppRefused = { error: APP_TOKEN_STAYS, field: "token" };
 
 /** What a request about an app answers: the app as its page then shows it, with `status`, or why it was refused. */
 function appAnswer(app: App | Refusal, status = 200): Response {

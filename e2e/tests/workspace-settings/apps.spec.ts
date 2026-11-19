@@ -310,7 +310,7 @@ test.describe("Apps", () => {
     }
   });
 
-  test("the administrator renames an app, which reads nothing from its server, and an address with no MCP server is refused", async ({ page, request }) => {
+  test("the administrator renames an app, which reads nothing from its server, and another address needs its token again, and an MCP server there", async ({ page, request }) => {
     const connected = await request.post("/api/account/apps", { data: { name: "Tracker", url: mcp.url, token: MCP_TOKEN }, headers: await asAdministrator(request) });
     expect(connected.status(), await connected.text()).toBe(201);
     const card = await openApps(page);
@@ -325,9 +325,17 @@ test.describe("Apps", () => {
     await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(mcp.asked).toHaveLength(asked);
 
-    // Another address is asked before it's saved, and one without a server there is refused, on its field.
+    // Another address needs the token again, as Ember sends it only to the one it was given for.
     const address = page.getByRole("textbox", { name: "Server address" });
+    const token = page.getByLabel("Token", { exact: true });
     await address.fill(mcp.url.replace(/\/mcp$/, "/nowhere"));
+    await expect(token).toHaveAccessibleDescription("Ember sends a token only to the address it was given for. Type it again for the new address, or check Send no token.");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(token).toHaveAttribute("aria-invalid", "true");
+    expect(mcp.asked).toHaveLength(asked);
+
+    // It's asked before it's saved, and one without a server there is refused, on its field.
+    await token.fill(MCP_TOKEN);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(address).toHaveAccessibleDescription(`${new URL(mcp.url).host} has no MCP server at that address. Check the address, which often ends in /mcp.`);
     await page.reload();

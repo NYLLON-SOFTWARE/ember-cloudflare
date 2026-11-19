@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_SIGNED_IN_PATH, type Me } from "@ember/protocol";
 import {
+  APP_TOKEN_STAYS,
   APPS_FORBIDDEN,
   MAX_APP_CLIENT_ID_LENGTH,
   MAX_APP_CLIENT_SECRET_LENGTH,
@@ -495,7 +496,7 @@ function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onS
         </SignedIn>
       ) : (
         <>
-          <Token saved={saved} fields={fields} onChange={onChange} refusal={refusal} busy={busy} offersSignIn={offersSignIn && !asksClient && !moved} onSignIn={onSignIn} />
+          <Token saved={saved} moved={moved} fields={fields} onChange={onChange} refusal={refusal} busy={busy} offersSignIn={offersSignIn && !asksClient && !moved} onSignIn={onSignIn} />
           {offersSignIn && moved && <p className={NOTE}>{SIGN_IN_STAYS}</p>}
           {client}
           {asksClient && !moved && (
@@ -527,17 +528,22 @@ function useSecretField(typed: string) {
   return field;
 }
 
-/** The token's field: what it's for, or why it was refused, Send no token for an app that has one, and Sign in, once the server asks for a sign-in. */
-function Token({ saved, fields, onChange, refusal, busy, offersSignIn, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "offersSignIn" | "onSignIn">) {
+/**
+ * The token's field: what it's for, or why it was refused, Send no token for an app that has one, and
+ * Sign in, once the server asks for a sign-in. While the form has another address than the app's
+ * (`moved`), the token the app has isn't kept, as Ember sends it only to the address it was given for.
+ */
+function Token({ saved, moved, fields, onChange, refusal, busy, offersSignIn, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "offersSignIn" | "onSignIn"> & { moved: boolean }) {
   const field = useSecretField(fields.token);
   const keepsToken = saved?.hasToken === true;
+  const asksAgain = keepsToken && moved;
   return (
     <Field id="app_token" label="Token">
       <Input
         id="app_token"
         readOnly={busy}
         type="password"
-        placeholder={keepsToken ? "Unchanged" : "None"}
+        placeholder={asksAgain ? "Type it again" : keepsToken ? "Unchanged" : "None"}
         maxLength={MAX_APP_TOKEN_LENGTH}
         autoComplete="off"
         data-1p-ignore
@@ -549,7 +555,7 @@ function Token({ saved, fields, onChange, refusal, busy, offersSignIn, onSignIn 
         className={FIELD_INPUT}
       />
       <Under id="app_token" field="token" refusal={refusal}>
-        {keepsToken ? TOKEN_KEPT : TOKEN_EXPLAINED}
+        {asksAgain ? APP_TOKEN_STAYS : keepsToken ? TOKEN_KEPT : TOKEN_EXPLAINED}
       </Under>
       {keepsToken && (
         <label className="flex min-h-9 cursor-pointer items-center gap-[1ch] text-[0.9em]">

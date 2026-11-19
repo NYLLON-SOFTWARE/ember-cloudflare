@@ -1110,7 +1110,8 @@ nothing said there goes to an app unless someone in it allows it.
 - **The token** goes to the server with every request, as `Authorization: Bearer`. Ember keeps it
   encrypted, as it keeps Ember AI's API token, and never shows it again: the app's page says only that
   it has one. Type another to replace it, or check **Send no token** to stop sending one. Either has
-  Ember ask the server again before it saves, as another address does.
+  Ember ask the server again before it saves, as another address does. The token goes only to the
+  address it was given for, so another address needs it typed again, or **Send no token**.
 - **The tools** show on the app's page, each by its name there, with its title and what the server
   says it does, which is the server's word and not Ember's. Ember keeps up to 100, each with a name of
   letters, digits, `_`, `-` and `.`, a description up to 1,500 characters and a schema of what it takes

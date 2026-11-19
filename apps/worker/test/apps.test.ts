@@ -4,6 +4,7 @@ import {
   AGENT_TOOLS_FULL,
   APP_CHANGED,
   APP_IS_EMBER,
+  APP_TOKEN_STAYS,
   APP_URL_REFUSED,
   APPS_FORBIDDEN,
   APPS_FULL,
@@ -453,6 +454,31 @@ describe("A connected app", () => {
     expect(without).toMatchObject({ hasToken: false, url: "http://localhost:3845/v2/mcp", tools: [{ name: "create_issue" }] });
     expect(asked.every(({ url, authorization }) => url === "http://localhost:3845/v2/mcp" && authorization === null)).toBe(true);
     expect(await refusalOf(await change(administrator, app.id, { url: "http://mcp.tracker.example" }), 422)).toEqual({ error: APP_URL_REFUSED, field: "url" });
+  });
+
+  it("sends its token only to the address it was given for, so another address needs it given again, or none", async () => {
+    const administrator = await setUp();
+    server.token = "tracker-secret-token";
+    const app = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "tracker-secret-token" }), 201);
+    asked = [];
+
+    const stays = { error: APP_TOKEN_STAYS, field: "token" };
+    expect(await refusalOf(await change(administrator, app.id, { url: "http://localhost:3845/v2/mcp" }), 422)).toEqual(stays);
+    expect(await refusalOf(await change(administrator, app.id, { name: "Bugs", url: TRACKER }), 422)).toEqual(stays);
+    expect(asked).toEqual([]);
+    expect(await appOf(await show(administrator, app.id))).toEqual(app);
+    // At the address it has, it's kept.
+    expect(await appOf(await change(administrator, app.id, { name: "Bugs", url: LOCAL }))).toEqual({ ...app, name: "Bugs" });
+    expect(asked).toEqual([]);
+
+    // Given again, it goes to the new address, which keeps it.
+    const moved = await appOf(await change(administrator, app.id, { url: "http://localhost:3845/v2/mcp", token: "tracker-secret-token" }));
+    expect(moved).toMatchObject({ url: "http://localhost:3845/v2/mcp", hasToken: true });
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every(({ url, authorization }) => url === "http://localhost:3845/v2/mcp" && authorization === "Bearer tracker-secret-token")).toBe(true);
+    asked = [];
+    await appOf(await readAgain(administrator, app.id));
+    expect(asked.every(({ url, authorization }) => url === "http://localhost:3845/v2/mcp" && authorization === "Bearer tracker-secret-token")).toBe(true);
   });
 
   it("has its tools read again, which shows what its server lists now, and stays as it was when the server doesn't answer", async () => {
