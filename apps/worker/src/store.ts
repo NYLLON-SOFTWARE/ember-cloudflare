@@ -936,6 +936,8 @@ export class MessageStore {
       statement(`DELETE FROM pins WHERE room_id = ? AND message_id = ?`, this.roomId, messageId),
       this.numbered(messageId, seq),
     ]);
+  }
+
   /** Up to `limit` of `boosterId`'s boosts here. */
   async boostsBy(boosterId: UserId, limit: number): Promise<Boost[]> {
     return (await this.db.all<BoostRow>(BOOSTS_BY, this.roomId, boosterId, limit)).map(toBoost);

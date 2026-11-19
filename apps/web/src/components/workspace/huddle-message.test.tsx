@@ -76,7 +76,7 @@ interface Seen {
  */
 function show(message: Message, { me = linus!, administrator = false, live = {}, huddles = true, people = [ada!, grace!, linus!, joan!], open = false, blocked = [] }: Seen = {}) {
   const preview = vi.fn();
-  const actions = { boost: vi.fn(() => true), unboost: vi.fn(() => true), edit: vi.fn(() => true), remove: vi.fn(() => true), click: vi.fn(() => Promise.resolve(true)) };
+  const actions = { boost: vi.fn(() => true), unboost: vi.fn(() => true), pin: vi.fn(() => true), unpin: vi.fn(() => true), edit: vi.fn(() => true), remove: vi.fn(() => true), click: vi.fn(() => Promise.resolve(true)) };
   let setEditing: (editing: boolean) => void = () => {};
   const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
   const directory = new Map(people.map((person) => [person.id, listed(person)]));

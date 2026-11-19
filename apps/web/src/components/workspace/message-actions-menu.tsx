@@ -15,8 +15,7 @@ import {
 } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
+import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -110,14 +109,10 @@ export interface MessageActionsHandle {
  * its color.
  *
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Pin to room, or
- * Unpin, Quote, Copy text, Copy link, and on messages you can change, Edit message and Delete message.
+ * Unpin, Quote, Copy text, Copy link, Block or Unblock its author and Report message on someone else's
+ * message, and on messages you can change, Edit message and Delete message.
  */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, pinned, onPin, onReact, onQuote, onEdit, onDelete, onNewBoost, ref }: Props) {
- * With a mouse, Message options then opens More actions under the bar, as Slack's does: Quote, Copy text,
- * Copy link, Block or Unblock its author and Report message on someone else's message, and on messages
- * you can change, Edit message and Delete message.
- */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, block, onReport, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, pinned, onPin, onReact, onQuote, onEdit, onDelete, onNewBoost, block, onReport, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -194,6 +189,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     close();
     onPin();
     trigger.current?.focus({ preventScroll: true });
+  };
+
   // So do Block and Unblock, and Report message, whose dialog takes it.
   const changeBlock = () => {
     close();
@@ -471,7 +468,6 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </ActionTooltip>
             )}
-            {/* More actions holds Quote and Copy link with a mouse. */}
             {/* More actions holds Quote and Copy link with a mouse. A huddle's message has nothing of its author's to quote. */}
             {message.attachment ? (
               <FileActions file={message.attachment} />
@@ -542,8 +538,6 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 {pinned ? "Unpin" : "Pin to room"}
               </button>
             )}
-            {/* Quoting a file message would quote nothing, as its text is empty. */}
-            {!message.attachment && (
             {/* Quoting a file message would quote nothing, as its text is empty, and a huddle's message shows none of its own. */}
             {!message.attachment && !message.huddle && (
               <QuoteButton message={message} nodes={nodes} className={ITEM} onQuote={quote}>

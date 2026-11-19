@@ -74,12 +74,10 @@ function show(
     thread = undefined as ThreadPlace | undefined,
     open = false,
     pinnedIds = undefined as ReadonlySet<string> | undefined,
+    blocked = [] as string[],
   } = {},
 ) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), pin: vi.fn(() => sent), unpin: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
-  { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false, blocked = [] as string[] } = {},
-) {
-  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
   const setBlocked = vi.fn((_person: User, _blocked: boolean) => Promise.resolve(true));
   const openReport = vi.fn();
   let setEditing: (editing: boolean) => void = () => {};
@@ -915,7 +913,7 @@ describe("More actions on a message", () => {
 
   it("names the author as the people directory lists them in Block", async () => {
     withMouse();
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     const king: DirectoryUser = { ...ada, name: "Ada King", bio: null, role: "member", status: "active", avatarUrl: "" };
     render(
