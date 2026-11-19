@@ -1206,7 +1206,7 @@ const roomsChange = (agentId: UserId, rooms: RoomId[] | null, now: string): Stat
  */
 const botRoomsChange = (botId: UserId, rooms: RoomId[] | null, now: string): Statement[] =>
   rooms === null
-    ? [statement(`UPDATE users SET rooms_picked = NULL WHERE id = ?`, botId), statement(GRANT_OPEN_ROOMS_TO_USER, botId, now, now)]
+    ? [statement(`UPDATE users SET rooms_picked = NULL WHERE id = ?`, botId), statement(GRANT_OPEN_ROOMS_TO_USER, botId, now, now, botId)]
     : [
         statement(`UPDATE users SET rooms_picked = 1 WHERE id = ?`, botId),
         statement(LEAVE_UNPICKED_ROOMS, botId, JSON.stringify(rooms)),
