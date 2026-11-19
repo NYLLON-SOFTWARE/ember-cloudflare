@@ -138,7 +138,6 @@ import {
   type ElsewhereConnection,
   type SsoStatus,
 } from "@ember/protocol/sso";
-import { mentionPromptItem } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
 import {
   clientOf,
@@ -315,28 +314,24 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
 }
 
 /**
- * Signs someone in with just a name: one of the guests of one room, by the name their stay stays under,
- * or, when EMBER_GUEST_SIGN_IN allows it, someone new every time. Memberful being members only answers
- * 403, the name being @ember's or an agent's 422, and the name alone being turned off 403, which a name
- * no stay stays under hears, as does a stay that ended as it signed them in.
- * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
- * unless Memberful is members only, or single sign-on the only way in, or the name is @ember's or an
- * agent's, or has a word Blocked words keeps out.
+ * Signs someone in with just a name: one of the guests of one room, by the name their stay stays
+ * under, or, when EMBER_GUEST_SIGN_IN allows it, someone new every time. Memberful being members only,
+ * or single sign-on the only way in, answers 403, the name being @ember's or an agent's 422, a stay that
+ * has ended 403, a name with a word Blocked words keeps out 422, and the name alone being turned off
+ * 403, which a name no stay stays under hears.
  */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
+  if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
   if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
   if (isReservedName(name)) return problem(422, NAME_RESERVED);
 
   const token = newSessionToken();
   const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));
-  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
-  if (user === "agent's name") return problem(422, agentsName(name));
   if (user === "off") return problem(403, "Signing in with just a name is turned off");
-  if (user === "ended") return problem(403, "Your stay in this workspace has ended. Ask whoever added you for another.");
-  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   if (user === "agent's name") return problem(422, agentsName(name));
   if (user === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
+  if (user === "ended") return problem(403, "Your stay in this workspace has ended. Ask whoever added you for another.");
   if (typeof user === "string") return problem(403, signInNeededWith(user));
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
@@ -1319,10 +1314,8 @@ async function showPerson(request: Request, env: Env, userId: UserId): Promise<R
   if (!found) return problem(401, "Not signed in");
   if (found === "not found") return problem(404, "Not found");
   const [shown] = await directoryOf([found.person], env.SESSION_SECRET);
-  const transferId = found.transfer ? await newTransferId(found.transfer, env.SESSION_SECRET, Date.now()) : undefined;
-  return json({ person: shown!, fields: found.fields, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
   const transferId = found.transfer ? await newTransferId(found.transfer, env.SESSION_SECRET) : undefined;
-  return json({ person: shown!, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
+  return json({ person: shown!, fields: found.fields, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**

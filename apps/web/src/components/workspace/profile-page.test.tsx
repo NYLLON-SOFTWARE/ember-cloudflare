@@ -1,25 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  AVATAR_PATH,
-  AVATAR_TOO_LARGE,
-  CURRENT_PASSWORD_WRONG,
-  MAX_AVATAR_SIZE,
-  MEMBERFUL_CONNECTIONS_PATH,
-  MEMBERFUL_DISCONNECTED_NOTICE,
-  type Account,
-  type DirectoryUser,
-  type MemberfulDisconnection,
-  type MemberfulStatus,
-  type PersonMood,
-  type Platform,
-  type Profile,
-  type ProfileAnswer,
-  type ProfileChanges,
-  type ProfileFieldEntry,
-  type SidebarRoom,
-} from "@ember/protocol";
+import { AVATAR_PATH, AVATAR_TOO_LARGE, CURRENT_PASSWORD_WRONG, MAX_AVATAR_SIZE, MEMBERFUL_CONNECTIONS_PATH, MEMBERFUL_DISCONNECTED_NOTICE, type Account, type DirectoryUser, type MemberfulDisconnection, type MemberfulStatus, type PersonMood, type Platform, type Profile, type ProfileAnswer, type ProfileChanges, type ProfileFieldEntry, type SidebarRoom } from "@ember/protocol";
 import { MODEL_NOT_LISTED, type YourAssistant, type YourAssistantChanged, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { MEMBERFUL_WITH_SSO, SSO_CONNECTIONS_PATH, SSO_DISCONNECTED_NOTICE, SSO_WITH_MEMBERFUL, type SsoStatus } from "@ember/protocol/sso";
 import type { HuddleSounds, HuddleSoundsChanged } from "@ember/protocol/huddles";
@@ -35,6 +16,7 @@ import { PUSH_ON } from "@/test-push";
 import { DEFAULT_MODEL_EXPLAINED } from "./answer-levels";
 import { AVATAR_CHANGED, ProfilePage } from "./profile-page";
 import { NOTHING_CONNECTED } from "./your-outside-ai";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
@@ -46,8 +28,7 @@ const ASKED_FIELDS: ProfileFieldEntry[] = [
   { id: "field-title", name: "Title", options: null, value: "Countess" },
   { id: "field-pronouns", name: "Pronouns", options: ["she/her", "they/them"], value: "she/her" },
 ];
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", mood: null, avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, fields: ASKED_FIELDS, apps: [], outsideAi: null, dndUntil: null };
-const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, apps: [], outsideAi: null };
+const profile: Profile = { name: "Ada Lovelace", username: null, emailAddress: "ada@example.com", bio: "Wrote the first program", mood: null, avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, sso: null, assistant: null, fields: ASKED_FIELDS, apps: [], outsideAi: null, dndUntil: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -128,28 +109,16 @@ function serve({
   });
 }
 
-/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`, with pushes hushed until `dndUntil`. */
-function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, dndUntil: string | null = null) {
-  const [onSignOut, onFailed, answered, onDndChanged] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
-  let hushed = dndUntil;
-  const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
-    <AccountContext value={shown}>
-      <PeopleContext value={people}>
-        <PushContext value={{ ...PUSH_ON, platform }}>
-          <FlashProvider workspace>
-            <Sheet>
-              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} dndUntil={hushed} askForDnd={() => (hushedUntil: string | null) => onDndChanged(hushedUntil)} onDndChanged={onDndChanged} onSignOut={onSignOut} onFailed={onFailed} />
-            </Sheet>
-          </FlashProvider>
-        </PushContext>
 /**
  * The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`,
- * and with the huddle sounds she hears as the list has them, or none while huddles are off.
+ * with pushes hushed until `dndUntil`, and with the huddle sounds she hears as the list has them, or
+ * none while huddles are off.
  */
-function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, huddleSounds: HuddleSounds | null = null) {
-  const [onSignOut, onFailed, answered, soundsAnswered] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, huddleSounds: HuddleSounds | null = null, dndUntil: string | null = null) {
+  const [onSignOut, onFailed, answered, onDndChanged, soundsAnswered] = [vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn()];
   const onDeleteAccount = vi.fn(async () => {});
   const setBlocked = vi.fn(async () => true);
+  let hushed = dndUntil;
   const page = (listed: SidebarRoom[] | null, people: People = new Map(), blocked: string[] = []) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
@@ -161,6 +130,9 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
                   me={ada}
                   rooms={listed}
                   askForRoom={() => answered}
+                  dndUntil={hushed}
+                  askForDnd={() => (hushedUntil: string | null) => onDndChanged(hushedUntil)}
+                  onDndChanged={onDndChanged}
                   huddleSounds={huddleSounds}
                   askForHuddleSounds={() => soundsAnswered}
                   onSignOut={onSignOut}
@@ -181,6 +153,7 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
     onFailed,
     answered,
     onDndChanged,
+    soundsAnswered,
     user: userEvent.setup(),
     showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
     showPeople: (people: People) => rerender(page(rooms, people)),
@@ -188,10 +161,6 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
       hushed = hushedUntil;
       rerender(page(rooms, new Map()));
     },
-    soundsAnswered,
-    user: userEvent.setup(),
-    showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
-    showPeople: (people: People) => rerender(page(rooms, people)),
     /** Has the sidebar list the people `blocked` names as blocked, with the people directory listing `people`. */
     showBlocked: (blocked: string[], people: People) => rerender(page(rooms, people, blocked)),
   };

@@ -331,25 +331,6 @@ describe("Huddles", () => {
   /** The header of `room`, as Linus reads it, where huddles are on and the people directory lists `listed`. */
   const renderWithHuddles = (room: Room, name: string, listed: DirectoryUser[] = []) =>
     render(
-      <PushContext value={PUSH_ON}>
-        <Sheet>
-          <RoomHeader
-            room={room}
-            name={name}
-            present={[]}
-            status="open"
-            offline={false}
-            favorite={false}
-            onStarred={vi.fn()}
-            involvement="mentions"
-            pinned={0}
-            onPinned={vi.fn()}
-            askForRoom={() => vi.fn()}
-            onSessionChanged={vi.fn()}
-            onFailed={vi.fn()}
-          />
-        </Sheet>
-      </PushContext>,
       <PeopleContext value={new Map(listed.map((person) => [person.id, person]))}>
         <PushContext value={PUSH_ON}>
           <Sheet>
@@ -363,6 +344,8 @@ describe("Huddles", () => {
               favorite={false}
               onStarred={vi.fn()}
               involvement="mentions"
+              pinned={0}
+              onPinned={vi.fn()}
               askForRoom={() => vi.fn()}
               onSessionChanged={vi.fn()}
               onFailed={vi.fn()}

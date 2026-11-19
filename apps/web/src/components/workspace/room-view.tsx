@@ -1,6 +1,4 @@
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type Ref } from "react";
-import type { Favorites, Invitation, Involvement, Me } from "@ember/protocol";
-import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import type { Favorites, Invitation, Involvement, Me, User } from "@ember/protocol";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
@@ -76,10 +74,8 @@ export interface RoomViewHandle {
 }
 
 export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, savedCovered = false, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
-  const { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId, !savedCovered);
+  const { state, frames, postMessage, postFiles, runCommand, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId, !savedCovered);
   const { pins, pinnedIds, listed, refresh } = usePins(room.id, frames);
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
-  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
@@ -125,9 +121,6 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
     setPinsOpen((open) => !open);
   };
   useGivingBack(state.messages, composer, givenBack);
-  // A thread that covers the room leaves nothing of it to reach until it's closed.
-  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined;
-
   // Up Arrow edits the newest message you wrote, unless it's still on its way, or the timeline is reading
   // older history and may not hold it.
   const editLastMessage = () => {

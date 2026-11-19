@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type Reminder, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type HuddleSounds, type Me, type RoomId, type User, type UserId, type WorkspaceClientFrame, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type HuddleSounds, type Me, type Reminder, type RoomId, type User, type UserId, type WorkspaceClientFrame, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import type { InvitationsChange } from "@/lib/huddle-invitations";
 import { activeStore, watchUse } from "@/lib/presence";
@@ -209,15 +208,12 @@ export function useSidebar(
     // before its welcome. The welcome may have read it before that change, so it doesn't undo it. Each
     // try starts afresh, after a close or a socket that stopped answering alike.
     let toldOf = { you: false, account: false };
-    const onConnecting = () => {
-      toldOf = { you: false, account: false };
-      dndConnecting();
-    };
     // Whether this connection is yet to say who's active, which its first `presence` frame says in full.
     let unheard = true;
     const onConnecting = () => {
       toldOf = { you: false, account: false };
       unheard = true;
+      dndConnecting();
     };
 
     // Tells the Workspace whether the tab is shown, unless its socket's address or an earlier frame said

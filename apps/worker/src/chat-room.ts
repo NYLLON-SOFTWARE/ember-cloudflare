@@ -30,8 +30,7 @@ import {
 } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
-import { mentionGroupSgid, mentionSgid, parseHtml, prepareBody, mentionedIdsIn, type MentionUser, type PreparedBody } from "@ember/richtext";
-import { hasPreview, prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
+import { hasPreview, mentionGroupSgid, mentionSgid, parseHtml, prepareBody, userIdFromSgid, userIdsIn, mentionedIdsIn, type MentionUser, type PreparedBody } from "@ember/richtext";
 import {
   AGENT_NOTES,
   AnswerError,
@@ -145,7 +144,7 @@ const rewriting = (why: string) => (why === BLOCKED_WORDS_REFUSED ? { rewrite: t
  * someone `named` names read as "@" alone, since their name isn't the writer's words, nor part of a word
  * the writer wrote beside it.
  */
-function writtenText(body: PreparedBody, named: (sgid: string) => User | undefined): string {
+function writtenText(body: PreparedBody, named: (sgid: string) => MentionUser | undefined): string {
   if (body.mentions.length === 0) return body.plainText;
   const unnamed = (sgid: string) => {
     const person = named(sgid);
@@ -170,8 +169,7 @@ const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
  */
 const BANNED = "Request failed (429)";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "card.click", "pin.create", "pin.delete", "command.run", "shortcut.run"]);
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.preview", "message.delete", "boost.create", "boost.delete", "card.click"]);
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.preview", "message.delete", "boost.create", "boost.delete", "card.click", "pin.create", "pin.delete", "command.run", "shortcut.run"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -1433,6 +1431,8 @@ export class ChatRoom extends DurableObject<Env> {
       const pinner = by.get(userId);
       return message && pinner ? [{ message, by: pinner, at }] : [];
     });
+  }
+
   /** Deletes each of `boosts`, as `MessageStore.removeBoosts` does, telling everyone in the room. */
   private async removeBoosts(store: MessageStore, boosts: Boost[]): Promise<void> {
     const seq = await store.removeBoosts(boosts);
@@ -1500,31 +1500,10 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * What the room keeps of a body a client sent, naming the people it mentions as they are now, or
-   * why it keeps nothing. A group's mention keeps the group's name in the body, and stands for
-   * everyone in it, whom the message's mentions list keeps once each, so that "mentions me", the
-   * unread marks and the pushes know it as they know a person's mention.
-   */
-  private async prepare(markup: string): Promise<PreparedBody | string> {
-    const { userIds, groupIds } = mentionedIdsIn(parseHtml, markup);
-    const [people, groups] = await Promise.all([
-      userIds.length === 0 ? [] : workspace(this.env).mentionedPeople(userIds),
-      groupIds.length === 0 ? [] : workspace(this.env).mentionedGroups(groupIds),
-    ]);
-    const named = new Map<string, MentionUser>(people.map((person) => [mentionSgid(person.id), person]));
-    for (const { id, name } of groups) named.set(mentionGroupSgid(id), { id, name, group: true });
-    const body = prepareBody(markup, (sgid) => named.get(sgid));
-    if (body === null) return UNREADABLE;
-    if (body.blank) return EMPTY;
-    const membersOf = new Map(groups.map((group) => [group.id, group.members]));
-    const mentions: User[] = [];
-    const seen = new Set<string>();
-    for (const mentioned of body.mentions) {
-      for (const member of mentioned.group ? (membersOf.get(mentioned.id) ?? []) : [mentioned]) {
-        if (!seen.has(member.id)) (seen.add(member.id), mentions.push(member));
-      }
-    }
-    return isMessageTooLong(body.plainText) ? MESSAGE_TOO_LONG : { ...body, mentions };
-   * why it keeps nothing, which is `BLOCKED_WORDS_REFUSED` when what its writer wrote has a blocked word.
+   * why it keeps nothing, which is `BLOCKED_WORDS_REFUSED` when what its writer wrote has a blocked
+   * word. A group's mention keeps the group's name in the body, and stands for everyone in it, whom
+   * the message's mentions list keeps once each, so that "mentions me", the unread marks and the
+   * pushes know it as they know a person's mention.
    */
   private async prepare(markup: string): Promise<PreparedBody | string> {
     const read = await this.readBody(markup);
@@ -1537,14 +1516,26 @@ export class ChatRoom extends DurableObject<Env> {
    * its writer wrote (`writtenText`), not yet checked for blocked words, or why the room can't keep it.
    */
   private async readBody(markup: string): Promise<{ body: PreparedBody; written: string } | string> {
-    const ids = userIdsIn(markup);
-    const people = new Map<UserId, User>(ids.length === 0 ? [] : (await workspace(this.env).mentionedPeople(ids)).map((person) => [person.id, person]));
-    const named = (sgid: string) => people.get(userIdFromSgid(sgid) ?? "");
-    const body = prepareBody(markup, named);
+    const { userIds, groupIds } = mentionedIdsIn(parseHtml, markup);
+    const [people, groups] = await Promise.all([
+      userIds.length === 0 ? [] : workspace(this.env).mentionedPeople(userIds),
+      groupIds.length === 0 ? [] : workspace(this.env).mentionedGroups(groupIds),
+    ]);
+    const named = new Map<string, MentionUser>(people.map((person) => [mentionSgid(person.id), person]));
+    for (const { id, name } of groups) named.set(mentionGroupSgid(id), { id, name, group: true });
+    const body = prepareBody(markup, (sgid) => named.get(sgid));
     if (body === null) return UNREADABLE;
     if (body.blank) return EMPTY;
     if (isMessageTooLong(body.plainText)) return MESSAGE_TOO_LONG;
-    return { body, written: writtenText(body, named) };
+    const membersOf = new Map(groups.map((group) => [group.id, group.members]));
+    const mentions: User[] = [];
+    const seen = new Set<string>();
+    for (const mentioned of body.mentions) {
+      for (const member of mentioned.group ? (membersOf.get(mentioned.id) ?? []) : [mentioned]) {
+        if (!seen.has(member.id)) (seen.add(member.id), mentions.push(member));
+      }
+    }
+    return { body: { ...body, mentions }, written: writtenText(body, (sgid) => named.get(sgid)) };
   }
 
   /**
@@ -2534,8 +2525,6 @@ export class ChatRoom extends DurableObject<Env> {
    * it's done, and then what a call it's making for another answer there is doing, if one still runs, or
    * that it's only typing again, while it still is.
    */
-  private async push(pushes: MessagePush[]): Promise<void> {
-    const { gone } = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
   private async doingWhile<T>(bot: User, threadId: string | undefined, doing: string, work: () => Promise<T>): Promise<T> {
     const typist = typistOf(bot, threadId);
     this.doings.set(typist, [...(this.doings.get(typist) ?? []), doing]);
@@ -2564,7 +2553,7 @@ export class ChatRoom extends DurableObject<Env> {
    * each when its turn comes, and has it forget the subscriptions they found gone.
    */
   private async push(pushes: Array<MessagePush | InvitationPush>): Promise<void> {
-    const gone = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
+    const { gone } = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
     if (gone.length === 0) return;
     await workspace(this.env)
       .forgetPushSubscriptions(gone)

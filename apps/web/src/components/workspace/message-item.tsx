@@ -250,7 +250,6 @@ function Author({ user }: { user: User }) {
 }
 
 /** One message: a 36px avatar gutter, author and time, then the body. */
-export const MessageItem = memo(function MessageItem({ message, me, threaded: follows, editing: editorOpen, actions, editors, thread, open, pinnedIds }: Props) {
 /**
  * The line a DM started as someone joined the workspace opens with, as Slack's does: their avatar, name
  * and when they joined, as a message's header shows them, then that they joined, in muted type. It's no
@@ -279,7 +278,7 @@ export function JoinedItem({ user, at }: { user: User; at: string }) {
  * One message: a 36px avatar gutter, author and time, then the body. A huddle's message shows its huddle
  * where its author and its text would be (./huddle-message.tsx).
  */
-export const MessageItem = memo(function MessageItem({ message, me, threaded: follows, editing: editorOpen, actions, editors, thread, open }: Props) {
+export const MessageItem = memo(function MessageItem({ message, me, threaded: follows, editing: editorOpen, actions, editors, thread, open, pinnedIds }: Props) {
   const article = useRef<HTMLElement>(null);
   const menu = useRef<MessageActionsHandle>(null);
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);

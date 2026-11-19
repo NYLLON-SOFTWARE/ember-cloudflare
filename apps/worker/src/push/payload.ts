@@ -1,5 +1,4 @@
 import { messagePath, threadPath, type RoomId, type RoomKind } from "@ember/protocol";
-import { threadPath, type RoomId, type RoomKind } from "@ember/protocol";
 import { REPORTS_PATH, type ReportReason, type ReportSubject } from "@ember/protocol/reports";
 
 // What a push says, of a new message or of an invitation into a huddle, for the service worker to show as it is.
@@ -70,6 +69,9 @@ export function reminderPayload({ roomId, messageId, parentId, creatorName, exce
     body: excerpt === "" ? `${creatorName} wrote` : excerpt,
     path: parentId ? threadPath(roomId, parentId, messageId) : messagePath(roomId, messageId),
   };
+}
+
+/**
  * How long a push service keeps an invitation's push for a browser that's away, in seconds: a minute,
  * where it keeps a message's for weeks, since one that comes much later asks into a huddle that may be over.
  */

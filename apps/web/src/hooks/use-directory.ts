@@ -1,7 +1,5 @@
-import { createContext, useCallback, useContext, useState } from "react";
-import type { DirectoryUser, GroupId, User, UserGroup, UserId } from "@ember/protocol";
 import { createContext, useCallback, useContext, useState, useSyncExternalStore } from "react";
-import type { DirectoryUser, User, UserId } from "@ember/protocol";
+import type { DirectoryUser, GroupId, User, UserGroup, UserId } from "@ember/protocol";
 import { fetchDirectory, type DirectoryCopy } from "@/lib/api";
 import { NOT_HEARD, type ActiveStore } from "@/lib/presence";
 import { oneAtATime } from "./use-sidebar";
@@ -92,8 +90,9 @@ function withChanges(people: People, changes: Change[]): People {
 /**
  * The people directory, which `reload` loads again, one load at a time, settling once a load asked for
  * since has come or failed, and `update` changes someone in, as the workspace socket or a change made
- * here says they are now. The people stay as they were when a load fails or the server says they
- * haven't changed. It has `loaded` once a load has come, `reloading` while one it has asked for is
+ * here says they are now, and `remove` takes someone out of, once the socket says this person is no
+ * longer told of them. The people stay as they were when a load fails or the server says they haven't
+ * changed. It has `loaded` once a load has come, `reloading` while one it has asked for is
  * still to settle, and `stale` since a load last failed, until a load comes.
  */
 export function useDirectory(): {
@@ -104,13 +103,8 @@ export function useDirectory(): {
   stale: boolean;
   reload: () => Promise<void>;
   update: (user: DirectoryUser) => void;
+  remove: (userId: UserId) => void;
 } {
- * since has come or failed, `update` changes someone in, as the workspace socket or a change made
- * here says they are now, and `remove` takes someone out of, once the socket says this person is no
- * longer told of them. The people stay as they were when a load fails or the server says they haven't
- * changed. It has `loaded` once a load has come.
- */
-export function useDirectory(): { people: People; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void; remove: (userId: UserId) => void } {
   const [people, setPeople] = useState<People>(() => new Map());
   const [groups, setGroups] = useState<Groups>(() => new Map());
   const [loaded, setLoaded] = useState(false);
@@ -123,7 +117,6 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
     let changedSince: Change[] | null = null;
     const load = oneAtATime(async () => {
       setReloading(true);
-      const changed: DirectoryUser[] = (changedSince = []);
       const changed: Change[] = (changedSince = []);
       try {
         const loaded = await fetchDirectory(copy);

@@ -26,6 +26,9 @@ const DISCONNECTED: ProfileAnswer = {
     assistant: null,
     apps: [],
     outsideAi: null,
+    dndUntil: null,
+    mood: null,
+    fields: [],
   },
   transferId: "u2.mgk3x2b0.saved",
 };

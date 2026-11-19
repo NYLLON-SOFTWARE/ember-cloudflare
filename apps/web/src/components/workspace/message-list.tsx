@@ -149,7 +149,6 @@ interface Props {
  * else, it keeps the reader's place, loads the pages before and after as they near either end, and
  * offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null, pinnedIds }: Props) {
 export function MessageList({
   roomName,
   direct = false,
@@ -167,6 +166,7 @@ export function MessageList({
   thread,
   openThread,
   newSince = null,
+  pinnedIds,
   joined = null,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);

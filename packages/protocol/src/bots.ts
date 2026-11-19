@@ -1,6 +1,5 @@
 import { commandNameOf, isReservedName, NAME_RESERVED, MAX_COMMAND_NAME_LENGTH, MAX_USER_NAME_LENGTH, type DirectoryUser, type RoomId, type User, type UserId } from "./index.ts";
 import { roomsIn } from "./agents.ts";
-import { isReservedName, MAX_USER_NAME_LENGTH, NAME_RESERVED, type DirectoryUser, type RoomId } from "./index.ts";
 
 // Chat bots, as administrators add, change and delete them through `/api/account/bots`, as Campfire's
 // `accounts/bots` and `accounts/bots/keys` controllers do.

@@ -1,9 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Reminder, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
-import type { AgentSettings } from "@ember/protocol/agents";
-import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Reminder, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings, AvailableAgent } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { ALL_HUDDLE_SOUNDS, CAMERAS_OFF, SCREENS_OFF, type HuddleSoundsChanged, type PastHuddle } from "@ember/protocol/huddles";
@@ -20,7 +17,8 @@ import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
-import { Workspace, loadPageAhead } from "./workspace";
+import { loadPageAhead, Workspace } from "./workspace";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 // A huddle's own tests join one. Here joining shows the tab as in the huddle, as a test has it.
@@ -85,7 +83,6 @@ function serve(responses: Record<string, () => Response | Promise<Response>> = {
     "GET /api/account/profile_fields": () => Response.json({ fields: [] }),
     "GET /api/reminders": () => Response.json({ reminders: [] }),
     "GET /api/users": () => Response.json({ users: [], groups: [] }),
-    "GET /api/users": () => Response.json({ users: [] }),
     "GET /api/reports": () => Response.json({ open: [], handled: [] }),
     ...responses,
   };
@@ -1034,6 +1031,59 @@ describe("Available Agents", () => {
     await user.click(row()!);
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
     expect(location.pathname).toBe("/rooms/general");
+    await waitFor(() => expect(list()).not.toBeInTheDocument());
+  });
+});
+
+describe("Suggested people", () => {
+  const grace = withGrace.members[1]!;
+  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
+
+  it("starts a DM with someone suggested and opens it, listed in the suggestion's place, for its composer to take focus", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({
+      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
+      "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(suggestion()!);
+    expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/d1");
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
+    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(suggestion()).not.toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
+  });
+
+  it("stays on a page the person goes to while the DM starts, listing the DM", async () => {
+    let answer = (_: Response) => {};
+    serve({
+      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
+      "POST /api/directs": () => new Promise<Response>((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(suggestion()!);
+    await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
+    expect(await roomHeading()).toHaveTextContent("random");
+
+    await act(async () => answer(Response.json({ room: withGrace }, { status: 201 })));
+    expect(location.pathname).toBe("/rooms/random");
+    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).not.toHaveAttribute("aria-current");
+    expect(suggestion()).not.toBeInTheDocument();
+  });
+
+  it("says why a DM didn't start, keeping the page and the suggestion", async () => {
+    serve({
+      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
+      "POST /api/directs": () => Promise.reject(new TypeError("Failed to fetch")),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(suggestion()!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
+    expect(location.pathname).toBe("/rooms/general");
     expect(suggestion()).toBeInTheDocument();
     expect(suggestion()).not.toHaveAttribute("aria-disabled");
   });
@@ -1054,7 +1104,6 @@ describe("Remove someone from the workspace", () => {
     expect(suggestion()).toBeInTheDocument();
     await workspaceSends({ type: "user.updated", user: { ...grace, status: "deactivated" } });
     expect(suggestion()).not.toBeInTheDocument();
-    await waitFor(() => expect(list()).not.toBeInTheDocument());
   });
 });
 

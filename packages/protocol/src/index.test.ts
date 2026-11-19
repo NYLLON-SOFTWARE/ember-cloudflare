@@ -1263,6 +1263,14 @@ describe("Edit your profile", () => {
     expect(parseProfileChanges({ fieldValues: { "field-1": "Countess", "field-2": "" } })).toEqual({ fieldValues: { "field-1": "Countess", "field-2": "" } });
     expect(parseProfileChanges({ fieldValues: {} })).toEqual({ fieldValues: {} });
   });
+  it("keeps a username in lowercase, without spaces or the @ before it, in ASCII for fullwidth letters, and a blank one as none", () => {
+    expect(parseProfileChanges({ username: " @Ada.Lovelace_1815 " })).toEqual({ username: "ada.lovelace_1815" });
+    expect(parseProfileChanges({ username: "@@ａｄａ" })).toEqual({ username: "ada" });
+    expect(parseProfileChanges({ username: "ada love-lace" })).toEqual({ username: "adalove-lace" });
+    expect(parseProfileChanges({ username: " " })).toEqual({ username: "" });
+    expect(parseProfileChanges({ username: "a".repeat(MAX_USERNAME_LENGTH) })).toEqual({ username: "a".repeat(MAX_USERNAME_LENGTH) });
+  });
+
 });
 
 describe("Profile fields", () => {
@@ -1295,12 +1303,6 @@ describe("Profile fields", () => {
     expect(parseProfileFieldOrder({ ids: "field-1" })).toBe("Field order must be a list of the fields' ids");
     expect(parseProfileFieldOrder({ ids: [1] })).toBe("Field order must be a list of the fields' ids");
     expect(parseProfileFieldOrder({ ids: ["field-1", "field-1"] })).toBe("Field order must be a list of the fields' ids");
-  it("keeps a username in lowercase, without spaces or the @ before it, in ASCII for fullwidth letters, and a blank one as none", () => {
-    expect(parseProfileChanges({ username: " @Ada.Lovelace_1815 " })).toEqual({ username: "ada.lovelace_1815" });
-    expect(parseProfileChanges({ username: "@@ａｄａ" })).toEqual({ username: "ada" });
-    expect(parseProfileChanges({ username: "ada love-lace" })).toEqual({ username: "adalove-lace" });
-    expect(parseProfileChanges({ username: " " })).toEqual({ username: "" });
-    expect(parseProfileChanges({ username: "a".repeat(MAX_USERNAME_LENGTH) })).toEqual({ username: "a".repeat(MAX_USERNAME_LENGTH) });
   });
 });
 

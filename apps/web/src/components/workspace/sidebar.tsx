@@ -3,13 +3,10 @@ import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@em
 import { ChatPlusIn, Headset, NavArrowRight, StarSolid } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { AccountContext, useAccount } from "@/hooks/use-account";
-import { PeopleContext, useNameOf } from "@/hooks/use-directory";
-import { useMounted } from "@/hooks/use-mounted";
-import { leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
-import { PageLink } from "@/components/page-link";
-import { useAccount } from "@/hooks/use-account";
 import { PeopleContext, useNameOf, usePresenceOf, type Presence } from "@/hooks/use-directory";
-import { HUDDLES_PATH, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
+import { useMounted } from "@/hooks/use-mounted";
+import { HUDDLES_PATH, leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
+import { PageLink } from "@/components/page-link";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { membersShown } from "@/lib/directs";
 import { huddlesGoingOn } from "@/lib/huddle-list";
@@ -108,11 +105,9 @@ export function Sidebar({
   onStarred,
   onSessionChanged,
 }: Props) {
-  const { tagline } = useAccount();
-  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, readRoomId)) : rooms), [rooms, unreadOnly, readRoomId]);
   const { tagline, huddles: huddlesOn } = useAccount();
+  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, readRoomId)) : rooms), [rooms, unreadOnly, readRoomId]);
   const goingOn = useMemo(() => huddlesGoingOn(rooms, huddles).length, [rooms, huddles]);
-  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
   const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
   const nameOf = (roomId: RoomId) => {
     const room = rooms.find((r) => r.id === roomId);
@@ -219,7 +214,6 @@ export function Sidebar({
             meId={meId}
             current={room.id === currentRoomId}
             unreadId={markedUnread(room, readRoomId) ? unreadId : null}
-            unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
             huddle={huddles[room.id]}
             onClick={(event) => select(event, room.id)}
           />
@@ -356,7 +350,6 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
   const alone = members.length === 1 ? people.get(members[0]!.id) : undefined;
   const presenceOf = usePresenceOf();
   const wordsId = useId();
-  const members = membersShown(room, meId);
   // An AI agent has no presence, though @ember's isn't listed as a bot until the directory has loaded.
   const presence = members.length === 1 && !isWithAgent(room) ? presenceOf(members[0]!) : null;
   const count = unreadId ? room.unreadCount : undefined;
@@ -391,6 +384,12 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
         <span className="min-w-0 flex-1 truncate">
           <span className="sr-only">Direct message with</span> {members.map((member) => `${nameOf(member)}${member.id === meId ? " (you)" : ""}`).join(", ")}
           {isWithAgent(room) && <AgentBadge className="ms-0.5" />}
+          {alone && (
+            <>
+              {" "}
+              <Mood mood={alone.mood} className="ms-1" />
+            </>
+          )}
         </span>
         {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} />}
         {count !== undefined ? <UnreadCount count={count} /> : unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}
@@ -401,19 +400,6 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
           {presence === "active" ? "Active" : "Away"}
         </span>
       )}
-      {/* The space after the hidden words starts the visible line, where it doesn't show. */}
-      <span className="min-w-0 flex-1 truncate">
-        <span className="sr-only">Direct message with</span> {members.map((member) => `${nameOf(member)}${member.id === meId ? " (you)" : ""}`).join(", ")}
-        {isWithAgent(room) && <AgentBadge className="ms-0.5" />}
-        {alone && (
-          <>
-            {" "}
-            <Mood mood={alone.mood} className="ms-1" />
-          </>
-        )}
-      </span>
-      {unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}
-    </a>
       {count !== undefined && (
         <span id={countId} hidden>
           {count === 1 ? "1 unread message" : `${count} unread messages`}

@@ -95,7 +95,7 @@ describe("Rail", () => {
   it("marks Admin with a dot while reports are open too, saying how many", () => {
     const grace = { ...ada, administrator: true };
     const rail = (openReports: number, newRelease: string | null = null) => (
-      <Rail me={grace} workspaceName="Analytical Engines" current="home" activity={activityOff} newRelease={newRelease} openReports={openReports} onNewDirect={() => {}} />
+      <Rail me={grace} workspaceName="Analytical Engines" current="home" activity={activityOff} dndUntil={null} saved={savedClosed} newRelease={newRelease} openReports={openReports} onNewDirect={() => {}} />
     );
     const { rerender } = render(rail(1));
     const admin = screen.getByRole("link", { name: "Admin" });

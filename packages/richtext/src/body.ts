@@ -1,3 +1,5 @@
+
+
 // What Ember keeps of a message body when it's written: the canonical markup, its plain text and
 // whom it mentions (Ember's rich-text design: sanitize on write, render on the client).
 
@@ -5,10 +7,8 @@ import { RenderError, type MentionUser, type ResolveMention } from "./attachment
 import { autoLink } from "./autolink";
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { displayBody } from "./display";
-import { ParseLimitError, type HtmlParser } from "./markup";
-import { editableBody, groupIdsIn, groupIdFromSgid, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
 import { forOneReading, ParseLimitError, type HtmlParser } from "./markup";
-import { editableBody, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
+import { editableBody, groupIdsIn, groupIdFromSgid, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
 import { plainParagraphLines } from "./plain-paragraph";
 import { hasPreview } from "./previews";
 import { canonicalize } from "./render";

@@ -1,20 +1,18 @@
 import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useMemo, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
 import { DirectoryLoaded, GroupsContext, PeopleContext, ReloadDirectory, type Groups, type People } from "@/hooks/use-directory";
 import { BlockingContext } from "@/hooks/use-blocking";
 import { ReportingContext } from "@/hooks/use-reporting";
-import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { SavesContext, type Saver } from "@/hooks/use-saves";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
-import { MessageItem, type ThreadPlace } from "./message-item";
 import { ApiError, fetchShortcuts } from "@/lib/api";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 vi.mock("@/lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api")>()), fetchShortcuts: vi.fn() }));
 
@@ -82,12 +80,10 @@ function show(
     thread = undefined as ThreadPlace | undefined,
     open = false,
     pinnedIds = undefined as ReadonlySet<string> | undefined,
+    blocked = [] as string[],
   } = {},
 ) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), pin: vi.fn(() => sent), unpin: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)), runShortcut: vi.fn(() => Promise.resolve(sent)) };
-  { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false, blocked = [] as string[] } = {},
-) {
-  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
   const setBlocked = vi.fn((_person: User, _blocked: boolean) => Promise.resolve(true));
   const openReport = vi.fn();
   let setEditing: (editing: boolean) => void = () => {};
@@ -926,7 +922,7 @@ describe("More actions on a message", () => {
 
   it("names the author as the people directory lists them in Block", async () => {
     withMouse();
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), pin: vi.fn(), unpin: vi.fn(), edit: vi.fn(), remove: vi.fn(), click: vi.fn(), runShortcut: vi.fn(() => Promise.resolve(true)) };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     const king: DirectoryUser = { ...ada, name: "Ada King", bio: null, role: "member", status: "active", avatarUrl: "" };
     render(

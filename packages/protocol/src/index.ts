@@ -425,6 +425,11 @@ export interface Sidebar {
    */
   sharedOrder: RoomId[];
   invitation: Invitation | null;
+  /**
+   * People to start a DM with: the active people with the oldest accounts who share no DM with this
+   * person, never them nor a bot or AI agent, as many as `suggestedCount` says.
+   */
+  suggestions: User[];
   /** The huddle going on in each of `rooms` that has one, by the room's id. `room.huddle` frames keep it current. */
   huddles: Record<RoomId, LiveHuddle>;
   /** Whom they've blocked, which `blocks.changed` frames keep current. */
@@ -440,6 +445,16 @@ export interface Sidebar {
    */
   huddleSounds?: HuddleSounds;
 }
+
+/** How many people the sidebar's suggestions start from, Campfire's `DIRECT_PLACEHOLDERS`. */
+export const SUGGESTED_PEOPLE = 20;
+
+/**
+ * How many people the sidebar suggests for DMs to someone with `peopleInDirects` people across their
+ * DMs, them included: `SUGGESTED_PEOPLE` less those people, less one more, so 19 with no DMs, 18 with
+ * only a DM with themselves and 17 with a DM with one other person.
+ */
+export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED_PEOPLE - peopleInDirects - 1);
 
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
@@ -2087,9 +2102,10 @@ export type ServerFrame =
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
    * `clientMessageIds` the messages it was about, `clickId` the click, `commandId` the command, or
-   * `shortcutId` the shortcut.
+   * `shortcutId` the shortcut. `rewrite` says the room won't take a message for what it says, as one
+   * with a word Blocked words keeps out, which is its writer's to change and send again.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; shortcutId?: string; failed?: ClientFrame["type"] }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; shortcutId?: string; failed?: ClientFrame["type"]; rewrite?: true }
   | { type: "pong" };
 
 /**
@@ -2112,16 +2128,6 @@ export interface Reminder {
   /** When the reminder comes back, in the past once it's due. */
   remindAt: string;
 }
-
-/**
- * What a tab sends on its workspace socket (`/api/socket`): only pings, which the runtime answers
- * without waking the Workspace.
-   * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
-   * take a message for what it says, as one with a word Blocked words keeps out, which is its writer's to
-   * change and send again.
-   */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
-  | { type: "pong" };
 
 /**
  * What a tab sends on its workspace socket (`/api/socket`): pings, which the runtime answers without
@@ -2230,6 +2236,7 @@ export type WorkspaceServerFrame =
   | { type: "reminder.due"; reminder: Reminder }
   /** One of their reminders was dismissed, in this tab or another, and leaves every tab's corner. */
   | { type: "reminder.dismissed"; id: string }
+  /**
    * Who's active, with a tab open that they've used in the last ten minutes, as Slack counts it, and who's
    * away otherwise: first everyone active, as the tab first says whether it's in use, and then whoever has
    * become active or away since the last of these. Sent only to tabs that have said, and gathered over a

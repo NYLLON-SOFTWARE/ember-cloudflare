@@ -1,7 +1,5 @@
-import { configure, Extension, Lexical } from "@37signals/lexxy";
-import { GROUP_MENTION_CONTENT_TYPE, MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
 import { configure, Extension, Lexical, type ElementNode, type LexicalEditor, type RangeSelection } from "@37signals/lexxy";
-import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
+import { GROUP_MENTION_CONTENT_TYPE, MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import { sameFormat, type FormattingCommand, type LinkDraft, type TextFormat } from "@/lib/formatting";
 import { registerQuoteLines } from "./quote-lines";
@@ -500,3 +498,4 @@ export default function RichTextEditor({
 
   return <div ref={host} className="contents" />;
 }
+

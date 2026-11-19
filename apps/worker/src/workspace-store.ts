@@ -49,6 +49,8 @@ import {
   type UserId,
   type UserStatus,
   type UserGroup,
+  SUGGESTED_PEOPLE,
+  suggestedCount,
 } from "@ember/protocol";
 import {
   ANSWER_LENGTHS,
@@ -71,7 +73,6 @@ import {
 import type { AgentAccess, AgentProfile, AgentRoom } from "@ember/protocol/agents";
 import type { AppId } from "@ember/protocol/apps";
 import type { Command, Commands, EventSubscription, Shortcut } from "@ember/protocol/bots";
-import type { LiveHuddle } from "@ember/protocol/huddles";
 import { ALL_HUDDLE_SOUNDS, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
 import { DEFAULT_GROUPS_CLAIM, DEFAULT_SSO_NAME } from "@ember/protocol/sso";
 import { statement, type Db, type Statement } from "./db";
@@ -651,9 +652,7 @@ export interface AvatarChange {
 }
 
 /** What `WorkspaceStore.changeProfile` saves: someone's profile, their mood, the digest of a new password or null to keep theirs, and what they gave the workspace's fields, or none. */
-export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio" | "mood"> {
-/** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
-export interface ProfileChange extends Pick<Profile, "name" | "username" | "emailAddress" | "bio"> {
+export interface ProfileChange extends Pick<Profile, "name" | "username" | "emailAddress" | "bio" | "mood"> {
   passwordDigest: string | null;
   fieldValues: Record<string, string> | null;
 }
@@ -700,6 +699,8 @@ export interface SidebarRooms {
   rooms: SidebarRoom[];
   favorites: Favorites;
   sharedOrder: RoomId[];
+  /** People to start a DM with, as `suggestedCount` says. */
+  suggestions: User[];
   huddles: Record<RoomId, LiveHuddle>;
   blocks: Blocks;
   /** Which of a huddle's sounds they hear. */
@@ -2142,6 +2143,8 @@ export const SUGGESTED_FOR_USER = `SELECT id, name FROM users
     WHERE mine.user_id = ?1 AND rooms.kind = 'direct')
     AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
   ORDER BY created_at, id LIMIT ${SUGGESTED_PEOPLE - 1}`;
+
+/**
  * Starts the DMs ?1 lists, each `{ id, key, userId }` for one between newcomer ?2 and someone here
  * who's still active, as of ?3, welcoming ?2, unless those two have one already, answering the ones it
  * starts.
@@ -2932,9 +2935,7 @@ export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE
  * are, deleted agents too, whose answers stay, and whom an agent not everyone can ask is kept for
  * (migrations/0063_agent_access.sql).
  */
-const DIRECTORY_COLUMNS = `users.id, users.name, users.bio, users.mood, users.role, users.status, users.updated_at,
-  (users.role = ${BOT} AND users.bot_token IS NULL) AS agent`;
-const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, users.role, users.status, users.updated_at,
+const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, users.mood, users.role, users.status, users.updated_at,
   (users.role = ${BOT} AND users.bot_token IS NULL) AS agent, users.agent_access`;
 
 /** Everyone ?1 is told of, for the people directory: removed and banned people too, whose messages stay (`listedTo`). */
@@ -3344,16 +3345,13 @@ const QUEUE_PICTURE_DELETION = `INSERT INTO pending_picture_deletions (object_ke
 /** Takes a picture's reservation, now that someone has it, so R2 keeps it. */
 const KEEP_PICTURE = `DELETE FROM pending_picture_deletions WHERE object_key = ?`;
 
-/** Saves someone's profile and records when, keeping their password unless given a new one's digest. */
-const CHANGE_PROFILE = `UPDATE users SET name = ?, email_address = ?, bio = ?, mood = ?, password_digest = coalesce(?, password_digest), updated_at = ?
-  WHERE id = ?`;
 /**
  * Saves someone's profile and records when, keeping their password unless given a new one's digest, and
  * forgetting that they proved their email address once it's another.
  */
-const CHANGE_PROFILE = `UPDATE users SET name = ?1, username = ?2, email_address = ?3, bio = ?4, password_digest = coalesce(?5, password_digest), updated_at = ?6,
+const CHANGE_PROFILE = `UPDATE users SET name = ?1, username = ?2, email_address = ?3, bio = ?4, mood = ?5, password_digest = coalesce(?6, password_digest), updated_at = ?7,
     email_verified_at = CASE WHEN email_address IS ?3 THEN email_verified_at END
-  WHERE id = ?7`;
+  WHERE id = ?8`;
 
 /** The same, with whether each is in a room, for its settings. */
 export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
@@ -3490,18 +3488,15 @@ const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'op
 
 /**
  * Puts the people a JSON list names in a room, whatever their status, and answers whom it put in — but
- * none whom the stay of a guest of another room holds, whose rooms it bounds, whoever picks them. A
- * guest of the room itself goes back in: their stay outlives their membership, which its settings
- * taking them out and having them again turns on saving them as its people once more.
+ * none whom the stay of a guest of another room holds, whose rooms it bounds, whoever picks them, and
+ * none of them an AI agent only administrators' direct messages reach, which is in no room. A guest of
+ * the room itself goes back in: their stay outlives their membership, which its settings taking them
+ * out and having them again turns on saving them as its people once more.
  */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?1, id, ?2, ?3 FROM users WHERE id IN (SELECT value FROM json_each(?4))
     AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.room_id <> ?1)
- * Puts the people a JSON list names in a room, whatever their status, and answers whom it put in: none
- * of them an AI agent only administrators' direct messages reach, which is in no room.
- */
-const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) AND agent_access IS NOT 'admin-dms'
+    AND agent_access IS NOT 'admin-dms'
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /** Takes everyone but the people a JSON list names and anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
@@ -4145,6 +4140,9 @@ export class WorkspaceStore {
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
+  }
+
+  /**
    * Keeps what `account`, an account elsewhere linked already, says of itself now, and the refresh token
    * `kept` has, if it has one, as starting a session with it does, for a sign-in that starts none.
    */
@@ -5082,40 +5080,22 @@ export class WorkspaceStore {
   }
 
   /**
-   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or reminder is
-   * due, if any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no
-   * sooner. A reminder whose pushes failed is due once the wait since they did has passed
-   * (`REMINDER_PUSH_RETRY_MS`); one never tried is due when its time is.
+   * When the outbox's next revocation, purge, reindex, picture deletion, membership check, refresh,
+   * reminder or guest stay is due, if any is waiting, leaving out the purges waiting on their rooms'
+   * revocations, which are due no sooner.
    */
+
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null; stay: number | null }>(
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; refresh: number | null; reminder: number | null; stay: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp,
+        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (SELECT min(refresh_due_at) FROM identities) AS refresh,
         (SELECT min(CASE WHEN reminded_at IS NULL OR push_tried_at IS NULL THEN remind_at ELSE push_tried_at + ? END)
           FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder,
         (SELECT min(guest_stays.until_at) FROM guest_stays JOIN users ON users.id = guest_stays.user_id AND users.status = ${ACTIVE}) AS stay`,
       REMINDER_PUSH_RETRY_MS,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder, row?.stay].filter((time) => typeof time === "number");
-   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or refresh is due, if
-   * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
-   */
-  async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{
-      revocation: number | null;
-      purge: number | null;
-      reindex: number | null;
-      picture: number | null;
-      membership: number | null;
-      catchUp: number | null;
-      refresh: number | null;
-    }>(
-      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
-        (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (SELECT min(refresh_due_at) FROM identities) AS refresh`,
-    );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.refresh].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.refresh, row?.reminder, row?.stay].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 
@@ -5194,7 +5174,7 @@ export class WorkspaceStore {
    * and how many open reports they see, if they're an active administrator.
    */
   async roomsFor(userId: UserId): Promise<SidebarRooms> {
-    const [rows, [original], starred, [user], members, blocked, [reports]] = (await this.db.batch([
+    const [rows, [original], starred, [user], members, blocked, [reports], suggested] = (await this.db.batch([
       statement(ROOMS_FOR_USER, userId),
       statement(ORIGINAL_ROOM),
       statement(FAVORITES_FOR_USER, userId),
@@ -5202,12 +5182,15 @@ export class WorkspaceStore {
       statement(DIRECT_MEMBERS_FOR_USER, userId),
       statement(BLOCKED_BY_USER, userId),
       statement(OPEN_REPORTS_OF_ADMINISTRATOR, userId),
-    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, SidebarUserRow[], DirectMemberRow[], BlockedRow[], Array<{ open: number }>];
+      statement(SUGGESTED_FOR_USER, userId),
+    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, SidebarUserRow[], DirectMemberRow[], BlockedRow[], Array<{ open: number }>, User[]];
     const membersByRoom = Map.groupBy(members, (member) => member.room_id);
+    const peopleInDirects = new Set(members.map((member) => member.id)).size;
     return {
       rooms: rows.map((row) => sidebarRoom(row, membersByRoom.get(row.id))),
       favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
       sharedOrder: sharedOrderOf(rows),
+      suggestions: suggested.slice(0, suggestedCount(peopleInDirects)),
       huddles: liveHuddlesIn(rows),
       blocks: { userIds: blocked.map((row) => row.blocked_id), version: user?.blocks_version ?? 0 },
       huddleSounds: user ? huddleSoundsOf(user) : ALL_HUDDLE_SOUNDS,
@@ -6353,22 +6336,13 @@ export class WorkspaceStore {
    * Saves someone's profile, what they gave the workspace's fields, and a new password when `passwordDigest`
    * is one's, recording when, all in one batch, so a save of the lot can't land half-way. With a new
    * password, in the same transaction it ends the sessions and forgets the push subscriptions
-   * `ended` says, queuing closing those sessions' sockets, and forgets the accounts elsewhere their old
-   * password started connecting, or connected, if they had one and keep an email address to sign in
-   * with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it queued any.
-   */
-  async changeProfile(userId: UserId, { name, emailAddress, bio, mood, passwordDigest, fieldValues }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
-    const change = statement(CHANGE_PROFILE, name, emailAddress, bio, mood && JSON.stringify(mood), passwordDigest, now, userId);
-    const asked = changeProfileFieldValuesStatements(userId, fieldValues ?? {});
-   * Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. With a
-   * new password, in the same transaction it ends the sessions and forgets the push subscriptions
    * `ended` says, queuing closing those sessions' sockets, ends the sign-in links the session it keeps
    * has shown, and forgets the accounts elsewhere their old password started connecting, or connected, if
-   * they had one and keep an email address to sign in with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it
-   * queued any.
+   * they had one and keep an email address to sign in with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it queued any.
    */
-  async changeProfile(userId: UserId, { name, username, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
-    const change = statement(CHANGE_PROFILE, name, username, emailAddress, bio, passwordDigest, now, userId);
+  async changeProfile(userId: UserId, { name, username, emailAddress, bio, mood, passwordDigest, fieldValues }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+    const change = statement(CHANGE_PROFILE, name, username, emailAddress, bio, mood && JSON.stringify(mood), passwordDigest, now, userId);
+    const asked = changeProfileFieldValuesStatements(userId, fieldValues ?? {});
     if (!ended) {
       await this.db.batch([change, ...asked]);
       return false;
