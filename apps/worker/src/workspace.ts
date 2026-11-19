@@ -1,124 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  CANT_SEND_EMAIL,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  domainOfEmailAddress,
-  EMAILS_PER_ADDRESS,
-  EMAIL_LINKS_PER_NETWORK,
-  emailSignUpLink,
-  INVITATION_DAYS,
-  invitationLink,
-  isReservedName,
-  isRoomId,
-  mailboxOf,
-  mailboxUnder,
-  NAVIGATION_SLOTS,
-  othersAfterMove,
-  parseWorkspaceClientFrame,
-  parseWorkspaceSocketParams,
-  PASSWORD_RESET_CODE_MINUTES,
-  PASSWORD_RESETS_PER_NETWORK,
-  sameName,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  signsInElsewhereOnly,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  usernameFrom,
-  withNavigationIcons,
-  type Account,
-  type AccountChanges,
-  type AccountSettings,
-  type AssistantSettings,
-  type Bot,
-  type BotChanges,
-  type BotSettings,
-  type ChangedBlocks,
-  type CustomStyles,
-  type DirectoryUser,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailSettings,
-  type Favorites,
-  type HuddlesSettings,
-  type LiveHuddle,
-  type Mailbox,
-  type Invited,
-  type Involvement,
-  type Me,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type NewBot,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewWorkspace,
-  type PersonRole,
-  type Profile,
-  type ProfileChanges,
-  type PushSubscriptionSave,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-  type WorkspaceServerFrame,
-  type WorkspaceSettings,
-  type SsoSettings,
-} from "@ember/protocol";
+import { ASSISTANT_ID, ASSISTANT_NAME, CANT_SEND_EMAIL, CloseCode, DELETED_PERSON_NAME, domainOfEmailAddress, EMAIL_LINKS_PER_NETWORK, EMAILS_PER_ADDRESS, emailSignUpLink, INVITATION_DAYS, invitationLink, isReservedName, isRoomId, mailboxOf, mailboxUnder, MEMBERFUL_SIGN_IN_NEEDED, NAVIGATION_SLOTS, othersAfterMove, parseWorkspaceClientFrame, parseWorkspaceSocketParams, PASSWORD_RESET_CODE_MINUTES, PASSWORD_RESETS_PER_NETWORK, sameName, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, signsInElsewhereOnly, signsUpOpenly, signsUpWithEmailDomain, usernameFrom, withNavigationIcons, type Account, type AccountChanges, type AccountSettings, type AssistantSettings, type Bot, type BotChanges, type BotSettings, type ChangedBlocks, type CustomStyles, type DirectoryUser, type DirectRoom, type EmailInvitation, type EmailLinkFor, type EmailLinkKind, type EmailSettings, type Favorites, type HuddlesSettings, type Invited, type Involvement, type LiveHuddle, type Mailbox, type Me, type NavigationIconChanges, type NavigationIcons, type NewBot, type NewJoinCode, type NewRoom, type NewRoomForm, type NewWorkspace, type PersonRole, type Profile, type ProfileChanges, type PushSubscriptionSave, type ResentInvitation, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SentTestEmail, type SharedRoom, type Sidebar, type SidebarRoom, type SsoSettings, type User, type UserId, type UserStatus, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import { MAX_OUTSIDE_CONNECTIONS, outsideScopesOf, type OutsideAiSettings, type OutsideConnection, type OutsideScope } from "@ember/protocol/outside";
-import {
-  ASSISTANT_MODELS,
-  DEFAULT_LEVELS,
-  isWorkersAiModel,
-  MAX_ASSISTANT_MODELS,
-  modelName,
-  offeredModelOf,
-  searchFormatOf,
-  TOP_LEVELS,
-  webToolsOf,
-  withinMost,
-  type AnswerLevels,
-  type AssistantChanges,
-  type ModelFormat,
-  type OfferedModel,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistant,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, DEFAULT_LEVELS, isWorkersAiModel, MAX_ASSISTANT_MODELS, modelName, offeredModelOf, searchFormatOf, TOP_LEVELS, webToolsOf, withinMost, type AnswerLevels, type AssistantChanges, type ModelFormat, type OfferedModel, type ThinkingLevel, type WebTool, type YourAssistant, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
-import {
-  isAtHost,
-  MAX_APP_SCOPE_LENGTH,
-  MAX_APPS,
-  type App,
-  type AppChanges,
-  type AppId,
-  type AppSummary,
-  type NewApp,
-  type OfferedApp,
-  type SetAsideTool,
-  type ToolPick,
-  type YourApp,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import { isAtHost, MAX_APP_SCOPE_LENGTH, MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick, type YourApp, type YourAppSignedOut } from "@ember/protocol/apps";
 import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/blocked-words";
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
@@ -129,8 +15,8 @@ import { providerMovesOf } from "./assistant/model-tests";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, TooSoon, tooSoonAfter, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
+import { botKeyOf, botKeyParts, isBotToken, newBotToken, webhookTokenOf } from "./bots/keys";
 import { blockedWordsVersion, type BlockedWords } from "./blocked-words";
-import { botKeyOf, isBotToken, newBotToken, webhookTokenOf } from "./bots/keys";
 import { openDb, type Db } from "./db";
 import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordResetCodeEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
@@ -139,18 +25,7 @@ import type { RelayKey } from "./huddles/relay";
 import type { HuddleApp, RoomHuddles, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import {
-  deployedMemberfulOf,
-  memberfulApiOf,
-  memberfulWebhooksOf,
-  membershipsOf,
-  namelessMember,
-  openMemberfulSecrets,
-  sealMemberfulSecrets,
-  type MemberfulApi,
-  type MemberfulMember,
-  type MemberfulSetup,
-} from "./memberful-api";
+import { deployedMemberfulOf, memberfulApiOf, memberfulWebhooksOf, membershipsOf, namelessMember, openMemberfulSecrets, sealMemberfulSecrets, type MemberfulApi, type MemberfulMember, type MemberfulSetup } from "./memberful-api";
 import { discover, refreshTokens } from "./oidc";
 import { Presence } from "./presence";
 import { sendPushes } from "./push/delivery";
@@ -175,54 +50,7 @@ import { claimsOf, isAllowed, sameSignInRules, ssoProviderOf, ssoSettingsOf, tol
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
-import {
-  allowingHuddles,
-  NEW_ACCOUNT_LOOKS,
-  WorkspaceStore,
-  type AccountChange,
-  type AgentSetup,
-  type AvatarOwner,
-  type BotKey,
-  type Client,
-  type Connecting,
-  type AssistantPicks,
-  type DeletedAccount,
-  type DirectoryEntry,
-  type Disconnection,
-  type InvitationPush,
-  type JoinableAccount,
-  type LinkedAccount,
-  type LinkedPerson,
-  type LoggedOut,
-  type LoggedOutSessions,
-  type OtherWays,
-  type MovedModel,
-  type NewPerson,
-  type OwnAppSignIn,
-  type OwnProfileEntry,
-  type PendingRevocation,
-  type ProfileEntry,
-  type PushDelivery,
-  type RoomEventDeliveries,
-  type SavedAssistant,
-  type SavedModel,
-  type SavedRoomChange,
-  type SavedSso,
-  type SignInKept,
-  type SignInClient,
-  type StoredAgent,
-  type StoredApp,
-  type StoredAppRead,
-  type AgentToolPicks,
-  type ChangedPicks,
-  type StoredToolPick,
-  type StoredAgentSettings,
-  type StoredBot,
-  type StoredBotSettings,
-  type StoredPushSubscription,
-  type StoredSession,
-  type Welcome,
-} from "./workspace-store";
+import { allowingHuddles, NEW_ACCOUNT_LOOKS, WorkspaceStore, type AccountChange, type AgentSetup, type AgentToolPicks, type AssistantPicks, type AvatarOwner, type BotKey, type BotSlackRoom, type ChangedPicks, type Client, type Connecting, type DeletedAccount, type DirectoryEntry, type Disconnection, type InvitationPush, type JoinableAccount, type LinkedAccount, type LinkedPerson, type LoggedOut, type LoggedOutSessions, type MovedModel, type NewPerson, type OtherWays, type OwnAppSignIn, type OwnProfileEntry, type PendingRevocation, type ProfileEntry, type PushDelivery, type RoomEventDeliveries, type SavedAssistant, type SavedModel, type SavedRoomChange, type SavedSso, type SignInClient, type SignInKept, type StoredAgent, type StoredAgentSettings, type StoredApp, type StoredAppRead, type StoredBot, type StoredBotSettings, type StoredPushSubscription, type StoredSession, type StoredToolPick, type Welcome } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -5687,6 +5515,42 @@ export class Workspace extends DurableObject<Env> {
     const [found, account] = await Promise.all([this.store.activeBotKey(botId, roomId), this.joinableAccount()]);
     if (!found || !(isBotToken(token, found.token) || (await this.isWebhookToken(token, roomId, found)))) return null;
     return found.member ? { bot: found.bot, authorizedAt, customDomain: account?.customDomain ?? null, takesClicks: found.webhook !== null } : "not found";
+  }
+
+  /**
+   * The active bot the key `key` names, with the rooms it's in but its DMs: what the Slack-compatible
+   * Web API answers a bearer key with, in `auth.test`, in `conversations.list`, and before it reads a
+   * room from one of their names. Null unless `key` is an active bot's own key now, so a token only a
+   * webhook's delivery gives a bot, which has no "-" in it, names nothing.
+   */
+  async slackBot(key: string): Promise<{ bot: User; rooms: BotSlackRoom[] } | null> {
+    const parts = botKeyParts(key);
+    if (!parts) return null;
+    const found = await this.store.activeSlackBot(parts.botId);
+    return found && isBotToken(parts.token, found.token) ? { bot: found.bot, rooms: found.rooms } : null;
+  }
+
+  /** Whether a room `roomId` names is there at all, so the Slack-compatible Web API can tell a room a bot isn't in from one that isn't. */
+  async roomExists(roomId: RoomId): Promise<boolean> {
+    return this.store.roomExists(roomId);
+  }
+
+  /**
+   * The active bot the key `key` names in room `roomId`, with when this checked, and whether the bot has
+   * a webhook to take a card's clicks, which keeps the acting buttons in what its methods post, as the
+   * incoming webhook's answer has it: one read for the Slack-compatible Web API's channel methods, which
+   * have the room's id already and no room name to read from `slackBot`. Null unless `key` is an active
+   * bot's own key now, and "not found" when the bot isn't in the room, as `botInRoom` answers. A token
+   * only a webhook's delivery gives a bot has no "-" in it, so no key names it here.
+   */
+  async slackBotIn(key: string, roomId: RoomId): Promise<(BotAccess & { takesClicks: boolean }) | "not found" | null> {
+    const parts = botKeyParts(key);
+    if (!parts) return null;
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.activeBotKey(parts.botId, roomId);
+    if (!found || !isBotToken(parts.token, found.token)) return null;
+    return found.member ? { bot: found.bot, authorizedAt, takesClicks: found.webhook !== null } : "not found";
   }
 
   /** Whether `token` is the one a delivery to the webhook of the bot `found` gives it in room `roomId`, as the webhook is now. */

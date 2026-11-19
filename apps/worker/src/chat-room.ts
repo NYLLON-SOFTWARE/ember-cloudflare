@@ -767,9 +767,10 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * A page of the room's messages for an AI app that reads it as someone in it (`outside/tools`): the
-   * page `cursor` names, or null when the cursor isn't one of them. The room isn't counted, as it is for
-   * a bot, since on D1 counting reads a row for every message.
+   * A page of the room's messages for someone the room has checked is in it who reads from outside its
+   * sockets — an AI app (`outside/tools`) or the Slack-compatible Web API's history: the page `cursor`
+   * names, or null when the cursor isn't one of them. The room isn't counted, as it is for the bot API's
+   * page, since on D1 counting reads a row for every message.
    */
   async outsidePage(roomId: RoomId, cursor: PageCursor): Promise<Omit<TimelinePage, "around"> | null> {
     return this.serially(() => this.storeFor(roomId).pageAt(cursor, HISTORY_PAGE_SIZE));
@@ -1283,7 +1284,10 @@ export class ChatRoom extends DurableObject<Env> {
    * stays as it was, its update time included, as Rails saves nothing then.
    */
   private async edit(store: MessageStore, message: Message, body: StoredBody, now: string): Promise<Message> {
-    if (body.html === message.body && JSON.stringify(body.cards) === JSON.stringify(message.cards)) return message;
+    const cards = "cards" in body && body.cards ? body.cards : undefined;
+    // A body that is the message as it is, its cards too, as a webhook's repeated status card is, changes
+    // nothing, so it's saved as it was, its update time included.
+    if (body.html === message.body && JSON.stringify(cards) === JSON.stringify(message.cards)) return message;
     const { message: edited, seq } = await store.updateBody(message, body, now);
     this.broadcast({ type: "message.updated", message: edited, seq });
     this.couriersFor(store.roomId).index.deliver();
