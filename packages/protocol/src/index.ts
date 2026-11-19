@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -357,9 +359,9 @@ export interface Blocks {
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
  * they've starred, the invitation, when they're an administrator in its room who hasn't dismissed the
- * card, the huddles going on in their rooms, the people they've blocked, and which of a huddle's sounds
- * they hear, once they've turned one off. It comes with an ETag, and a request whose If-None-Match names
- * it gets 304 Not Modified instead.
+ * card, the people suggested for DMs, the huddles going on in their rooms, the people they've blocked,
+ * and which of a huddle's sounds they hear, once they've turned one off. It comes with an ETag, and a
+ * request whose If-None-Match names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
   rooms: SidebarRoom[];
@@ -371,6 +373,11 @@ export interface Sidebar {
    */
   sharedOrder: RoomId[];
   invitation: Invitation | null;
+  /**
+   * People to start a DM with: the active people with the oldest accounts who share no DM with this
+   * person, never them nor a bot or AI agent, as many as `suggestedCount` says.
+   */
+  suggestions: User[];
   /** The huddle going on in each of `rooms` that has one, by the room's id. `room.huddle` frames keep it current. */
   huddles: Record<RoomId, LiveHuddle>;
   /** Whom they've blocked, which `blocks.changed` frames keep current. */
@@ -386,6 +393,16 @@ export interface Sidebar {
    */
   huddleSounds?: HuddleSounds;
 }
+
+/** How many people the sidebar's suggestions start from, Campfire's `DIRECT_PLACEHOLDERS`. */
+export const SUGGESTED_PEOPLE = 20;
+
+/**
+ * How many people the sidebar suggests for DMs to someone with `peopleInDirects` people across their
+ * DMs, them included: `SUGGESTED_PEOPLE` less those people, less one more, so 19 with no DMs, 18 with
+ * only a DM with themselves and 17 with a DM with one other person.
+ */
+export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED_PEOPLE - peopleInDirects - 1);
 
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.

@@ -1,23 +1,11 @@
-import {
-  CANT_EMAIL_LINKS,
-  EMAIL_LINK_GONE,
-  EMAIL_LINK_UNSENT,
-  EMAIL_LINKS_LIMITED,
-  JOINING_PROBLEMS,
-  onlyAddressesAt,
-  PASSWORD_TOO_LONG,
-  signInSaying,
-  TURNSTILE_FAILED,
-  type Bootstrap,
-  type Me,
-} from "@ember/protocol";
+import { CANT_EMAIL_LINKS, EMAIL_LINK_GONE, EMAIL_LINK_UNSENT, EMAIL_LINKS_LIMITED, JOINING_PROBLEMS, onlyAddressesAt, PASSWORD_TOO_LONG, signInSaying, TURNSTILE_FAILED, type Bootstrap, type Me } from "@ember/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPage } from "@/lib/page";
 import { CHROME_MAC } from "@/test-platforms";
 import { fakeTurnstile } from "@/test-turnstile";
 import { EmailSignUpPage } from "./email-sign-up-page";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));

@@ -1,21 +1,5 @@
 import { CloseCode, type User } from "@ember/protocol";
-import {
-  CAMERA_SIZES,
-  CAMERAS_FULL,
-  CAMERAS_OFF,
-  HuddleCloseCode,
-  MAX_HUDDLE_CAMERAS,
-  MAX_HUDDLE_SCREENS,
-  NOBODY_INVITED,
-  RELAY_TTL_S,
-  SCREENS_FULL,
-  SCREENS_OFF,
-  type HuddleIceServer,
-  type HuddlePerson,
-  type HuddleServerFrame,
-  type HuddleTrackKind,
-  type OfferedHuddleTrack,
-} from "@ember/protocol/huddles";
+import { CAMERA_SIZES, CAMERAS_FULL, CAMERAS_OFF, HuddleCloseCode, MAX_HUDDLE_CAMERAS, MAX_HUDDLE_SCREENS, NOBODY_INVITED, RELAY_TTL_S, SCREENS_FULL, SCREENS_OFF, type HuddleIceServer, type HuddlePerson, type HuddleServerFrame, type HuddleTrackKind, type OfferedHuddleTrack } from "@ember/protocol/huddles";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { audioEngine } from "@/test-audio-engine";
 import { ANSWER_TIMEOUT_MS, CAMERA_BITRATE, joinHuddle, LISTEN_AGAIN_MS, PUBLISH_AGAIN_MS, SCREEN_BITRATE, SMALL_CAMERA_BITRATE } from "./huddle";
@@ -23,27 +7,7 @@ import { CAMERA_WENT_OFF, NO_CAMERA, NO_OTHER_CAMERA, NO_OTHER_MICROPHONE, NO_OT
 import { NO_REACTIONS, REACTION_SHOWS_MS } from "./huddle-reactions";
 import { MUSIC_AFTER_MS } from "./huddle-sounds";
 import { MEASURED_EVERY_MS, SPEAKING_LEVEL } from "./huddle-speaking";
-import {
-  chooseHuddleDevice,
-  hearHuddle,
-  inviteToHuddle,
-  isSpeaking,
-  joinedHuddle,
-  leaveHuddle,
-  muteHuddle,
-  openHuddle,
-  reactInHuddle,
-  shareHuddleScreen,
-  showHuddleCamera,
-  showHuddleSticker,
-  showHuddleThread,
-  shownReactions,
-  switchHuddleCamera,
-  takeCamerasSmall,
-  watchHuddle,
-  watchReactions,
-  watchSpeaking,
-} from "./huddle-store";
+import { chooseHuddleDevice, hearHuddle, inviteToHuddle, isSpeaking, joinedHuddle, leaveHuddle, muteHuddle, openHuddle, reactInHuddle, shareHuddleScreen, showHuddleCamera, showHuddleSticker, showHuddleThread, shownReactions, switchHuddleCamera, takeCamerasSmall, watchHuddle, watchReactions, watchSpeaking } from "./huddle-store";
 
 /** Stands in for the browser's WebSocket; tests play the room and the network. */
 class FakeSocket {
@@ -340,7 +304,6 @@ async function watchedRound(...tracks: Array<[mid: string, user: User]>) {
   socket().receive(pictures(...tracks));
   await settled();
   socket().receive({ type: "huddle.listening", kind: "video" });
-  socket().receive({ type: "huddle.listening", kind: "video" });
   await settled();
 }
 
@@ -348,7 +311,6 @@ async function watchedRound(...tracks: Array<[mid: string, user: User]>) {
 async function sharedRound(...tracks: Array<[mid: string, user: User]>) {
   socket().receive(screens(...tracks));
   await settled();
-  socket().receive({ type: "huddle.listening", kind: "screen" });
   socket().receive({ type: "huddle.listening", kind: "screen" });
   await settled();
 }
@@ -2884,7 +2846,6 @@ describe("Switching cameras in a huddle", () => {
     const phone = phoneWith(FRONT, BACK, { deviceId: "usb" });
     await joined([], { camera: phone.open(FRONT) });
 
-    switchHuddleCamera();
     switchHuddleCamera();
     chooseHuddleDevice("camera", "usb");
     await settled();

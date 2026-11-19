@@ -1,17 +1,4 @@
-import {
-  startingInvolvement,
-  type Blocks,
-  type Favorites,
-  type HuddleSounds,
-  type Involvement,
-  type LiveHuddle,
-  type Room,
-  type RoomId,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type UserId,
-} from "@ember/protocol";
+import { startingInvolvement, type Blocks, type Favorites, type HuddleSounds, type Involvement, type LiveHuddle, type Room, type RoomId, type SharedRoom, type Sidebar, type SidebarRoom, type UserId } from "@ember/protocol";
 import { hearsAllHuddleSounds } from "@ember/protocol/huddles";
 import { isHidden } from "./involvement";
 
@@ -191,7 +178,7 @@ export interface RoomListState {
 export const NO_ROOM_LIST: RoomListState = { list: null, pending: [], askAgain: false };
 
 /** The list when the first doesn't arrive: no rooms, stars or blocks. */
-const NO_SIDEBAR: Sidebar = { rooms: [], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } };
+const NO_SIDEBAR: Sidebar = { rooms: [], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions: [], huddles: {}, blocks: { userIds: [], version: 0 } };
 
 /** A change, or the list asked for, arriving, or failing to. */
 export type RoomListAction = SidebarChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };

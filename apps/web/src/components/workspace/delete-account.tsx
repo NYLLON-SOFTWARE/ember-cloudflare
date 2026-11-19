@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, type AccountDeletion } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
-import { FIELD_INPUT, Field } from "@/components/field";
+import { Field, FIELD_INPUT } from "@/components/field";
 import { Trash } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";

@@ -1,5 +1,5 @@
 import { MAX_USERNAME_LENGTH, usernameOf } from "@ember/protocol";
-import { FIELD_INPUT, Field } from "@/components/field";
+import { Field, FIELD_INPUT } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 

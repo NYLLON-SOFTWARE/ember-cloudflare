@@ -1,37 +1,4 @@
-import {
-  CloseCode,
-  CURRENT_PASSWORD_WRONG,
-  MEMBERFUL_CALLBACK_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  MEMBERFUL_DISCONNECT_PASSWORD_NEEDED,
-  MEMBERFUL_DISCONNECT_WITHOUT_EMAIL,
-  MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD,
-  MEMBERFUL_NOT_CONNECTED,
-  MEMBERFUL_PASSWORD_NEEDED,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  MEMBERFUL_WEBHOOK_PATH,
-  memberfulSignInPath,
-  PASSWORD_WITH_MEMBERFUL,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  type Account,
-  type AccountSettings,
-  type Bootstrap,
-  type Directory,
-  type Me,
-  type MemberfulConnection,
-  type MemberfulConnectionStart,
-  type MemberfulDisconnection,
-  type NewWorkspace,
-  type Profile,
-  type ProfileAnswer,
-  type RoomSettings,
-  type Sidebar,
-  type UserId,
-  type UserStatus,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { CloseCode, CURRENT_PASSWORD_WRONG, MEMBERFUL_CALLBACK_PATH, MEMBERFUL_CONNECTIONS_PATH, MEMBERFUL_DISCONNECT_PASSWORD_NEEDED, MEMBERFUL_DISCONNECT_WITHOUT_EMAIL, MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD, MEMBERFUL_NOT_CONNECTED, MEMBERFUL_PASSWORD_NEEDED, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_PATH, memberfulSignInPath, PASSWORD_WITH_MEMBERFUL, SIGN_IN_LIMITED, SIGN_IN_REJECTED, type Account, type AccountSettings, type Bootstrap, type Directory, type Me, type MemberfulConnection, type MemberfulConnectionStart, type MemberfulDisconnection, type NewWorkspace, type Profile, type ProfileAnswer, type RoomSettings, type Sidebar, type UserId, type UserStatus, type WorkspaceSettings } from "@ember/protocol";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,23 +7,7 @@ import { toHex } from "../src/encoding";
 import type { Env } from "../src/env";
 import type { Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
-import {
-  api,
-  apiWith,
-  builtPages,
-  cookieOf,
-  createRoom,
-  freshDeploy,
-  openWorkspaceSocket,
-  origin,
-  pushBrowser,
-  shown,
-  signIn,
-  withWorkspaceEnv,
-  workspaceSql,
-  workspaceStub,
-  type Session,
-} from "./support";
+import { api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, origin, pushBrowser, shown, signIn, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" };
@@ -1583,7 +1534,6 @@ describe("Memberful memberships", () => {
       const site = fakeMemberful();
       const { id } = (await memberfulSession()).user;
       site.member = { ...katherine, subscriptions: [] };
-      expect(locationOf(await signInWithMemberful())).toBe(backToSignIn("membership"));
       expect(locationOf(await signInWithMemberful())).toBe(backToSignIn("membership"));
 
       site.member = { ...katherine, unrestrictedAccess: true, subscriptions: [] };

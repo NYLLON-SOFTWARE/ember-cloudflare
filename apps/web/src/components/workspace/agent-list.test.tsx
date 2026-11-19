@@ -8,7 +8,7 @@ import { FlashProvider } from "@/components/flash";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { agentSettingsPath, NEW_AGENT_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
-import { AGENTS_EXPLAINED, AGENTS_PATH, AgentList, reachOf, roomsOf, SEARCHES_THE_WEB, useAgentsOnly } from "./agent-list";
+import { AgentList, AGENTS_EXPLAINED, AGENTS_PATH, reachOf, roomsOf, SEARCHES_THE_WEB, useAgentsOnly } from "./agent-list";
 
 /** Ember AI on GLM-4.7 Flash, the only model people can pick, which can't search the web. */
 const ON: Assistant = {

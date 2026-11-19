@@ -2,8 +2,7 @@ import { useEffect, useLayoutEffect, useState, type FormEvent } from "react";
 import { MAX_USER_NAME_LENGTH, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
 import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type BotChanges, type BotRoom, type BotSettings, type NewBot } from "@ember/protocol/bots";
 import { AUTH_FORM } from "@/components/auth-page";
-import defaultBotAvatar from "@/components/default-bot-avatar.svg";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { Camera, RefreshDouble } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
@@ -16,6 +15,7 @@ import { CHOICE, roomsToPick } from "./agent-page";
 import { PostingCommands, useAdministratorsOnly } from "./bots-page";
 import { DeleteButton, isMissing, NEGATIVE_BUTTON } from "./room-settings-page";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
+import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 
 // The pages for adding a bot and changing one, which share the bot form and go back to the bots page
 // once they've saved.

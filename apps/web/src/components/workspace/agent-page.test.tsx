@@ -1,22 +1,10 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me, SidebarRoom } from "@ember/protocol";
 import { ACCESS_REFUSED, AGENT_CHANGED, agentCannotSearchWith, AGENTS_FORBIDDEN, NAME_TAKEN, type AgentSettings, type AgentTrialAnswer, type NewAgent } from "@ember/protocol/agents";
-import {
-  ASSISTANT_MODELS,
-  ASSISTANT_OFF,
-  offeredModelOf,
-  SUGGESTED_MODEL,
-  THINKING_LEVELS,
-  TOP_LEVELS,
-  type AssistantSettings as Assistant,
-  type OfferedModel,
-  type OfferedModels,
-} from "@ember/protocol/assistant";
-import { AGENT_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED, PLACEHOLDERS, placeholderOf, unknownPlaceholder } from "@ember/protocol/prompts";
-import defaultBotAvatar from "@/components/default-bot-avatar.svg";
+import { ASSISTANT_MODELS, ASSISTANT_OFF, offeredModelOf, SUGGESTED_MODEL, THINKING_LEVELS, TOP_LEVELS, type AssistantSettings as Assistant, type OfferedModel, type OfferedModels } from "@ember/protocol/assistant";
+import { AGENT_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED, placeholderOf, PLACEHOLDERS, unknownPlaceholder } from "@ember/protocol/prompts";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext, useAccount } from "@/hooks/use-account";
@@ -24,21 +12,18 @@ import { agentSettingsPath, leave, navigate, NEW_AGENT_PATH } from "@/hooks/use-
 import { ApiError } from "@/lib/api";
 import { dateLabel } from "@/lib/messages";
 import { AGENTS_PATH } from "./agent-list";
-import {
-  accessExplained,
-  AGENT_CHANGES,
-  AGENT_EXPLAINED,
-  AgentSettingsPage,
-  cannotSearch,
-  CONFIRM_DELETE_AGENT,
-  INSTRUCTIONS_EXPLAINED,
-  NewAgentPage,
-  roomsExplained,
-  tryExplained,
-} from "./agent-page";
+import { accessExplained, AGENT_CHANGES, AGENT_EXPLAINED, AgentSettingsPage, cannotSearch, CONFIRM_DELETE_AGENT, INSTRUCTIONS_EXPLAINED, NewAgentPage, roomsExplained, tryExplained } from "./agent-page";
 import { toolsExplained } from "./agent-tools";
 import { searchingWith } from "./ember-settings";
 import { cautionFor, PLACEHOLDER_MEANINGS } from "./prompt-preview";
+import userEvent from "@testing-library/user-event";
+
+
+
+
+
+
+import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 

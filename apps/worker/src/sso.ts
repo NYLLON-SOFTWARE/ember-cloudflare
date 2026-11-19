@@ -1,25 +1,5 @@
 import { welcomePath, type AccountSettings, type UserId } from "@ember/protocol";
-import {
-  CLIENT_ID_REFUSED,
-  CLIENT_SECRET_REFUSED,
-  ISSUER_MISMATCH,
-  ISSUER_REFUSED,
-  ISSUER_UNREACHABLE,
-  ISSUER_UNSUPPORTED,
-  parseSsoSetup,
-  SSO_CALLBACK_PATH,
-  SSO_CONNECTED,
-  SSO_FORBIDDEN,
-  SSO_PROBLEM_PARAM,
-  SSO_SETUP_NEEDED,
-  type SsoConnection,
-  type SsoField,
-  type SsoForgotten,
-  type SsoSaved,
-  type SsoSettings,
-  type SsoSetup,
-  type SsoSignInProblem,
-} from "@ember/protocol/sso";
+import { CLIENT_ID_REFUSED, CLIENT_SECRET_REFUSED, ISSUER_MISMATCH, ISSUER_REFUSED, ISSUER_UNREACHABLE, ISSUER_UNSUPPORTED, parseSsoSetup, SSO_CALLBACK_PATH, SSO_CONNECTED, SSO_FORBIDDEN, SSO_PROBLEM_PARAM, SSO_SETUP_NEEDED, type SsoConnection, type SsoField, type SsoForgotten, type SsoSaved, type SsoSettings, type SsoSetup, type SsoSignInProblem } from "@ember/protocol/sso";
 import { authenticate, clientOf, credentialsOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { bodyUpTo, jsonBodyOf } from "./bodies";
 import { originFor } from "./custom-domain";

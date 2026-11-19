@@ -1,11 +1,11 @@
 import { AVATAR_PATH, USERNAME_TAKEN, type Bootstrap, type Me, type Profile, type ProfileAnswer } from "@ember/protocol";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPage } from "@/lib/page";
 import { returnPath } from "@/lib/return-path";
 import { CHROME_MAC } from "@/test-platforms";
 import { WelcomePage } from "./welcome-page";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));

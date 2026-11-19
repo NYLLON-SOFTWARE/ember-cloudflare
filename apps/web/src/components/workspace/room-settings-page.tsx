@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { RoomChanges, RoomGuest, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import type { RoomChanges, RoomGuest, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";

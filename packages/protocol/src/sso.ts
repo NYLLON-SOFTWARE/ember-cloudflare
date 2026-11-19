@@ -1,3 +1,5 @@
+
+
 // Single sign-on, with an OpenID Connect provider such as Zitadel, Okta, Entra ID, Google Workspace,
 // Keycloak or Authentik: an administrator gives Ember the provider's issuer and the keys of the app they
 // registered there on the Single sign-on card of workspace settings' Membership, through

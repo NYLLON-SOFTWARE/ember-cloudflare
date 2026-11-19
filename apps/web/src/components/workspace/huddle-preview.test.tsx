@@ -1,7 +1,6 @@
 import type { DirectoryUser, DirectRoom, LiveHuddle, Me, Room, SharedRoom } from "@ember/protocol";
 import { CAMERAS_OFF, MAX_HUDDLE_INVITED } from "@ember/protocol/huddles";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
@@ -10,6 +9,7 @@ import { joinHuddle } from "@/lib/huddle";
 import { NO_CAMERA } from "@/lib/huddle-devices";
 import { showHuddle } from "@/lib/huddle-store";
 import { ASKING_FOR_MICROPHONE, HuddlePreview, NO_MICROPHONE } from "./huddle-preview";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/huddle", () => ({ joinHuddle: vi.fn() }));
 

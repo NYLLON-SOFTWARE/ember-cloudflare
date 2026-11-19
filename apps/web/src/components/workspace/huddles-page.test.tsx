@@ -1,6 +1,5 @@
 import type { DirectoryUser, LiveHuddle, PastHuddle, PastHuddles, SidebarRoom, User } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext, useAccount } from "@/hooks/use-account";
@@ -9,6 +8,7 @@ import { showHuddle, type JoinedHuddle } from "@/lib/huddle-store";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { HuddlesContext } from "./huddle-button";
 import { HuddlesPage } from "./huddles-page";
+import userEvent from "@testing-library/user-event";
 
 // The Huddles page (./huddles-page.tsx), as Ada sees it at three in the afternoon of 17 November 2026.
 

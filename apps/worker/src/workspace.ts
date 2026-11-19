@@ -1,126 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  CANT_SEND_EMAIL,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  domainOfEmailAddress,
-  EMAILS_PER_ADDRESS,
-  EMAIL_LINKS_PER_NETWORK,
-  emailSignUpLink,
-  INVITATION_DAYS,
-  invitationLink,
-  isReservedName,
-  isRoomId,
-  mailboxOf,
-  mailboxUnder,
-  MAX_GUEST_NAME_LENGTH,
-  NAVIGATION_SLOTS,
-  othersAfterMove,
-  parseWorkspaceClientFrame,
-  parseWorkspaceSocketParams,
-  PASSWORD_RESET_CODE_MINUTES,
-  PASSWORD_RESETS_PER_NETWORK,
-  sameName,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  signsInElsewhereOnly,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  usernameFrom,
-  withNavigationIcons,
-  type Account,
-  type AccountChanges,
-  type AccountSettings,
-  type AssistantSettings,
-  type Bot,
-  type BotChanges,
-  type BotSettings,
-  type ChangedBlocks,
-  type CustomStyles,
-  type DirectoryUser,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailSettings,
-  type Favorites,
-  type HuddlesSettings,
-  type LiveHuddle,
-  type Mailbox,
-  type Invited,
-  type Involvement,
-  type Me,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type NewBot,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewWorkspace,
-  type PersonRole,
-  type Profile,
-  type ProfileChanges,
-  type PushSubscriptionSave,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomGuest,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-  type WorkspaceServerFrame,
-  type WorkspaceSettings,
-  type SsoSettings,
-} from "@ember/protocol";
+import { ASSISTANT_ID, ASSISTANT_NAME, CANT_SEND_EMAIL, CloseCode, DELETED_PERSON_NAME, domainOfEmailAddress, EMAIL_LINKS_PER_NETWORK, EMAILS_PER_ADDRESS, emailSignUpLink, INVITATION_DAYS, invitationLink, isReservedName, isRoomId, mailboxOf, mailboxUnder, MAX_GUEST_NAME_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, NAVIGATION_SLOTS, othersAfterMove, parseWorkspaceClientFrame, parseWorkspaceSocketParams, PASSWORD_RESET_CODE_MINUTES, PASSWORD_RESETS_PER_NETWORK, sameName, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, signsInElsewhereOnly, signsUpOpenly, signsUpWithEmailDomain, usernameFrom, withNavigationIcons, type Account, type AccountChanges, type AccountSettings, type AssistantSettings, type Bot, type BotChanges, type BotSettings, type ChangedBlocks, type CustomStyles, type DirectoryUser, type DirectRoom, type EmailInvitation, type EmailLinkFor, type EmailLinkKind, type EmailSettings, type Favorites, type HuddlesSettings, type Invited, type Involvement, type LiveHuddle, type Mailbox, type Me, type NavigationIconChanges, type NavigationIcons, type NewBot, type NewJoinCode, type NewRoom, type NewRoomForm, type NewWorkspace, type PersonRole, type Profile, type ProfileChanges, type PushSubscriptionSave, type ResentInvitation, type Room, type RoomChanges, type RoomGuest, type RoomId, type RoomKind, type RoomSettings, type Search, type SentTestEmail, type SharedRoom, type Sidebar, type SidebarRoom, type SsoSettings, type User, type UserId, type UserStatus, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import { MAX_OUTSIDE_CONNECTIONS, outsideScopesOf, type OutsideAiSettings, type OutsideConnection, type OutsideScope } from "@ember/protocol/outside";
-import {
-  ASSISTANT_MODELS,
-  DEFAULT_LEVELS,
-  isWorkersAiModel,
-  MAX_ASSISTANT_MODELS,
-  modelName,
-  offeredModelOf,
-  searchFormatOf,
-  TOP_LEVELS,
-  webToolsOf,
-  withinMost,
-  type AnswerLevels,
-  type AssistantChanges,
-  type ModelFormat,
-  type OfferedModel,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistant,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, DEFAULT_LEVELS, isWorkersAiModel, MAX_ASSISTANT_MODELS, modelName, offeredModelOf, searchFormatOf, TOP_LEVELS, webToolsOf, withinMost, type AnswerLevels, type AssistantChanges, type ModelFormat, type OfferedModel, type ThinkingLevel, type WebTool, type YourAssistant, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
-import {
-  isAtHost,
-  MAX_APP_SCOPE_LENGTH,
-  MAX_APPS,
-  type App,
-  type AppChanges,
-  type AppId,
-  type AppSummary,
-  type NewApp,
-  type OfferedApp,
-  type SetAsideTool,
-  type ToolPick,
-  type YourApp,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import { isAtHost, MAX_APP_SCOPE_LENGTH, MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick, type YourApp, type YourAppSignedOut } from "@ember/protocol/apps";
 import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/blocked-words";
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
@@ -141,18 +25,7 @@ import type { RelayKey } from "./huddles/relay";
 import type { HuddleApp, RoomHuddles, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import {
-  deployedMemberfulOf,
-  memberfulApiOf,
-  memberfulWebhooksOf,
-  membershipsOf,
-  namelessMember,
-  openMemberfulSecrets,
-  sealMemberfulSecrets,
-  type MemberfulApi,
-  type MemberfulMember,
-  type MemberfulSetup,
-} from "./memberful-api";
+import { deployedMemberfulOf, memberfulApiOf, memberfulWebhooksOf, membershipsOf, namelessMember, openMemberfulSecrets, sealMemberfulSecrets, type MemberfulApi, type MemberfulMember, type MemberfulSetup } from "./memberful-api";
 import { discover, refreshTokens } from "./oidc";
 import { Presence } from "./presence";
 import { sendPushes } from "./push/delivery";
@@ -177,54 +50,7 @@ import { claimsOf, isAllowed, sameSignInRules, ssoProviderOf, ssoSettingsOf, tol
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
-import {
-  allowingHuddles,
-  NEW_ACCOUNT_LOOKS,
-  WorkspaceStore,
-  type AccountChange,
-  type AgentSetup,
-  type AvatarOwner,
-  type BotKey,
-  type Client,
-  type Connecting,
-  type AssistantPicks,
-  type DeletedAccount,
-  type DirectoryEntry,
-  type Disconnection,
-  type InvitationPush,
-  type JoinableAccount,
-  type LinkedAccount,
-  type LinkedPerson,
-  type LoggedOut,
-  type LoggedOutSessions,
-  type OtherWays,
-  type MovedModel,
-  type NewPerson,
-  type OwnAppSignIn,
-  type OwnProfileEntry,
-  type PendingRevocation,
-  type ProfileEntry,
-  type PushDelivery,
-  type RoomEventDeliveries,
-  type SavedAssistant,
-  type SavedModel,
-  type SavedRoomChange,
-  type SavedSso,
-  type SignInKept,
-  type SignInClient,
-  type StoredAgent,
-  type StoredApp,
-  type StoredAppRead,
-  type AgentToolPicks,
-  type ChangedPicks,
-  type StoredToolPick,
-  type StoredAgentSettings,
-  type StoredBot,
-  type StoredBotSettings,
-  type StoredPushSubscription,
-  type StoredSession,
-  type Welcome,
-} from "./workspace-store";
+import { allowingHuddles, NEW_ACCOUNT_LOOKS, WorkspaceStore, type AccountChange, type AgentSetup, type AgentToolPicks, type AssistantPicks, type AvatarOwner, type BotKey, type ChangedPicks, type Client, type Connecting, type DeletedAccount, type DirectoryEntry, type Disconnection, type InvitationPush, type JoinableAccount, type LinkedAccount, type LinkedPerson, type LoggedOut, type LoggedOutSessions, type MovedModel, type NewPerson, type OtherWays, type OwnAppSignIn, type OwnProfileEntry, type PendingRevocation, type ProfileEntry, type PushDelivery, type RoomEventDeliveries, type SavedAssistant, type SavedModel, type SavedRoomChange, type SavedSso, type SignInClient, type SignInKept, type StoredAgent, type StoredAgentSettings, type StoredApp, type StoredAppRead, type StoredBot, type StoredBotSettings, type StoredPushSubscription, type StoredSession, type StoredToolPick, type Welcome } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -2946,16 +2772,12 @@ export class Workspace extends DurableObject<Env> {
    * Signs in whoever the name names, and the session their cookie's token opens. A name one of the
    * guests of one room (`guest_stays`) stays under signs them in, while their stay hasn't ended, whether
    * or not `guests` lets just any name in. Otherwise someone new is added, unless Memberful is members
-   * only, which answers "memberful", the name is an agent's, which answers "agent's name", or `guests`
-   * doesn't allow the name alone, which answers "off". Everyone's workspace sockets hear of someone new.
+   * only, or single sign-on the only way in, which answers which way people sign in, the name is an
+   * agent's, which answers "agent's name", it has a word Blocked words keeps out, which answers
+   * "blocked words", or `guests` doesn't allow the name alone, which answers "off". Everyone's
+   * workspace sockets hear of someone new.
    */
-  async signInGuest(name: string, tokenDigest: string, client: Client, guests: boolean): Promise<Me | "memberful" | "agent's name" | "off" | "ended"> {
-   * Adds someone who signs in with just a name, and the session their cookie's token opens, unless
-   * Memberful is members only, or single sign-on the only way in, which answers which way people sign
-   * in, the name is an agent's, which answers "agent's name", or it has a word Blocked words keeps out,
-   * which answers "blocked words". Everyone's workspace sockets hear of them.
-   */
-  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | OnlyWay | NameRefusal> {
+  async signInGuest(name: string, tokenDigest: string, client: Client, guests: boolean): Promise<Me | OnlyWay | NameRefusal | "off" | "ended"> {
     // One at a time, as joining is, so that none can overlap turning Members only on.
     return this.oneAtATime(async () => {
       const account = await this.joinableAccount();
@@ -3402,15 +3224,6 @@ export class Workspace extends DurableObject<Env> {
         // It has closed since, and its close handler has nothing to clean up.
       }
     }
-  /** Tells the workspace sockets of `userId` as the people directory now lists them: every socket, or just the ones it lists them to (`publish`). */
-  private async publishPerson(userId: UserId): Promise<void> {
-    const person = await this.store.person(userId);
-    if (person) await this.publish(person);
-  }
-
-  /** Tells the workspace sockets of every agent, as the people directory lists it (`publish`). */
-  private async publishAgents(): Promise<void> {
-    for (const agent of await this.store.agentEntries()) await this.publish(agent);
   }
 
   /**
@@ -3643,27 +3456,32 @@ export class Workspace extends DurableObject<Env> {
    * The sidebar of the person `credentials` signs in: the rooms they're in, the ones they've starred and
    * the shared order of the rest, with the welcome card's invitation if they're an administrator in the
    * workspace's first room who hasn't dismissed the card, the people it suggests for DMs, and the huddles
-   * going on in their rooms. A guest of one room, who starts no DM, is suggested nobody, whose names
-   * would be none of theirs to have. Null without a valid session.
-   * workspace's first room who hasn't dismissed the card, the huddles going on in their rooms, which of
-   * a huddle's sounds they hear, once they've turned one off, and for an administrator, how many open
-   * reports they see. Null without a valid session.
+   * going on in their rooms, which of a huddle's sounds they hear, once they've turned one off, the people
+   * they've blocked, and for an administrator, how many open reports they see. A guest of one room, who
+   * starts no DM, is suggested nobody, whose names would be none of theirs to have. Null without a valid
+   * session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, sharedOrder, suggestions, huddles, invitationRoomId }, account, stay] = await Promise.all([
+    const [{ rooms, favorites, sharedOrder, suggestions, huddles, blocks, huddleSounds, invitationRoomId, openReports }, account, stay] = await Promise.all([
       this.store.roomsFor(user.id),
       this.joinableAccount(),
       this.stayOf(user.id),
     ]);
     const invited = invitationRoomId !== null && rooms.some((room) => room.id === invitationRoomId);
     const invitation = account && invited ? { roomId: invitationRoomId, joinCode: account.joinCode } : null;
-    return { rooms, favorites, sharedOrder, invitation, suggestions: stay ? [] : suggestions, huddles };
-    const [{ rooms, favorites, sharedOrder, huddles, blocks, huddleSounds, invitationRoomId, openReports }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
-    const invited = invitationRoomId !== null && rooms.some((room) => room.id === invitationRoomId);
-    const invitation = account && invited ? { roomId: invitationRoomId, joinCode: account.joinCode } : null;
-    return { rooms, favorites, sharedOrder, invitation, huddles, blocks, ...(!hearsAllHuddleSounds(huddleSounds) && { huddleSounds }), ...(openReports !== null && { openReports }) };
+    return {
+      rooms,
+      favorites,
+      sharedOrder,
+      invitation,
+      suggestions: stay ? [] : suggestions,
+      huddles,
+      blocks,
+      ...(!hearsAllHuddleSounds(huddleSounds) && { huddleSounds }),
+      ...(openReports !== null && { openReports }),
+    };
   }
 
   /**
@@ -4011,26 +3829,14 @@ export class Workspace extends DurableObject<Env> {
    * a conversation with everyone but them. Everyone in a new DM sees it in their sidebars at once, and
    * nobody else hears of it.
    */
-  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | "forbidden" | "unavailable" | null> {
+  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | { refusedBy: string } | "forbidden" | "unavailable" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (await this.stayOf(user.id)) return "forbidden";
-    const people = userIds.length > 0 ? await this.store.peopleWithIds(userIds) : [];
+    const people = userIds.length > 0 ? await this.store.directPeople(userIds, user.id) : [];
     // Before the room is made, since the grant that fills it would leave such a guest out, and the DM
     // would start with everyone but them.
     if ((await this.store.heldByStays(people.map((person) => person.id))).length > 0) return "unavailable";
-   * who exist, whatever their status, or their DM with themselves when it names nobody else. An AI agent
-   * kept for administrators counts as nobody to anyone else, and one only their direct messages reach to
-   * an administrator who names with it anyone who isn't one, a member or a bot, who would read what it
-   * says (`DIRECT_PEOPLE`). A group of people has one DM, so the one they have opens again, but a new one
-   * is refused when someone it names has blocked them, answering the name of the first of those by name.
-   * Answers the DM, and whether it's new, or null without a valid session. Everyone in a new DM sees it in
-   * their sidebars at once, and nobody else hears of it.
-   */
-  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | { refusedBy: string } | null> {
-    const user = await this.authenticate(credentials);
-    if (!user) return null;
-    const people = userIds.length > 0 ? await this.store.directPeople(userIds, user.id) : [];
     const memberIds = [user.id, ...people.map((person) => person.id)];
     const direct = await this.store.startDirect(sortableId(), user.id, memberIds, new Date().toISOString());
     if ("room" in direct && direct.started) this.tell(direct.room.members.map((member) => member.id), { type: "room.saved", room: direct.room });
@@ -4049,50 +3855,37 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Whom the person `credentials` signs in can mention in room `roomId`, or anywhere when it's null:
-   * the first page of the active people there whose names contain `query`, by name. Anywhere is a guest
-   * of one room's own room, since that's all they reach. "not found" unless they're in the room, or
-   * null without a valid session.
    * the first page of the active people there whose names contain `query`, by name, but the AI agents
-   * kept for administrators, unless they're one. "not found" unless they're in the room, or null without
-   * a valid session.
+   * kept for administrators, unless they're one. Anywhere is a guest of one room's own room, since
+   * that's all they reach. "not found" unless they're in the room, or null without a valid session.
    */
   async mentionable(credentials: Credentials, roomId: RoomId | null, query: string): Promise<DirectoryEntry[] | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
     if (roomId === null) roomId = (await this.stayOf(user.id))?.roomId ?? null;
-    return this.store.mentionable(query, roomId);
-  }
-
-  /**
-   * Everyone in the workspace, for the person `credentials` signs in, or null without a valid session.
-   * A guest of one room sees the people of their room alone, who are all they reach.
-   */
-  async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
-    const user = await this.authenticate(credentials);
-    if (!user) return null;
-    const stay = await this.stayOf(user.id);
-    return stay ? this.store.roomPeople(stay.roomId) : this.store.directory();
     return this.store.mentionable(query, roomId, user.id);
   }
 
   /**
    * Everyone in the workspace, for the person `credentials` signs in, but the AI agents only
    * administrators' direct messages reach, unless they're one, or null without a valid session.
+   * A guest of one room sees the people of their room alone, who are all they reach.
    */
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.directory(user.id);
+    if (!user) return null;
+    const stay = await this.stayOf(user.id);
+    return stay ? this.store.roomPeople(stay.roomId) : this.store.directory(user.id);
   }
 
   /**
    * Someone as their page shows them to the person `credentials` signs in, whatever their status, and
    * with their email address and sign-in link to administrators: "not found" if nobody has id `userId`,
-   * or null without a valid session. A guest of one room reads the profiles of their room's people
-   * alone, as their directory lists them, whose stays hold them to, and to nobody outside it, whoever
-   * asks by an id heard of elsewhere.
    * or it's an AI agent's only administrators' direct messages reach and they aren't one, or null without
-   * a valid session.
+   * a valid session. A guest of one room reads the profiles of their room's people alone, as their
+   * directory lists them, whose stays hold them to, and to nobody outside it, whoever asks by an id
+   * heard of elsewhere.
    */
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
@@ -4188,7 +3981,6 @@ export class Workspace extends DurableObject<Env> {
   private async deactivate({ id, name, username, bio, role, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
     const removedAt = new Date(now).toISOString();
-    const removed = await this.directoryUser({ id, name, bio, role, status: "deactivated", updatedAt: removedAt, agent });
     // Whom the removal reaches, asked before their rooms are none of theirs anymore, which the asking
     // would hold every guest of one room out by.
     const beyond = await this.store.stayGuestsBeyond(id, now);
@@ -5437,8 +5229,7 @@ export class Workspace extends DurableObject<Env> {
     checked: string | null,
     pushEndpoint: string | null,
     memberfulSite: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "another guest's name" | "guest's name too long" | "guest's name blank" | null> {
-  ): Promise<YourProfile | "email address taken" | "password needed" | SignInElsewhere | "name reserved" | NameRefusal | "username taken" | null> {
+  ): Promise<YourProfile | "email address taken" | "password needed" | SignInElsewhere | "name reserved" | NameRefusal | "username taken" | "another guest's name" | "guest's name too long" | "guest's name blank" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -5806,8 +5597,6 @@ export class Workspace extends DurableObject<Env> {
     if (events.length === 0) return { pushes: [], webhooks: [], asks: [], blockedWords };
     const { on: pushing } = await webPush(this.env);
     const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env), Date.now());
-    for (const [userId, at] of marks) this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at });
-    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
     for (const [userId, mark] of marks) this.tell([userId], mark === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, ...mark });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
     return { pushes, webhooks, asks, blockedWords };
@@ -6147,6 +5936,10 @@ export class Workspace extends DurableObject<Env> {
       if (most <= 0) return;
       const due = await this.store.lapsedGuestStays(Date.now(), most);
       for (const userId of due) await this.lapseGuestStay(userId);
+    });
+  }
+
+  /**
    * Asks the single sign-on provider again about the accounts linked at it that are due, as many as a run
    * asks about, with the refresh token each sign-in kept: one it no longer takes, as once someone has been
    * removed or signed out there, ends the sessions that account signed in, and while single sign-on alone
@@ -6277,6 +6070,9 @@ export class Workspace extends DurableObject<Env> {
       if (queued) await this.revocationsQueued(now);
     }
     await this.publishPerson(userId);
+  }
+
+  /**
    * Ends the sessions that accounts at the single sign-on provider `issuer` signed in, as a back-channel
    * logout from it names them (`loggedOut`): its session there, or whoever is linked to the account it
    * names, or both. Their sockets close and are told to reconnect, here at once and in every room through

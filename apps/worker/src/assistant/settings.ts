@@ -1,37 +1,5 @@
 import { ASSISTANT_NAME } from "@ember/protocol";
-import {
-  ASSISTANT_FORBIDDEN,
-  ASSISTANT_OFF,
-  DEFAULT_MODEL_KEPT,
-  MODEL_NOT_LISTED,
-  MODEL_REFUSED,
-  MODELS_FULL,
-  WEB_SEARCH_CHANGED,
-  WEB_SEARCH_REFUSED,
-  accountIdOf,
-  cannotSearchWith,
-  formatOf,
-  modelName,
-  modelOf,
-  parseAssistantChanges,
-  parseAssistantKeys,
-  parseAssistantSetup,
-  parseNewAssistantModel,
-  parseWebSearchChange,
-  parseYourAssistantChanges,
-  searchFormatOf,
-  webToolsOf,
-  type AssistantChanged,
-  type AssistantForgotten,
-  type AssistantModel,
-  type AssistantSaved,
-  type ModelFormat,
-  type OfferedModels,
-  type ThinkingLevel,
-  type WebSearchChanged,
-  type WebTool,
-  type YourAssistantChanged,
-} from "@ember/protocol/assistant";
+import { accountIdOf, ASSISTANT_FORBIDDEN, ASSISTANT_OFF, cannotSearchWith, DEFAULT_MODEL_KEPT, formatOf, MODEL_NOT_LISTED, MODEL_REFUSED, modelName, modelOf, MODELS_FULL, parseAssistantChanges, parseAssistantKeys, parseAssistantSetup, parseNewAssistantModel, parseWebSearchChange, parseYourAssistantChanges, searchFormatOf, WEB_SEARCH_CHANGED, WEB_SEARCH_REFUSED, webToolsOf, type AssistantChanged, type AssistantForgotten, type AssistantModel, type AssistantSaved, type ModelFormat, type OfferedModels, type ThinkingLevel, type WebSearchChanged, type WebTool, type YourAssistantChanged } from "@ember/protocol/assistant";
 import { credentialsOf } from "../auth";
 import { storeAvatar } from "../avatars";
 import { jsonBodyOf } from "../bodies";
