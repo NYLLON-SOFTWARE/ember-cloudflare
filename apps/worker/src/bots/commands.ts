@@ -20,8 +20,8 @@ import type { DeliveredMessage } from "./webhooks";
 import { railsJson } from "./rails-json";
 import { workspace } from "../workspace";
 
-// Slash commands, message shortcuts and bots' subscriptions to message events (migrations/0072_commands.sql,
-// migrations/0075_shortcuts.sql): what the room delivers to a bot's webhook when someone types its command,
+// Slash commands, message shortcuts and bots' subscriptions to message events (migrations/0089_commands.sql,
+// migrations/0091_shortcuts.sql): what the room delivers to a bot's webhook when someone types its command,
 // picks one of its shortcuts on a message, or writes a message in a room the bot watches, as Slack sends a
 // slash command, a message action and a message event to a server. A bot answers either as it answers a
 // delivery to its webhook, and a payload of blocks rides as a card, as a click's answer does (chat-room.ts).

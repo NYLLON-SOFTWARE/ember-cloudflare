@@ -3,7 +3,7 @@ import type { Shortcuts } from "@ember/protocol/bots";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, connect, cookieOf, freshDeploy, forwardUpgrade, framesOf, post, settle, shown, signIn, workspaceSql, workspaceStub, type Client, type Session, type Socket } from "./support";
 
-// Message shortcuts (migrations/0075_shortcuts.sql): a name as it's shown ("Translate this") and the bot
+// Message shortcuts (migrations/0091_shortcuts.sql): a name as it's shown ("Translate this") and the bot
 // it invokes, which an administrator registers and every message's More actions offers. Picking one
 // delivers a Slack-shaped message_action payload about the message to the bot's webhook, as a command's
 // delivery is, and what the bot answers is posted as the bot, in the message's thread when it's a reply.

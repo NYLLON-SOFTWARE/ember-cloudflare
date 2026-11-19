@@ -1249,9 +1249,8 @@ const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_dig
   SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}
     AND (guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?9))
     AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
-      WHERE showing.id = ?8 AND shower.status = ${ACTIVE}
+      WHERE showing.id = ?8 AND showing.transfers_since <= ?9 AND shower.status = ${ACTIVE}
         AND (shower.guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?9))
-      WHERE showing.id = ?8 AND showing.transfers_since <= ?9 AND shower.status = ${ACTIVE} AND (shower.guest = 0 OR ?7 = 1)
         AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /**
@@ -2592,7 +2591,7 @@ const COMMAND_BY_ID = `SELECT commands.id, commands.name, commands.description, 
   FROM commands JOIN users ON users.id = commands.bot_id
   WHERE commands.id = ?1`;
 
-/** A shortcut is the same columns as a command, kept as its own rows (migrations/0075_shortcuts.sql) are. */
+/** A shortcut is the same columns as a command, kept as its own rows (migrations/0091_shortcuts.sql) are. */
 type ShortcutRow = CommandRow;
 
 /** The workspace's shortcuts, by name, each with the bot it invokes by its name now: a deactivated bot's shortcut goes with the bot. */
