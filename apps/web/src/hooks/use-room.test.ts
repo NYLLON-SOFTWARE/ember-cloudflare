@@ -919,7 +919,7 @@ describe("Schedule a message", () => {
       sent = result.current.scheduleMessage(paragraphOf(MAX_MESSAGE_LENGTH + 1), new Date(Date.now() + 60_000).toISOString());
     });
     expect(sent).toBe(false);
-    expect(result.current.state.notice).toBe("Messages can be up to 10,000 characters.");
+    expect(result.current.state.notice).toBe("Messages can be up to 40,000 characters.");
   });
 
   it("cancels a waiting message", () => {
