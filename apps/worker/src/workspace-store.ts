@@ -4698,7 +4698,6 @@ export class WorkspaceStore {
     now: string,
   ): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy, Date.parse(now)),
       statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy, shownAt),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
