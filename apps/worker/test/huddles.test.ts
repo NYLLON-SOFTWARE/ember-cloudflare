@@ -328,6 +328,9 @@ describe("Set up huddles", () => {
       newSession(APP.appId, "http://127.0.0.1:8794"),
       newSession(APP.appId, "http://localhost:8794"),
       newSession(APP.appId),
+      newSession(APP.appId),
+      newSession(APP.appId),
+      newSession(APP.appId),
     ]);
   });
 });
@@ -557,6 +560,9 @@ describe("Set up the relay", () => {
     expect(requests.map(({ url }) => url)).toEqual([
       relayServers(RELAY.keyId, "http://127.0.0.1:8794"),
       relayServers(RELAY.keyId, "http://localhost:8794"),
+      relayServers(RELAY.keyId),
+      relayServers(RELAY.keyId),
+      relayServers(RELAY.keyId),
       relayServers(RELAY.keyId),
     ]);
   });

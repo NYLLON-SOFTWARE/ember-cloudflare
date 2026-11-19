@@ -1097,29 +1097,22 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
           <ReloadDirectory value={directory.reload}>
             <DirectoryStale value={directory.stale}>
               <DirectoryLoaded value={directory.loaded}>
-                <SettingsLayout value={settings}>
-                  <OpenSearchContext value={openSearch}>
-                    <HuddlesContext value={huddles}>{layout}</HuddlesContext>
-                  </OpenSearchContext>
-                </SettingsLayout>
+                <ActivePeople value={active}>
+                  <SettingsLayout value={settings}>
+                    <OpenSearchContext value={openSearch}>
+                      <HuddlesContext value={huddles}>
+                        <BlockingContext value={blocking}>
+                          <ReportingContext value={openReport}>{layout}</ReportingContext>
+                        </BlockingContext>
+                      </HuddlesContext>
+                    </OpenSearchContext>
+                  </SettingsLayout>
+                </ActivePeople>
               </DirectoryLoaded>
             </DirectoryStale>
           </ReloadDirectory>
         </DirectoryReloading>
       </GroupsContext>
-      <DirectoryLoaded value={directory.loaded}>
-        <ActivePeople value={active}>
-          <SettingsLayout value={settings}>
-            <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>
-                <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
-                </BlockingContext>
-              </HuddlesContext>
-            </OpenSearchContext>
-          </SettingsLayout>
-        </ActivePeople>
-      </DirectoryLoaded>
     </PeopleContext>
   );
 }

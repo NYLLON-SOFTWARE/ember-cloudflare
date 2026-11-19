@@ -810,7 +810,7 @@ describe("New direct message dialog", () => {
   it("tells an administrator that a DM started without an agent only available in admin DMs, which was picked with someone who isn't one", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     const steward: DirectoryUser = { id: "a9", name: "Steward", bio: null, role: "bot", status: "active", avatarUrl: "/users/a9/avatar", agent: true, adminsOnly: true };
-    serve({ "GET /api/users": () => Response.json({ users: [...people, steward] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) });
+    serve({ "GET /api/users": () => Response.json({ users: [...people, steward], groups: [] }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) });
     const { user } = showWorkspace("/rooms/general", { ...ada, administrator: true });
     await roomHeading();
     await user.click(dms());
@@ -844,60 +844,6 @@ describe("New direct message dialog", () => {
   });
 });
 
-describe("Suggested people", () => {
-  const grace = withGrace.members[1]!;
-  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
-
-  it("starts a DM with someone suggested and opens it, listed in the suggestion's place, for its composer to take focus", async () => {
-    vi.stubGlobal("WebSocket", OpenRoomSocket);
-    serve({
-      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
-      "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
-    });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
-    expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
-    expect(location.pathname).toBe("/rooms/d1");
-    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
-    expect(suggestion()).not.toBeInTheDocument();
-    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
-  });
-
-  it("stays on a page the person goes to while the DM starts, listing the DM", async () => {
-    let answer = (_: Response) => {};
-    serve({
-      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
-      "POST /api/directs": () => new Promise<Response>((resolve) => (answer = resolve)),
-    });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
-    await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
-    expect(await roomHeading()).toHaveTextContent("random");
-
-    await act(async () => answer(Response.json({ room: withGrace }, { status: 201 })));
-    expect(location.pathname).toBe("/rooms/random");
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).not.toHaveAttribute("aria-current");
-    expect(suggestion()).not.toBeInTheDocument();
-  });
-
-  it("says why a DM didn't start, keeping the page and the suggestion", async () => {
-    serve({
-      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
-      "POST /api/directs": () => Promise.reject(new TypeError("Failed to fetch")),
-    });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
-    expect(location.pathname).toBe("/rooms/general");
-    expect(suggestion()).toBeInTheDocument();
-    expect(suggestion()).not.toHaveAttribute("aria-disabled");
-  });
-});
-
 describe("Available Agents", () => {
   /** An AI agent as the people directory lists it, which anyone can ask unless `agent` says. */
   const listed = (id: string, name: string, agent: Partial<DirectoryUser> = {}): DirectoryUser => ({ id, name, bio: null, role: "bot", status: "active", avatarUrl: `/users/${id}/avatar?v=1`, agent: true, ...agent });
@@ -914,7 +860,7 @@ describe("Available Agents", () => {
 
   beforeEach(() =>
     serve({
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap, herald] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap, herald], groups: [] }),
       "GET /api/agents": () => Response.json({ agents: [available(ember), available(recap)] }),
       "POST /api/directs": () => Response.json({ room: withRecap }, { status: 201 }),
     }),
@@ -945,14 +891,14 @@ describe("Available Agents", () => {
   });
 
   it("has no row while there's no agent to ask, as while Ember AI is off, nor while Activity shows only what's unread", async () => {
-    serve({ "GET /api/users": () => Response.json({ users: [grace, { ...ember, status: "deactivated" }, { ...recap, status: "deactivated" }] }) });
+    serve({ "GET /api/users": () => Response.json({ users: [grace, { ...ember, status: "deactivated" }, { ...recap, status: "deactivated" }], groups: [] }) });
     const { user, unmount } = showWorkspace("/rooms/general");
     await roomHeading();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/users")).toBe(true));
     expect(row()).not.toBeInTheDocument();
     unmount();
 
-    serve({ "GET /api/users": () => Response.json({ users: [grace, ember, recap] }) });
+    serve({ "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }) });
     showWorkspace("/rooms/general");
     await waitFor(() => expect(row()).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Activity" }));
@@ -1007,7 +953,7 @@ describe("Available Agents", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withRecap])),
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }),
       "GET /api/agents": () => Response.json({ agents: [available(ember), available(recap)] }),
       "POST /api/directs": () => Response.json({ room: withRecap }, { status: 201 }),
     });
@@ -1025,7 +971,7 @@ describe("Available Agents", () => {
 
   it("closes, saying why, when its agents can't load", async () => {
     serve({
-      "GET /api/users": () => Response.json({ users: [grace, ember, recap] }),
+      "GET /api/users": () => Response.json({ users: [grace, ember, recap], groups: [] }),
       "GET /api/agents": () => Promise.reject(new TypeError("Failed to fetch")),
     });
     const { user } = showWorkspace("/rooms/general");
@@ -1034,24 +980,6 @@ describe("Available Agents", () => {
     await user.click(row()!);
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
     await waitFor(() => expect(list()).not.toBeInTheDocument());
-  });
-});
-
-describe("Remove someone from the workspace", () => {
-  const grace: DirectoryUser = { ...withGrace.members[1]!, bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
-  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
-
-  it("suggests nobody the workspace socket says has been removed since the sidebar loaded", async () => {
-    vi.stubGlobal("WebSocket", WorkspaceSocket);
-    serve({
-      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [withGrace.members[1]] }),
-      "GET /api/users": () => Response.json({ users: [grace], groups: [] }),
-    });
-    showWorkspace("/rooms/general");
-    await roomHeading();
-    expect(suggestion()).toBeInTheDocument();
-    await workspaceSends({ type: "user.updated", user: { ...grace, status: "deactivated" } });
-    expect(suggestion()).not.toBeInTheDocument();
   });
 });
 

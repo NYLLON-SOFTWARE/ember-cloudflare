@@ -3842,6 +3842,12 @@ export class Workspace extends DurableObject<Env> {
     return user && this.store.userGroups();
   }
 
+  /** The groups whose name contains `query`, each with how many it stands for, for the mentions prompt, or null without a valid session. */
+  async mentionableGroups(credentials: Credentials, query: string): Promise<Array<{ id: GroupId; name: string; memberCount: number }> | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.groupsMatching(query);
+  }
+
   /**
    * Makes `group` as the person `credentials` signs in: named `name`, with the active people `memberIds`
    * names, bots left out, as the settings' form lists none. Answers it as it then is: "forbidden" unless

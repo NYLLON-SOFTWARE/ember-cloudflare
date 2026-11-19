@@ -3059,6 +3059,17 @@ const GROUPS = `SELECT id, name FROM user_groups ORDER BY lower(name), id`;
 /** The groups with the ids in a JSON array. */
 const GROUPS_WITH_IDS = `SELECT id, name FROM user_groups WHERE id IN (SELECT value FROM json_each(?))`;
 
+/**
+ * The workspace's groups whose name contains ?1 (names are kept lowercased, as the query comes), by
+ * name, each with how many it stands for, for the mentions prompt, which filters in the database so a
+ * request reads counts rather than every membership.
+ */
+const GROUPS_MATCHING_COUNTS = `SELECT user_groups.id, user_groups.name, count(user_group_members.user_id) AS memberCount
+  FROM user_groups LEFT JOIN user_group_members ON user_group_members.group_id = user_groups.id
+  WHERE instr(user_groups.name, ?1) > 0
+  GROUP BY user_groups.id, user_groups.name
+  ORDER BY lower(user_groups.name), user_groups.id`;
+
 /** Everyone in the groups with ids in a JSON array, named as they are now, by name. */
 const GROUP_MEMBERS = `SELECT user_group_members.group_id AS groupId, users.id AS userId, users.name AS name
   FROM user_group_members JOIN users ON users.id = user_group_members.user_id
@@ -4954,6 +4965,11 @@ export class WorkspaceStore {
       name,
       memberIds: members.map((member) => member.id),
     }));
+  }
+
+  /** The workspace's groups whose name contains `query`, by name, each with how many it stands for, for the mentions prompt. */
+  async groupsMatching(query: string): Promise<Array<{ id: GroupId; name: string; memberCount: number }>> {
+    return this.db.all<{ id: GroupId; name: string; memberCount: number }>(GROUPS_MATCHING_COUNTS, query.toLowerCase());
   }
 
   /** The groups with `ids` that exist, each with the people in it, named as they are now, for a room saying whom a group's mention stands for. */

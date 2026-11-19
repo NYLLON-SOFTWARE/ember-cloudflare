@@ -1060,12 +1060,11 @@ async function mentionable(request: Request, env: Env): Promise<Response> {
   const roomId = present(params.get("room_id"));
   if (roomId !== undefined && !isRoomId(roomId)) return problem(404, ROOM_NOT_FOUND);
   const query = present(params.get("filter")) ?? present(params.get("query")) ?? "";
-  const [people, groups] = await Promise.all([workspace(env).mentionable(credentials, roomId ?? null, query), workspace(env).userGroups(credentials)]);
+  const [people, groups] = await Promise.all([workspace(env).mentionable(credentials, roomId ?? null, query), workspace(env).mentionableGroups(credentials, query)]);
   if (!people) return problem(401, "Not signed in");
   if (people === "not found") return problem(404, ROOM_NOT_FOUND);
   const items = (await directoryOf(people, env.SESSION_SECRET)).map((person) => mentionPromptItem(person));
-  const shown = query === "" ? groups ?? [] : groups?.filter(({ name }) => name.includes(query.toLowerCase())) ?? [];
-  items.push(...shown.map((group) => groupPromptItem({ id: group.id, name: group.name }, group.memberIds.length)));
+  items.push(...(groups ?? []).map((group) => groupPromptItem({ id: group.id, name: group.name }, group.memberCount)));
   return new Response(items.join(""), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
