@@ -1,68 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  HISTORY_PAGE_SIZE,
-  isMessageTooLong,
-  LATE_PREVIEW_MS,
-  MAX_BOOST_LENGTH,
-  MAX_MESSAGE_HTML_LENGTH,
-  MESSAGE_TOO_LONG,
-  parseClientFrame,
-  parseRoomSocketParams,
-  ROOM_PROTOCOL,
-  type Boost,
-  type Card,
-  type CardAction,
-  type ClientFrame,
-  type LinkPreview,
-  type Message,
-  type NewUpload,
-  type RoomId,
-  type ServerFrame,
-  type TimelinePage,
-  type User,
-  type UserId,
-} from "@ember/protocol";
+import { ASSISTANT_ID, CloseCode, DELETED_PERSON_NAME, HISTORY_PAGE_SIZE, isMessageTooLong, LATE_PREVIEW_MS, MAX_BOOST_LENGTH, MAX_MESSAGE_HTML_LENGTH, MESSAGE_TOO_LONG, parseClientFrame, parseRoomSocketParams, ROOM_PROTOCOL, type Boost, type Card, type CardAction, type ClientFrame, type LinkPreview, type Message, type NewUpload, type RoomId, type ServerFrame, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
 import { hasPreview, prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
-import {
-  AGENT_NOTES,
-  AnswerError,
-  answerOf,
-  BLOCKED_ANSWER,
-  NOTES,
-  PICKED_MODEL_NOTES,
-  previewAttachment,
-  questionFor,
-  readable,
-  ROOM_MESSAGES_READ,
-  THREAD_REPLIES_READ,
-  waitFor,
-  writtenBy,
-  type Answer,
-} from "./assistant/answers";
+import { AGENT_NOTES, AnswerError, answerOf, BLOCKED_ANSWER, NOTES, PICKED_MODEL_NOTES, previewAttachment, questionFor, readable, ROOM_MESSAGES_READ, THREAD_REPLIES_READ, waitFor, writtenBy, type Answer } from "./assistant/answers";
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal, type Question } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
 import { roomSearch } from "./assistant/room-search";
 import { ToolError, type EmberTool } from "./assistant/tool-calls";
 import { saidCard, toolCallOf, toolCards, type CardCall } from "./apps/cards";
-import {
-  appTool,
-  callCard,
-  callDecisionOf,
-  CALL_OUTCOMES,
-  calledFromCard,
-  givenAs,
-  givenTools,
-  ToolGone,
-  type AllowsCall,
-  type GivenTool,
-  type PickedTool,
-  type ShowsCard,
-} from "./apps/tools";
+import { appTool, CALL_OUTCOMES, callCard, callDecisionOf, calledFromCard, givenAs, givenTools, ToolGone, type AllowsCall, type GivenTool, type PickedTool, type ShowsCard } from "./apps/tools";
 import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
 import { isFresh, keptBlockedWords, NO_BLOCKED_WORDS, outdated, type KeptBlockedWords } from "./blocked-words";
@@ -82,7 +29,7 @@ import { Huddle, HUDDLE_CHECK_MS, HUDDLE_TAG } from "./huddles/room";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
 import { urlOf } from "./request-url";
-import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
+import { addressTag, EVERYONE, Revocations, REVOCATIONS_KEPT_MS, sessionTag, type Revocation } from "./revocations";
 import { RoomLog, type RoomEvent } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, closeTooLarge, isTooLarge, MAX_ROOM_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
@@ -2195,13 +2142,23 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * Sends new messages' pushes, or those of an invitation into the huddle, as the Workspace still allows
+   * each when its turn comes, and has it forget the subscriptions they found gone.
+   */
+  private async push(pushes: Array<MessagePush | InvitationPush>): Promise<void> {
+    const { gone } = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
+    if (gone.length === 0) return;
+    await workspace(this.env)
+      .forgetPushSubscriptions(gone)
+      .catch((error: unknown) => console.error(`Error in WebPush::Pool.invalid_subscription_handler: ${error}`));
+  }
+
+  /**
    * Runs `work`, a call of one of the tools of `bot`, which is typing as it answers in thread `threadId`,
    * if there is one, else in the room: the room hears, beside its typing, that it's `doing` it, until
    * it's done, and then what a call it's making for another answer there is doing, if one still runs, or
    * that it's only typing again, while it still is.
    */
-  private async push(pushes: MessagePush[]): Promise<void> {
-    const { gone } = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
   private async doingWhile<T>(bot: User, threadId: string | undefined, doing: string, work: () => Promise<T>): Promise<T> {
     const typist = typistOf(bot, threadId);
     this.doings.set(typist, [...(this.doings.get(typist) ?? []), doing]);
@@ -2223,18 +2180,6 @@ export class ChatRoom extends DurableObject<Env> {
     const typing = this.typists.has(typist);
     const doing = typing ? this.doings.get(typist)?.at(-1) : undefined;
     this.broadcast({ type: "typing", user: bot, typing, ...(threadId !== undefined && { threadId }), ...(doing !== undefined && { doing }) });
-  }
-
-  /**
-   * Sends new messages' pushes, or those of an invitation into the huddle, as the Workspace still allows
-   * each when its turn comes, and has it forget the subscriptions they found gone.
-   */
-  private async push(pushes: Array<MessagePush | InvitationPush>): Promise<void> {
-    const gone = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
-    if (gone.length === 0) return;
-    await workspace(this.env)
-      .forgetPushSubscriptions(gone)
-      .catch((error: unknown) => console.error(`Error in WebPush::Pool.invalid_subscription_handler: ${error}`));
   }
 
   /**

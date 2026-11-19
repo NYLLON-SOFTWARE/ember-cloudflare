@@ -30,16 +30,11 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { isQuietWelcome, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, threadPath, useHash, useRoute, type Route } from "@/hooks/use-route";
-import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
-import { MovedNotice } from "./moved-notice";
-import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
-import { ReminderNotice } from "./reminder-notice";
-import { NewDirectDialog } from "./new-direct-dialog";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, threadPath, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
 import { HuddlesContext, joinsNoHuddle, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
+import { ReminderNotice } from "./reminder-notice";
 import { NewDirectDialog, startedWithout } from "./new-direct-dialog";
 import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
@@ -297,10 +292,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // Reminders of theirs, which the workspace socket tells this tab about as each one comes due or is
   // dismissed in another tab. Declared before the sidebar, whose socket hands it both.
   const { reminders, announcedDue, cameDue, cameGone, dismiss: dismissReminder, load: reloadReminders } = useReminders();
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone, reloadReminders);
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone, reloadReminders, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.

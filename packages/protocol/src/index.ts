@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -1981,6 +1983,7 @@ export type WorkspaceServerFrame =
   | { type: "reminder.due"; reminder: Reminder }
   /** One of their reminders was dismissed, in this tab or another, and leaves every tab's corner. */
   | { type: "reminder.dismissed"; id: string }
+  /**
    * Who's active, with a tab open that they've used in the last ten minutes, as Slack counts it, and who's
    * away otherwise: first everyone active, as the tab first says whether it's in use, and then whoever has
    * become active or away since the last of these. Sent only to tabs that have said, and gathered over a

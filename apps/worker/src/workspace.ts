@@ -1,125 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  CANT_SEND_EMAIL,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  domainOfEmailAddress,
-  EMAILS_PER_ADDRESS,
-  EMAIL_LINKS_PER_NETWORK,
-  emailSignUpLink,
-  INVITATION_DAYS,
-  invitationLink,
-  isReservedName,
-  isRoomId,
-  mailboxOf,
-  mailboxUnder,
-  NAVIGATION_SLOTS,
-  othersAfterMove,
-  parseWorkspaceClientFrame,
-  parseWorkspaceSocketParams,
-  PASSWORD_RESET_CODE_MINUTES,
-  PASSWORD_RESETS_PER_NETWORK,
-  sameName,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  signsInElsewhereOnly,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  usernameFrom,
-  withNavigationIcons,
-  type Account,
-  type AccountChanges,
-  type AccountSettings,
-  type AssistantSettings,
-  type Bot,
-  type BotChanges,
-  type BotSettings,
-  type ChangedBlocks,
-  type CustomStyles,
-  type DirectoryUser,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailSettings,
-  type Favorites,
-  type HuddlesSettings,
-  type LiveHuddle,
-  type Mailbox,
-  type Invited,
-  type Involvement,
-  type Me,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type NewBot,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewWorkspace,
-  type PersonRole,
-  type Profile,
-  type ProfileChanges,
-  type PushSubscriptionSave,
-  type Reminder,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-  type WorkspaceServerFrame,
-  type WorkspaceSettings,
-  type SsoSettings,
-} from "@ember/protocol";
+import { ASSISTANT_ID, ASSISTANT_NAME, CANT_SEND_EMAIL, CloseCode, DELETED_PERSON_NAME, domainOfEmailAddress, EMAIL_LINKS_PER_NETWORK, EMAILS_PER_ADDRESS, emailSignUpLink, INVITATION_DAYS, invitationLink, isReservedName, isRoomId, mailboxOf, mailboxUnder, MEMBERFUL_SIGN_IN_NEEDED, NAVIGATION_SLOTS, othersAfterMove, parseWorkspaceClientFrame, parseWorkspaceSocketParams, PASSWORD_RESET_CODE_MINUTES, PASSWORD_RESETS_PER_NETWORK, sameName, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, signsInElsewhereOnly, signsUpOpenly, signsUpWithEmailDomain, usernameFrom, withNavigationIcons, type Account, type AccountChanges, type AccountSettings, type AssistantSettings, type Bot, type BotChanges, type BotSettings, type ChangedBlocks, type CustomStyles, type DirectoryUser, type DirectRoom, type EmailInvitation, type EmailLinkFor, type EmailLinkKind, type EmailSettings, type Favorites, type HuddlesSettings, type Invited, type Involvement, type LiveHuddle, type Mailbox, type Me, type NavigationIconChanges, type NavigationIcons, type NewBot, type NewJoinCode, type NewRoom, type NewRoomForm, type NewWorkspace, type PersonRole, type Profile, type ProfileChanges, type PushSubscriptionSave, type Reminder, type ResentInvitation, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SentTestEmail, type SharedRoom, type Sidebar, type SidebarRoom, type SsoSettings, type User, type UserId, type UserStatus, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import { MAX_OUTSIDE_CONNECTIONS, outsideScopesOf, type OutsideAiSettings, type OutsideConnection, type OutsideScope } from "@ember/protocol/outside";
-import {
-  ASSISTANT_MODELS,
-  DEFAULT_LEVELS,
-  isWorkersAiModel,
-  MAX_ASSISTANT_MODELS,
-  modelName,
-  offeredModelOf,
-  searchFormatOf,
-  TOP_LEVELS,
-  webToolsOf,
-  withinMost,
-  type AnswerLevels,
-  type AssistantChanges,
-  type ModelFormat,
-  type OfferedModel,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistant,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, DEFAULT_LEVELS, isWorkersAiModel, MAX_ASSISTANT_MODELS, modelName, offeredModelOf, searchFormatOf, TOP_LEVELS, webToolsOf, withinMost, type AnswerLevels, type AssistantChanges, type ModelFormat, type OfferedModel, type ThinkingLevel, type WebTool, type YourAssistant, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
-import {
-  isAtHost,
-  MAX_APP_SCOPE_LENGTH,
-  MAX_APPS,
-  type App,
-  type AppChanges,
-  type AppId,
-  type AppSummary,
-  type NewApp,
-  type OfferedApp,
-  type SetAsideTool,
-  type ToolPick,
-  type YourApp,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import { isAtHost, MAX_APP_SCOPE_LENGTH, MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick, type YourApp, type YourAppSignedOut } from "@ember/protocol/apps";
 import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/blocked-words";
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
@@ -140,25 +25,12 @@ import type { RelayKey } from "./huddles/relay";
 import type { HuddleApp, RoomHuddles, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import {
-  deployedMemberfulOf,
-  memberfulApiOf,
-  memberfulWebhooksOf,
-  membershipsOf,
-  namelessMember,
-  openMemberfulSecrets,
-  sealMemberfulSecrets,
-  type MemberfulApi,
-  type MemberfulMember,
-  type MemberfulSetup,
-} from "./memberful-api";
+import { deployedMemberfulOf, memberfulApiOf, memberfulWebhooksOf, membershipsOf, namelessMember, openMemberfulSecrets, sealMemberfulSecrets, type MemberfulApi, type MemberfulMember, type MemberfulSetup } from "./memberful-api";
 import { discover, refreshTokens } from "./oidc";
 import { Presence } from "./presence";
 import { sendPushes } from "./push/delivery";
 import { webPush } from "./push/keys";
-import { reminderPayload } from "./push/payload";
-import { sendPushes } from "./push/delivery";
-import { reportPayload } from "./push/payload";
+import { reminderPayload, reportPayload } from "./push/payload";
 import { FixedWindowLimit } from "./rate-limit";
 import { urlOf } from "./request-url";
 import { OPEN_ROOMS_ONLY, sessionTag } from "./revocations";
@@ -178,56 +50,7 @@ import { claimsOf, isAllowed, sameSignInRules, ssoProviderOf, ssoSettingsOf, tol
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
-import {
-  allowingHuddles,
-  NEW_ACCOUNT_LOOKS,
-  WorkspaceStore,
-  type AccountChange,
-  type AgentSetup,
-  type AvatarOwner,
-  type BotKey,
-  type Client,
-  type Connecting,
-  type AssistantPicks,
-  type DeletedAccount,
-  type DirectoryEntry,
-  type Disconnection,
-  type InvitationPush,
-  type JoinableAccount,
-  type LinkedAccount,
-  type LinkedPerson,
-  type LoggedOut,
-  type LoggedOutSessions,
-  type OtherWays,
-  type MovedModel,
-  type NewPerson,
-  type OwnAppSignIn,
-  type OwnProfileEntry,
-  type PendingRevocation,
-  type ProfileEntry,
-  type PushDelivery,
-  type RoomEventDeliveries,
-  type SavedAssistant,
-  type SavedModel,
-  type SavedRoomChange,
-  type SavedSso,
-  type SignInKept,
-  type SignInClient,
-  type StoredAgent,
-  type StoredApp,
-  type StoredAppRead,
-  type AgentToolPicks,
-  type ChangedPicks,
-  type StoredToolPick,
-  type StoredAgentSettings,
-  type StoredBot,
-  type StoredBotSettings,
-  type StoredPushSubscription,
-  type StoredReminder,
-  type StoredReminderRow,
-  type StoredSession,
-  type Welcome,
-} from "./workspace-store";
+import { allowingHuddles, NEW_ACCOUNT_LOOKS, WorkspaceStore, type AccountChange, type AgentSetup, type AgentToolPicks, type AssistantPicks, type AvatarOwner, type BotKey, type ChangedPicks, type Client, type Connecting, type DeletedAccount, type DirectoryEntry, type Disconnection, type InvitationPush, type JoinableAccount, type LinkedAccount, type LinkedPerson, type LoggedOut, type LoggedOutSessions, type MovedModel, type NewPerson, type OtherWays, type OwnAppSignIn, type OwnProfileEntry, type PendingRevocation, type ProfileEntry, type PushDelivery, type RoomEventDeliveries, type SavedAssistant, type SavedModel, type SavedRoomChange, type SavedSso, type SignInClient, type SignInKept, type StoredAgent, type StoredAgentSettings, type StoredApp, type StoredAppRead, type StoredBot, type StoredBotSettings, type StoredPushSubscription, type StoredReminder, type StoredReminderRow, type StoredSession, type StoredToolPick, type Welcome } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -960,8 +783,6 @@ const takesReservedName = (name: string, rename: string) => rename !== name && i
  * the way is open, since one that's closed lets nobody in, and null for anyone else, administrators and
  * the people they invited included, who are let in whatever their membership.
  */
-function membershipChange({ status, membershipNeeded }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {  if (!subscribed && status === "active" && membershipNeeded) return "lapsed";
-  if (subscribed && status === "suspended") return "renewed";
 function membershipChange({ status, membershipNeeded, otherwiseLetIn }: LinkedPerson, subscribed: boolean, open: boolean): "lapsed" | "renewed" | null {
   if (!subscribed && status === "active" && membershipNeeded && !otherwiseLetIn) return "lapsed";
   if (subscribed && status === "suspended" && open) return "renewed";
@@ -3902,7 +3723,7 @@ export class Workspace extends DurableObject<Env> {
    */
   private async pushReport(pushes: Parameters<typeof sendPushes>[1], reporterId: UserId): Promise<void> {
     try {
-      const gone = await sendPushes(this.env, pushes, (id) => this.reports.pushable(id, reporterId));
+      const { gone } = await sendPushes(this.env, pushes, (id) => this.reports.pushable(id, reporterId));
       if (gone.length > 0) await this.forgetPushSubscriptions(gone);
     } catch (error) {
       console.error("Could not push a report", error);
@@ -6008,17 +5829,19 @@ export class Workspace extends DurableObject<Env> {
       const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
       await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
       await this.checkMemberships();
+      await this.checkSsoAccounts();
     } catch (error) {
       console.error("Could not deliver everything due; trying again later", error);
     }
-    const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
-    const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
-    const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
-    await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
-    await this.checkMemberships();
-    await this.checkSsoAccounts();
-    await this.scheduleDelivery();
+    try {
+      const next = await this.store.nextDeliveryDue();
+      if (next !== null) await this.wakeAt(next);
+    } catch (error) {
+      console.error("Could not ask what's due next; waking again shortly", error);
+      await this.wakeAt(Date.now() + SCHEDULING_RETRY_MS);
+    }
   }
+
 
   /**
    * Asks the single sign-on provider again about the accounts linked at it that are due, as many as a run

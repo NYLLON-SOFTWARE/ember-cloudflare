@@ -1,67 +1,5 @@
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  DELETED_PERSON_NAME,
-  MAX_FAVORITES,
-  MAX_OTHER_ADDRESSES,
-  MAX_PUSH_SUBSCRIPTIONS,
-  MAX_SHARED_ORDER,
-  NAVIGATION_SLOTS,
-  PASSWORD_RESET_CODE_TRIES,
-  RECENT_SEARCHES,
-  emailDomainOf,
-  isHost,
-  isRoomIcon,
-  mailboxOf,
-  mailboxText,
-  parseSearch,
-  type Account,
-  type Blocks,
-  type BotChanges,
-  type BotRoom,
-  type ChangedBlocks,
-  type CloseCode,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkKind,
-  type Favorites,
-  type Involvement,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type PersonRole,
-  type Profile,
-  type PushSubscriptionKeys,
-  type Role,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SharedRoom,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-} from "@ember/protocol";
-import {
-  ANSWER_LENGTHS,
-  DEFAULT_LEVELS,
-  MODEL_FORMATS,
-  modelName,
-  modelNameOf,
-  modelOf,
-  THINKING_LEVELS,
-  TOP_LEVELS,
-  WEB_TOOLS,
-  type AnswerLength,
-  type AnswerLevels,
-  type AssistantModel,
-  type ModelFormat,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_ID, ASSISTANT_NAME, DELETED_PERSON_NAME, emailDomainOf, isHost, isRoomIcon, mailboxOf, mailboxText, MAX_FAVORITES, MAX_OTHER_ADDRESSES, MAX_PUSH_SUBSCRIPTIONS, MAX_SHARED_ORDER, NAVIGATION_SLOTS, parseSearch, PASSWORD_RESET_CODE_TRIES, RECENT_SEARCHES, type Account, type Blocks, type BotChanges, type BotRoom, type ChangedBlocks, type CloseCode, type DirectRoom, type EmailInvitation, type EmailLinkKind, type Favorites, type Involvement, type NavigationIconChanges, type NavigationIcons, type PersonRole, type Profile, type PushSubscriptionKeys, type Role, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SharedRoom, type SidebarRoom, type User, type UserId, type UserStatus } from "@ember/protocol";
+import { ANSWER_LENGTHS, DEFAULT_LEVELS, MODEL_FORMATS, modelName, modelNameOf, modelOf, THINKING_LEVELS, TOP_LEVELS, WEB_TOOLS, type AnswerLength, type AnswerLevels, type AssistantModel, type ModelFormat, type ThinkingLevel, type WebTool, type YourAssistantChanges } from "@ember/protocol/assistant";
 import type { AgentAccess, AgentProfile, AgentRoom } from "@ember/protocol/agents";
 import type { AppId } from "@ember/protocol/apps";
 import { ALL_HUDDLE_SOUNDS, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
@@ -4613,40 +4551,23 @@ export class WorkspaceStore {
     );
   }
 
-  /**
-   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or reminder is
-   * due, if any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no
-   * sooner. A reminder whose pushes failed is due once the wait since they did has passed
+    /**
+   * When the outbox's next revocation, purge, reindex, picture deletion, membership check, refresh or
+   * reminder is due, if any is waiting, leaving out the purges waiting on their rooms' revocations, which
+   * are due no sooner. A reminder whose pushes failed is due once the wait since they did has passed
    * (`REMINDER_PUSH_RETRY_MS`); one never tried is due when its time is.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null }>(
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null; refresh: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
         (SELECT min(due_at) FROM membership_catch_ups) AS catchUp,
         (SELECT min(CASE WHEN reminded_at IS NULL OR push_tried_at IS NULL THEN remind_at ELSE push_tried_at + ? END)
-          FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder`,
+          FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder,
+        (SELECT min(refresh_due_at) FROM identities) AS refresh`,
       REMINDER_PUSH_RETRY_MS,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder].filter((time) => typeof time === "number");
-   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or refresh is due, if
-   * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
-   */
-  async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{
-      revocation: number | null;
-      purge: number | null;
-      reindex: number | null;
-      picture: number | null;
-      membership: number | null;
-      catchUp: number | null;
-      refresh: number | null;
-    }>(
-      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
-        (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (SELECT min(refresh_due_at) FROM identities) AS refresh`,
-    );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.refresh].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder, row?.refresh].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 

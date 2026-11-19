@@ -1,22 +1,7 @@
-import {
-  useContext,
-  useEffect,
-  useEffectEvent,
-  useId,
-  useImperativeHandle,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-  type MouseEvent,
-  type ReactElement,
-  type Ref,
-  type RefObject,
-} from "react";
+import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactElement, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Timer, Trash } from "@/components/icons/iconoir";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
+import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Timer, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -488,6 +473,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                   <Timer />
                 </button>
               </ActionTooltip>
+            )}
             {!overlapping && block && <BlockButton message={message} blocked={block.blocked} onClick={changeBlock} />}
             {!overlapping && onReport && (
               <button type="button" aria-label="Report message" className={ACTION} onClick={report}>

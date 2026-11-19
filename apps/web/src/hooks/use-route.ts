@@ -1,25 +1,11 @@
 import { useMemo, useSyncExternalStore } from "react";
-import {
-  EMAIL_SIGN_UP_PATH,
-  INVITATION_PATH,
-  KIND_SEGMENTS,
-  messagePath,
-  threadPath,
-  workspacePageOf,
-  type Message,
-  type RoomAccess,
-  type RoomId,
-  type RoomKind,
-  type UserId,
-  type WorkspacePage,
-} from "@ember/protocol";
+import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, KIND_SEGMENTS, messagePath, threadPath, workspacePageOf, type Message, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
 
 // The app's few pages, at Campfire's addresses where it has them, which @ember/protocol lists for the
 // Worker too: a small typed router over the History API rather than a library. A page with changes to
 // lose can hold the app on it by guarding against leaving.
 
-export { BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, messagePath, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
-export { BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, HUDDLES_PATH, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, HUDDLES_PATH, messagePath, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;

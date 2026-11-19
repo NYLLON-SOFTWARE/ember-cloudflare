@@ -23,45 +23,32 @@ const DEADLINE_MS = 30_000;
 const encoder = new TextEncoder();
 
 /**
- * Sends `pushes`, as long as Web Push is on, and answers the subscriptions to forget: those whose push
- * service said they're gone (404 or 410), and those whose keys no push can be encrypted for, and how
- * many pushes failed otherwise, which it logs, and the subscriptions a push went out to, so what sends
- * the same deliveries again can leave these out. An endpoint that's no longer at a permitted push service
- * is skipped, as if its push were sent, and so is a subscription `pushable` says may no longer
- * have pushes, asked just before each is sent: a push can wait its turn while its person is banned. A
- * check that can't be asked keeps its push from going, and counts it among the failures, which waits to
- * be tried again rather than counting as sent. `send` stands in for `fetch` in tests.
+ * Sends each push `pushes` holds to its deliveries, one at a time as far as the push service allows, and
+ * answers those whose push service said they're gone (404 or 410), those whose keys no push can be
+ * encrypted for, and the count of any other failure. An endpoint that's no longer at a permitted push
+ * service is skipped, and so is a subscription `pushable` says may no longer have pushes, asked just
+ * before each is sent: a push can wait its turn while its person is banned. A check that can't be asked
+ * counts among the failures, which wait to be tried again rather than counting as sent. A push service
+ * keeps an invitation's push as long as the invitation says, and a message's for weeks. `send` stands in
+ * for `fetch` in tests.
  */
-export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Pushable, send: typeof fetch = fetch): Promise<{ gone: number[]; delivered: number[]; failed: number }> {
+export async function sendPushes(env: Env, pushes: Array<MessagePush | InvitationPush>, pushable: Pushable, send: typeof fetch = fetch): Promise<{ gone: number[]; delivered: number[]; failed: number }> {
   const push = await webPush(env);
   if (!push.on) return { gone: [], delivered: [], failed: 0 };
-  const deliveries = pushes.flatMap(({ payload, deliveries }) => deliveries.map((delivery) => ({ message: encodedPush(payload, delivery.badge), delivery })));
+  const deliveries = pushes.flatMap((pushed) => {
+    const ttl = "ttl" in pushed ? pushed.ttl : TTL_SECONDS;
+    return pushed.deliveries.map((delivery) => ({ message: encodedPush(pushed.payload, delivery.badge), delivery, ttl }));
+  });
   const gone: number[] = [];
   const delivered: number[] = [];
   let failed = 0;
-  await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery }) => {
+  await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery, ttl }) => {
     const may = await mayPush(pushable, delivery.subscriptionId);
     if (may === null) {
       failed++;
       return;
     }
     if (!may) return;
- * service said they're gone (404 or 410), and those whose keys no push can be encrypted for. Any other
- * failure is logged. An endpoint that's no longer at a permitted push service is skipped, and so is a
- * subscription `pushable` says may no longer have pushes, or can't say about, asked just before each is
- * sent: a push can wait its turn while its person is banned. A push service keeps an invitation's push
- * as long as the invitation says, and a message's for weeks. `send` stands in for `fetch` in tests.
- */
-export async function sendPushes(env: Env, pushes: Array<MessagePush | InvitationPush>, pushable: Pushable, send: typeof fetch = fetch): Promise<number[]> {
-  const push = await webPush(env);
-  if (!push.on) return [];
-  const deliveries = pushes.flatMap((pushed) => {
-    const ttl = "ttl" in pushed ? pushed.ttl : TTL_SECONDS;
-    return pushed.deliveries.map((delivery) => ({ message: encodedPush(pushed.payload, delivery.badge), delivery, ttl }));
-  });
-  const gone: number[] = [];
-  await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery, ttl }) => {
-    if (!(await mayPush(pushable, delivery.subscriptionId))) return;
     try {
       await deliver(message, delivery, ttl, push.keys, subjectOf(env), send);
     } catch (error) {
