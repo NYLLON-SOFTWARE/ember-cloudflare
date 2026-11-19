@@ -272,7 +272,7 @@ async function called(id: unknown, name: string, args: Record<string, unknown>, 
     case "get_thread":
       return threadAnswer(id, args, user, env, request);
     case "get_people":
-      return resultOf(id, { people: await listedPeople(env) });
+      return resultOf(id, { people: await listedPeople(user, env) });
     case "post_message":
       return postAnswer(id, args, user, env, request);
     default:
@@ -404,8 +404,8 @@ async function threadAnswer(id: unknown, args: Record<string, unknown>, user: Us
 }
 
 /** The directory, as the token's person sees it: who's there, not where they are. */
-async function listedPeople(env: Env) {
-  const people = await workspace(env).apiTokenDirectory();
+async function listedPeople(user: User, env: Env) {
+  const people = await workspace(env).apiTokenDirectory(user.id);
   return people.slice(0, PEOPLE_LIMIT).map(({ id, name, role, status }) => ({ id, name, role, status }));
 }
 

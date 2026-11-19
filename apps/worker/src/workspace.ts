@@ -3456,8 +3456,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** Everyone in the workspace, deactivated and banned people too, for an API token's person, as the directory lists them. */
-  async apiTokenDirectory(): Promise<DirectoryEntry[]> {
-    return this.store.directory();
+  async apiTokenDirectory(userId: UserId): Promise<DirectoryEntry[]> {
+    return this.store.directory(userId);
   }
 
   /**
