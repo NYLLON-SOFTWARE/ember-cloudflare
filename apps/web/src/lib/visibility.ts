@@ -1,3 +1,5 @@
+
+
 /**
  * How long the tab has to stay shown or hidden before the change counts, as Campfire's
  * presence_controller.js waits (`VISIBILITY_CHANGE_DELAY`), so a glance at another tab changes nothing.

@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { parseArgs } from "node:util";
 import { LOCAL_SCENARIOS, runBackend, SCENARIOS, type Scenario } from "./backend.ts";
 import { compare } from "./compare.ts";
@@ -8,6 +7,7 @@ import { PROFILES } from "./profiles.ts";
 import { markdownReport, type Results } from "./report.ts";
 import { existingServer, stateRoot, STORAGES, type Storage } from "./server.ts";
 import { runWeb } from "./web.ts";
+import path from "node:path";
 
 const USAGE = `Usage: pnpm perf [backend] [web] [options]
        pnpm perf compare <before.json> <after.json> [--threshold 10]

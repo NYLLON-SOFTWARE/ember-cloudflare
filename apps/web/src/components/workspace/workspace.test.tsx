@@ -1,5 +1,4 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings, AvailableAgent } from "@ember/protocol/agents";
@@ -18,7 +17,8 @@ import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
-import { Workspace, loadPageAhead } from "./workspace";
+import { loadPageAhead, Workspace } from "./workspace";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 // A huddle's own tests join one. Here joining shows the tab as in the huddle, as a test has it.
@@ -1041,6 +1041,145 @@ describe("Rail", () => {
     expect(railCurrent()).toEqual(["Home"]);
     await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
     expect(railCurrent()).toEqual(["Workspace"]);
+  });
+});
+
+describe("Saved pane", () => {
+  const grace = { id: "u2", name: "Grace" };
+  const said: Message = { id: "m1", clientMessageId: "m1", roomId: "general", creator: grace, body: "For later", plainText: "For later", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
+  /** A room's socket, which keeps what it's sent, and which the test lets in. */
+  class RoomSocket {
+    static readonly OPEN = 1;
+    static last: RoomSocket | null = null;
+    readyState = 0;
+    sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(readonly url: string) {
+      if (url.includes("/api/rooms/")) RoomSocket.last = this;
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {}
+    letIn(page: Partial<TimelinePage> = {}) {
+      act(() => {
+        this.readyState = RoomSocket.OPEN;
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, ...page }) });
+      });
+    }
+  }
+  /** Where the pane covers the room instead of sitting beside it. */
+  const coversRoom = () =>
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));
+
+  it("opens beside the room, and closes when a Jump is followed, which covers the message below 1180px wide", async () => {
+    serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    await user.click(within(pane).getByRole("link", { name: "Jump" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
+    expect(location.pathname).toBe("/rooms/general/@m1");
+  });
+
+  it("takes focus when it opens, and leaves nothing of the room to reach behind it where it covers it", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/rooms/general");
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).not.toHaveAttribute("inert");
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(within(pane).getByRole("button", { name: "Close saved messages" })).toHaveFocus();
+    const composer = screen.getByRole("textbox", { name: "Write a message" });
+    expect(composer.closest("[inert]")).not.toBeNull();
+    // Closing it gives the room back.
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
+    expect(composer.closest("[inert]")).toBeNull();
+  });
+
+  it("opens the room it goes on to without reading it while the pane covers it, and reads it once it closes", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    coversRoom();
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/account/edit");
+    expect(await communitySettings()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    expect(location.pathname).toBe("/rooms/general");
+    const room = RoomSocket.last!;
+    // The pane covers the room, which opens as a hidden tab's would: reading nothing, counting as away.
+    expect(room.url).toContain("visible=0");
+    room.letIn();
+    // The room reads nothing while the pane covers it: the welcome already said it isn't visible, so
+    // no frame says so again.
+    expect(room.sent).toEqual([]);
+    await user.click(within(pane).getByRole("button", { name: "Close saved messages" }));
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "presence.visible", visible: true }));
+    expect(room.sent).not.toContainEqual({ type: "presence.visible", visible: false });
+  });
+
+  it("opens again with one press from a page it doesn't show on, where the pane went with the room it was open beside", async () => {
+    serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    // Off to workspace settings, which the pane doesn't show on: it leaves, and Saved counts as closed.
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    expect(await communitySettings()).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    expect(screen.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("takes a thread's place as it opens, which closes the thread and has its replies reach this person as pushes again", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    room.letIn();
+    act(() => navigate("/rooms/general/threads/m1"));
+    expect(await screen.findByRole("complementary", { name: "Thread" })).toBeInTheDocument();
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" }));
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    // The thread is gone with its address, which the room hears of as its replies reaching this person again.
+    expect(screen.queryByRole("complementary", { name: "Thread" })).not.toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.close", parentId: "m1" }));
+  });
+
+  it("counts the room it covers as unread still, in the sidebar and Activity both", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    coversRoom();
+    const markedGeneral: SidebarRoom = { ...rooms[0]!, unread: true, involvement: "mentions" };
+    const badges = badgeTheApp();
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([markedGeneral, rooms[1]!])),
+      "GET /api/saves": () => Response.json({ saves: [] }),
+    });
+    const { user } = showWorkspace("/account/edit");
+    expect(await communitySettings()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    // The pane went on to the last room and covers it, which counts as unread still, though its address is the page's.
+    expect(await screen.findByRole("complementary", { name: "Saved" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    const roomsListed = within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" });
+    const general = within(roomsListed).getByRole("link", { name: /general/ });
+    expect(general).toHaveAttribute("aria-current", "page");
+    expect(general).toHaveAccessibleDescription(/Unread/);
+    expect(general).toHaveClass("font-[650]");
+    expect(screen.getByRole("button", { name: "Activity" })).toHaveAccessibleDescription("1 unread");
+    await waitFor(() => expect(badges).toEqual([1]));
   });
 });
 

@@ -1,67 +1,5 @@
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  DELETED_PERSON_NAME,
-  MAX_FAVORITES,
-  MAX_OTHER_ADDRESSES,
-  MAX_PUSH_SUBSCRIPTIONS,
-  MAX_SHARED_ORDER,
-  NAVIGATION_SLOTS,
-  PASSWORD_RESET_CODE_TRIES,
-  RECENT_SEARCHES,
-  emailDomainOf,
-  isHost,
-  isRoomIcon,
-  mailboxOf,
-  mailboxText,
-  parseSearch,
-  type Account,
-  type Blocks,
-  type BotChanges,
-  type BotRoom,
-  type ChangedBlocks,
-  type CloseCode,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkKind,
-  type Favorites,
-  type Involvement,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type PersonRole,
-  type Profile,
-  type PushSubscriptionKeys,
-  type Role,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SharedRoom,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-} from "@ember/protocol";
-import {
-  ANSWER_LENGTHS,
-  DEFAULT_LEVELS,
-  MODEL_FORMATS,
-  modelName,
-  modelNameOf,
-  modelOf,
-  THINKING_LEVELS,
-  TOP_LEVELS,
-  WEB_TOOLS,
-  type AnswerLength,
-  type AnswerLevels,
-  type AssistantModel,
-  type ModelFormat,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_ID, ASSISTANT_NAME, DELETED_PERSON_NAME, emailDomainOf, isHost, isRoomIcon, mailboxOf, mailboxText, MAX_FAVORITES, MAX_OTHER_ADDRESSES, MAX_PUSH_SUBSCRIPTIONS, MAX_SAVES, MAX_SHARED_ORDER, NAVIGATION_SLOTS, parseSearch, PASSWORD_RESET_CODE_TRIES, RECENT_SEARCHES, type Account, type Blocks, type BotChanges, type BotRoom, type ChangedBlocks, type CloseCode, type DirectRoom, type EmailInvitation, type EmailLinkKind, type Favorites, type Involvement, type NavigationIconChanges, type NavigationIcons, type PersonRole, type Profile, type PushSubscriptionKeys, type Role, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type SavedMessage, type Search, type SharedRoom, type SidebarRoom, type User, type UserId, type UserStatus } from "@ember/protocol";
+import { ANSWER_LENGTHS, DEFAULT_LEVELS, MODEL_FORMATS, modelName, modelNameOf, modelOf, THINKING_LEVELS, TOP_LEVELS, WEB_TOOLS, type AnswerLength, type AnswerLevels, type AssistantModel, type ModelFormat, type ThinkingLevel, type WebTool, type YourAssistantChanges } from "@ember/protocol/assistant";
 import type { AgentAccess, AgentProfile, AgentRoom } from "@ember/protocol/agents";
 import type { AppId } from "@ember/protocol/apps";
 import { ALL_HUDDLE_SOUNDS, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
@@ -2976,6 +2914,34 @@ const TRIM_PUSH_SUBSCRIPTIONS = `DELETE FROM push_subscriptions WHERE user_id = 
 const FORGET_SESSION_PUSH_ENDPOINT = `DELETE FROM push_subscriptions
   WHERE user_id = (SELECT user_id FROM sessions WHERE token_digest = ?1) AND endpoint = ?2`;
 
+/**
+ * Saves a message for later for someone, unless they have it saved already, which the WHERE leaves
+ * alone. In one batch with the count of what it added and the trim that keeps no more than the newest
+ * MAX_SAVES, since they read each other's writes and D1 has no other kind of transaction.
+ */
+const SAVE_MESSAGE = `INSERT INTO saves (id, user_id, room_id, message_id, created_at)
+  SELECT ?1, ?2, ?3, ?4, ?5
+  WHERE NOT EXISTS (SELECT 1 FROM saves WHERE user_id = ?2 AND room_id = ?3 AND message_id = ?4)`;
+
+/** How many rows the statement before it added: 1 when it saved the message, 0 when it was saved already. */
+const SAVE_MESSAGE_COUNT = `SELECT changes() AS inserted`;
+
+/** Someone's saves, newest save first, at most the MAX_SAVES they saved most recently, as the index on (user_id, created_at) reads them, ties as the trim that keeps the newest reads them. */
+const SAVES_FOR_USER = `SELECT id, room_id, message_id, created_at FROM saves WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`;
+
+/** Deletes someone's save ?2, if it's theirs. */
+const FORGET_SAVE = `DELETE FROM saves WHERE id = ?1 AND user_id = ?2`;
+
+/** The number of rows the statement before it deleted. */
+const FORGET_SAVE_COUNT = `SELECT changes() AS gone`;
+
+/** Deletes the saves `ids` name, which an answer about someone's saves has dropped: the messages are gone, or their rooms are. */
+const FORGET_SAVES = `DELETE FROM saves WHERE id IN (SELECT value FROM json_each(?))`;
+
+/** Forgets someone's saves past the ?2 they saved most recently, so that saving on can't have the list every page load asks for grow without end. */
+const TRIM_SAVES = `DELETE FROM saves WHERE user_id = ?1
+  AND id NOT IN (SELECT id FROM saves WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2)`;
+
 /** Gives someone a role and records when. */
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
 
@@ -4918,6 +4884,40 @@ export class WorkspaceStore {
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */
   async forgetPushSubscriptions(ids: number[]): Promise<void> {
     await this.db.run(`DELETE FROM push_subscriptions WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(ids));
+  }
+
+  /**
+   * Saves the message `messageId` of room `roomId` for later for someone, answering the save, or null
+   * once they have it saved already. The insert, its count and the trim that keeps no more than the
+   * newest MAX_SAVES run as one batch, so two asks at once save it once.
+   */
+  async saveMessage(userId: UserId, roomId: RoomId, messageId: string, now: number): Promise<SavedMessage | null> {
+    const id = crypto.randomUUID();
+    // The insert's own cursor has no rows; the count's has the one.
+    const [, [{ inserted }]] = (await this.db.batch([
+      statement(SAVE_MESSAGE, id, userId, roomId, messageId, now),
+      statement(SAVE_MESSAGE_COUNT),
+      statement(TRIM_SAVES, userId, MAX_SAVES),
+    ])) as [[], [{ inserted: number }]];
+    return inserted === 1 ? { id, roomId, messageId, createdAt: now } : null;
+  }
+
+  /** The messages someone has saved for later, newest save first, at most the MAX_SAVES they saved most recently. */
+  async savesOf(userId: UserId): Promise<SavedMessage[]> {
+    const rows = await this.db.all<{ id: string; room_id: RoomId; message_id: string; created_at: number }>(SAVES_FOR_USER, userId, MAX_SAVES);
+    return rows.map(({ id, room_id, message_id, created_at }) => ({ id, roomId: room_id, messageId: message_id, createdAt: created_at }));
+  }
+
+  /** Deletes someone's save `id`, answering whether it was theirs to forget. */
+  async forgetSave(userId: UserId, id: string): Promise<boolean> {
+    const [, [{ gone }]] = (await this.db.batch([statement(FORGET_SAVE, id, userId), statement(FORGET_SAVE_COUNT)])) as [[], [{ gone: number }]];
+    return gone === 1;
+  }
+
+  /** Forgets the saves with `ids`, whose messages are gone or whose rooms their person can no longer see. */
+  async forgetSaves(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.db.run(FORGET_SAVES, JSON.stringify(ids));
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {

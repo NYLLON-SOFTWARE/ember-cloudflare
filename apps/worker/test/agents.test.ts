@@ -1,30 +1,5 @@
-import {
-  ASSISTANT_ID,
-  NAME_RESERVED,
-  USERNAME_TAKEN,
-  type Directory,
-  type DirectoryUser,
-  type Me,
-  type NewWorkspace,
-  type PersonAnswer,
-  type RoomId,
-  type UserId,
-  type WorkspaceSettings,
-} from "@ember/protocol";
-import {
-  AGENT_CHANGED,
-  AGENT_SET_UP_AGAIN,
-  agentCannotSearchWith,
-  AGENTS_FORBIDDEN,
-  AGENTS_FULL,
-  agentsName,
-  MAX_AGENTS,
-  NAME_TAKEN,
-  type AgentAnswer,
-  type Agents,
-  type AgentSettings,
-  type NewAgent,
-} from "@ember/protocol/agents";
+import { ASSISTANT_ID, NAME_RESERVED, USERNAME_TAKEN, type Directory, type DirectoryUser, type Me, type NewWorkspace, type PersonAnswer, type RoomId, type UserId, type WorkspaceSettings } from "@ember/protocol";
+import { AGENT_CHANGED, AGENT_SET_UP_AGAIN, agentCannotSearchWith, AGENTS_FORBIDDEN, AGENTS_FULL, agentsName, MAX_AGENTS, NAME_TAKEN, type AgentAnswer, type Agents, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
 import { ASSISTANT_FORBIDDEN, ASSISTANT_OFF, MODEL_REFUSED, THINKING_LEVELS, type AssistantChanged } from "@ember/protocol/assistant";
 import { AGENT_TEMPLATE, EMBER_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED } from "@ember/protocol/prompts";
 import type { BotAnswer, Bots } from "@ember/protocol/bots";
@@ -34,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentAnsweredUnsearched } from "../src/assistant/agents";
 import type { Db, Statement } from "../src/db";
 import type { Workspace } from "../src/workspace";
-import notFoundPage from "../../web/public/404.html";
 import { agentWithKeptModel, api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, origin, recordedImage, shown, workspaceSql, workspaceStub, type KeptModel, type Session, type WorkspaceSocket } from "./support";
+import notFoundPage from "../../web/public/404.html";
 
 // The AI agents administrators make beside @ember on the AI assistant tab, each a bot without a key that
 // answers with its own instructions and model, and the instructions administrators add to @ember's own.

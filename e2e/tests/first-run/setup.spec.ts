@@ -1,8 +1,7 @@
 import type { Bootstrap } from "@ember/protocol";
 import { APP_SECRET_UNKNOWN } from "@ember/protocol/huddles";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, drawnPicture, SAME_ORIGIN, shownPicture, variantType } from "../../fixtures";
+import { ADMINISTRATOR, drawnPicture, expect, SAME_ORIGIN, shownPicture, test, variantType } from "../../fixtures";
 import { SETUP_TOKEN } from "../../projects/first-run";
 import { AI_GATEWAY_ACCOUNT, SETTINGS_FIRST_RUN, SFU_APP } from "../../projects/workspace-settings";
 import { startFakeSfu } from "../workspace-settings/fake-sfu";

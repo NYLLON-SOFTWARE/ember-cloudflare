@@ -1,17 +1,5 @@
 import { HISTORY_PAGE_SIZE, MAX_SEARCH_LENGTH, MESSAGE_TOO_LONG, type BotAnswer, type Me, type Message, type NewWorkspace, type ProfileAnswer, type RoomId, type WorkspaceSettings } from "@ember/protocol";
-import {
-  MAX_OUTSIDE_CONNECTIONS,
-  OUTSIDE_ASK_REFUSED,
-  OUTSIDE_CONNECTION_GONE,
-  OUTSIDE_FORBIDDEN,
-  OUTSIDE_FULL,
-  OUTSIDE_GUEST,
-  OUTSIDE_OFF,
-  type OutsideAnswered,
-  type OutsideAsk,
-  type OutsideAsked,
-  type YourOutsideAi,
-} from "@ember/protocol/outside";
+import { MAX_OUTSIDE_CONNECTIONS, OUTSIDE_ASK_REFUSED, OUTSIDE_CONNECTION_GONE, OUTSIDE_FORBIDDEN, OUTSIDE_FULL, OUTSIDE_GUEST, OUTSIDE_OFF, type OutsideAnswered, type OutsideAsk, type OutsideAsked, type YourOutsideAi } from "@ember/protocol/outside";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_MARKDOWN_LENGTH } from "../src/bots/markdown";
 import { ChatRoom } from "../src/chat-room";

@@ -1,3 +1,5 @@
+
+
 // What Ember keeps of a message body when it's written: the canonical markup, its plain text and
 // whom it mentions (Ember's rich-text design: sanitize on write, render on the client).
 

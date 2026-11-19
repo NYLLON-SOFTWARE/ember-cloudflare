@@ -1,3 +1,5 @@
+
+
 // Link previews: the attachment Campfire's composer adds below a link it unfurls
 // (app/javascript/controllers/unfurl_controller.js), and how a message that is only that link shows just
 // its preview (app/helpers/content_filters/remove_solo_unfurled_link_text.rb).

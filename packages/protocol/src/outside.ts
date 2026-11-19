@@ -1,3 +1,5 @@
+
+
 // Outside AI: the AI apps, such as Claude and ChatGPT, that people connect to Ember over the Model
 // Context Protocol (https://modelcontextprotocol.io), to read it as them and, where they let it, to
 // send messages as them, in the rooms open to everyone, and in their direct messages and private rooms

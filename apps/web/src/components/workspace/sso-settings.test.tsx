@@ -1,9 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SSO_FORBIDDEN, type SsoSettings } from "@ember/protocol/sso";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_FORGET_SSO, SingleSignOnSettings } from "./sso-settings";
+import userEvent from "@testing-library/user-event";
 
 const SAVED: SsoSettings = {
   source: "saved",

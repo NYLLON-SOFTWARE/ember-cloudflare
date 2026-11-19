@@ -1,17 +1,4 @@
-import {
-  MAX_ACCOUNT_NAME_LENGTH,
-  MAX_TAGLINE_LENGTH,
-  NAVIGATION_ICONS_REFUSED,
-  TAGLINE_TOO_LONG,
-  type Account,
-  type Bootstrap,
-  type EmailSettings,
-  type Me,
-  type NewJoinCode,
-  type NewWorkspace,
-  type Sidebar,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { MAX_ACCOUNT_NAME_LENGTH, MAX_TAGLINE_LENGTH, NAVIGATION_ICONS_REFUSED, TAGLINE_TOO_LONG, type Account, type Bootstrap, type EmailSettings, type Me, type NewJoinCode, type NewWorkspace, type Sidebar, type WorkspaceSettings } from "@ember/protocol";
 import { TOP_LEVELS } from "@ember/protocol/assistant";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";

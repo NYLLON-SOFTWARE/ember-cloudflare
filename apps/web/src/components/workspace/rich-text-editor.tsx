@@ -497,3 +497,4 @@ export default function RichTextEditor({
 
   return <div ref={host} className="contents" />;
 }
+

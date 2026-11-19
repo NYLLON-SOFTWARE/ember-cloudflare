@@ -1,7 +1,6 @@
 import { SIGN_IN_LIMITED, type Directory } from "@ember/protocol";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, editorField, newAddress, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, editorField, expect, newAddress, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 
 /** The sign-in page's heading, which names the workspace, which another test here may have renamed. */

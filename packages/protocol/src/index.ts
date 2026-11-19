@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -199,6 +201,7 @@ export {
   type SearchResults,
   type SearchSort,
 } from "./search.ts";
+export { MAX_SAVES, parseSave, type SavedItem, type SavedItems, type SavedMessage, type SaveMade } from "./saves.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -1938,6 +1941,8 @@ export type WorkspaceServerFrame =
   | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
   | { type: "invitation.dismissed" }
+  /** They've saved a message or removed a save, in this tab or another, so their saves are asked again. Sent only to them. */
+  | { type: "saves.changed" }
   /**
    * An administrator saved the shared room order, so the sidebar loads again. It names no rooms, since
    * some aren't everyone's. Sent to everyone, and to the people a room the order ranks takes in, whose

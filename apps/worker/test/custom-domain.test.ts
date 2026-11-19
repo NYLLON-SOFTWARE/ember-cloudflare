@@ -1,17 +1,4 @@
-import {
-  CUSTOM_DOMAIN_NOT_A_HOST,
-  NOT_A_CUSTOM_DOMAIN,
-  type Account,
-  type BotAnswer,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type BotSettings,
-  type Bootstrap,
-  type EmberAddresses,
-  type NewWorkspace,
-  type RoomId,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type Bootstrap, type BotAnswer, type BotSettings, type CustomDomainCheck, type CustomDomainLookup, type EmberAddresses, type NewWorkspace, type RoomId, type WorkspaceSettings } from "@ember/protocol";
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cantGoBackTo, cantUse, NOT_THIS_ADDRESS, PROBE_ANSWER_HEADER } from "../src/custom-domain";

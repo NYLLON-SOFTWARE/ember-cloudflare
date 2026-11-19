@@ -1,20 +1,5 @@
 import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  CloseCode,
-  HISTORY_PAGE_SIZE,
-  isInRoom,
-  isMessageTooLong,
-  MAX_CHECKED_MESSAGES,
-  MAX_MESSAGE_HTML_LENGTH,
-  MESSAGE_TOO_LONG,
-  parseServerFrame,
-  workspacePageOf,
-  type ClientFrame,
-  type Me,
-  type Message,
-  type ServerFrame,
-  type User,
-} from "@ember/protocol";
+import { CloseCode, HISTORY_PAGE_SIZE, isInRoom, isMessageTooLong, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MESSAGE_TOO_LONG, parseServerFrame, workspacePageOf, type ClientFrame, type Me, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import type { AddPreview } from "@/components/workspace/composer";
 import type { MessageActions } from "@/components/workspace/message-item";
@@ -119,9 +104,11 @@ export function openRoomSocketAhead(pathname: string): () => void {
  * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
  * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
  * or whoever another tab signed in as. `openedAt` is the message whose permalink opened the room, which
- * the timeline starts around.
+ * the timeline starts around. `viewing` says whether the page counts as looking at the room, which a
+ * pane covering it, as Saved does below 1180px wide, says no to, so what's said goes unread until it
+ * closes.
  */
-export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void, openedAt?: string) {
+export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void, openedAt?: string, viewing = true) {
   const [state, dispatch, latest] = useLatestReducer(roomReducer, () => initialRoomState);
   const [around] = useState(openedAt);
   const socket = useRef<ReconnectingSocket | null>(null);
@@ -129,6 +116,11 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
+  // Whether the page counts as looking at the room, as `viewing` says now, which the room's socket
+  // effect reads when it opens the socket and tells the room of when it changes.
+  const viewingRef = useRef(viewing);
+  // Tells the room of a change of the above, once the room's socket effect has something to tell with.
+  const retellViewing = useRef<(() => void) | null>(null);
   // What this page left unsent here when the room was last left waits in the timeline again, to go, or
   // show as not sent, as it would have had the room stayed open.
   const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me));
@@ -170,13 +162,17 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     // The permalink's message, until the room has opened the timeline: a socket that connects again keeps it as it is.
     let openingAround = around;
 
-    // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
-    // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
+    // Tells the room whether the page is looking at it, unless its socket's address or an earlier frame
+    // said so already. Until the room lets the socket in, the welcome tells it. The tab's own change
+    // counts once it has stayed that way for a while; a pane starting or stopping covering the room
+    // counts at once, as looking away for a moment does.
     let told: boolean;
     const tellVisibility = (visible: boolean) => {
       if (visible !== told && room.send({ type: "presence.visible", visible })) told = visible;
     };
-    const visibility = settledVisibility(tellVisibility);
+    const visibility = settledVisibility((shown) => tellVisibility(shown && viewingRef.current));
+    const lookingAtRoom = () => visibility.visible && viewingRef.current;
+    retellViewing.current = () => tellVisibility(lookingAtRoom());
 
     // Asks who this browser is signed in as now and hands over to them, or to sign in, unless it's still
     // this person or it can't tell, when it does `then`. A session check that answers once this room
@@ -209,7 +205,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       if (frame.type !== "message.created" || isInRoom(frame.message)) dispatch({ type: "frame", frame, now: Date.now() });
       if (opening) {
         room.connected();
-        tellVisibility(visibility.visible);
+        tellVisibility(lookingAtRoom());
         checkUnconfirmed(room, frame.messages);
         sendQueued(room, frame);
       }
@@ -252,7 +248,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
           told = false;
           return ahead;
         }
-        return roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen, around: openingAround });
+        return roomSocketUrl(roomId, { visible: (told = lookingAtRoom()), since: seen, around: openingAround });
       },
       onMessage,
       onConnecting: (status) => dispatch({ type: "status", status }),
@@ -268,10 +264,18 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       visibility.stop();
       room.close();
       socket.current = null;
+      retellViewing.current = null;
       // Leaving the room loses none of what was written here: the outbox sends what hasn't gone.
       handOver(roomId, leftUnsent(latest.current));
     };
   }, [roomId, around]);
+
+  // The room hears of the pane starting and stopping covering it as of a change of the tab's own, so
+  // that what's said while it's covered goes unread, and closing it reads the room that shows again.
+  useEffect(() => {
+    viewingRef.current = viewing;
+    retellViewing.current?.();
+  }, [viewing]);
 
   const send = useCallback((frame: ClientFrame) => socket.current?.send(frame) ?? false, []);
   const frames = useMemo<RoomFrames>(

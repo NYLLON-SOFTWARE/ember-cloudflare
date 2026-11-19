@@ -1,144 +1,10 @@
-import {
-  AVATAR_PATH,
-  LOGO_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  roomSocketQuery,
-  searchQuery,
-  WORKSPACE_PRELOADS,
-  workspaceSocketQuery,
-  type Account,
-  type AccountChanges,
-  type AccountDeletion,
-  type AssistantChanged,
-  type AssistantChanges,
-  type AssistantForgotten,
-  type AssistantKeys,
-  type AssistantSaved,
-  type AssistantSetup,
-  type Bootstrap,
-  type Bot,
-  type BotAnswer,
-  type BotChanges,
-  type Bots,
-  type BotSettings,
-  type ChangedBlocks,
-  type ChangedPerson,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type CustomDomainReach,
-  type CustomStyles,
-  type DirectRoom,
-  type Directory,
-  type DirectoryUser,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailLinkRequest,
-  type EmailLinkSignUp,
-  type EmailSettings,
-  type Favorites,
-  type HuddleRelaySetup,
-  type HuddleSoundChanges,
-  type HuddleSounds,
-  type HuddleSoundsChanged,
-  type HuddlesForgotten,
-  type HuddlesSaved,
-  type HuddlesSettings,
-  type HuddlesSetup,
-  type InvitationOutcome,
-  type Invited,
-  type Involvement,
-  type LinkPreview,
-  type LinkSignIn,
-  type Me,
-  type MemberfulConnection,
-  type MemberfulConnectionStart,
-  type MemberfulDisconnection,
-  type NewAssistantModel,
-  type OfferedModels,
-  type NewDirect,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewBot,
-  type NewWorkspace,
-  type OpenSignUp,
-  type PastHuddle,
-  type PastHuddles,
-  type PasswordResetDone,
-  type PasswordResetRequest,
-  type PasswordResetWithCode,
-  type PasswordSignIn,
-  type PersonAnswer,
-  type PersonRole,
-  type ProfileAnswer,
-  type ProfileChanges,
-  type PushSubscriptionKeys,
-  type PushSubscriptionSave,
-  type PushSubscriptions,
-  type ReleaseCheck,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomSettings,
-  type RoomSocketParams,
-  type SavedPushSubscription,
-  type Search,
-  type SearchResults,
-  type SearchSort,
-  type SendingDomainCheck,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SignOut,
-  type SignUp,
-  type StartedDirect,
-  type TurnstileKeysChange,
-  type TurnstileSettings,
-  type UserId,
-  type WebSearchChanged,
-  type WorkspaceSettings,
-  type WorkspaceSocketParams,
-  type YourAssistantChanged,
-  type YourAssistantChanges,
-} from "@ember/protocol";
+import { AVATAR_PATH, LOGO_PATH, MEMBERFUL_CONNECTIONS_PATH, roomSocketQuery, searchQuery, WORKSPACE_PRELOADS, workspaceSocketQuery, type Account, type AccountChanges, type AccountDeletion, type AssistantChanged, type AssistantChanges, type AssistantForgotten, type AssistantKeys, type AssistantSaved, type AssistantSetup, type Bootstrap, type Bot, type BotAnswer, type BotChanges, type Bots, type BotSettings, type ChangedBlocks, type ChangedPerson, type CustomDomainCheck, type CustomDomainLookup, type CustomDomainReach, type CustomStyles, type Directory, type DirectoryUser, type DirectRoom, type EmailLinkFor, type EmailLinkKind, type EmailLinkRequest, type EmailLinkSignUp, type EmailSettings, type Favorites, type HuddleRelaySetup, type HuddlesForgotten, type HuddleSoundChanges, type HuddleSounds, type HuddleSoundsChanged, type HuddlesSaved, type HuddlesSettings, type HuddlesSetup, type InvitationOutcome, type Invited, type Involvement, type LinkPreview, type LinkSignIn, type Me, type MemberfulConnection, type MemberfulConnectionStart, type MemberfulDisconnection, type NewAssistantModel, type NewBot, type NewDirect, type NewJoinCode, type NewRoom, type NewRoomForm, type NewWorkspace, type OfferedModels, type OpenSignUp, type PasswordResetDone, type PasswordResetRequest, type PasswordResetWithCode, type PasswordSignIn, type PastHuddle, type PastHuddles, type PersonAnswer, type PersonRole, type ProfileAnswer, type ProfileChanges, type PushSubscriptionKeys, type PushSubscriptions, type PushSubscriptionSave, type ReleaseCheck, type ResentInvitation, type Room, type RoomChanges, type RoomId, type RoomSettings, type RoomSocketParams, type SavedItems, type SavedMessage, type SavedPushSubscription, type Search, type SearchResults, type SearchSort, type SendingDomainCheck, type SentTestEmail, type SharedRoom, type Sidebar, type SignOut, type SignUp, type StartedDirect, type TurnstileKeysChange, type TurnstileSettings, type UserId, type WebSearchChanged, type WorkspaceSettings, type WorkspaceSocketParams, type YourAssistantChanged, type YourAssistantChanges } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, AvailableAgent, AvailableAgents, NewAgent } from "@ember/protocol/agents";
-import type {
-  AgentToolPicks,
-  AgentTools,
-  App,
-  AppAnswer,
-  AppChanges,
-  AppClient,
-  AppId,
-  AppRemoved,
-  Apps,
-  AppSignedIn,
-  AppSignInBegun,
-  AppSignInReturn,
-  AppSummary,
-  NewApp,
-  NewAppSignIn,
-  OfferedApp,
-  ToolPick,
-  YourAppSignedIn,
-  YourAppSignedOut,
-} from "@ember/protocol/apps";
+import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppClient, AppId, AppRemoved, Apps, AppSignedIn, AppSignInBegun, AppSignInReturn, AppSummary, NewApp, NewAppSignIn, OfferedApp, ToolPick, YourAppSignedIn, YourAppSignedOut } from "@ember/protocol/apps";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
 import type { OutsideAiSettings, OutsideAnswer, OutsideAnswered, OutsideAsk, OutsideAsked, OutsideScope, YourOutsideAi } from "@ember/protocol/outside";
 import type { HandledReports, NewReport, Report, ReportHandling, ReportOutcome, Reports } from "@ember/protocol/reports";
-import {
-  SSO_CONNECTIONS_PATH,
-  SSO_SETTINGS_PATH,
-  type ElsewhereConnection,
-  type SsoConnection,
-  type SsoConnectionStart,
-  type SsoDisconnection,
-  type SsoForgotten,
-  type SsoSaved,
-  type SsoSettings,
-  type SsoSetup,
-} from "@ember/protocol/sso";
+import { SSO_CONNECTIONS_PATH, SSO_SETTINGS_PATH, type ElsewhereConnection, type SsoConnection, type SsoConnectionStart, type SsoDisconnection, type SsoForgotten, type SsoSaved, type SsoSettings, type SsoSetup } from "@ember/protocol/sso";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -1173,6 +1039,22 @@ export async function recordSearch(search: Search, sort: SearchSort = "newest"):
 /** Forgets your recent searches. */
 export async function clearSearches(): Promise<void> {
   await request("/api/searches", { method: "DELETE" });
+}
+
+/** The messages you've saved for later, newest save first, each as its room has it now. */
+export async function fetchSaves(): Promise<SavedItems> {
+  return request<SavedItems>("/api/saves");
+}
+
+/** Saves the message `messageId` of room `roomId` for later, answering the save. */
+export async function saveForLater(roomId: RoomId, messageId: string): Promise<SavedMessage> {
+  const { save } = await request<{ save: SavedMessage }>("/api/saves", { method: "POST", body: JSON.stringify({ roomId, messageId }) });
+  return save;
+}
+
+/** Forgets your save `id`. */
+export async function forgetSave(id: string): Promise<void> {
+  await request(`/api/saves/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /**

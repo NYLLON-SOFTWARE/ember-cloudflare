@@ -44,6 +44,8 @@ interface Props {
   /** Whether the Huddles page is the one showing, which Huddles, over the rooms, goes to. */
   onHuddles: boolean;
   currentRoomId: string | null;
+  /** The room that counts as read while it's shown, which the Saved pane covering a room says it isn't yet, and null for none. `currentRoomId` unless said otherwise. */
+  readRoomId?: string | null;
   /** Whether Activity is on, which shows only the rows marked unread. */
   unreadOnly: boolean;
   /** How many AI agents they can ask, which Available Agents says, under the DMs, while there are any. */
@@ -91,6 +93,7 @@ export function Sidebar({
   huddles,
   onHuddles,
   currentRoomId,
+  readRoomId = currentRoomId,
   unreadOnly,
   agents,
   agentsOpen,
@@ -102,7 +105,7 @@ export function Sidebar({
 }: Props) {
   const { tagline, huddles: huddlesOn } = useAccount();
   const goingOn = useMemo(() => huddlesGoingOn(rooms, huddles).length, [rooms, huddles]);
-  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
+  const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, readRoomId)) : rooms), [rooms, unreadOnly, readRoomId]);
   const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
   const nameOf = (roomId: RoomId) => {
     const room = rooms.find((r) => r.id === roomId);
@@ -147,7 +150,7 @@ export function Sidebar({
         </span>
         <div ref={listRef} {...listProps} className={cn("flex flex-col gap-[3px]", moving && "select-none")}>
           {listed.map((room) => {
-            const unread = markedUnread(room, currentRoomId);
+            const unread = markedUnread(room, readRoomId);
             const star = starred.has(room.id);
             const huddle = huddles[room.id];
             // The words for who's in the room's huddle, which come with its mark.
@@ -208,7 +211,7 @@ export function Sidebar({
             room={room}
             meId={meId}
             current={room.id === currentRoomId}
-            unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
+            unreadId={markedUnread(room, readRoomId) ? unreadId : null}
             huddle={huddles[room.id]}
             onClick={(event) => select(event, room.id)}
           />

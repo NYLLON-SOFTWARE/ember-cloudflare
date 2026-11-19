@@ -2,8 +2,7 @@ import { createServer, type IncomingHttpHeaders, type ServerResponse } from "nod
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { devices, type APIResponse, type Locator, type Page } from "@playwright/test";
-import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, drawnPicture, editorField, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress, variantType } from "../../fixtures";
+import { ADMINISTRATOR, drawnPicture, editorField, expect, nextSecond, shownPicture, signInAsAdministrator, test, useOwnAddress, variantType } from "../../fixtures";
 import { auditScreen } from "../mobile/audits";
 import { join } from "./fixtures";
 

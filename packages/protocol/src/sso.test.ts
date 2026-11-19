@@ -1,17 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  CLIENT_ID_REFUSED,
-  DEFAULT_GROUPS_CLAIM,
-  DEFAULT_SSO_NAME,
-  GROUPS_REFUSED,
-  ISSUER_REFUSED,
-  MAX_SSO_GROUPS,
-  parseSsoSetup,
-  SCOPES_REFUSED,
-  SSO_NAME_REFUSED,
-  ssoProblemOf,
-  ssoSignInPath,
-} from "./sso.ts";
+import { CLIENT_ID_REFUSED, DEFAULT_GROUPS_CLAIM, DEFAULT_SSO_NAME, GROUPS_REFUSED, ISSUER_REFUSED, MAX_SSO_GROUPS, parseSsoSetup, SCOPES_REFUSED, SSO_NAME_REFUSED, ssoProblemOf, ssoSignInPath } from "./sso.ts";
 
 describe("parseSsoSetup", () => {
   it("takes a provider as Set up single sign-on sends it, trimmed, with scopes apart by spaces and groups a line each", () => {

@@ -1,10 +1,10 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HuddlesSettings } from "@ember/protocol";
 import { APP_ID_REFUSED, APP_ID_UNKNOWN, APP_SECRET_REFUSED, APP_SECRET_UNKNOWN, HUDDLES_FORBIDDEN, HUDDLES_UNCHECKED } from "@ember/protocol/huddles";
 import { ApiError } from "@/lib/api";
 import { HUDDLES_ON, HuddlesSetup, SETUP_EXPLAINED } from "./huddles-setup";
+import userEvent from "@testing-library/user-event";
 
 /** A Realtime SFU app's keys, as an administrator copies them from Cloudflare's dashboard. */
 const APP = { appId: "2a95132c15732412d22c1476fa83f27a", appSecret: "66bcf64aa8907b9f9d90ac17746a77ce394c393b92b3916633dc02846e608ad4" };

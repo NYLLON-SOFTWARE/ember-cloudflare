@@ -1,7 +1,6 @@
 import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useMemo, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
@@ -9,9 +8,11 @@ import { BlockingContext } from "@/hooks/use-blocking";
 import { ReportingContext } from "@/hooks/use-reporting";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { SavesContext, type Saver } from "@/hooks/use-saves";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { BLOCKED_MESSAGE, MessageItem, type ThreadPlace } from "./message-item";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -1057,6 +1058,86 @@ describe("More actions on a message", () => {
     await user.hover(optionsOn("Hello"));
     expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("tooltip")).toHaveTextContent("Message options");
+  });
+});
+
+describe("Save a message for later", () => {
+  /** More actions, while it's open. */
+  const moreActions = () => screen.getByRole("group", { name: "More actions" });
+
+  /** The names of More actions' items. */
+  const items = () => within(moreActions()).getAllByRole("button").map((item) => item.textContent);
+
+  /**
+   * A message whose workspace keeps saves, `saved` saying whether it's one of them. The rest is the
+   * room's, as `show` above sets it out.
+   */
+  function showSaved(saved: boolean) {
+    const shown = message();
+    const saver: Saver = {
+      saves: [],
+      load: vi.fn(),
+      save: vi.fn(async () => {}),
+      forget: vi.fn(async () => {}),
+      saveOf: (messageId) => (saved && messageId === shown.id ? { id: "saved-1", roomId: shown.roomId, messageId: shown.id, createdAt: 0, message: shown } : null),
+    };
+    const actions = { boost: vi.fn(() => true), unboost: vi.fn(() => true), edit: vi.fn(() => true), remove: vi.fn(() => true), click: vi.fn(() => Promise.resolve(true)) };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
+    const { container } = render(
+      <FlashProvider workspace>
+        <SavesContext value={saver}>
+          <MessageItem message={shown} me={{ ...grace, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />
+        </SavesContext>
+      </FlashProvider>,
+    );
+    const user = userEvent.setup();
+    const open = async () => {
+      fireEvent.pointerEnter(within(container).getAllByRole("article")[0]!, { pointerType: "mouse" });
+      await user.click(optionsOn("Hello"));
+    };
+    return { saver, user, open };
+  }
+
+  it("offers Save for later first, and saves the message as More actions saves it, closing the actions", async () => {
+    withMouse();
+    const { saver, user, open } = showSaved(false);
+    await open();
+    expect(items()).toEqual(["Save for later", "Quote", "Copy text", "Copy link"]);
+    const item = within(moreActions()).getByRole("button", { name: "Save for later" });
+    expect(item).toHaveAttribute("aria-pressed", "false");
+    await user.click(item);
+    expect(saver.save).toHaveBeenCalledWith("general", "m1");
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+  });
+
+  it("says Saved of a message saved already, and forgets it again", async () => {
+    withMouse();
+    const { saver, user, open } = showSaved(true);
+    await open();
+    const item = within(moreActions()).getByRole("button", { name: "Saved" });
+    expect(item).toHaveAttribute("aria-pressed", "true");
+    await user.click(item);
+    expect(saver.forget).toHaveBeenCalledWith("saved-1");
+  });
+
+  it("offers Save for later in the bar on touch, where no More actions opens, and saves from there", async () => {
+    const { saver, user, open } = showSaved(false);
+    await open();
+    const bar = screen.getByRole("group", { name: "Message actions" });
+    const item = within(bar).getByRole("button", { name: "Save for later" });
+    expect(item).toHaveAttribute("aria-pressed", "false");
+    await user.click(item);
+    expect(saver.save).toHaveBeenCalledWith("general", "m1");
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+  });
+
+  it("says Saved in the bar on touch, and forgets it from there", async () => {
+    const { saver, user, open } = showSaved(true);
+    await open();
+    const item = within(screen.getByRole("group", { name: "Message actions" })).getByRole("button", { name: "Saved" });
+    expect(item).toHaveAttribute("aria-pressed", "true");
+    await user.click(item);
+    expect(saver.forget).toHaveBeenCalledWith("saved-1");
   });
 });
 

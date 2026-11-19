@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 /** The keyboard of a device whose `navigator.platform` is `platform`. */
 const on = (platform: string) => vi.stubGlobal("navigator", { ...navigator, platform });

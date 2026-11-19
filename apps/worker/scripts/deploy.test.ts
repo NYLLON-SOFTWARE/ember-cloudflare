@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { dataOf } from "./jsonc.ts";
+import path from "node:path";
 
 const SCRIPT = fileURLToPath(new URL("./deploy.ts", import.meta.url));
 const SECRET = /^[0-9a-f]{64}$/;

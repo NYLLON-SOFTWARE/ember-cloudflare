@@ -854,6 +854,16 @@ describe("Reports", () => {
 describe("Welcome card for administrators, until they dismiss it", () => {
   const invited: Sidebar = { ...unstarred([general]), invitation: { roomId: general.id, joinCode: "aB3d-Ef5h-iJ7k" } };
 
+  it("hears that Ada's saves have changed in another tab, and asks for them again", async () => {
+    const onSavesChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, onSavesChanged));
+    await settle();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "saves.changed" });
+    expect(onSavesChanged).toHaveBeenCalledExactlyOnceWith();
+  });
+
   it("takes the welcome card away as the workspace socket says one of Ada's tabs dismissed it, even from a list on its way", async () => {
     server.change(invited);
     const { result } = await showSidebar();
