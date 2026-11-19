@@ -1,21 +1,22 @@
 import { ASSISTANT_ID, type Card, type Me, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
+import type { AgentAnswer, NewAgent } from "@ember/protocol/agents";
 import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type CallDecision, type ToolPick } from "@ember/protocol/apps";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
-import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fromApp, toolCallOf, toolCard, toolCards } from "../src/apps/cards";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
-import { alwaysAllowedFor, CALL_NOT_SHOWN, CALL_OUTCOMES, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW, unmadeFor } from "../src/apps/tools";
+import { CALL_NOT_ALLOWED_NOW, CALL_OUTCOMES, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW } from "../src/apps/tools";
 import { CALL_WAITS_MS } from "../src/apps/waiting-calls";
 import { CALL_DECLINED } from "../src/assistant/tool-calls";
 import type { Env } from "../src/env";
 import { seal } from "../src/sealed";
-import { api, connect, cookieOf, freshDeploy, post, roomSql, roomStub, shown, startDirect, workspaceSql, type Client, type Session } from "./support";
+import { api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, roomStub, shown, startDirect, workspaceSql, workspaceStub, type Client, type Session } from "./support";
 
 // Calls of connected apps' tools: @ember or an agent calls one picked for it, the room asks first on a
 // card, and the call runs, and the answer goes on, once whoever asked or an administrator allows it,
-// or at once, shown to the room, where an administrator has the agent's calls of the tool always
-// allowed. A fake MCP server and a fake AI Gateway stand behind `fetch`.
+// or at once, said beside the agent's typing, where an administrator has the agent's calls of the tool
+// always allowed. A fake MCP server and a fake AI Gateway stand behind `fetch`.
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
@@ -26,6 +27,8 @@ const MCP_TOKEN = "tracker-secret-token";
 
 const CREATE_ISSUE = { name: "create_issue", title: "Create issue", description: "Opens an issue.", inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } };
 const SEARCH_ISSUES = { name: "search_issues", description: "Finds issues.", inputSchema: { type: "object" } };
+/** An agent as New agent sends it, in every open room, on the model @ember answers with. */
+const RECAP: NewAgent = { name: "Recap", description: "Sums up long threads", instructions: "Sum up the thread.", model: CLAUDE, thinking: "off", length: "short", webSearch: false, rooms: null };
 
 /** A JSON-RPC message the fake MCP server was sent, with the token it came with. */
 interface Rpc {
@@ -43,6 +46,8 @@ type Turn = { calls: Array<{ name: string; input: unknown }> } | { text: string 
 
 let rpcs: Rpc[];
 let asked: Asked[];
+/** What each of those requests told AI Gateway's logs of keeping what it carried, `cf-aig-collect-log-payload`, if anything. */
+let logsKeep: Array<string | null>;
 let script: Turn[];
 /** What happens while the model works on its next turn, once, if anything. */
 let meanwhile: (() => Promise<unknown>) | undefined;
@@ -69,6 +74,7 @@ beforeEach(async () => {
   await freshDeploy();
   rpcs = [];
   asked = [];
+  logsKeep = [];
   script = [];
   meanwhile = undefined;
   server = { tools: [CREATE_ISSUE, SEARCH_ISSUES], token: MCP_TOKEN, result: () => ({ content: [{ type: "text", text: "Opened #12." }] }) };
@@ -78,6 +84,7 @@ beforeEach(async () => {
       const body = (await request.json()) as Asked;
       if (!body.tools) return turnIn({ text: "Hello!" }, 0);
       asked.push(body);
+      logsKeep.push(request.headers.get("cf-aig-collect-log-payload"));
       const happens = meanwhile;
       meanwhile = undefined;
       await happens?.();
@@ -95,15 +102,15 @@ afterEach(() => vi.restoreAllMocks());
 const as = (session: Session) => ({ Cookie: session.cookie });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** What @ember's page offers of the connected apps' tools now. */
-const offered = async (administrator: Session) => ((await (await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { headers: as(administrator) })).json()) as AgentTools).apps;
+/** What the page of `agentId`, @ember unless it's an agent, offers of the connected apps' tools now. */
+const offered = async (administrator: Session, agentId: string = ASSISTANT_ID) => ((await (await api(`/api/account/agents/${agentId}/tools`, { headers: as(administrator) })).json()) as AgentTools).apps;
 
-/** Has the tools `names` name, as @ember's page offers them now, be the ones picked for it, those `always` names always allowed. */
-async function pick(administrator: Session, names: string[], { always = [] }: { always?: string[] } = {}): Promise<void> {
-  const tools = (await offered(administrator)).flatMap(({ id, tools }) =>
+/** Has the tools `names` name, as the page of `agent`, @ember unless it's another, offers them now, be the ones picked for it, those `always` names always allowed. */
+async function pick(administrator: Session, names: string[], { always = [], agent = ASSISTANT_ID }: { always?: string[]; agent?: string } = {}): Promise<void> {
+  const tools = (await offered(administrator, agent)).flatMap(({ id, tools }) =>
     tools.filter(({ name }) => names.includes(name)).map(({ name, fingerprint }): ToolPick => ({ appId: id, name, fingerprint, ...(always.includes(name) && { alwaysAllowed: true }) })),
   );
-  const saved = await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify({ tools }) });
+  const saved = await api(`/api/account/agents/${agent}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify({ tools }) });
   expect(saved.status, await saved.clone().text()).toBe(200);
 }
 
@@ -544,10 +551,19 @@ describe("A call of a connected app's tool", () => {
 });
 
 describe("A call of a tool an administrator always allows an agent", () => {
-  const USED = ["Ember used Tracker", 'create_issue, with:\n{\n  "title": "Login fails"\n}', alwaysAllowedFor("Ember")].join("\n");
   const SEARCH: Turn = { calls: [{ name: "Tracker__search_issues", input: {} }] };
+  /** What the room heard @ember say it was doing beside its typing, each change once, in order: "stopped" once it stopped. */
+  const doing = (client: Client) => {
+    const said = client.log.flatMap((frame) => (frame.type === "typing" && frame.user.id === EMBER.id ? [frame.typing ? (frame.doing ?? "is typing") : "stopped"] : []));
+    return said.filter((line, index) => line !== said[index - 1]);
+  };
+  /** What the room heard @ember say it was doing, once it has heard it stop typing, as it does just after its answer. */
+  const doneDoing = async (client: Client) => {
+    await vi.waitFor(() => expect(doing(client).at(-1)).toBe("stopped"));
+    return doing(client);
+  };
 
-  it("is made at once, with nobody asked, once the room is shown it on a card, and the answer goes on", async () => {
+  it("is made at once, with nobody asked and nothing posted but the answer, as the room hears beside @ember's typing which tool it's using", async () => {
     const { general, inGeneral, ada } = await setUp();
     await pick(ada, ["create_issue"], { always: ["create_issue"] });
     expect((await offered(ada)).flatMap(({ tools }) => tools.map(({ name, picked, alwaysAllowed }) => [name, picked, alwaysAllowed]))).toEqual([
@@ -556,13 +572,11 @@ describe("A call of a tool an administrator always allows an agent", () => {
     ]);
     script = [CALL, { text: "I opened #12 for it." }];
 
-    const card = await ask(inGeneral);
-    expect(card.plainText).toBe(USED);
-    expect(buttonsOf(card.cards)).toEqual([]);
-    expect((await fromEmber(inGeneral)).plainText).toBe("I opened #12 for it.");
+    expect((await ask(inGeneral)).plainText).toBe("I opened #12 for it.");
+    expect(await doneDoing(inGeneral)).toEqual(["is typing", "is using Tracker: create_issue", "is typing", "stopped"]);
     expect(asked[0]!.tools[1]!.description).toBe(
       [
-        "A tool of Tracker, an app this workspace's administrators connected. Each call is made at once and shown to everyone in the room, so call it only when the person you're answering asked for what it does, with what they'd expect.",
+        "A tool of Tracker, an app this workspace's administrators connected. Each call is made at once, with nobody asked, so call it only when the person you're answering asked for what it does, with what they'd expect.",
         "Tracker calls it: Create issue",
         "Tracker describes it: Opens an issue.",
       ].join("\n"),
@@ -570,9 +584,66 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(calls().map(({ params, authorization }) => [params, authorization])).toEqual([[{ name: "create_issue", arguments: { title: "Login fails" } }, `Bearer ${MCP_TOKEN}`]]);
     expect(told()).toEqual([["Opened #12.", false]]);
     expect(await waiting(general)).toEqual([]);
-    // Nothing waits, so a click on the card answers nothing.
-    click(inGeneral, card, "allow");
-    expect(calls()).toHaveLength(1);
+    // Of @ember's, the room keeps the answer alone, and nothing of the call.
+    expect(await roomSql(general, "SELECT plain_text FROM messages WHERE creator_id = ?", ASSISTANT_ID)).toEqual([{ plain_text: "I opened #12 for it." }]);
+  });
+
+  it("is said in its turn among an answer's calls, as a search of the room is", async () => {
+    const { inGeneral, ada } = await setUp();
+    await pick(ada, ["create_issue", "search_issues"], { always: ["create_issue", "search_issues"] });
+    script = [{ calls: [{ name: "search_messages", input: { words: "login" } }] }, SEARCH, { calls: [...CALL.calls, { name: "Tracker__create_issue", input: { title: "Logout fails" } }] }, { text: "I opened #12 and #13." }];
+
+    expect((await ask(inGeneral)).plainText).toBe("I opened #12 and #13.");
+    expect(calls().map(({ params }) => params?.name)).toEqual(["search_issues", "create_issue", "create_issue"]);
+    expect(await doneDoing(inGeneral)).toEqual([
+      "is typing",
+      "is searching this room",
+      "is typing",
+      "is using Tracker: search_issues",
+      "is typing",
+      "is using Tracker: create_issue",
+      "is typing",
+      "is using Tracker: create_issue",
+      "is typing",
+      "stopped",
+    ]);
+  });
+
+  it("is said in the thread @ember answers in, and only there", async () => {
+    const { inGeneral, ada } = await setUp();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    script = [CALL, { text: "I opened #12 for it." }];
+    const parent = await post(inGeneral, "<p>The login fails.</p>");
+    const mention = `<action-text-attachment sgid="${mentionSgid(EMBER.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+    inGeneral.send({ type: "message.create", clientMessageId: crypto.randomUUID(), body: `<p>${mention} open an issue for it</p>`, parentId: parent.id });
+
+    expect(await fromEmber(inGeneral)).toMatchObject({ plainText: "I opened #12 for it.", parentId: parent.id });
+    expect(await doneDoing(inGeneral)).toEqual(["is typing", "is using Tracker: create_issue", "is typing", "stopped"]);
+    expect(inGeneral.log.flatMap((frame) => (frame.type === "typing" ? [frame.threadId] : []))).not.toContain(undefined);
+  });
+
+  it("is said for as long as it runs, while a call another answer makes there starts and ends meanwhile", async () => {
+    const { inGeneral, ada } = await setUp();
+    await pick(ada, ["create_issue", "search_issues"], { always: ["create_issue", "search_issues"] });
+    // The first question's call is held, by polling, until the test lets it go on.
+    let [creating, goOn] = [false, false];
+    server.result = async ({ params }) => {
+      if (params?.name !== "create_issue") return { content: [{ type: "text", text: "Found none." }] };
+      creating = true;
+      while (!goOn) await sleep(10);
+      return { content: [{ type: "text", text: "Opened #12." }] };
+    };
+    script = [CALL, SEARCH, { text: "There are none." }, { text: "I opened #12 for it." }];
+    const mention = `<action-text-attachment sgid="${mentionSgid(EMBER.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+
+    await post(inGeneral, `<p>${mention} open an issue for the login bug</p>`);
+    await vi.waitFor(() => expect(creating).toBe(true));
+    expect((await ask(inGeneral, "is there an issue for logout?")).plainText).toBe("There are none.");
+    // The second answer's call is done, and the first's, which still runs, is said again.
+    expect(doing(inGeneral).at(-1)).toBe("is using Tracker: create_issue");
+    goOn = true;
+    expect((await fromEmber(inGeneral)).plainText).toBe("I opened #12 for it.");
+    expect(await doneDoing(inGeneral)).toEqual(["is typing", "is using Tracker: create_issue", "is using Tracker: search_issues", "is using Tracker: create_issue", "is typing", "stopped"]);
   });
 
   it("is of that tool alone: another the agent has still asks first, and so does that one once the administrator takes it back", async () => {
@@ -585,9 +656,10 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(asks.plainText).toContain("Ember wants to use Tracker\nsearch_issues, with nothing");
     expect(buttonsOf(asks.cards).map(({ text }) => text)).toEqual(["Allow once", "Deny"]);
     click(inGeneral, asks, "allow");
-    expect((await fromEmber(inGeneral)).plainText).toBe(USED);
     expect((await fromEmber(inGeneral)).plainText).toBe("Found none, so I opened #12.");
     expect(calls().map(({ params }) => params?.name)).toEqual(["search_issues", "create_issue"]);
+    // The call that asked is said as it's made once allowed, and not while it waited.
+    expect((await doneDoing(inGeneral)).filter((line) => line.startsWith("is using"))).toEqual(["is using Tracker: search_issues", "is using Tracker: create_issue"]);
 
     // Taken back, it asks again.
     await pick(ada, ["create_issue", "search_issues"]);
@@ -599,7 +671,7 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(await waiting(general)).toEqual([{ message_id: again.id }]);
   });
 
-  it("isn't made once the administrator takes that back while the model works, which the model is told, and the room isn't shown a call that wasn't made", async () => {
+  it("isn't made once the administrator takes that back while the model works, which the model is told", async () => {
     const { inGeneral, ada } = await setUp();
     await pick(ada, ["create_issue"], { always: ["create_issue"] });
     script = [CALL, { text: "I couldn't." }];
@@ -610,7 +682,7 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(rpcs).toEqual([]);
   });
 
-  it("isn't made when the room can't be shown it, as once the question is deleted", async () => {
+  it("isn't made once the question is deleted, as nothing the answer came to would be posted", async () => {
     const { inGeneral, ada } = await setUp();
     await pick(ada, ["create_issue"], { always: ["create_issue"] });
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -629,21 +701,19 @@ describe("A call of a tool an administrator always allows an agent", () => {
     deleted = true;
 
     await vi.waitFor(() => expect(asked).toHaveLength(2), { timeout: 4_000 });
-    expect(told()).toEqual([[CALL_NOT_SHOWN, true]]);
+    expect(told()).toEqual([[CALL_NOT_ALLOWED_NOW, true]]);
     expect(rpcs).toEqual([]);
   });
 
-  it("is never made with more than its card shows, which the model is told, so that the room is shown all an app is sent", async () => {
+  it("is made with more than the card of a call that waits would show, as there's no card", async () => {
     const { inGeneral, ada } = await setUp();
     await pick(ada, ["create_issue"], { always: ["create_issue"] });
-    const longest = "x".repeat(MAX_SHOWN_INPUT_LENGTH - 17);
-    script = [{ calls: [{ name: "Tracker__create_issue", input: { title: `${longest}x` } }] }, { calls: [{ name: "Tracker__create_issue", input: { title: longest } }] }, { text: "Opened." }];
+    const title = "x".repeat(MAX_SHOWN_INPUT_LENGTH);
+    script = [{ calls: [{ name: "Tracker__create_issue", input: { title } }] }, { text: "Opened." }];
 
-    const card = await ask(inGeneral);
-    expect(card.plainText).toContain(`"title": "${longest}"`);
-    expect((await fromEmber(inGeneral)).plainText).toBe("Opened.");
-    expect((asked[1]!.messages.at(-1)!.content as Array<{ content: string; is_error?: boolean }>).map(({ content, is_error }) => [content, is_error])).toEqual([[TOO_LONG_TO_SHOW, true]]);
-    expect(calls()).toHaveLength(1);
+    expect((await ask(inGeneral)).plainText).toBe("Opened.");
+    expect(calls().map(({ params }) => params?.arguments)).toEqual([{ title }]);
+    expect(told()).toEqual([["Opened #12.", false]]);
   });
 
   it("stops being once its server describes the tool another way: it's set aside, and asks first even once it's described as it was", async () => {
@@ -653,11 +723,8 @@ describe("A call of a tool an administrator always allows an agent", () => {
     server.tools = [{ ...CREATE_ISSUE, description: "Opens an issue, and emails everyone." }];
     script = [CALL, { text: "I couldn't." }];
 
-    // The room is shown the call Ember went to make, which finds the tool changed and isn't made, as its card then says.
-    const card = await ask(inGeneral);
-    expect(card.plainText).toBe(USED);
-    expect((await changed(inGeneral, card)).plainText).toBe(["Ember didn't use Tracker", 'create_issue, with:\n{\n  "title": "Login fails"\n}', unmadeFor("Ember", "Tracker")].join("\n"));
-    expect((await fromEmber(inGeneral)).plainText).toBe("I couldn't.");
+    // Ember finds the tool changed as it goes to call it, and doesn't, which the model is told.
+    expect((await ask(inGeneral)).plainText).toBe("I couldn't.");
     expect(told()).toEqual([["Not run: create_issue has changed since an administrator looked at it.", true]]);
     expect(calls()).toEqual([]);
     expect((await offered(ada)).flatMap(({ tools }) => tools)).toEqual([expect.objectContaining({ name: "create_issue", picked: false, changed: true, alwaysAllowed: false })]);
@@ -671,29 +738,22 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(calls()).toEqual([]);
   });
 
-  it("has its card say it wasn't made when its server couldn't be asked for it, as when it doesn't take Ember's token, and not when the tool ran and failed", async () => {
+  it("tells the model when its server couldn't be asked for it, as when it doesn't take Ember's token, and when the tool ran and failed", async () => {
     const { inGeneral, ada } = await setUp();
     await pick(ada, ["create_issue"], { always: ["create_issue"] });
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const shown = (header: string, note: string) => [header, 'create_issue, with:\n{\n  "title": "Login fails"\n}', note].join("\n");
 
     server.token = "another-token";
     script = [CALL, { text: "I couldn't." }];
-    const unasked = await ask(inGeneral);
-    expect((await changed(inGeneral, unasked)).plainText).toBe(shown("Ember didn't use Tracker", unmadeFor("Ember", "Tracker", "unasked")));
-    expect((await fromEmber(inGeneral)).plainText).toBe("I couldn't.");
+    expect((await ask(inGeneral)).plainText).toBe("I couldn't.");
     expect(told()).toEqual([["Not run: localhost:3845 didn't take that token.", true]]);
     expect(calls()).toEqual([]);
 
-    // A call its tool refused was made, which its card goes on saying.
     Object.assign(server, { token: MCP_TOKEN, refuses: "title is too short" });
     script = [CALL, { text: "It refused." }];
-    const refused = await ask(inGeneral);
-    expect(refused.plainText).toBe(USED);
-    expect((await fromEmber(inGeneral)).plainText).toBe("It refused.");
+    expect((await ask(inGeneral)).plainText).toBe("It refused.");
     expect(calls()).toHaveLength(1);
-    const [kept] = (await roomSql(refused.roomId, "SELECT plain_text FROM messages WHERE id = ?", refused.id)) as [{ plain_text: string }];
-    expect(kept.plain_text).toBe(USED);
+    expect(told().map(([, failed]) => failed)).toEqual([true]);
   });
 
   it("finds that its app has no tools any more, which the app's page then says", async () => {
@@ -703,14 +763,97 @@ describe("A call of a tool an administrator always allows an agent", () => {
     server.tools = [];
     script = [CALL, { text: "I couldn't." }];
 
-    await changed(inGeneral, await ask(inGeneral));
-    expect((await fromEmber(inGeneral)).plainText).toBe("I couldn't.");
+    expect((await ask(inGeneral)).plainText).toBe("I couldn't.");
     const { app } = (await (await api(`/api/account/apps/${tracker.id}`, { headers: as(ada) })).json()) as AppAnswer;
     expect(app.tools).toEqual([]);
     expect(app.setAside).toEqual([{ name: "create_issue", gone: true, agents: [{ id: ASSISTANT_ID, name: "Ember" }] }]);
     // Its model is given none of them from then on.
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
     expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+  });
+
+  it("asks first all the same in a DM or a private room, from which nothing goes to an app unless someone there allows it", async () => {
+    const { ada, general, inGeneral } = await setUp();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    const grace = await join("Grace Hopper");
+    const leads = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id, ASSISTANT_ID], as: ada });
+    const { room: dm } = (await (await startDirect(ada, [ASSISTANT_ID])).json()) as { room: { id: RoomId } };
+    const inLeads = await connect(leads.id, grace);
+    const inDm = await connect(dm.id, ada);
+
+    // In the private room it's mentioned, and in the DM it answers whatever is written.
+    const asks = [() => ask(inLeads), async () => (await post(inDm, "<p>open an issue for the login bug</p>"), fromEmber(inDm))];
+    for (const [client, room, asking] of [[inLeads, leads.id, asks[0]!], [inDm, dm.id, asks[1]!]] as const) {
+      script = [CALL, { text: "I opened #12 for it." }];
+      const card = await asking();
+      expect(buttonsOf(card.cards).map(({ text }) => text)).toEqual(["Allow once", "Deny"]);
+      expect(asked.at(-1)!.tools[1]!.description).toMatch(/^A tool of Tracker, an app this workspace's administrators connected\. Each call waits until the person you're answering allows it/);
+      expect(calls()).toEqual([]);
+      expect(await waiting(room)).toEqual([{ message_id: card.id }]);
+      click(client, card, "allow");
+      expect((await fromEmber(client)).plainText).toBe("I opened #12 for it.");
+      expect(calls()).toHaveLength(1);
+      rpcs.length = 0;
+    }
+    // Neither conversation was kept in AI Gateway's logs, going on from the call too.
+    expect(logsKeep).toEqual(["false", "false", "false", "false"]);
+
+    // In the open room, the same call is made at once, and the question logged as before.
+    script = [CALL, { text: "I opened #12 for it." }];
+    expect((await ask(inGeneral)).plainText).toBe("I opened #12 for it.");
+    expect(calls()).toHaveLength(1);
+    expect(logsKeep.slice(4)).toEqual([null, null]);
+    expect(await waiting(general)).toEqual([]);
+  });
+
+  it("asks first for an agent too, in a DM with it and in a private room it's in", async () => {
+    const { ada, general } = await setUp();
+    const made = await api("/api/account/agents", { method: "POST", headers: as(ada), body: JSON.stringify(RECAP) });
+    expect(made.status, await made.clone().text()).toBe(201);
+    const { agent: recap } = (await made.json()) as AgentAnswer;
+    await pick(ada, ["create_issue"], { always: ["create_issue"], agent: recap.id });
+    const leads = await createRoom("Leads", { closedTo: [ada.user.id, recap.id], as: ada });
+    const { room: dm } = (await (await startDirect(ada, [recap.id])).json()) as { room: { id: RoomId } };
+
+    const toolsIn = async (room: RoomId) => {
+      const access = (await workspaceStub().answererIn(room, recap.id, ada.user.id))!;
+      return [access.inPrivate, access.appTools.map(({ name, alwaysAllowed }) => [name, alwaysAllowed])];
+    };
+    expect(await toolsIn(general)).toEqual([false, [["create_issue", true]]]);
+    expect(await toolsIn(leads.id)).toEqual([true, [["create_issue", false]]]);
+    expect(await toolsIn(dm.id)).toEqual([true, [["create_issue", false]]]);
+  });
+
+  it("isn't made, as the model is told, once the room it was asked in turns private while the model works", async () => {
+    const { ada } = await setUp();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const design = await createRoom("Design", { as: ada });
+    const inDesign = await connect(design.id, ada);
+    script = [CALL, { text: "I couldn't." }];
+    meanwhile = async () => {
+      const closed = await api(`/api/rooms/${design.id}`, { method: "PATCH", headers: as(ada), body: JSON.stringify({ name: "Design", kind: "closed", memberIds: [ada.user.id, ASSISTANT_ID] }) });
+      expect(closed.status, await closed.clone().text()).toBe(200);
+    };
+
+    expect((await ask(inDesign)).plainText).toBe("I couldn't.");
+    expect(told()).toEqual([[CALL_NOT_ALLOWED_NOW, true]]);
+    expect(rpcs).toEqual([]);
+  });
+});
+
+describe("A call of a tool of an app at one of Ember's own addresses", () => {
+  it("isn't made, as for an app connected before Ember refused them, whoever allows it", async () => {
+    const { inGeneral } = await setUp();
+    // The fake server's address is where Ember says it is now.
+    await workspaceSql("UPDATE accounts SET settings = json_set(COALESCE(settings, '{}'), '$.custom_domain', ?)", "localhost:3845");
+    await evictDurableObject(workspaceStub());
+    script = [CALL, { text: "I couldn't." }];
+
+    click(inGeneral, await ask(inGeneral), "allow");
+    expect((await fromEmber(inGeneral)).plainText).toBe("I couldn't.");
+    expect(told()).toEqual([["Not run: Tracker__create_issue isn't one of your tools any more.", true]]);
+    expect(calls()).toEqual([]);
   });
 });
 
@@ -757,14 +900,13 @@ describe("A card a connected app's tool answers a call with", () => {
     expect(capabilities).toEqual({ extensions: { "io.slack/block-kit": { mimeTypes: ["application/vnd.slack.blocks+json"] } } });
   });
 
-  it("follows the card of a call made without asking first", async () => {
+  it("is shown for a call made without asking first too, the first the room sees of it", async () => {
     const { inGeneral, ada } = await setUp();
     await pick(ada, ["create_issue"], { always: ["create_issue"] });
     server.result = () => withCard(ISSUE);
     script = [CALL, { text: "It's open." }];
 
-    expect((await ask(inGeneral)).plainText).toContain("Ember used Tracker");
-    expect((await fromEmber(inGeneral)).plainText).toBe(SHOWN);
+    expect((await ask(inGeneral)).plainText).toBe(SHOWN);
     expect((await fromEmber(inGeneral)).plainText).toBe("It's open.");
   });
 
@@ -784,8 +926,7 @@ describe("A card a connected app's tool answers a call with", () => {
     for (const result of unshown) {
       server.result = () => result;
       script = [CALL, { text: "Done." }];
-      await ask(inGeneral);
-      expect((await fromEmber(inGeneral)).plainText).toBe("Done.");
+      expect((await ask(inGeneral)).plainText).toBe("Done.");
       expect(told()).toEqual([["Opened #12.", result.isError === true]]);
     }
   });
@@ -801,8 +942,7 @@ describe("A card a connected app's tool answers a call with", () => {
     const all = await setUp();
     await pick(all.ada, ["create_issue", "close_issue"], { always: ["create_issue"] });
     script = [CALL, { text: "It's open." }];
-    await ask(all.inGeneral);
-    const card = await fromEmber(all.inGeneral);
+    const card = await ask(all.inGeneral);
     await fromEmber(all.inGeneral);
     return { ...all, card };
   }
