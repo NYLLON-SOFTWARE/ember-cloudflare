@@ -204,15 +204,12 @@ export function useSidebar(
     // before its welcome. The welcome may have read it before that change, so it doesn't undo it. Each
     // try starts afresh, after a close or a socket that stopped answering alike.
     let toldOf = { you: false, account: false };
-    const onConnecting = () => {
-      toldOf = { you: false, account: false };
-      dndConnecting();
-    };
     // Whether this connection is yet to say who's active, which its first `presence` frame says in full.
     let unheard = true;
     const onConnecting = () => {
       toldOf = { you: false, account: false };
       unheard = true;
+      dndConnecting();
     };
 
     // Tells the Workspace whether the tab is shown, unless its socket's address or an earlier frame said

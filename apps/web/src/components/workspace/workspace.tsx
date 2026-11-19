@@ -321,10 +321,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
       if (dndsHeard.current === heard) hearDnd(until);
     };
   }, [hearDnd]);
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, hearDnd, dndConnecting);
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, hearDnd, dndConnecting, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -804,8 +803,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} dndUntil={dndUntil} newRelease={newRelease} onNewDirect={openNewDirect} />
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} dndUntil={dndUntil} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
   );
   const sidebar = (
     <Sidebar
@@ -896,12 +894,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
       case "app-signed-in":
         return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
-        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} dndUntil={dndUntil} askForDnd={askForDnd} onDndChanged={hearDnd} onSignOut={onSignOut} onFailed={failed} />);
         return rarePage(({ ProfilePage }) => (
           <ProfilePage
             me={me}
             rooms={rooms}
             askForRoom={askForRoom}
+            dndUntil={dndUntil}
+            askForDnd={askForDnd}
+            onDndChanged={hearDnd}
             huddleSounds={huddlesOn && answered ? soundsHeard : null}
             askForHuddleSounds={askForHuddleSounds}
             onSignOut={onSignOut}

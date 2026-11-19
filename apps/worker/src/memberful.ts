@@ -1,12 +1,4 @@
-import {
-  MEMBERFUL_CONNECTED,
-  MEMBERFUL_PROBLEM_PARAM,
-  welcomePath,
-  type AccountSettings,
-  type MemberfulConnection,
-  type MemberfulSignInProblem,
-  type UserId,
-} from "@ember/protocol";
+import { MEMBERFUL_CONNECTED, MEMBERFUL_PROBLEM_PARAM, welcomePath, type AccountSettings, type MemberfulConnection, type MemberfulSignInProblem, type UserId } from "@ember/protocol";
 import { memberfulSiteKept, parseMemberfulKeysChange, type MemberfulSaved } from "@ember/protocol/memberful";
 import { authenticate, clientOf, credentialsOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { bytesUpTo, jsonBodyOf, MAX_JSON_BODY_BYTES } from "./bodies";
@@ -15,15 +7,7 @@ import { fromHex } from "./encoding";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
 import { backTo as backToPage, backToSignIn as backToSignInWith, expiredStateCookie as expiredCookie, keptStateOf as keptCookieOf, redirect, returnPathOf, stateCookie as cookieKeeping } from "./external-sign-in";
-import {
-  deployedMemberfulOf,
-  isSubject,
-  memberfulWebhooksOf,
-  memberWhoSignedIn,
-  refusalOfMemberfulKeys,
-  type MemberfulKeys,
-  type MemberfulSetup,
-} from "./memberful-api";
+import { deployedMemberfulOf, isSubject, memberfulWebhooksOf, memberWhoSignedIn, refusalOfMemberfulKeys, type MemberfulKeys, type MemberfulSetup } from "./memberful-api";
 import { formAnswer, home } from "./pages";
 import { urlOf } from "./request-url";
 import { isToken } from "./secrets";

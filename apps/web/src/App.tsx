@@ -1,19 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  EMAIL_SIGN_UP_PATH,
-  INVITATION_PATH,
-  NAVIGATION_SLOTS,
-  pageAfterWelcome,
-  PASSWORD_RESET_PATH,
-  SIGN_UP_PATH,
-  TRANSFER_PATH,
-  WELCOME_PATH,
-  type Account,
-  type AccountDeletion,
-  type Bootstrap,
-  type Me,
-  type NewWorkspace,
-} from "@ember/protocol";
+import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, NAVIGATION_SLOTS, pageAfterWelcome, PASSWORD_RESET_PATH, SIGN_UP_PATH, TRANSFER_PATH, WELCOME_PATH, type Account, type AccountDeletion, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
 import { FlashProvider } from "@/components/flash";
 import { EmailSignUpPage } from "@/components/email-sign-up-page";
@@ -26,7 +12,7 @@ import { SignInPage } from "@/components/sign-in-page";
 import { TransferPage } from "@/components/transfer-page";
 import { WelcomePage } from "@/components/welcome-page";
 import { ACCOUNT_DELETED } from "@/components/workspace/delete-account";
-import { Workspace, loadPageAhead } from "@/components/workspace/workspace";
+import { loadPageAhead, Workspace } from "@/components/workspace/workspace";
 import { AccountContext } from "@/hooks/use-account";
 import { useAccountLogo } from "@/hooks/use-account-logo";
 import { useCustomStyles } from "@/hooks/use-custom-styles";
@@ -36,7 +22,7 @@ import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-r
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { deleteAccount, dropWorkspacePreloads, fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
-import { moveTo, movesTo } from "@/lib/custom-domain";
+import { movesTo, moveTo } from "@/lib/custom-domain";
 import { replaceInstallPromptsFor } from "@/lib/install-prompt";
 import { loadPage } from "@/lib/page";
 import { unsubscribeFromPush } from "@/lib/push";

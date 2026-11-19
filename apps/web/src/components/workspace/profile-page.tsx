@@ -1,25 +1,9 @@
 import { useContext, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import {
-  AVATAR_TOO_LARGE,
-  MAX_AVATAR_SIZE,
-  MAX_BIO_LENGTH,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MAX_PASSWORD_LENGTH,
-  MAX_USER_NAME_LENGTH,
-  MEMBERFUL_DISCONNECTED_NOTICE,
-  MIN_PASSWORD_LENGTH,
-  type AccountDeletion,
-  type Me,
-  type MemberfulStatus,
-  type Profile,
-  type ProfileAnswer,
-  type ProfileChanges,
-  type SidebarRoom,
-} from "@ember/protocol";
+import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, MAX_BIO_LENGTH, MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, MEMBERFUL_DISCONNECTED_NOTICE, MIN_PASSWORD_LENGTH, type AccountDeletion, type Me, type MemberfulStatus, type Profile, type ProfileAnswer, type ProfileChanges, type SidebarRoom } from "@ember/protocol";
 import { MEMBERFUL_WITH_SSO, SSO_DISCONNECTED_NOTICE, SSO_WITH_MEMBERFUL, type SsoStatus } from "@ember/protocol/sso";
 import type { HuddleSounds } from "@ember/protocol/huddles";
 import { AUTH_FORM } from "@/components/auth-page";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { LogOut } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
@@ -128,31 +112,7 @@ function disconnectsWithNewPassword(memberful: MemberfulStatus | null, sso: SsoS
   return sso?.connected ? " Changing it disconnects single sign-on." : "";
 }
 
-/**
- * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
- * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
- * everywhere.", and Remove avatar takes away, then your name, username, email address, a new password,
- * unless Memberful or single sign-on signs you in without one, your current password while you have
- * one, which changing your email address or password takes, and your
- * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
- * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
- * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
- * how long it answers you, then Do not disturb, which hushes your push notifications until a time you
- * pick, then your notification level in each of your rooms and DMs, then a sign-in
- * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
- * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
- * once, through the workspace socket, as they reach the rail.
- */
-export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndChanged, onSignOut, onFailed }: Props) {
- * unlinks with the notice "Your Memberful account is disconnected.", then, likewise, while members sign
- * in with single sign-on, connecting your account at the provider, then, while Ember AI is on, how much
- * @ember thinks and how long it answers you, then, while huddles are on, which of a huddle's sounds you
- * hear, then your notification level in each of your rooms and DMs, then a sign-in
- * link for you, a new one each time the page loads or saves, then Delete my account, and Log out in
- * the top bar. Go Back returns to the page it was opened from. Your avatar, name, username and bio
- * reach everyone's open pages at once, through the workspace socket, as they reach the rail.
- */
-export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleSounds, onSignOut, onDeleteAccount, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndChanged, huddleSounds, askForHuddleSounds, onSignOut, onDeleteAccount, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);

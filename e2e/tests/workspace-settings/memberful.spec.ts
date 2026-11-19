@@ -1,8 +1,7 @@
 import { MEMBERFUL_CALLBACK_PATH, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_PATH, usernameFrom, type Account, type WorkspaceSettings } from "@ember/protocol";
 import { MEMBERFUL_API_KEY_UNKNOWN, MEMBERFUL_CLIENT_UNKNOWN } from "@ember/protocol/memberful";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { expect, test } from "../../fixtures";
-import { administratorSession, cookieHeader, drawnPicture, logOut, SAME_ORIGIN, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { administratorSession, cookieHeader, drawnPicture, expect, logOut, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { MEMBERFUL_KEYS, MEMBERFUL_SITE } from "../../projects/workspace-settings";
 import { sendWebhook, startFakeMemberful, type FakeMember, type FakeMemberful } from "./fake-memberful";
 

@@ -10,7 +10,7 @@ import type { Typist } from "@/lib/room-state";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { AttachMenu } from "./attach-menu";
-import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
+import { editorLoaded, RichTextEditor, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { EmojiButton } from "./emoji-button";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
 import { ShortcutTooltip } from "./shortcut-tooltip";

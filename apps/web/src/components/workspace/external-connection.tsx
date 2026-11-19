@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { MAX_PASSWORD_LENGTH, type MemberfulAccount, type MemberfulDisconnection, type ProfileAnswer } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
-import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
+import { Field, FIELD_INPUT, SubmitButton } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { isSignedOut } from "@/lib/api";

@@ -2,13 +2,13 @@ import type { DirectoryUser, Message, User } from "@ember/protocol";
 import { MAX_REPORT_NOTE_LENGTH } from "@ember/protocol/reports";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import type { ReportTarget } from "@/hooks/use-reporting";
-import { administratorsNamed, blockOffer, GONE, NOT_REPORTED, REPORTED, ReportDialog } from "./report-dialog";
+import { administratorsNamed, blockOffer, GONE, NOT_REPORTED, ReportDialog, REPORTED } from "./report-dialog";
+import userEvent from "@testing-library/user-event";
 
 const ada: User = { id: "ada", name: "Ada Lovelace" };
 // The message names Grace as she was when she wrote it, and the directory as she is now.

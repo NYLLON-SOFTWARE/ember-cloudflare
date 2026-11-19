@@ -840,7 +840,6 @@ describe("Reports", () => {
     await settle();
     const heard = result.current.reportsHeard;
     socket().receive({ type: "reports.changed", open: 3 });
-    socket().receive({ type: "reports.changed", open: 3 });
     expect(result.current.reportsHeard).toBe(heard + 2);
     // A list loaded once the socket connects again, as the server says the one it has is current, though
     // reports may have been made and handled while it wasn't connected.

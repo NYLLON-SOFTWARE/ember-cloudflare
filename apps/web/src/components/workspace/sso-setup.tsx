@@ -1,18 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
-import {
-  DEFAULT_GROUPS_CLAIM,
-  DEFAULT_SSO_NAME,
-  MAX_CLIENT_ID_LENGTH,
-  MAX_CLIENT_SECRET_LENGTH,
-  MAX_ISSUER_LENGTH,
-  MAX_SSO_NAME_LENGTH,
-  parseSsoSetup,
-  SSO_CALLBACK_PATH,
-  SSO_LOGOUT_PATH,
-  type SsoField,
-  type SsoSettings,
-} from "@ember/protocol/sso";
-import { FIELD_INPUT, Field } from "@/components/field";
+import { DEFAULT_GROUPS_CLAIM, DEFAULT_SSO_NAME, MAX_CLIENT_ID_LENGTH, MAX_CLIENT_SECRET_LENGTH, MAX_ISSUER_LENGTH, MAX_SSO_NAME_LENGTH, parseSsoSetup, SSO_CALLBACK_PATH, SSO_LOGOUT_PATH, type SsoField, type SsoSettings } from "@ember/protocol/sso";
+import { Field, FIELD_INPUT } from "@/components/field";
 import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

@@ -4,11 +4,11 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { credentialsFor, newSessionToken } from "../src/auth";
 import type { Env } from "../src/env";
-import worker from "../src/index";
 import { verifyPassword } from "../src/passwords";
 import type { Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
 import { api, closeOf, connect, cookieOf, freshDeploy, freshRoom, openWorkspaceSocket, origin, pushBrowser, settle, shown, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import worker from "../src/index";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler design" };

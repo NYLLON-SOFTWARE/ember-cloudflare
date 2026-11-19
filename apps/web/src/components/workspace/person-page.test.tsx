@@ -1,7 +1,6 @@
 import type { DirectoryUser, Me, Person, PersonAnswer, User } from "@ember/protocol";
 import type { AgentProfile } from "@ember/protocol/agents";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { BlockingContext } from "@/hooks/use-blocking";
@@ -9,6 +8,7 @@ import { PeopleContext, type People } from "@/hooks/use-directory";
 import { ReportingContext } from "@/hooks/use-reporting";
 import { guardLeaving, navigate } from "@/hooks/use-route";
 import { adminsOnlyAsk, CONFIRM_BAN, CONFIRM_UNBAN, PersonPage } from "./person-page";
+import userEvent from "@testing-library/user-event";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace: Person = { id: "u2", name: "Grace Hopper", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };

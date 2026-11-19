@@ -1,10 +1,10 @@
 import { avatarSvg, type Account } from "@ember/protocol";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { Rail, type Activity, type RailPage } from "./rail";
 import { OpenSearchContext } from "./search-box";
+import userEvent from "@testing-library/user-event";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
@@ -93,7 +93,7 @@ describe("Rail", () => {
   it("marks Admin with a dot while reports are open too, saying how many", () => {
     const grace = { ...ada, administrator: true };
     const rail = (openReports: number, newRelease: string | null = null) => (
-      <Rail me={grace} workspaceName="Analytical Engines" current="home" activity={activityOff} newRelease={newRelease} openReports={openReports} onNewDirect={() => {}} />
+      <Rail me={grace} workspaceName="Analytical Engines" current="home" activity={activityOff} dndUntil={null} newRelease={newRelease} openReports={openReports} onNewDirect={() => {}} />
     );
     const { rerender } = render(rail(1));
     const admin = screen.getByRole("link", { name: "Admin" });

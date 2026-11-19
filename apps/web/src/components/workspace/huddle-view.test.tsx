@@ -1,7 +1,6 @@
 import type { DirectoryUser, DirectRoom, Me, Room, ServerFrame, User } from "@ember/protocol";
 import type { HuddlePerson } from "@ember/protocol/huddles";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { FlashProvider } from "@/components/flash";
@@ -10,6 +9,7 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { NO_REACTIONS } from "@/lib/huddle-reactions";
 import { showHuddle, showReactions, showSpeaking, type JoinedHuddle } from "@/lib/huddle-store";
 import { HuddleView } from "./huddle-view";
+import userEvent from "@testing-library/user-event";
 
 // The emoji picker, without Emojibase's data, which isn't served here: its search, and one emoji to pick.
 vi.mock("./emoji-panel", () => ({

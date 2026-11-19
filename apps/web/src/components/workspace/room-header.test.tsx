@@ -1,6 +1,5 @@
 import { avatarSvg, type DirectoryUser, type Room, type User } from "@ember/protocol";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
@@ -11,6 +10,7 @@ import { PUSH_ON } from "@/test-push";
 import { INVOLVEMENT_NOT_SAVED } from "./notification-bell";
 import { RoomHeader } from "./room-header";
 import { OpenSearchContext, type OpenSearch } from "./search-box";
+import userEvent from "@testing-library/user-event";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };

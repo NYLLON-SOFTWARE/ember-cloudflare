@@ -1,11 +1,11 @@
 import type { DirectoryUser, LiveHuddle, User } from "@ember/protocol";
 import { act, render, renderHook, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import { showHuddle, type JoinedHuddle } from "@/lib/huddle-store";
 import { HuddleButton, HuddlesContext, joinsNoHuddle, useJoinsNoHuddle } from "./huddle-button";
+import userEvent from "@testing-library/user-event";
 
 const huddleOf = (...userIds: string[]): LiveHuddle => ({ startedAt: "2026-11-10T09:00:00.000Z", userIds });
 /** The huddle this tab is in, in room `roomId`. */

@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.

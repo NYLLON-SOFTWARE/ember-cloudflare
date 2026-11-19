@@ -5,8 +5,8 @@ import { botMessagesPath } from "@ember/protocol/bots";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ANSWERING_AGENT, DIRECT_PEOPLE } from "../src/workspace-store";
-import notFoundPage from "../../web/public/404.html";
 import { agentWithKeptModel, answerWithKeptModel, api, apiWith, builtPages, connect, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, post, roomSql, settle, shown, startDirect, workspaceSql, workspaceStub, type Client, type KeptModel, type Session, type WorkspaceSocket } from "./support";
+import notFoundPage from "../../web/public/404.html";
 
 // Who can ask an AI agent, as Admin access on its page sets it: everyone, only administrators, or only
 // administrators in their direct messages with it, when it's in no room and nobody else is told of it.

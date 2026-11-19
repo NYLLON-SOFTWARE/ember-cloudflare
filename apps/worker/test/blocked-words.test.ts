@@ -1,4 +1,4 @@
-import type { BotAnswer, BotSettings, Bootstrap, Me, NewWorkspace, RoomId, SharedRoom, User, WorkspaceSettings } from "@ember/protocol";
+import type { Bootstrap, BotAnswer, BotSettings, Me, NewWorkspace, RoomId, SharedRoom, User, WorkspaceSettings } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED, blockedWordUnmatchable } from "@ember/protocol/blocked-words";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

@@ -1,7 +1,6 @@
 import type { DirectoryUser, Room, User } from "@ember/protocol";
 import type { HuddlePerson } from "@ember/protocol/huddles";
 import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
@@ -9,6 +8,7 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { NO_REACTIONS } from "@/lib/huddle-reactions";
 import { showHuddle, showReactions, showSpeaking, type JoinedHuddle } from "@/lib/huddle-store";
 import { HuddleBar } from "./huddle-bar";
+import userEvent from "@testing-library/user-event";
 
 const ada: User = { id: "ada", name: "Ada Lovelace" };
 const sam: User = { id: "sam", name: "Sam Rivera" };
