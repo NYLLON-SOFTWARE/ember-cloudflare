@@ -242,8 +242,8 @@ export function HuddleVideo({ save }: VideoProps) {
       </div>
       <fieldset aria-labelledby="huddle-video-heading" aria-describedby="huddle-video-description" className="flex min-w-0 flex-col gap-1">
         {HUDDLE_VIDEO_QUALITIES.map((each) => (
-          // For fingers, the button sits far enough into its label for a fingertip on it to land on the label.
-          <label key={each} className="flex min-h-11 cursor-pointer items-start gap-2.5 py-1 has-disabled:cursor-default touch:-ms-3.5 touch:ps-3.5">
+          // For fingers, the button sits far enough into its label, from the side and from the top, for a fingertip on it to land on the label.
+          <label key={each} className="flex min-h-11 cursor-pointer items-start gap-2.5 py-1 has-disabled:cursor-default touch:-ms-3.5 touch:ps-3.5 touch:pt-3.5">
             <input
               type="radio"
               name="huddle-video"
