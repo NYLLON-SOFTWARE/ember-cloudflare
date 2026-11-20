@@ -52,6 +52,7 @@ const workspace: Omit<Bootstrap, "user"> = {
     huddles: false,
     huddleCameras: true,
     huddleScreens: true,
+    huddleVideo: "hd",
   },
   version: "0.1",
   vapidPublicKey: null,

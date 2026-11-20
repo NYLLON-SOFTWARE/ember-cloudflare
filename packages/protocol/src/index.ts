@@ -8,7 +8,7 @@ import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { parseBlockedWords } from "./blocked-words.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
-import type { HuddleSounds, HuddlesSettings, LiveHuddle, MessageHuddle } from "./huddles.ts";
+import { HUDDLE_VIDEO_REFUSED, isHuddleVideoQuality, type HuddleSounds, type HuddlesSettings, type HuddleVideoQuality, type LiveHuddle, type MessageHuddle } from "./huddles.ts";
 import type { OutsideConnection } from "./outside.ts";
 import type { SsoSettings, SsoStatus } from "./sso.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -93,6 +93,7 @@ export type {
   HuddlesSaved,
   HuddlesSettings,
   HuddlesSetup,
+  HuddleVideoQuality,
   LiveHuddle,
   MessageHuddle,
   PastHuddle,
@@ -655,6 +656,8 @@ export interface Account {
    * On until an administrator turns it off.
    */
   huddleScreens: boolean;
+  /** How sharp cameras and shared screens are in huddles, as the Huddles tab's Video quality says: `DEFAULT_HUDDLE_VIDEO` until an administrator chooses. */
+  huddleVideo: HuddleVideoQuality;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -904,15 +907,16 @@ export interface NewJoinCode {
 
 /**
  * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
- * its settings, its custom domain, which can only be the address the request comes to, or null for
- * none, the icons of the rail's buttons and the appearance modes, the address Ember's email comes from,
- * or null for none, the domains Email domain lets in, in place of those it had, and the words and
- * phrases Blocked words keeps out, in place of those it had too.
+ * its settings, huddles' video quality, its custom domain, which can only be the address the request
+ * comes to, or null for none, the icons of the rail's buttons and the appearance modes, the address
+ * Ember's email comes from, or null for none, the domains Email domain lets in, in place of those it
+ * had, and the words and phrases Blocked words keeps out, in place of those it had too.
  */
 export interface AccountChanges {
   name?: string;
   tagline?: string;
   settings?: AccountSettings;
+  huddleVideo?: HuddleVideoQuality;
   customDomain?: string | null;
   navigationIcons?: NavigationIconChanges;
   emailFrom?: string | null;
@@ -2779,17 +2783,19 @@ function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. The name
  * is saved as typed, even blank. The tagline is kept on one line without space at its ends, and blank is
- * none. Each setting is true or false, and one it doesn't know is refused. A custom domain is a host or
- * null, which the Worker then checks is the address the request came to. Navigation icons are as
- * `navigationIconsOf` reads them, the From address as `emailFromOf` does, Email domain's domains as
- * `emailDomainsOf` does, and the blocked words as `parseBlockedWords` does.
+ * none. Each setting is true or false, and one it doesn't know is refused. Huddles' video quality is one
+ * of `HUDDLE_VIDEO_QUALITIES`. A custom domain is a host or null, which the Worker then checks is the
+ * address the request came to. Navigation icons are as `navigationIconsOf` reads them, the From address
+ * as `emailFromOf` does, Email domain's domains as `emailDomainsOf` does, and the blocked words as
+ * `parseBlockedWords` does.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords } = data;
+  const { name, tagline, settings, huddleVideo, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
   const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
   if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
+  if (huddleVideo !== undefined && !isHuddleVideoQuality(huddleVideo)) return HUDDLE_VIDEO_REFUSED;
   const domain = customDomainOf(customDomain);
   if (customDomain !== undefined && domain === undefined) return CUSTOM_DOMAIN_NOT_A_HOST;
   const icons = navigationIconsOf(navigationIcons);
@@ -2803,6 +2809,7 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   const changes: AccountChanges = {
     ...(name !== undefined && { name }),
     ...(kept !== undefined && { tagline: kept }),
+    ...(huddleVideo !== undefined && { huddleVideo }),
     ...(domain !== undefined && { customDomain: domain }),
     ...(icons !== undefined && { navigationIcons: icons }),
     ...(from !== undefined && { emailFrom: from }),

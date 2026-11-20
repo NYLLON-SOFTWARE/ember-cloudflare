@@ -1378,14 +1378,19 @@ bar along the window's base, which follows you from page to page with the microp
 the screen, the button that opens the huddle again, and Leave; a phone's bar has the microphone and
 Leave, and opens the huddle at its name. Whoever is speaking has a green ring round their tile, and
 round their face on the bar. Your browser tells who by how loud each voice it plays is, and your own
-by your microphone, so nothing more is sent for it, and nobody muted shows as speaking. Cameras are
-640 by 360 at up to 500 kbps, and up to 25 can be on in a huddle at once. Chrome, Edge and the other
-browsers built on Chromium send a camera in a second size as well, 320 by 180 at up to 150 kbps, and
-a browser whose tiles are no taller than that, as with many people in the huddle, or beside a
-shared screen, is sent that size in place of the larger. Safari and Firefox send a camera in the one
-size, which everyone is sent. Your browser is sent the others' cameras only while you have the
-huddle open, and a camera's picture isn't kept in step with its person's voice, which travels apart
-from it.
+by your microphone, so nothing more is sent for it, and nobody muted shows as speaking. Up to 25
+cameras can be on in a huddle at once, as sharp as the workspace's video quality, which an
+administrator chooses, and is HD until one does. Chrome, Edge and the other browsers built on
+Chromium send a camera in three sizes at once: 320 by 180 at up to 150 kbps, 640 by 360 at up to
+500 kbps, and 1280 by 720 at up to 1.5 Mbps at HD, or 1920 by 1080 at up to 3 Mbps at Full HD, where
+Standard sends the first two only. A camera that takes less, as an older webcam does, is sent in
+fewer sizes. Each browser is sent the smallest of a camera's sizes that's as tall as its
+tiles, counting the screen's own pixels, up to two for each of the page's, as a Retina screen has:
+the small one with many people in the huddle, or beside a shared screen, and the large with few,
+whose tiles grow as wide as 640px at HD and 800px at Full HD, where Standard's stop at 420px. Safari
+and Firefox send a camera in one size, 640 by 360 at up to 500 kbps, which everyone is sent. Your
+browser is sent the others' cameras only while you have the huddle open, and a camera's picture
+isn't kept in step with its person's voice, which travels apart from it.
 
 Share screen, beside the camera, has your browser ask which screen, window or tab to share, and
 shares it until you stop it there or in your browser. Two people can share at once, as in Slack's
@@ -1394,9 +1399,10 @@ screen large, all of it, in its own shape, under whose it is, with the huddle's 
 it, or under it, as on a phone held upright, whichever shows the screen larger. The tiles scroll by
 themselves once there are more than fit there. A second screen shows among the tiles, first of them,
 and a click on it shows it large in place of the other. Your own shows among your tiles, as the
-others see it. A screen is sent as large as 1920 by 1080, at up to 15 frames a second and 1.5 Mbps,
-without its sound, and only to those who have the huddle open: once it's minimized, its bar says
-who's sharing. A phone's browser has no screen to share, so phones watch.
+others see it. A screen is sent as large as 2560 by 1440 at up to 3 Mbps, or 1920 by 1080 at up to
+1.5 Mbps at Standard, at up to 15 frames a second, without its sound, and only to those who have the
+huddle open: once it's minimized, its bar says who's sharing. A phone's browser has no screen to
+share, so phones watch.
 
 On a phone, where the huddle is over all of the page and has no arrows, a button beside the camera,
 Switch camera, is there while your camera is on and the browser has another. It shows the camera
@@ -1571,6 +1577,15 @@ its person is told, and the room refuses any it's asked to show. With both off, 
 only. The room takes down whichever cameras and screens a tab left on, eight every half minute.
 Turning a switch on again gives its buttons back, and nobody's camera comes on, or screen is shared,
 by itself.
+
+Under that card is Video quality, Standard, HD or Full HD, which is HD until an administrator
+chooses another, and is saved as soon as it's chosen. Standard sends cameras at 640 by 360 and
+screens at up to 1920 by 1080, HD cameras at up to 1280 by 720 and screens at up to 2560 by 1440,
+and Full HD cameras at up to 1920 by 1080, with screens as at HD. A change applies to the cameras
+turned on and the screens shared after it, and those on already stay as they are. Full HD asks the
+most of a computer, whose browser encodes its camera three times over, and Chrome makes a camera's
+picture smaller while its computer is too busy to keep up, so it suits teams with fast computers and
+connections. What each costs is in [What it costs](#what-it-costs).
 
 A room can go without huddles, as a Slack channel can. While huddles are on, a room's settings have
 a Huddles switch for administrators, as only a Slack workspace's owners and admins change a
@@ -1829,14 +1844,18 @@ pages had them in October 2026:
   huddle, and nothing for what they send it. The first 1,000 GB a month are free, and it's $0.05 per GB
   after that, as its page had it in November 2026. A voice is about 50 kbps to each person who hears
   it, so five people talking for an hour are sent under half a GB between them, and the free 1,000 GB
-  carry about 2,000 such hours a month. A camera is up to 500 kbps to each person who has the huddle
-  open, so the same five with their cameras on throughout are sent up to 4.5 GB more in the hour, and
-  the free 1,000 GB carry about 200 such hours a month. A camera from a browser that sends it in two
-  sizes is up to 150 kbps to each person whose tiles show it small, so twenty people with their
-  cameras on throughout, each in a window that shows the others small, are sent up to 26 GB in the
-  hour, where the larger size would come to 86. A shared screen is up to 1.5 Mbps to each person who
-  has the huddle open, so one shared with the other four throughout is up to 2.7 GB more in the
-  hour. Turning Cameras and Screen sharing off under Huddles keeps huddles to voices. A relay for
+  carry about 2,000 such hours a month. At HD, a camera is up to 1.5 Mbps to each person whose tiles
+  show it large, so the same five with their cameras on throughout, each seeing the others large,
+  are sent up to 13.5 GB more in the hour, and the free 1,000 GB carry about 70 such hours a month.
+  Full HD's 3 Mbps doubles that, to 27 GB, about 36 such hours, and Standard's 500 kbps keeps it to
+  4.5 GB, about 200 hours. Smaller tiles are sent smaller sizes: 500 kbps for the medium one and
+  150 kbps for the small, so twenty people with their cameras on throughout, each in a window that
+  shows the others small, are sent up to 26 GB in the hour, or up to 86 where their screens have two
+  pixels for each of the page's and are sent the medium size. A camera from Safari or Firefox is up to
+  500 kbps to each person who has the huddle open, whatever their tiles. A shared screen is up to
+  3 Mbps to each person who has the huddle open, or 1.5 Mbps at Standard, so one shared with the
+  other four throughout is up to 5.4 GB more in the hour, or 2.7 GB. Video quality under Huddles
+  chooses among them, and turning Cameras and Screen sharing off keeps huddles to voices. A relay for
   strict networks adds nothing to it: Cloudflare's TURN service is free of charge used with the SFU.
 
 Cloudflare's pages have the details: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
