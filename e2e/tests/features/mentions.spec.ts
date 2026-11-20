@@ -207,6 +207,34 @@ test.describe("Highlight mentions of you", () => {
   });
 });
 
+// Slack's @here and @channel, which notify the room rather than someone.
+test.describe("Notify a room", () => {
+  test("offers @here and @channel after the people, and @here first once it's typed in full, which Space picks, highlighting the message for everyone", async ({ members }) => {
+    const tag = newTag();
+    const ada = await members.signIn(`Ada ${tag}`);
+    const grace = await members.signIn(`Grace ${tag}`);
+
+    await grace.composer().pressSequentially("Lunch? ");
+    await typeMention(grace.composer(), "h");
+    await expect(offered(grace).last()).toHaveText("@here Notify everyone active in this room");
+    await expect(offered(grace).last().locator(".autocompletable__at")).toBeVisible();
+    const answered = answerFor(grace.page, "here");
+    await grace.composer().pressSequentially("ere");
+    await answered;
+    await expect(offered(grace).first()).toHaveText("@here Notify everyone active in this room");
+    await expect(offered(grace).first()).toHaveAttribute("aria-selected");
+    await grace.composer().press("Space");
+    await listClosed(grace);
+    await expect(grace.composer().getByText("@here", { exact: true })).toBeVisible();
+    await grace.composer().press("Enter");
+
+    for (const member of [ada, grace]) {
+      await expect(member.message("Lunch?")).toContainText("Lunch? @here");
+      await expect(member.message("Lunch?").locator(".border-mention")).toHaveCSS("border-left-width", "2px");
+    }
+  });
+});
+
 test.describe("How mentions look", () => {
   test("shows a mention as the person's avatar and name, renamed everywhere at once when they're renamed", async ({ members, request }) => {
     const tag = newTag();

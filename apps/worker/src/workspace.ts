@@ -80,6 +80,7 @@ import {
   type SharedRoom,
   type Sidebar,
   type SidebarRoom,
+  type SpecialMention,
   type User,
   type UserId,
   type UserStatus,
@@ -203,6 +204,7 @@ import {
   type LinkedPerson,
   type LoggedOut,
   type LoggedOutSessions,
+  type MessagePush,
   type OtherWays,
   type MovedModel,
   type NewPerson,
@@ -723,6 +725,12 @@ export interface ShownPerson {
   transfer: Transfer | null;
   /** What the page tells everyone of an agent an administrator made, or null for anyone else. */
   agent: AgentProfile | null;
+}
+
+/** Whom someone can mention somewhere: the people there, and the special mentions they can make there. */
+export interface Mentionable {
+  people: DirectoryEntry[];
+  specialMentions: SpecialMention[];
 }
 
 /**
@@ -4106,14 +4114,16 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Whom the person `credentials` signs in can mention in room `roomId`, or anywhere when it's null:
    * the first page of the active people there whose names contain `query`, by name, but the AI agents
-   * kept for administrators, unless they're one. "not found" unless they're in the room, or null without
-   * a valid session.
+   * kept for administrators, unless they're one, and with `special`, the special mentions that notify the
+   * room from them whose names start with `query`. "not found" unless they're in the room, or null
+   * without a valid session.
    */
-  async mentionable(credentials: Credentials, roomId: RoomId | null, query: string): Promise<DirectoryEntry[] | "not found" | null> {
+  async mentionable(credentials: Credentials, roomId: RoomId | null, query: string, special = false): Promise<Mentionable | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
-    return this.store.mentionable(query, roomId, user.id);
+    const [people, notifying] = await Promise.all([this.store.mentionable(query, roomId, user.id), special && roomId !== null ? this.store.notifyingMentions(roomId, user.id) : []]);
+    return { people, specialMentions: notifying.filter((mention) => mention.startsWith(query.toLowerCase())) };
   }
 
   /**
@@ -5737,7 +5747,9 @@ export class Workspace extends DurableObject<Env> {
     const { version: blockedWords } = await this.blockedWordsNow();
     if (events.length === 0) return { pushes: [], webhooks: [], asks: [], blockedWords };
     const { on: pushing } = await webPush(this.env);
-    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
+    // @here notifies those who are active, as presence has them now.
+    const activeIds = pushing && events.some((event) => event.message?.notifies === "here") ? [...this.presence.active()] : [];
+    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env), activeIds);
     for (const [userId, mark] of marks) this.tell([userId], mark === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, ...mark });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
     return { pushes, webhooks, asks, blockedWords };
@@ -5749,6 +5761,24 @@ export class Workspace extends DurableObject<Env> {
    */
   async pushable(id: number): Promise<boolean> {
     return this.store.pushable(id);
+  }
+
+  /**
+   * Sends pushes a room has no requests left for, as it sends its own: each once the Workspace has checked
+   * that it may still go, forgetting the subscriptions they find gone. A call is an invocation of its own,
+   * with requests of its own, so a room hands a big room's pushes over a call at a time.
+   */
+  async sendRoomPushes(pushes: Array<MessagePush | InvitationPush>): Promise<void> {
+    const gone = await sendPushes(this.env, pushes, (id) => this.store.pushable(id));
+    if (gone.length > 0) await this.forgetPushSubscriptions(gone);
+  }
+
+  /**
+   * The special mentions that notify room `roomId` when `userId` makes them, for the room to say whom a
+   * message notifies: @here and @channel in a room that isn't a DM, from anyone but an AI agent.
+   */
+  async notifyingMentions(roomId: RoomId, userId: UserId): Promise<SpecialMention[]> {
+    return this.store.notifyingMentions(roomId, userId);
   }
 
   /**

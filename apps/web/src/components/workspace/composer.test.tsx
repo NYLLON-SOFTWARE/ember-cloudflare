@@ -97,6 +97,16 @@ describe("Composer", () => {
     expect((await showComposer()).input).toHaveAttribute("data-mentions-above");
   });
 
+  it("offers @here and @channel from @ in a room's own composer, but not a thread's or a DM's, where they'd notify nobody", async () => {
+    const asked = [];
+    for (const props of [{}, { threadId: "m1" }, { direct: true }]) {
+      const { input, view } = await showComposer(props);
+      asked.push(input.getAttribute("data-mentions-from"));
+      view.unmount();
+    }
+    expect(asked).toEqual(["/api/autocompletable/users?room_id=r1&special_mentions=1", "/api/autocompletable/users?room_id=r1", "/api/autocompletable/users?room_id=r1"]);
+  });
+
   it("lists them above the text with a mouse only where it's asked to, as where something under the composer would cut the list off", async () => {
     const { input, view } = await showComposer();
     expect(input).not.toHaveAttribute("data-mentions-above");

@@ -281,8 +281,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   if (shownAnyway && !blocked) setShownAnyway(false);
   const created = new Date(message.createdAt);
   // Any message that mentions you, yours too, as Campfire's message_formatter.js means to mark them,
-  // though it looks for an avatar address that mentions don't have, so it never does.
-  const mentioned = message.mentions.some((person) => person.id === me.id);
+  // though it looks for an avatar address that mentions don't have, so it never does, and any that
+  // notified the room with @here or @channel, as Slack marks one for everyone.
+  const mentioned = message.notifies !== undefined || message.mentions.some((person) => person.id === me.id);
   const shown = useMemo(() => shownBody(message.body, message.plainText), [message.body, message.plainText]);
   // Quote quotes what the message shows, or the plain text of a bot's cards where they're all it shows.
   const quoted = useMemo(

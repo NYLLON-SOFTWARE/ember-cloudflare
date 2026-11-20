@@ -73,11 +73,12 @@ import type { AgentAccess, AgentProfile, AgentRoom } from "@ember/protocol/agent
 import type { AppId } from "@ember/protocol/apps";
 import { ALL_HUDDLE_SOUNDS, DEFAULT_HUDDLE_VIDEO, isHuddleVideoQuality, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type HuddleVideoQuality, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
 import { DEFAULT_GROUPS_CLAIM, DEFAULT_SSO_NAME } from "@ember/protocol/sso";
+import { SPECIAL_MENTIONS, type SpecialMention } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
 import { INVITATION_TTL_SECONDS, invitationPayload, messagePayload, type PushPayload } from "./push/payload";
 import { ADDRESS_TAG_PREFIX, EVERYONE, OPEN_ROOMS_ONLY, SESSION_TAG_PREFIX, taggedAddress, type Revocation } from "./revocations";
-import type { HuddleChange, RoomEvent } from "./room-log";
+import type { HuddleChange, PushedMessage, RoomEvent } from "./room-log";
 import { readersOf, type RoomReaders } from "./search-words";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
@@ -2319,28 +2320,58 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
   WHERE room_id = ?1 AND ?2 > (SELECT applied_seq FROM rooms WHERE id = ?1 AND kind = 'direct')`;
 
 /**
- * Where a new message, numbered ?5, by ?2 in room ?1 is pushed: to the subscriptions of the room's
- * active members other than its author, those who have blocked its author and the people a JSON list ?3
- * names, who are viewing it, or its thread for a reply sent only there, at all messages, when it's in the
- * room's timeline, as ?7 says, then
- * of those at @mentions or all messages whom it mentions, a JSON list ?4, or who follow the thread it's a
- * reply in, a JSON list ?8, each in the order they were saved. Guests are left out unless ?6 says they
- * can stay signed in. Each comes with the room, its author's name and the count its push sets the badge
- * to: how many of its owner's conversations are marked unread. Nothing once the Workspace has applied the
- * message's event.
+ * Where a new message, numbered ?4, by ?2 in room ?1 is pushed, to those of the room's active members
+ * `whom` picks: to the subscriptions of each but its author, those who have blocked its author and the
+ * people a JSON list ?3 names, who are viewing it, or its thread for a reply sent only there, those at all
+ * messages first, then those at @mentions, each in the order they were saved. Guests are left out unless
+ * ?5 says they can stay signed in. Each comes with the room, its author's name and the count its push sets
+ * the badge to: how many of its owner's conversations are marked unread. Nothing once the Workspace has
+ * applied the message's event.
  */
-export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
+const pushesOfMessage = (whom: string) => `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
     rooms.kind, rooms.name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
   FROM rooms
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1)
+  WHERE rooms.id = ?1 AND ?4 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?5 = 1)
     AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
-    AND ((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
-      AND (memberships.user_id IN (SELECT value FROM json_each(?4)) OR memberships.user_id IN (SELECT value FROM json_each(?8)))))
+    AND ${whom}
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
+
+/**
+ * Where a new message is pushed (`pushesOfMessage`): to those at all messages, when it's in the room's
+ * timeline, as ?6 says, and those at @mentions or all messages whom it mentions, a JSON list ?7, or who
+ * follow the thread it's a reply in, a JSON list ?8.
+ */
+export const MESSAGE_PUSHES = pushesOfMessage(`((memberships.involvement = 'everything' AND ?6 = 1) OR (memberships.involvement IN ('everything', 'mentions')
+      AND (memberships.user_id IN (SELECT value FROM json_each(?7)) OR memberships.user_id IN (SELECT value FROM json_each(?8)))))`);
+
+/**
+ * Where a new message that notifies everyone in its room, as @channel does, is pushed (`pushesOfMessage`):
+ * to those at @mentions or all messages, as a mention of each of them would be.
+ */
+export const ROOM_MENTION_PUSHES = pushesOfMessage(`memberships.involvement IN ('everything', 'mentions')`);
+
+/**
+ * The statement that finds where the new message of `event`, in room `roomId`, is pushed, with the people
+ * a JSON list `seeing` names viewing it: `ROOM_MENTION_PUSHES` for one that notifies everyone in the room,
+ * and `MESSAGE_PUSHES` for any other, which takes those @here notifies, `activeIds`, as mentioned.
+ */
+function messagePushesOf(roomId: RoomId, { seq, userId, threadOnly, message }: RoomEvent & { message: PushedMessage }, seeing: string, guests: boolean, activeIds: UserId[]): Statement {
+  const shared = [roomId, userId, seeing, seq, guests ? 1 : 0] as const;
+  if (message.notifies === "channel") return statement(ROOM_MENTION_PUSHES, ...shared);
+  const mentioned = message.notifies === "here" ? [...new Set([...message.mentionIds, ...activeIds])] : message.mentionIds;
+  return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentioned), JSON.stringify(message.followerIds ?? []));
+}
+
+/**
+ * Whether a message by ?2 in room ?1 can notify the room with a special mention: it's a room, not a DM, and
+ * ?2 isn't an AI agent, a bot without a token, as @ember and the agents administrators make are.
+ */
+const NOTIFIES_ROOM = `SELECT 1 FROM rooms, users
+  WHERE rooms.id = ?1 AND rooms.kind <> 'direct' AND users.id = ?2 AND NOT (users.role = ${BOT} AND users.bot_token IS NULL)`;
 
 /**
  * Whether push subscription ?1 is still saved, for someone active. Its id is never another's, as
@@ -5157,11 +5188,12 @@ export class WorkspaceStore {
    * whose marks changed, in a DM whose counts did, and how each is marked now, and, when a message has
    * come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`, it answers each
    * new message's pushes too, found just after its marks, so that a push's badge counts them and none of
-   * the events after it, and to guests only if `guests` says they can stay signed in. It answers the
-   * bots' webhooks each new message is delivered to, but for a bot's reply to one, which reaches the room
-   * as any message does but goes to no webhook.
+   * the events after it, and to guests only if `guests` says they can stay signed in, a message that
+   * notifies the room going to everyone in it for @channel, as a mention of each of them, and to those of
+   * `activeIds` in it for @here. It answers the bots' webhooks each new message is delivered to, but for a
+   * bot's reply to one, which reaches the room as any message does but goes to no webhook.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false): Promise<AppliedEvents> {
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false, activeIds: UserId[] = []): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
     const message = events.findLast(isRoomMessage);
@@ -5174,9 +5206,7 @@ export class WorkspaceStore {
       const mark = isNewMessage(event) ? (event.threadOnly ? null : statement(MARK_UNREAD, at, roomId, userId, seeing, seq)) : statement(MARK_READ, roomId, userId, seq);
       const marks = mark && statements.push(mark) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
-      const followers = JSON.stringify(event.message?.followerIds ?? []);
-      const inRoom = event.threadOnly ? 0 : 1;
-      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
+      const pushes = pushing && event.message ? statements.push(messagePushesOf(roomId, { ...event, message: event.message }, seeing, guests, activeIds)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
@@ -5212,6 +5242,14 @@ export class WorkspaceStore {
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
     return (await this.db.all(MEMBERSHIP, roomId, userId)).length > 0;
+  }
+
+  /**
+   * The special mentions that notify room `roomId` when `userId` makes them: all of them in a room that
+   * isn't a DM, from anyone but an AI agent, and none otherwise.
+   */
+  async notifyingMentions(roomId: RoomId, userId: UserId): Promise<SpecialMention[]> {
+    return (await this.db.all(NOTIFIES_ROOM, roomId, userId)).length > 0 ? [...SPECIAL_MENTIONS] : [];
   }
 
   /** The kind of room `roomId`, a DM's too, or null when there's no such room. */

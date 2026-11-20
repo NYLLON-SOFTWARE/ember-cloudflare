@@ -1199,10 +1199,12 @@ export async function clearSearches(): Promise<void> {
 }
 
 /**
- * Where a room's @ prompt asks for the people it offers: Lexxy adds what's typed after the @ as
- * `filter`, and the answer is its prompt items.
+ * Where a room's @ prompt asks for the people it offers, and with `specialMentions` the special mentions
+ * too, @here and @channel, which only a room's own composer offers: Lexxy adds what's typed after the @
+ * as `filter`, and the answer is its prompt items.
  */
-export const mentionPromptSrc = (roomId: RoomId) => `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}`;
+export const mentionPromptSrc = (roomId: RoomId, specialMentions = false) =>
+  `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}${specialMentions ? "&special_mentions=1" : ""}`;
 
 /** The address of a socket at `path` on this page's host, over wss on https pages. */
 export function socketUrl(path: string): string {

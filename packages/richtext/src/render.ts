@@ -18,6 +18,7 @@ import {
   type MentionUser,
   type OpengraphEmbed,
   type ResolveMention,
+  type SpecialMention,
 } from "./attachments";
 import {
   attachmentGalleryNodes,
@@ -54,8 +55,12 @@ import {
 /** What mentions and link previews render as: Campfire's partials for them, or stand-ins. */
 interface Partials {
   mention: (user: MentionUser) => string;
+  specialMention: (mention: SpecialMention) => string;
   preview: (embed: OpengraphEmbed) => string;
 }
+
+/** A special mention as a message presents it, which Campfire has no partial for: its plain text. */
+const specialMentionText = (mention: SpecialMention) => `@${mention}`;
 
 /**
  * `message_presentation`'s rendering, sanitized as its auto_link sanitizes it but not linked: `<` and
@@ -64,7 +69,7 @@ interface Partials {
  * rescues to show nothing.
  */
 export function presentMessage(parse: HtmlParser, body: string, resolve: ResolveMention, mention: Partials["mention"], host = ""): string {
-  const partials = { mention, preview: opengraphEmbedPartial };
+  const partials = { mention, specialMention: specialMentionText, preview: opengraphEmbedPartial };
   const read = forOneReading(parse);
   return toHtml(renderFiltered(read, filterMessage(read, body, resolve, host), resolve, partials, host), { escapeAttributeBrackets: true });
 }
@@ -76,7 +81,8 @@ const isMarker = (element: Element) => element.name === MENTION_MARKER || elemen
 /**
  * The form Ember stores a body in: `presentMessage`'s, out of its layout and stripped, with each
  * mention as an empty `<action-text-attachment content-type="application/vnd.campfire.mention"
- * sgid="<user id>">` that renders the person as they are now, each link preview as the attachment
+ * sgid="<user id>">` that renders the person as they are now, each special mention as one whose sgid
+ * is its name, each link preview as the attachment
  * the composer writes for one (`previewContent`), which renders as the page shows it, and without
  * three things: `class` attributes, since a message's Tailwind classes could restyle the page, the
  * images of remote image attachments, which a stored body can't hold (SanitizeTags removes
@@ -87,7 +93,8 @@ const isMarker = (element: Element) => element.name === MENTION_MARKER || elemen
 export function canonicalize(parse: HtmlParser, body: string, resolve: ResolveMention): string {
   const previews: OpengraphEmbed[] = [];
   const markers: Partials = {
-    mention: (user) => `<${MENTION_MARKER} user="${htmlEscape(user.id)}"></${MENTION_MARKER}>`,
+    mention: (user) => `<${MENTION_MARKER} sgid="${htmlEscape(mentionSgid(user.id))}"></${MENTION_MARKER}>`,
+    specialMention: (mention) => `<${MENTION_MARKER} sgid="${mention}"></${MENTION_MARKER}>`,
     preview: (embed) => `<${PREVIEW_MARKER} index="${previews.push(embed) - 1}"></${PREVIEW_MARKER}>`,
   };
   const read = forOneReading(parse);
@@ -95,7 +102,7 @@ export function canonicalize(parse: HtmlParser, body: string, resolve: ResolveMe
   const replacements = new Map<Node, Node[]>();
   for (const node of descendants(content)) {
     if (!isElement(node)) continue;
-    if (node.name === MENTION_MARKER) replacements.set(node, [mentionAttachment(getAttr(node, "user")!)]);
+    if (node.name === MENTION_MARKER) replacements.set(node, [mentionAttachment(getAttr(node, "sgid")!)]);
     else if (node.name === PREVIEW_MARKER) replacements.set(node, [previewAttachment(previews[Number(getAttr(node, "index"))]!)]);
     else if (node.name === "img") replacements.set(node, []);
     else removeAttr(node, "class");
@@ -113,10 +120,10 @@ function withoutLeadingNewlines(pre: Element): void {
   }
 }
 
-function mentionAttachment(userId: string): Element {
+function mentionAttachment(sgid: string): Element {
   return createElement(ATTACHMENT_TAG, [
     { name: "content-type", value: MENTION_CONTENT_TYPE },
-    { name: "sgid", value: mentionSgid(userId) },
+    { name: "sgid", value: sgid },
   ]);
 }
 
@@ -234,6 +241,8 @@ class Renderer {
     switch (attachable.kind) {
       case "mention":
         return chomp(this.partials.mention(attachable.user));
+      case "special-mention":
+        return chomp(this.partials.specialMention(attachable.mention));
       case "opengraph-embed":
         return chomp(this.partials.preview(attachable.embed));
       // Rails asks a missing record's model for its partial, which User doesn't have, so a mention of
@@ -297,12 +306,13 @@ const isInsideAttachment = (node: Node) => ancestors(node).some((ancestor) => is
 
 /**
  * `Attachment#with_full_attributes`'s node: the node's attachment attributes, in Action Text's
- * order, with a mentioned user's content type.
+ * order, with a mentioned user's content type, which a special mention has too.
  */
 function withFullAttributes(node: Element, attachable: Attachable): Element {
   const attrs = [];
+  const mention = attachable.kind === "mention" || attachable.kind === "special-mention";
   for (const name of ATTACHMENT_ATTRIBUTES) {
-    const value = name === "content-type" && attachable.kind === "mention" ? MENTION_CONTENT_TYPE : getAttr(node, name);
+    const value = name === "content-type" && mention ? MENTION_CONTENT_TYPE : getAttr(node, name);
     if (value !== undefined) attrs.push({ name, value });
   }
   // Rails makes no node of no attributes, then calls #node on the nil

@@ -1,4 +1,17 @@
-import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
+import {
+  PARENT_TEXT_LENGTH,
+  parentTextOf,
+  THREAD_FACES,
+  type Boost,
+  type Card,
+  type Message,
+  type RoomId,
+  type SpecialMention,
+  type ThreadSummary,
+  type TimelinePage,
+  type User,
+  type UserId,
+} from "@ember/protocol";
 import type { MessageHuddle } from "@ember/protocol/huddles";
 import { hasLinkable, type PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
@@ -29,6 +42,8 @@ interface MessageRow {
    * written, or each an id alone in a row from before mentions kept names.
    */
   mentions: string;
+  /** Whom its special mention notified (migrations/0082_message_notifies.sql), or null for none. */
+  notifies: SpecialMention | null;
   created_at: string;
   updated_at: string;
   edited_at: string | null;
@@ -128,8 +143,8 @@ const REPLIES_LEFT = `SELECT id, parent_id, deleted, huddle IS NOT NULL AS huddl
   ) AS replies_left
   FROM messages WHERE room_id = ?1 AND id IN (SELECT value FROM json_each(?3))`;
 
-/** Keeps the messages of room `?` a JSON array names for their threads, at a time, without their text, file, cards or huddle. */
-const KEEP_FOR_THREADS = `UPDATE messages SET body = '', plain_text = '', mentions = '[]', attachment = NULL, cards = NULL, huddle = NULL, deleted = 1, updated_at = ?3
+/** Keeps the messages of room `?` a JSON array names for their threads, at a time, without their text, file, cards or huddle, notifying nobody. */
+const KEEP_FOR_THREADS = `UPDATE messages SET body = '', plain_text = '', mentions = '[]', notifies = NULL, attachment = NULL, cards = NULL, huddle = NULL, deleted = 1, updated_at = ?3
   WHERE room_id = ?1 AND id IN (SELECT value FROM json_each(?2))`;
 
 /** Numbers changes to the messages of room ?1 a JSON array ?2 names from ?3, in the order it names them. */
@@ -225,6 +240,7 @@ function toMessage(row: MessageRow): Message {
     body: row.body,
     plainText: row.plain_text,
     mentions: (JSON.parse(row.mentions) as (User | UserId)[]).map((person) => (typeof person === "string" ? { id: person, name: "" } : person)),
+    ...(row.notifies !== null && { notifies: row.notifies }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     editedAt: row.edited_at,
@@ -258,8 +274,11 @@ async function toMessages(rows: MessageRow[], signer: () => Promise<Signer>): Pr
   );
 }
 
-/** What a message keeps of what was written: its text, as `prepareBody` keeps it, and a bot's cards, if it has any. */
-export type StoredBody = Pick<PreparedBody, "html" | "plainText" | "mentions"> & { cards?: Card[] };
+/**
+ * What a message keeps of what was written: its text, as `prepareBody` keeps it, with the special mentions
+ * it makes, a bot's cards, if it has any, and whom it notifies, which the room decides.
+ */
+export type StoredBody = Pick<PreparedBody, "html" | "plainText" | "mentions"> & { specialMentions?: SpecialMention[]; cards?: Card[]; notifies?: SpecialMention };
 
 /** A file message's file, as the batch that stores the message posts it, with what records that its upload has finished as that message. */
 export interface PostedFile {
@@ -571,8 +590,8 @@ export class MessageStore {
     const seq = await this.change(
       (seq) => [
         statement(
-          `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment, cards, parent_id, in_room)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, notifies, created_at, updated_at, change_seq, attachment, cards, parent_id, in_room)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           id,
           this.roomId,
           clientMessageId,
@@ -581,6 +600,7 @@ export class MessageStore {
           body.html,
           body.plainText,
           JSON.stringify(body.mentions),
+          body.notifies ?? null,
           now,
           now,
           seq,
@@ -609,6 +629,7 @@ export class MessageStore {
         body: body.html,
         plainText: body.plainText,
         mentions: body.mentions,
+        ...(body.notifies && { notifies: body.notifies }),
         createdAt: now,
         updatedAt: now,
         editedAt: null,
@@ -713,13 +734,22 @@ export class MessageStore {
     return this.replaceBody(message, body, now, message.editedAt);
   }
 
+  /**
+   * Gives the card `message` the text and cards `body` in place of its own once it's answered, as
+   * `updateBody` does, but without marking it edited, as a card that answers a click hasn't been.
+   */
+  answerCard(message: Message, body: StoredBody, now: string): Promise<{ message: Message; seq: number }> {
+    return this.replaceBody(message, body, now, message.editedAt);
+  }
+
   private async replaceBody(message: Message, body: StoredBody, now: string, editedAt: string | null): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
-        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ?, change_seq = ?, cards = ? WHERE room_id = ? AND id = ?`,
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, notifies = ?, updated_at = ?, edited_at = ?, change_seq = ?, cards = ? WHERE room_id = ? AND id = ?`,
         body.html,
         body.plainText,
         JSON.stringify(body.mentions),
+        body.notifies ?? null,
         now,
         editedAt,
         seq,
@@ -730,8 +760,8 @@ export class MessageStore {
       logIndexing(this.roomId, message.id),
       ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
-    const { cards: _, ...rest } = message;
-    const replaced = { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt };
+    const { cards: _, notifies: __, ...rest } = message;
+    const replaced = { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, ...(body.notifies && { notifies: body.notifies }), updatedAt: now, editedAt };
     return { message: body.cards ? { ...replaced, cards: body.cards } : replaced, seq };
   }
 
