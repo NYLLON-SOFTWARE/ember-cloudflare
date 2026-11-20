@@ -8,6 +8,7 @@ import { ActivePeople, PeopleContext } from "@/hooks/use-directory";
 import { FOLDED_SECTIONS_KEY } from "@/hooks/use-folded-sections";
 import { activeStore } from "@/lib/presence";
 import type { DirectSidebarRoom } from "@/lib/room-list";
+import { OpenSearchContext } from "./search-box";
 import { Sidebar } from "./sidebar";
 
 const rooms = [
@@ -28,7 +29,7 @@ const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: tru
 /**
  * The sidebar, with `props` in place of an unstarred one listing `rooms` with none open, in `account`'s
  * workspace, with the people directory listing `people`, and the workspace socket having said who's
- * `active`, if it has. `hearActive` has it say who is next.
+ * `active`, if it has. `hearActive` has it say who is next, and `openSearch` is what opens the search box.
  */
 function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: readonly DirectoryUser[] = [], active: UserId[] | null = null) {
   const all: Props = {
@@ -56,11 +57,14 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
   const heard = activeStore();
   const hearActive = (userIds: UserId[]) => heard.hear({ type: "presence", active: userIds, away: [] }, true);
   if (active) hearActive(active);
+  const openSearch = vi.fn();
   const sidebar = (changes: Partial<Props>, shown: Account) => (
     <PeopleContext value={listed}>
       <ActivePeople value={heard}>
         <AccountContext value={shown}>
-          <Sidebar {...all} {...changes} />
+          <OpenSearchContext value={openSearch}>
+            <Sidebar {...all} {...changes} />
+          </OpenSearchContext>
         </AccountContext>
       </ActivePeople>
     </PeopleContext>
@@ -69,6 +73,7 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
   return {
     ...view,
     ...all,
+    openSearch,
     rerender: (changes: Partial<Props>, changed = account) => view.rerender(sidebar(changes, changed)),
     hearActive: (userIds: UserId[]) => act(() => hearActive(userIds)),
   };
@@ -106,6 +111,23 @@ describe("Workspace tagline", () => {
 
     rerender({}, EMBER);
     expect([...heading.children].map((child) => child.tagName)).toEqual(["H2"]);
+  });
+});
+
+describe("Search in the drawer", () => {
+  it("follows the workspace's name with a search field at 900px and below, where the top bar's left out, which opens the search box", async () => {
+    const { openSearch } = renderSidebar({ workspaceName: "Analytical Engines" });
+    const search = screen.getByRole("button", { name: "Search Analytical Engines" });
+    expect(search.previousElementSibling?.tagName).toBe("HGROUP");
+    expect(search).toHaveClass("md:hidden", "min-h-11", "text-base", "bg-background");
+    expect(search.querySelector("svg")).toHaveClass("iconoir-search");
+    await userEvent.click(search);
+    expect(openSearch).toHaveBeenCalledExactlyOnceWith({ opener: search });
+  });
+
+  it("draws the icon an administrator chose for Search", () => {
+    renderSidebar({}, { ...EMBER, navigationIcons: { search: "coffee" } });
+    expect(screen.getByRole("button", { name: "Search Ember" }).querySelector("[data-icon]")).toHaveAttribute("data-icon", "coffee");
   });
 });
 
@@ -486,7 +508,9 @@ describe("Huddles, over the rooms", () => {
     expect(row).toHaveAccessibleName("Huddles");
     expect(row.querySelector("svg")).toHaveClass("iconoir-headset", "text-muted-foreground");
     expect(row).not.toHaveAttribute("aria-current");
-    expect(row.previousElementSibling?.tagName).toBe("HGROUP");
+    // Under the search field the drawer has there.
+    expect(row.previousElementSibling).toBe(screen.getByRole("button", { name: "Search Ember" }));
+    expect(row.previousElementSibling?.previousElementSibling?.tagName).toBe("HGROUP");
     expect(row.nextElementSibling).toBe(screen.getByRole("region", { name: "Rooms" }));
     // As tall as a room's row, and for a fingertip.
     expect(row).toHaveClass("min-h-9", "touch:min-h-11");

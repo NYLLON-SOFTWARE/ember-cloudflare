@@ -1,0 +1,91 @@
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HISTORY_KEPT, historyAddressOf, recordVisit, usePageHistory, withVisit } from "./use-page-history";
+
+/** Another tab's History for `userId`, as it writes it to storage, and tells this one. */
+function recordedInAnotherTab(userId: string, visits: unknown) {
+  localStorage.setItem(`ember:history:${userId}`, JSON.stringify(visits));
+  window.dispatchEvent(new StorageEvent("storage", { key: `ember:history:${userId}` }));
+}
+
+const refuseStorage = () => {
+  const refused = () => {
+    throw new DOMException("Refused", "SecurityError");
+  };
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(refused);
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(refused);
+};
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("The pages History keeps", () => {
+  it("keeps a room's or DM's address, a thread's, someone's page, Huddles, and a search's without its order", () => {
+    expect(historyAddressOf({ page: "room", roomId: "r1" }, "")).toBe("/rooms/r1");
+    // A permalink keeps its room's, a reply's its thread's, and a huddle's link its room's.
+    expect(historyAddressOf({ page: "room", roomId: "r1", messageId: "m1" }, "")).toBe("/rooms/r1");
+    expect(historyAddressOf({ page: "room", roomId: "r1", threadId: "m1", replyId: "m2" }, "")).toBe("/rooms/r1/threads/m1");
+    expect(historyAddressOf({ page: "room", roomId: "r1", huddle: true }, "")).toBe("/rooms/r1");
+    expect(historyAddressOf({ page: "person", userId: "u2" }, "")).toBe("/users/u2");
+    expect(historyAddressOf({ page: "huddles" }, "")).toBe("/huddles");
+    expect(historyAddressOf({ page: "search" }, "?q=++release++notes&sort=oldest&cursor=40")).toBe("/searches?q=release+notes");
+    expect(historyAddressOf({ page: "search" }, "?q=&in=r1")).toBe("/searches?q=&in=r1");
+  });
+
+  it("leaves out an empty search, settings, and the pages that go on to another", () => {
+    expect(historyAddressOf({ page: "search" }, "")).toBeNull();
+    expect(historyAddressOf({ page: "search" }, "?q=+++")).toBeNull();
+    expect(historyAddressOf({ page: "workspace-settings" }, "")).toBeNull();
+    expect(historyAddressOf({ page: "profile" }, "")).toBeNull();
+    expect(historyAddressOf({ page: "home" }, "")).toBeNull();
+    expect(historyAddressOf({ page: "message", roomId: "r1", messageId: "m1" }, "")).toBeNull();
+  });
+});
+
+describe("History's list", () => {
+  it("lists the newest visit first, and each page once, keeping the newest twenty", () => {
+    const visits = withVisit(withVisit(withVisit([], "/rooms/r1", 1), "/rooms/r2", 2), "/rooms/r1", 3);
+    expect(visits).toEqual([
+      { address: "/rooms/r1", at: 3 },
+      { address: "/rooms/r2", at: 2 },
+    ]);
+    const full = Array.from({ length: HISTORY_KEPT }, (_, i) => ({ address: `/rooms/r${i}`, at: 100 - i }));
+    const added = withVisit(full, "/huddles", 101);
+    expect(added).toHaveLength(HISTORY_KEPT);
+    expect(added[0]).toEqual({ address: "/huddles", at: 101 });
+    expect(added.at(-1)).toEqual({ address: "/rooms/r18", at: 82 });
+  });
+
+  it("keeps each person's apart, in this browser, which every tab adds to", () => {
+    const { result } = renderHook(() => usePageHistory("u1"));
+    expect(result.current).toEqual([]);
+    act(() => recordVisit("u1", "/rooms/r1", 1000));
+    act(() => recordVisit("u2", "/rooms/r2", 2000));
+    expect(result.current).toEqual([{ address: "/rooms/r1", at: 1000 }]);
+    expect(JSON.parse(localStorage.getItem("ember:history:u1")!)).toEqual([{ address: "/rooms/r1", at: 1000 }]);
+
+    act(() => recordedInAnotherTab("u1", [{ address: "/huddles", at: 3000 }, { address: "/rooms/r1", at: 1000 }]));
+    expect(result.current.map(({ address }) => address)).toEqual(["/huddles", "/rooms/r1"]);
+    // A visit here goes over what the other tab listed.
+    act(() => recordVisit("u1", "/rooms/r3", 4000));
+    expect(result.current.map(({ address }) => address)).toEqual(["/rooms/r3", "/huddles", "/rooms/r1"]);
+    // Clearing the site's storage clears it.
+    localStorage.clear();
+    act(() => void window.dispatchEvent(new StorageEvent("storage", { key: null })));
+    expect(result.current).toEqual([]);
+  });
+
+  it("leaves out what it can't read as a visit", () => {
+    localStorage.setItem("ember:history:u3", "{not json");
+    expect(renderHook(() => usePageHistory("u3")).result.current).toEqual([]);
+    localStorage.setItem("ember:history:u4", JSON.stringify([{ address: "/rooms/r1", at: 1 }, { address: "https://example.com/", at: 2 }, { address: "/huddles" }, "/rooms/r2"]));
+    expect(renderHook(() => usePageHistory("u4")).result.current).toEqual([{ address: "/rooms/r1", at: 1 }]);
+  });
+
+  it("lists what this tab showed where storage is refused", () => {
+    refuseStorage();
+    const { result } = renderHook(() => usePageHistory("u5"));
+    act(() => recordVisit("u5", "/rooms/r1", 1000));
+    act(() => recordVisit("u5", "/rooms/r2", 2000));
+    expect(result.current.map(({ address }) => address)).toEqual(["/rooms/r2", "/rooms/r1"]);
+  });
+});

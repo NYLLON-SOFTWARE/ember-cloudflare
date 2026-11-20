@@ -179,6 +179,8 @@ const sidebarRooms = () =>
   within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
     .getAllByRole("link")
     .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
+/** The top bar's search field. */
+const topBarSearch = () => within(screen.getByRole("banner")).getByRole("button", { name: "Search Analytical Engines" });
 /** The rail's links for the page shown, if any. */
 const railCurrent = () =>
   within(screen.getByRole("navigation", { name: "Workspace" }))
@@ -1229,17 +1231,17 @@ describe("Search box", () => {
     }),
   );
 
-  it("opens over the room from the rail, for everything, and from the room's header, in the room, giving focus back to the link as it closes", async () => {
+  it("opens over the room from the top bar's field, for everything, and from the room's header, in the room, giving focus back to what opened it as it closes", async () => {
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
-    const rail = screen.getByRole("link", { name: "Search" });
-    await user.click(rail);
+    const bar = topBarSearch();
+    await user.click(bar);
     expect(searchField()).toHaveFocus();
     expect(boxTokens()).toEqual([]);
     expect(location.pathname).toBe("/rooms/random");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(searchBox()).not.toBeInTheDocument());
-    expect(rail).toHaveFocus();
+    expect(bar).toHaveFocus();
 
     const header = screen.getByRole("link", { name: "Search messages" });
     await user.click(header);
@@ -1253,7 +1255,7 @@ describe("Search box", () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
-    await user.click(within(screen.getByRole("dialog", { name: "Conversations" })).getByRole("link", { name: "Search" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Conversations" })).getByRole("button", { name: "Search Analytical Engines" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Conversations" })).not.toBeInTheDocument());
     expect(searchField()).toHaveFocus();
     await user.keyboard("{Escape}");
@@ -1298,7 +1300,7 @@ describe("Search box", () => {
     expect(boxTokens()).toEqual(["in:random"]);
   });
 
-  it("goes to what a search finds, marking Search, with Exit back to the room visited last", async () => {
+  it("goes to what a search finds, which the top bar shows, marking Search, with Exit back to the room visited last", async () => {
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
     await user.click(screen.getByRole("link", { name: "Search messages" }));
@@ -1306,12 +1308,13 @@ describe("Search box", () => {
     expect(await screen.findByRole("heading", { name: "No messages found" })).toHaveFocus();
     expect(location.pathname + location.search).toBe("/searches?q=eel&in=random");
     expect(searchBox()).not.toBeInTheDocument();
+    // The rail's Search, on a phone in landscape.
     expect(railCurrent()).toEqual(["Search"]);
     expect(document.title).toBe("Search");
     expect(within(screen.getByRole("group", { name: "Search filters" })).getByRole("button", { name: "Remove in:random" })).toBeInTheDocument();
 
     // The top bar's search opens the box with it, to change it.
-    await user.click(screen.getByRole("button", { name: "Change search: in:random eel" }));
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Change search: in:random eel" }));
     expect(searchField()).toHaveValue("eel");
     expect(boxTokens()).toEqual(["in:random"]);
     await user.keyboard("{Escape}");
@@ -1320,6 +1323,68 @@ describe("Search box", () => {
     await user.click(screen.getByRole("link", { name: "Exit search" }));
     expect(await roomHeading()).toHaveTextContent("random");
     expect(railCurrent()).toEqual(["Home"]);
+  });
+});
+
+describe("Top bar", () => {
+  const ember: DirectoryUser = { id: ASSISTANT_ID, name: "Ember", bio: null, role: "bot", status: "active", avatarUrl: "/assistant-avatar.svg", agent: true };
+  const bar = () => screen.getByRole("banner");
+  const openHistory = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(bar()).getByRole("button", { name: "History" }));
+    return screen.findByRole("menu", { name: "History" });
+  };
+
+  it("lists the pages shown lately in History, newest first, the one shown aside, each going back to it", async () => {
+    const { user } = showWorkspace("/rooms/random");
+    await roomHeading();
+    act(() => navigate("/huddles"));
+    act(() => navigate("/rooms/general"));
+    expect(await roomHeading()).toHaveTextContent("general");
+    const menu = await openHistory(user);
+    expect(within(menu).getAllByRole("menuitem").map((item) => [item.getAttribute("href"), item.querySelector("time")?.textContent])).toEqual([
+      ["/huddles", "Just now"],
+      ["/rooms/random", "Just now"],
+    ]);
+    await user.click(within(menu).getByRole("menuitem", { name: /random/ }));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(within(await openHistory(user)).getAllByRole("menuitem").map((item) => item.getAttribute("href"))).toEqual(["/rooms/general", "/huddles"]);
+  });
+
+  it("ends with Ask @ember while Ember AI is on and you can ask it, which opens your DM with it", async () => {
+    serve({
+      "GET /api/users": () => Response.json({ users: [ember] }),
+      "POST /api/directs": () => Response.json({ room: withEmber }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(await within(bar()).findByRole("button", { name: "Ask @ember" }));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/d9"));
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [ASSISTANT_ID] }) }));
+    await waitFor(async () => expect(await roomHeading()).toHaveTextContent("Ember"));
+  });
+
+  it("has no Ask @ember while Ember AI is off, nor where @ember is kept for administrators", async () => {
+    serve({ "GET /api/users": () => Response.json({ users: [{ ...ember, status: "deactivated" }] }) });
+    const { unmount } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/users")).toBe(true));
+    expect(within(bar()).queryByRole("button", { name: "Ask @ember" })).not.toBeInTheDocument();
+    unmount();
+
+    serve({ "GET /api/users": () => Response.json({ users: [{ ...ember, adminsOnly: true }] }) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/users")).toBe(true));
+    expect(within(bar()).queryByRole("button", { name: "Ask @ember" })).not.toBeInTheDocument();
+  });
+
+  it("comes first after the skip link, over the rail, the sidebar and the page, which it shares the columns of", async () => {
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    const layout = bar().parentElement!;
+    expect([...layout.children].slice(0, 2)).toEqual([screen.getByRole("link", { name: /^Skip to/ }), bar()]);
+    expect(layout).toHaveClass("flex", "h-dvh", "flex-col");
+    expect(bar().nextElementSibling).toHaveClass("grid", "min-h-0", "flex-1");
   });
 });
 
@@ -1999,11 +2064,15 @@ describe("Conversations drawer on phones", () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    const drawer = screen.getByRole("dialog");
     await user.tab();
-    expect(within(screen.getByRole("dialog")).getByRole("link", { name: /general/ })).toHaveFocus();
+    expect(within(drawer).getByRole("button", { name: "Search Analytical Engines" })).toHaveFocus();
+    await user.tab();
+    expect(within(drawer).getByRole("link", { name: /general/ })).toHaveFocus();
     await user.tab({ shift: true });
     await user.tab({ shift: true });
-    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Your profile" })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(within(drawer).getByRole("link", { name: "Your profile" })).toHaveFocus();
   });
 
   it("closes when a rail link shows another page", async () => {
