@@ -1782,6 +1782,25 @@ describe("A camera's sizes in a huddle", () => {
     expect(connection().transceivers[0]!.sendEncodings).toEqual(TWO_SIZES);
   });
 
+  it("publishes a camera on already at the video quality it was turned on at once the tab is let back into the room, though the workspace's has changed meanwhile", async () => {
+    sendVideoAt("full-hd");
+    camera = cameraFrom("front", 1920, 1080);
+    browserCamera();
+    browserIs(CHROME);
+    const room = await joined();
+    showHuddleCamera(true);
+    await settled();
+    const fullHd = connection().transceivers[0]!.sendEncodings;
+    expect(fullHd).toHaveLength(3);
+
+    sendVideoAt("standard");
+    room.drop();
+    await wait(500);
+    socket().open();
+    await welcomed();
+    expect(connection().transceivers).toEqual([expect.objectContaining({ sendEncodings: fullHd, sender: { track: cameraTrack() } })]);
+  });
+
   it("asks for the cameras it watches in the size its huddle shows them in, small, medium or large again", async () => {
     const room = await joined([person(grace, { video: true })]);
     await watchedRound(["0", grace]);
@@ -2097,6 +2116,28 @@ describe("A screen shared in a huddle", () => {
     socket().open();
     await welcomed();
     expect(socket().take()).toEqual(["audio", "video", "screen"].map((kind) => expect.objectContaining({ type: "huddle.publish", tracks: [{ mid: "0", kind }] })));
+  });
+
+  it("is published again at the video quality it was shared at once the tab is let back into the room, though the workspace's has changed meanwhile, and shared again, at the workspace's", async () => {
+    const asked = browserScreen();
+    const room = await joined();
+    shareHuddleScreen(true);
+    await settled();
+    sendVideoAt("standard");
+    room.drop();
+    await wait(500);
+    socket().open();
+    const again = await welcomed();
+    expect(connection().transceivers).toEqual([expect.objectContaining({ sendEncodings: [{ maxBitrate: SCREEN_BITRATES.hd }], sender: { track: displayTrack() } })]);
+    again.receive({ type: "huddle.published", kind: "screen", sdp: "the SFU's answer" });
+    await settled();
+
+    shareHuddleScreen(false);
+    display = new FakeStream([new FakeTrack("video")]);
+    shareHuddleScreen(true);
+    await settled();
+    expect(asked).toHaveBeenLastCalledWith({ video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 15 } }, audio: false });
+    expect(connection().transceivers).toEqual([expect.objectContaining({ sendEncodings: [{ maxBitrate: SCREEN_BITRATES.standard }], sender: { track: displayTrack() } })]);
   });
 
   it("stops with the huddle, which no longer answers for it", async () => {

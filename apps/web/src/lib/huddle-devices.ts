@@ -4,7 +4,7 @@ import type { HuddleVideoQuality } from "@ember/protocol/huddles";
 // the huddle's own menus do once they're in it, or on a phone, its button that switches cameras, and
 // this browser remembers for the next, and the screen someone shares in one, which the browser asks
 // them for each time. Cameras and screens are opened as large as the workspace's video quality has
-// them go out.
+// them go out, and each goes out at the quality it was opened at for as long as it's on.
 
 export type HuddleDevice = "microphone" | "speaker" | "camera";
 
@@ -73,6 +73,21 @@ function cameraAt(quality: HuddleVideoQuality): MediaTrackConstraints {
   return { width: { ideal: (height * 16) / 9 }, height: { ideal: height } };
 }
 
+/** The video quality each camera and screen was opened at, by its track. */
+const openedAt = new WeakMap<MediaStreamTrack, HuddleVideoQuality>();
+
+/** Notes that `stream`'s pictures were opened at `quality`, and answers it. */
+function openedAtQuality(stream: MediaStream, quality: HuddleVideoQuality): MediaStream {
+  for (const track of stream.getVideoTracks()) openedAt.set(track, quality);
+  return stream;
+}
+
+/**
+ * The video quality a camera's track or a screen's was opened at, which it goes out at for as long as
+ * it's on, though an administrator changes the workspace's meanwhile. Undefined of one opened elsewhere.
+ */
+export const qualityOpenedAt = (track: MediaStreamTrack): HuddleVideoQuality | undefined => openedAt.get(track);
+
 /** What someone is told once there's no camera Ember may use. */
 export const NO_CAMERA = "Ember has no camera to use. To show yours, let this site use your camera in your browser's settings, then turn it on again.";
 
@@ -87,7 +102,7 @@ export async function openCamera(deviceId: string | null, quality: HuddleVideoQu
   if (!media?.getUserMedia) return null;
   const picture = cameraAt(quality);
   try {
-    return await media.getUserMedia({ video: deviceId ? { ...picture, deviceId: { exact: deviceId } } : picture });
+    return openedAtQuality(await media.getUserMedia({ video: deviceId ? { ...picture, deviceId: { exact: deviceId } } : picture }), quality);
   } catch (error) {
     return deviceId && deviceGone(error) ? openCamera(null, quality) : null;
   }
@@ -122,7 +137,7 @@ async function openCameraBy(which: MediaTrackConstraints, quality: HuddleVideoQu
   const media = navigator.mediaDevices as MediaDevices | undefined;
   if (!media?.getUserMedia) return null;
   try {
-    return await media.getUserMedia({ video: { ...cameraAt(quality), ...which } });
+    return openedAtQuality(await media.getUserMedia({ video: { ...cameraAt(quality), ...which } }), quality);
   } catch {
     return null;
   }
@@ -191,7 +206,7 @@ export async function openScreen(quality: HuddleVideoQuality): Promise<MediaStre
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia(screenAt(quality));
     for (const track of stream.getVideoTracks()) track.contentHint = "detail";
-    return stream;
+    return openedAtQuality(stream, quality);
   } catch (error) {
     if (choseNothing(error)) return null;
     throw error;

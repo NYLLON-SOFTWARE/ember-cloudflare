@@ -36,6 +36,7 @@ import {
   openMicrophone,
   openOtherCamera,
   openScreen,
+  qualityOpenedAt,
   rememberDevice,
   rememberedDevice,
   sendsSizes,
@@ -746,7 +747,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
   // The connections that carry the voices, which a huddle has throughout, and those for cameras and for
   // screens, each of which it has while it shows its own, and while it's open and someone else shows theirs.
   const showing = (kind: ShownKind) =>
-    sendingConnection({ kind, vital: false, track: () => shownTrack(kind), sends: (track) => ({ direction: "sendonly", sendEncodings: SHOWN[kind].sizes(track, videoQuality()) }) }, huddled);
+    sendingConnection({ kind, vital: false, track: () => shownTrack(kind), sends: (track) => ({ direction: "sendonly", sendEncodings: SHOWN[kind].sizes(track, qualityOpenedAt(track) ?? videoQuality()) }) }, huddled);
   const watching = (kind: ShownKind) =>
     receivingConnection(
       {

@@ -12,6 +12,7 @@ import {
   openMicrophone,
   openOtherCamera,
   openScreen,
+  qualityOpenedAt,
   rememberDevice,
   rememberedDevice,
   sharesScreens,
@@ -181,6 +182,15 @@ describe("Opening a camera", () => {
     expect(getUserMedia.mock.calls).toEqual([[{ video: { ...HD, deviceId: { exact: "camera-2" } } }], [{ video: HD }]]);
   });
 
+  it("says which video quality a camera was opened at, the browser's own choice too where the one asked for is gone, and of a track it didn't open, none", async () => {
+    const [hd, fullHd] = [streamFrom("camera-1", "video"), streamFrom("camera-2", "video")];
+    withMedia({ getUserMedia: vi.fn().mockResolvedValueOnce(hd.stream).mockRejectedValueOnce(refusal("NotFoundError")).mockResolvedValueOnce(fullHd.stream) }, CHROME);
+    await openCamera(null, "hd");
+    await openCamera("camera-3", "full-hd");
+    expect([hd, fullHd].map(({ stream }) => qualityOpenedAt(stream.getVideoTracks()[0]!))).toEqual(["hd", "full-hd"]);
+    expect(qualityOpenedAt(streamFrom("camera-4", "video").stream.getVideoTracks()[0]!)).toBeUndefined();
+  });
+
   it("has none when its person refuses, without asking twice, nor on a page the browser gives no camera", async () => {
     const getUserMedia = vi.fn().mockRejectedValue(refusal("NotAllowedError"));
     withMedia({ getUserMedia });
@@ -240,6 +250,13 @@ describe("Opening the camera to switch to", () => {
       [{ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { exact: "environment" } } }],
       [{ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, deviceId: { exact: "back" } } }],
     ]);
+  });
+
+  it("says which video quality the camera switched to was opened at", async () => {
+    const { stream } = streamFrom("back", "video");
+    withMedia({ getUserMedia: vi.fn().mockResolvedValue(stream) }, CHROME);
+    await openOtherCamera("front", "user", "standard");
+    expect(qualityOpenedAt(stream.getVideoTracks()[0]!)).toBe("standard");
   });
 
   it("opens the next camera the browser lists where it didn't say which way the one that was on faced: its first after its last, and its first after one it doesn't list", async () => {
@@ -306,6 +323,14 @@ describe("Sharing a screen", () => {
       { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 15 } },
       { width: { max: 2560 }, height: { max: 1440 }, frameRate: { max: 15 } },
     ]);
+  });
+
+  it("says which video quality a screen was shared at", async () => {
+    const track = { contentHint: "" };
+    const stream = { getVideoTracks: () => [track] } as unknown as MediaStream;
+    withMedia({ getDisplayMedia: vi.fn().mockResolvedValue(stream) });
+    await openScreen("standard");
+    expect(qualityOpenedAt(stream.getVideoTracks()[0]!)).toBe("standard");
   });
 
   it("has none when its person chooses nothing", async () => {
