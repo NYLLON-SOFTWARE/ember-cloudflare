@@ -17,6 +17,8 @@ async function openPage(member: Member, other: Member): Promise<void> {
 /** Opens Membership from the rail's Admin link, as an administrator does, and returns its Reports list once it loads. */
 async function openReports(page: Page): Promise<Locator> {
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Admin" }).click();
+  // Community settings shows its links while it loads, then draws them again once it has, losing a click that comes as it does.
+  await expect(page).toHaveTitle("Community settings");
   await page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Membership" }).click();
   const reports = page.getByRole("region", { name: /^Reports/ });
   await expect(reports).toBeVisible();
