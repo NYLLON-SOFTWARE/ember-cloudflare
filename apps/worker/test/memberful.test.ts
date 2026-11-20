@@ -274,6 +274,8 @@ const account = (memberful: Partial<Pick<Account, "memberfulJoin" | "memberfulSi
   hideTranslationButtons: true,
   customStyles: "",
   restrictRoomCreation: false,
+  restrictChannelMentions: false,
+  restrictEveryoneMention: false,
   logo: null,
   customDomain: null,
   joinLink: true,
@@ -288,6 +290,7 @@ const account = (memberful: Partial<Pick<Account, "memberfulJoin" | "memberfulSi
   huddles: false,
   huddleCameras: true,
   huddleScreens: true,
+  huddleVideo: "hd",
   ...memberful,
 });
 

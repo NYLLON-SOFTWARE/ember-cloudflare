@@ -1,5 +1,5 @@
 import type { NewWorkspace, RoomId, UserId } from "@ember/protocol";
-import { huddleSocketQuery, type HuddleClientFrame, type HuddleIceServer, type HuddleServerFrame, type HuddleSocketParams } from "@ember/protocol/huddles";
+import { huddleSocketQuery, type CameraSizeName, type HuddleClientFrame, type HuddleIceServer, type HuddleServerFrame, type HuddleSocketParams } from "@ember/protocol/huddles";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { expect, vi } from "vitest";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
@@ -386,8 +386,12 @@ async function offeredFor(client: HuddleSocket, asking: Extract<HuddleClientFram
  */
 export const watch = (client: HuddleSocket, people: UserId[], fresh = false, kind: "video" | "screen" = "video") => offeredFor(client, { type: "huddle.listen", kind, watch: people, ...(fresh && { fresh: true as const }) });
 
-/** Has `client` ask to watch the cameras of `people` as a tab that shows cameras small does, and answer as `watch` does. */
-export const watchSmall = (client: HuddleSocket, people: UserId[], fresh = false) => offeredFor(client, { type: "huddle.listen", kind: "video", watch: people, small: true, ...(fresh && { fresh: true as const }) });
+/** Has `client` ask to watch the cameras of `people` as a tab whose tiles show cameras as well as `size` does, and answer as `watch` does. */
+export const watchIn = (size: CameraSizeName, client: HuddleSocket, people: UserId[], fresh = false) =>
+  offeredFor(client, { type: "huddle.listen", kind: "video", watch: people, size, ...(fresh && { fresh: true as const }) });
+
+/** Has it ask as a tab that shows cameras small does. */
+export const watchSmall = (client: HuddleSocket, people: UserId[], fresh = false) => watchIn("small", client, people, fresh);
 
 const founder = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 

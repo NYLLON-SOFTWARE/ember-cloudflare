@@ -3,7 +3,7 @@ import type { PausedAnswer } from "../assistant/gateway";
 import { statement, type Db } from "../db";
 import type { GivenTool } from "./tools";
 
-// The calls of connected apps' tools that wait to be allowed in a room (migrations 0057 and 0083): each
+// The calls of connected apps' tools that wait to be allowed in a room (migrations 0057 and 0084): each
 // with its model's answer as far as it got, which goes on once whoever asked answers the card the room
 // showed them alone, as a message only they see.
 

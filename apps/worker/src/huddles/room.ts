@@ -1,9 +1,9 @@
 import { CloseCode, type RoomId, type User, type UserId } from "@ember/protocol";
 import {
+  CAMERA_SIZE_NAMES,
   CAMERA_SIZES,
   CAMERAS_FULL,
   CAMERAS_OFF,
-  carriesBothSizes,
   HUDDLE_FAILED,
   HUDDLE_TRACK_KINDS,
   HuddleCloseCode,
@@ -15,7 +15,9 @@ import {
   parseHuddleClientFrame,
   SCREENS_FULL,
   SCREENS_OFF,
+  sizesCarried,
   type CameraSize,
+  type CameraSizeName,
   type HuddleClientFrame,
   type HuddleIceServer,
   type HuddlePerson,
@@ -49,8 +51,8 @@ import { acceptAnswer, closeTracks, publishTracks, pullTracks, resizeTracks, Sfu
 // connection: an event then asks the SFU a few things however many are in the huddle, where Workers'
 // free plan lets an event make 50 requests. It asks for cameras and screens by whose they are, and
 // only while it shows the huddle open, so what nobody looks at isn't sent. A camera whose browser
-// sends it in two sizes at once (simulcast) is sent to each tab in the one that tab says it shows
-// cameras in, so that small tiles cost a small picture.
+// sends it in several sizes at once (simulcast) is sent to each tab in the one that tab says its tiles
+// show as well as a larger would, so that small tiles cost a small picture.
 //
 // A network that blocks the way to the SFU is gone around by Cloudflare's TURN service, where an
 // administrator has given huddles a relay (./relay.ts): the room asks Cloudflare, as a tab joins, for
@@ -180,7 +182,9 @@ interface Publishing {
   tracks: HuddleTrack[];
   /** When the tab said the connection had connected, from when the others can listen to it. */
   connectedAt?: number;
-  /** Whether it's a camera the SFU takes in both of a camera's sizes, as the tab's offer and the SFU's answer to it both said. */
+  /** The sizes of a camera that the SFU takes in several, as the tab's offer and the SFU's answer to it both said. */
+  sizes?: CameraSizes;
+  /** Kept by a room from before cameras came in three sizes, of a camera the SFU took in both of two (`TWO_SIZES`). */
   sized?: true;
 }
 
@@ -191,7 +195,7 @@ interface Heard {
   /** The session that publishes it. */
   from: string;
   kind: HuddleTrackKind;
-  /** The size the SFU was last asked to send, of a camera it takes in both. */
+  /** The size the SFU was last asked to send, of a camera it takes in several. */
   size?: CameraSize;
 }
 
@@ -212,8 +216,47 @@ interface Receiving {
 interface Publication {
   userId: UserId;
   tracks: HuddleTrack[];
-  sized: boolean;
+  sizes: CameraSizes | null;
 }
+
+/** The sizes a camera is sent in, by their RIDs, under what a tab calls each. */
+type CameraSizes = Partial<Record<CameraSizeName, CameraSize>>;
+
+/**
+ * What a tab from before cameras came in three sizes sends its camera in, as its offer of "a" and "b"
+ * alone says: two sizes, the larger as tall as a medium one is now, and the smaller as a small one.
+ */
+const TWO_SIZES: CameraSizes = { medium: "a", small: "b" };
+
+/**
+ * The sizes a tab's camera is sent in, where the offer it published with says that its browser sends it
+ * in several and the SFU's answer that it takes every one of them, or none otherwise: a browser sends
+ * one size to an SFU that takes one.
+ */
+function cameraSizesOf(offer: string, answer: string, mid: string): CameraSizes | null {
+  const sent = sizesCarried(offer, mid, "send");
+  const taken = sizesCarried(answer, mid, "recv");
+  if (sent.length === 0 || !sent.every((size) => taken.includes(size))) return null;
+  if (!sent.includes(CAMERA_SIZES.small)) return TWO_SIZES;
+  return Object.fromEntries(CAMERA_SIZE_NAMES.filter((name) => sent.includes(CAMERA_SIZES[name])).map((name) => [name, CAMERA_SIZES[name]]));
+}
+
+/** The sizes the camera a socket publishes is sent in, as its attachment has them, or null for one sent in one. */
+const sizesOf = ({ sizes, sized }: Publishing): CameraSizes | null => sizes ?? (sized ? TWO_SIZES : null);
+
+/**
+ * The size of a camera sent in `sizes` that the SFU sends a tab whose tiles show cameras as well as
+ * `shown` does: that one, or where the camera isn't sent in it, the next larger it is, or else the
+ * largest it is.
+ */
+function sizeFor(sizes: CameraSizes, shown: CameraSizeName): CameraSize {
+  const at = CAMERA_SIZE_NAMES.indexOf(shown);
+  const order = [...CAMERA_SIZE_NAMES.slice(0, at + 1).reverse(), ...CAMERA_SIZE_NAMES.slice(at + 1)];
+  return order.map((name) => sizes[name]).find((size) => size !== undefined)!;
+}
+
+/** Whether a camera's size `size` is larger than `than`: they're named in the alphabet's order from the largest. */
+const isLarger = (size: CameraSize, than: CameraSize) => size < than;
 
 /** A tab's pair of connections for one kind of track: the one it sends on, and the one it receives on. */
 interface Connections {
@@ -508,7 +551,7 @@ export class Huddle {
         return this.inTurn(this.sending, frame.kind, ws, frame.type, async () => this.unpublish(ws, frame.kind));
       case "huddle.listen":
         // Voices aren't asked for by name: a tab hears everyone.
-        return this.inTurn(this.receiving, frame.kind, ws, frame.type, () => this.listen(ws, frame.kind, frame.fresh === true, frame.kind === "audio" ? null : (frame.watch ?? []), frame.small === true));
+        return this.inTurn(this.receiving, frame.kind, ws, frame.type, () => this.listen(ws, frame.kind, frame.fresh === true, frame.kind === "audio" ? null : (frame.watch ?? []), frame.size ?? "large"));
       case "huddle.answer":
         return this.inTurn(this.receiving, frame.kind, ws, frame.type, () => this.answer(ws, frame.kind, frame.sdp));
       case "huddle.invite":
@@ -692,8 +735,8 @@ export class Huddle {
    * sends it the SFU's answer. The track goes by its kind, which is how the others' sessions ask for
    * it. What the tab published of that kind before, on a connection it has given up, is closed. A
    * camera or a screen is refused while an administrator has them off, or past as many as a huddle
-   * shows, which its tab hears. A camera is sent in sizes only where the offer says the tab sends both
-   * and the answer that the SFU takes both: a browser sends one size to an SFU that takes one.
+   * shows, which its tab hears. A camera is sent in sizes only where the offer says the tab sends
+   * several and the answer that the SFU takes them all (`cameraSizesOf`).
    */
   private async publish(ws: WebSocket, offer: string, track: HuddleTrack): Promise<void> {
     const { kind } = track;
@@ -713,8 +756,8 @@ export class Huddle {
       return this.cut(app.appId, published);
     }
     const earlier = connectionsOf(attachmentOf(ws), kind).publishing;
-    const sized = kind === "video" && carriesBothSizes(offer, track.mid, "send") && carriesBothSizes(answer, track.mid, "recv");
-    const attachment = changeConnections(ws, kind, (connections) => ({ ...connections, publishing: { sessionId, tracks: [track], ...(sized && { sized }) } }));
+    const sizes = kind === "video" ? cameraSizesOf(offer, answer, track.mid) : null;
+    const attachment = changeConnections(ws, kind, (connections) => ({ ...connections, publishing: { sessionId, tracks: [track], ...(sizes && { sizes }) } }));
     send(ws, { type: "huddle.published", kind, sdp: answer });
     if (!earlier) return;
     // Nobody can listen to them, or watch them, until the new connection has connected.
@@ -785,14 +828,15 @@ export class Huddle {
    * that. Should the SFU refuse, the room lets go of the connection, since it can't tell what the
    * session then carries.
    *
-   * Of a camera the SFU takes in both sizes, a tab is sent the smaller while it says it shows cameras
-   * `small`, and otherwise the larger: the cameras it's offered now, and those it watches already in
-   * the other size, which the SFU is asked to change first. A camera the SFU won't send in a size, or
-   * won't make larger, is asked for without one, as is every other on that connection from then on,
-   * so that it shows in whatever size the SFU chooses rather than not at all, or small in a large tile.
-   * Where the SFU would otherwise offer the tab nothing, it's asked for without one in the same round.
+   * Of a camera the SFU takes in sizes, a tab is sent the one its tiles show as well as a larger would,
+   * which it says is `shown`, or the next larger the camera is sent in (`sizeFor`): the cameras it's
+   * offered now, and those it watches already in another size, which the SFU is asked to change first.
+   * A camera the SFU won't send in a size, or won't make larger, is asked for without one, as is every
+   * other on that connection from then on, so that it shows in whatever size the SFU chooses rather
+   * than not at all, or small in a large tile. Where the SFU would otherwise offer the tab nothing, it's
+   * asked for without one in the same round.
    */
-  private async listen(ws: WebSocket, kind: HuddleTrackKind, fresh: boolean, only: UserId[] | null, small: boolean): Promise<void> {
+  private async listen(ws: WebSocket, kind: HuddleTrackKind, fresh: boolean, only: UserId[] | null, shown: CameraSizeName): Promise<void> {
     const app = await this.appOf(ws);
     if (!app) return;
     if (fresh) this.letGo(ws, kind);
@@ -809,7 +853,7 @@ export class Huddle {
         if (ws.readyState !== WebSocket.OPEN) return;
         changeConnections(ws, kind, (connections) => ({ ...connections, receiving: { ...before, heard } }));
       }
-      const resized = before ? await this.resized(app, { ...before, heard }, small) : null;
+      const resized = before ? await this.resized(app, { ...before, heard }, publications, shown) : null;
       if (before && resized) {
         if (ws.readyState !== WebSocket.OPEN) return;
         ({ heard, unsized } = resized);
@@ -817,9 +861,8 @@ export class Huddle {
         // The session takes nothing more until the tab has answered, which is when the tab asks again, for anyone new.
         if (resized.offer !== null) return send(ws, { type: "huddle.offer", kind, sdp: resized.offer, tracks: [] });
       }
-      const size = unsized ? undefined : CAMERA_SIZES[small ? "small" : "large"];
-      const wanted = [...publications].flatMap(([from, { tracks, sized }]) =>
-        tracks.filter(({ kind }) => !heard.some((track) => track.from === from && track.kind === kind)).map(({ kind }) => ({ from, kind, ...(sized && size && { size }) })),
+      const wanted = [...publications].flatMap(([from, { tracks, sizes }]) =>
+        tracks.filter(({ kind }) => !heard.some((track) => track.from === from && track.kind === kind)).map(({ kind }) => ({ from, kind, ...(sizes && !unsized && { size: sizeFor(sizes, shown) }) })),
       );
       if (wanted.length === 0) return send(ws, { type: "huddle.listening", kind });
 
@@ -868,47 +911,59 @@ export class Huddle {
   }
 
   /**
-   * Has the SFU send a receiving connection the cameras it hears in the other size than its tab shows
-   * them in, `small` or not, in that one from now, and answers what's left of the connection then,
-   * with the SFU's offer, should the change take one: null when nothing changed.
+   * Has the SFU send a receiving connection the cameras it hears in another size than its tab's tiles
+   * show as well as a larger would, which it says is `shown`, in the one they do from now (`sizeFor`),
+   * each as `publications` has it sent, and answers what's left of the connection then, with the SFU's
+   * offer, should the change take one: null when nothing changed.
    *
    * A camera the SFU won't make smaller stays as large as it was, to be asked for again with the tab's
    * next round. One it won't make larger is closed, and no longer heard, and the connection asks for
    * no sizes from then on, so that the round asks for the camera anew, as the SFU would send it: a tab
-   * that shows cameras large isn't left with a small picture of one. The same goes for the small ones
-   * on a connection that asks for no sizes already. Nothing else the round does waits on a change.
+   * that shows cameras large isn't left with a small picture of one. The same goes for the ones too
+   * small on a connection that asks for no sizes already. Nothing else the round does waits on a change.
    */
-  private async resized(app: HuddleApp, { sessionId, heard, unsized }: Receiving, small: boolean): Promise<(Pick<Receiving, "heard" | "unsized"> & { offer: string | null }) | null> {
-    const size = CAMERA_SIZES[small ? "small" : "large"];
-    const outgrown = heard.filter((track) => track.size !== undefined && track.size !== size).slice(0, TRACKS_PER_REQUEST);
+  private async resized(
+    app: HuddleApp,
+    { sessionId, heard, unsized }: Receiving,
+    publications: Map<string, Publication>,
+    shown: CameraSizeName,
+  ): Promise<(Pick<Receiving, "heard" | "unsized"> & { offer: string | null }) | null> {
+    const outgrown = heard
+      .flatMap((track) => {
+        const sizes = publications.get(track.from)?.sizes;
+        const size = track.size !== undefined && sizes ? sizeFor(sizes, shown) : track.size;
+        return size !== track.size ? [{ track, size: size! }] : [];
+      })
+      .slice(0, TRACKS_PER_REQUEST);
     if (outgrown.length === 0) return null;
-    const { offer, refused } = unsized ? { offer: null, refused: outgrown } : await this.resizedBySfu(app, sessionId, outgrown, size);
-    const leftSmall = small ? [] : refused;
+    const { offer, refused } = unsized ? { offer: null, refused: outgrown.map(({ track }) => track) } : await this.resizedBySfu(app, sessionId, outgrown);
+    const leftSmall = outgrown.filter(({ track, size }) => refused.includes(track) && isLarger(size, track.size!)).map(({ track }) => track);
     if (leftSmall.length > 0) await this.cut(app.appId, [{ sessionId, mids: midsOf(leftSmall) }]);
     if (refused.length === outgrown.length && leftSmall.length === 0 && offer === null) return null;
-    const changed = (track: Heard) => outgrown.includes(track) && !refused.includes(track);
+    const changed = new Map(outgrown.filter(({ track }) => !refused.includes(track)).map(({ track, size }) => [track, size]));
     return {
-      heard: heard.filter((track) => !leftSmall.includes(track)).map((track) => (changed(track) ? { ...track, size } : track)),
+      heard: heard.filter((track) => !leftSmall.includes(track)).map((track) => (changed.has(track) ? { ...track, size: changed.get(track) } : track)),
       ...((unsized || leftSmall.length > 0) && { unsized: true as const }),
       offer,
     };
   }
 
-  /** Asks the SFU to send a session the cameras `outgrown` in `size`, and answers its offer, should the change take one, and the cameras it left as they were: all of them, where it refused the request. */
-  private async resizedBySfu(app: HuddleApp, sessionId: string, outgrown: Heard[], size: CameraSize): Promise<{ offer: string | null; refused: Heard[] }> {
+  /** Asks the SFU to send a session the cameras `outgrown`, each in the size beside it, and answers its offer, should the change take one, and the cameras it left as they were: all of them, where it refused the request. */
+  private async resizedBySfu(app: HuddleApp, sessionId: string, outgrown: Array<{ track: Heard; size: CameraSize }>): Promise<{ offer: string | null; refused: Heard[] }> {
+    const tracks = outgrown.map(({ track }) => track);
     try {
       const { offer, refused } = await resizeTracks(
         this.env,
         app,
         sessionId,
-        outgrown.map(({ mid, from, kind }) => ({ mid, sessionId: from, trackName: kind, rid: size })),
+        outgrown.map(({ track: { mid, from, kind }, size }) => ({ mid, sessionId: from, trackName: kind, rid: size })),
       );
       if (refused[0]) console.warn("The Realtime SFU didn't change the size of a huddle's camera:", refused[0].code);
-      return { offer, refused: outgrown.filter(({ mid }) => refused.some((track) => track.mid === mid)) };
+      return { offer, refused: tracks.filter(({ mid }) => refused.some((track) => track.mid === mid)) };
     } catch (error) {
       if (!(error instanceof SfuError)) throw error;
       console.warn("Changing the size of a huddle's cameras failed:", logged(error));
-      return { offer: null, refused: outgrown };
+      return { offer: null, refused: tracks };
     }
   }
 
@@ -975,15 +1030,15 @@ export class Huddle {
 
   /**
    * What the others in the huddle publish of `kind` that can be received, by the session each publishes
-   * it on, and whether it's a camera the SFU takes in both sizes: everyone's, or with `only`, that of
-   * the people it names.
+   * it on, and the sizes of a camera the SFU takes in several: everyone's, or with `only`, that of the
+   * people it names.
    */
   private publications(except: WebSocket, kind: HuddleTrackKind, only: UserId[] | null): Map<string, Publication> {
     const publications = new Map<string, Publication>();
     for (const { socket, attachment } of this.members()) {
       const { publishing } = connectionsOf(attachment, kind);
       const { id } = attachment.user;
-      if (socket !== except && publishing && isConnected(publishing) && (only === null || only.includes(id))) publications.set(publishing.sessionId, { userId: id, tracks: publishing.tracks, sized: publishing.sized === true });
+      if (socket !== except && publishing && isConnected(publishing) && (only === null || only.includes(id))) publications.set(publishing.sessionId, { userId: id, tracks: publishing.tracks, sizes: sizesOf(publishing) });
     }
     return publications;
   }

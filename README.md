@@ -41,8 +41,8 @@ Cloudflare's network, quiet rooms hibernate, and every push to your copy deploys
 Rooms for every project, private rooms for the few who need them, and DMs with one person or a few.
 Reply in a thread to keep a room on topic, and tick **Also send to the room** when everyone should see
 the answer. Mention people, or the whole room with @channel and @here, and everyone with @everyone in
-an open room, quote a message, react with any emoji or a few words of your own, and edit or delete what
-you wrote.
+an open room, which administrators can keep to themselves or turn off in a room, quote a message, react
+with any emoji or a few words of your own, and edit or delete what you wrote.
 
 Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
 says whether you hear about every message, only mentions, or nothing. You see who's here and who's
@@ -168,7 +168,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | | Ember | Slack |
 |---|---|---|
 | **Apps and workflows** | — | ✅ a directory of 2,600+ apps (Free: 10 of them) and Workflow Builder |
-| **Voice and video calls** | Huddles in any room or DM, by voice, camera and shared screen, with raised hands, stickers and emoji reactions, for up to 50 people; one in a DM rings the others in it, Invite people rings whoever else in the room you pick, and whoever doesn't have Ember in view gets the invitation as a push notification; each has a message in its room to join it from, with a thread of its own, which the huddle shows beside the people in it; Huddles, in the sidebar, lists the ones going on, to join, and the recent ones, with their threads; an administrator can turn huddles off in a room, in its settings, and each person chooses which of a huddle's sounds they hear | ✅ huddles (Free: one-on-one only) |
+| **Voice and video calls** | Huddles in any room or DM, by voice, camera and shared screen, in HD, or Standard or Full HD as an administrator chooses, with raised hands, stickers and emoji reactions, for up to 50 people; one in a DM rings the others in it, Invite people rings whoever else in the room you pick, and whoever doesn't have Ember in view gets the invitation as a push notification; each has a message in its room to join it from, with a thread of its own, which the huddle shows beside the people in it; Huddles, in the sidebar, lists the ones going on, to join, and the recent ones, with their threads; an administrator can turn huddles off in a room, in its settings, and each person chooses which of a huddle's sounds they hear | ✅ huddles (Free: one-on-one only) |
 | **AI** | @ember and agents of your own answer when you mention or DM them, each on the model you choose | ✅ summaries, recaps and AI search on every plan, more on Business+ |
 | **Canvases, lists and clips** | — | ✅ |
 | **Channels shared with other companies** | — | ✅ Slack Connect |
@@ -191,7 +191,7 @@ Ember is free. Cloudflare runs it, at its own prices:
 | **Files** | 10 GB in [R2](https://developers.cloudflare.com/r2/pricing/) free, then $0.015 per GB a month, with nothing to pay for downloads. |
 | **Email, if you want it** | Free with [Resend](https://resend.com), up to 3,000 emails a month and 100 a day, or 3,000 a month included with Workers Paid through Cloudflare Email Service. |
 | **@ember and agents, if you turn them on** | Claude, GPT or Grok at their makers' prices, from $0.10 for a million tokens read, paid with [AI Gateway's credits](https://developers.cloudflare.com/ai-gateway/features/unified-billing/), or Workers AI's models, free for 10,000 [Neurons](https://developers.cloudflare.com/workers-ai/platform/pricing/) a day. |
-| **Huddles, if you turn them on** | Free for the first 1,000 GB a month that Cloudflare's [Realtime SFU](https://developers.cloudflare.com/realtime/sfu/pricing/) sends, which carries about 2,000 hours of five people talking, or 200 with their cameras on, then $0.05 per GB. |
+| **Huddles, if you turn them on** | Free for the first 1,000 GB a month that Cloudflare's [Realtime SFU](https://developers.cloudflare.com/realtime/sfu/pricing/) sends, which carries about 2,000 hours of five people talking, or 70 with their cameras on in HD, then $0.05 per GB. |
 | **Your own domain, if you want one** | Whatever your registrar charges. |
 
 The free plan's allowances are daily: once a day's are used up, Ember can't save anything new until

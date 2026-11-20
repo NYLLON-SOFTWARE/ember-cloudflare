@@ -8,7 +8,7 @@ import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { parseBlockedWords } from "./blocked-words.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
-import type { HuddleSounds, HuddlesSettings, LiveHuddle, MessageHuddle } from "./huddles.ts";
+import { HUDDLE_VIDEO_REFUSED, isHuddleVideoQuality, type HuddleSounds, type HuddlesSettings, type HuddleVideoQuality, type LiveHuddle, type MessageHuddle } from "./huddles.ts";
 import type { OutsideConnection } from "./outside.ts";
 import type { SsoSettings, SsoStatus } from "./sso.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -93,6 +93,7 @@ export type {
   HuddlesSaved,
   HuddlesSettings,
   HuddlesSetup,
+  HuddleVideoQuality,
   LiveHuddle,
   MessageHuddle,
   PastHuddle,
@@ -276,6 +277,11 @@ export interface SharedRoom {
    * joins one there, where huddles are on. Left out otherwise, which is how every room starts.
    */
   huddles?: false;
+  /**
+   * False while the room's settings don't allow @channel, @here and @everyone in it, as a Slack channel's
+   * can: they notify nobody there. Left out otherwise, which is how every room starts.
+   */
+  channelMentions?: false;
 }
 
 /**
@@ -481,6 +487,8 @@ export interface RoomSettings {
    * owners and admins can in a channel. Its creator, who can change the rest, sees of them what others do.
    */
   canChangeHuddles: boolean;
+  /** Whether you can allow @channel, @here and @everyone in it or not, as only administrators can, as huddles. */
+  canChangeChannelMentions: boolean;
   /** Everyone active who can be put in a room, by name: all but the AI agents only administrators' direct messages reach. */
   people: RoomPerson[];
   /** The room's sidebar section, or null for none. */
@@ -491,10 +499,11 @@ export interface RoomSettings {
 
 /**
  * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, whether
- * huddles are allowed in it, which is an administrator's to change, its sidebar section, and who it's
- * for, everyone or just the people `memberIds` names, which takes anyone else out of it.
+ * huddles are allowed in it, and @channel, @here and @everyone, which are an administrator's to change,
+ * its sidebar section, and who it's for, everyone or just the people `memberIds` names, which takes
+ * anyone else out of it.
  */
-export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean; section?: SectionChoice } & (
+export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean; channelMentions?: boolean; section?: SectionChoice } & (
   | { kind?: "open" }
   | { kind: "closed"; memberIds: UserId[] }
 );
@@ -571,6 +580,14 @@ export interface Account {
   customStyles: string;
   /** Whether only administrators can create rooms, as "Must be admin to create new rooms" says. Off until one turns it on. */
   restrictRoomCreation: boolean;
+  /**
+   * Whether only administrators can notify a room with @channel and @here, as "Must be admin to use
+   * @channel and @here" says, as a Slack workspace's owners can keep them to admins. Off until one turns
+   * it on, so everyone can, as in Slack.
+   */
+  restrictChannelMentions: boolean;
+  /** The same for @everyone, as "Must be admin to use @everyone" says. Off until one turns it on. */
+  restrictEveryoneMention: boolean;
   /**
    * The address of the workspace's logo, which changes whenever the account does, or null while there's
    * none, when pages show Ember's flame.
@@ -655,6 +672,8 @@ export interface Account {
    * On until an administrator turns it off.
    */
   huddleScreens: boolean;
+  /** How sharp cameras and shared screens are in huddles, as the Huddles tab's Video quality says: `DEFAULT_HUDDLE_VIDEO` until an administrator chooses. */
+  huddleVideo: HuddleVideoQuality;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -904,15 +923,16 @@ export interface NewJoinCode {
 
 /**
  * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
- * its settings, its custom domain, which can only be the address the request comes to, or null for
- * none, the icons of the rail's buttons and the appearance modes, the address Ember's email comes from,
- * or null for none, the domains Email domain lets in, in place of those it had, and the words and
- * phrases Blocked words keeps out, in place of those it had too.
+ * its settings, huddles' video quality, its custom domain, which can only be the address the request
+ * comes to, or null for none, the icons of the rail's buttons and the appearance modes, the address
+ * Ember's email comes from, or null for none, the domains Email domain lets in, in place of those it
+ * had, and the words and phrases Blocked words keeps out, in place of those it had too.
  */
 export interface AccountChanges {
   name?: string;
   tagline?: string;
   settings?: AccountSettings;
+  huddleVideo?: HuddleVideoQuality;
   customDomain?: string | null;
   navigationIcons?: NavigationIconChanges;
   emailFrom?: string | null;
@@ -930,6 +950,8 @@ export interface AccountChanges {
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
   restrictRoomCreation?: boolean;
+  restrictChannelMentions?: boolean;
+  restrictEveryoneMention?: boolean;
   huddleCameras?: boolean;
   huddleScreens?: boolean;
   joinLink?: boolean;
@@ -2477,11 +2499,12 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (name === null) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  const { huddles } = r;
+  const { huddles, channelMentions } = r;
   if (huddles !== undefined && typeof huddles !== "boolean") return "Huddles must be true or false";
+  if (channelMentions !== undefined && typeof channelMentions !== "boolean") return "Room-wide mentions must be true or false";
   const section = sectionChoice(r.section);
   if (typeof section === "string") return section;
-  const changes = { name, icon, huddles, ...section };
+  const changes = { name, icon, huddles, channelMentions, ...section };
   if (r.kind === undefined) return changes;
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
@@ -2505,6 +2528,8 @@ export function parseNewDirect(data: unknown): NewDirect | string {
 const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   hideTranslationButtons: "Hide translation buttons",
   restrictRoomCreation: "Must be admin to create new rooms",
+  restrictChannelMentions: "Must be admin to use @channel and @here",
+  restrictEveryoneMention: "Must be admin to use @everyone",
   huddleCameras: "Cameras",
   huddleScreens: "Screen sharing",
   joinLink: "Join link",
@@ -2811,17 +2836,19 @@ function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. The name
  * is saved as typed, even blank. The tagline is kept on one line without space at its ends, and blank is
- * none. Each setting is true or false, and one it doesn't know is refused. A custom domain is a host or
- * null, which the Worker then checks is the address the request came to. Navigation icons are as
- * `navigationIconsOf` reads them, the From address as `emailFromOf` does, Email domain's domains as
- * `emailDomainsOf` does, and the blocked words as `parseBlockedWords` does.
+ * none. Each setting is true or false, and one it doesn't know is refused. Huddles' video quality is one
+ * of `HUDDLE_VIDEO_QUALITIES`. A custom domain is a host or null, which the Worker then checks is the
+ * address the request came to. Navigation icons are as `navigationIconsOf` reads them, the From address
+ * as `emailFromOf` does, Email domain's domains as `emailDomainsOf` does, and the blocked words as
+ * `parseBlockedWords` does.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords } = data;
+  const { name, tagline, settings, huddleVideo, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
   const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
   if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
+  if (huddleVideo !== undefined && !isHuddleVideoQuality(huddleVideo)) return HUDDLE_VIDEO_REFUSED;
   const domain = customDomainOf(customDomain);
   if (customDomain !== undefined && domain === undefined) return CUSTOM_DOMAIN_NOT_A_HOST;
   const icons = navigationIconsOf(navigationIcons);
@@ -2835,6 +2862,7 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   const changes: AccountChanges = {
     ...(name !== undefined && { name }),
     ...(kept !== undefined && { tagline: kept }),
+    ...(huddleVideo !== undefined && { huddleVideo }),
     ...(domain !== undefined && { customDomain: domain }),
     ...(icons !== undefined && { navigationIcons: icons }),
     ...(from !== undefined && { emailFrom: from }),
