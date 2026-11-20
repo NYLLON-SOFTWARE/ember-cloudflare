@@ -100,17 +100,20 @@ describe("History's list", () => {
     expect(renderHook(() => usePageHistory("u4")).result.current).toEqual([{ address: "/rooms/r1", at: 1 }]);
   });
 
-  it("keeps this tab's visits that another tab's list lacks, from both recording one at once", () => {
+  it("keeps and stores this tab's visits that another tab's list lacks, from both recording one at once", () => {
     const { result } = renderHook(() => usePageHistory("u8"));
     act(() => recordVisit("u8", "/rooms/r1", 1000));
     act(() => recordVisit("u8", "/rooms/r2", 2000));
     // The other tab had r1 alone when it recorded Huddles, before hearing of r2.
     act(() => recordedInAnotherTab("u8", [{ address: "/huddles", at: 2500 }, { address: "/rooms/r1", at: 1000 }]));
     expect(result.current.map(({ address }) => address)).toEqual(["/huddles", "/rooms/r2", "/rooms/r1"]);
-    // This tab's next visit stores them all.
-    act(() => recordVisit("u8", "/rooms/r3", 3000));
     expect(JSON.parse(localStorage.getItem("ember:history:u8")!)).toEqual(result.current);
-    expect(result.current.map(({ address }) => address)).toEqual(["/rooms/r3", "/huddles", "/rooms/r2", "/rooms/r1"]);
+    // A list lacking nothing this tab holds, as the other tab's is once it has heard this one's, isn't stored
+    // again, so the two don't answer each other back and forth.
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    act(() => void window.dispatchEvent(new StorageEvent("storage", { key: "ember:history:u8", newValue: JSON.stringify(result.current) })));
+    expect(setItem).not.toHaveBeenCalled();
+    expect(result.current.map(({ address }) => address)).toEqual(["/huddles", "/rooms/r2", "/rooms/r1"]);
 
     // A list another tab removes is gone.
     act(() => {

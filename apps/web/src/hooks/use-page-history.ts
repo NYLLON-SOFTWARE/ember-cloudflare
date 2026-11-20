@@ -92,16 +92,34 @@ function visitsOf(key: string): readonly Visit[] {
 
 const tell = () => listeners.forEach((listener) => listener());
 
+/** Keeps `visits` under `key`, where storage takes them. */
+function store(key: string, visits: readonly Visit[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(visits));
+  } catch {
+    // Storage can be refused, or full, and then History goes on with what this tab showed.
+  }
+}
+
+const sameVisits = (visits: readonly Visit[], others: readonly Visit[]) =>
+  visits.length === others.length && visits.every(({ address, at }, i) => address === others[i]!.address && at === others[i]!.at);
+
 function heard(event: StorageEvent) {
   // A null key is storage cleared.
   if (event.key === null) lists.clear();
   else {
     const held = lists.get(event.key);
     if (held === undefined) return;
-    // Another tab stored its list. It lacks this tab's latest visits where both recorded one before
-    // hearing of the other's, so they're kept too, and stored with this tab's next visit.
     if (event.newValue === null) lists.delete(event.key);
-    else lists.set(event.key, mergedVisits(visitsIn(event.newValue), held));
+    else {
+      // Another tab stored its list, which lacks this tab's latest visits where both recorded one before
+      // hearing of the other's. They're kept, and stored again; a tab that hears a list lacking nothing
+      // it holds stores nothing, so tabs don't answer each other back and forth.
+      const theirs = visitsIn(event.newValue);
+      const visits = mergedVisits(theirs, held);
+      lists.set(event.key, visits);
+      if (!sameVisits(visits, theirs)) store(event.key, visits);
+    }
   }
   tell();
 }
@@ -123,11 +141,7 @@ export function recordVisit(userId: UserId, address: string, at = Date.now()): v
   const key = keyOf(userId);
   const visits = withVisit(visitsOf(key), address, at);
   lists.set(key, visits);
-  try {
-    localStorage.setItem(key, JSON.stringify(visits));
-  } catch {
-    // Storage can be refused, or full, and then History goes on with what this tab showed.
-  }
+  store(key, visits);
   tell();
 }
 
