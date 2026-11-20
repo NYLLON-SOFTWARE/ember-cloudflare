@@ -2059,6 +2059,14 @@ const GRANT_WELCOMES = `INSERT INTO memberships (room_id, user_id, involvement, 
   FROM json_each(?1) AS welcomes JOIN rooms ON rooms.id = json_extract(welcomes.value, '$.id') JOIN json_each(rooms.direct_key) AS people
   WHERE true ON CONFLICT DO NOTHING`;
 
+/**
+ * Queues telling the search index who can read room ?1 as its kind changes to ?2, before it changes,
+ * unless it's ?2 already (migrations/0080_pending_readers.sql), or queues it again, so that telling it of
+ * the room as it was before doesn't settle it.
+ */
+const QUEUE_READERS_OF_KIND = `INSERT INTO pending_readers (room_id, due_at) SELECT id, 0 FROM rooms WHERE id = ?1 AND kind <> ?2
+  ON CONFLICT (room_id) DO UPDATE SET version = version + 1, attempts = 0, due_at = 0`;
+
 /** The DM a key names, when it was last active, who it welcomes, and who's in it, by id. */
 const DIRECT_WITH_KEY = `SELECT rooms.id AS room_id, ${ACTIVE_AT}, ${START}, users.id, users.name
   FROM rooms JOIN memberships ON memberships.room_id = rooms.id JOIN users ON users.id = memberships.user_id
@@ -5719,16 +5727,18 @@ export class WorkspaceStore {
    * Makes `changes` to a room in one transaction: renames it, allows huddles in it or not, and makes it
    * open to everyone active, or private to just the people `memberIds` names, taking anyone else out but
    * those suspended in a room that was private already, whom its settings don't list, and queueing
-   * closing their sockets there with `code`, due at `dueAt`. Answers what it changed, who's in the room
-   * then, and whether the shared order ranks it.
+   * closing their sockets there with `code`, due at `dueAt`, and telling the search index who can read it
+   * if its kind changes. Answers what it changed, who's in the room then, and whether the shared order
+   * ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId, changes.huddles === undefined ? null : Number(changes.huddles));
     const members = statement(ROOM_MEMBERS, roomId);
     const ranked = statement(ROOM_RANKED, roomId);
     if (changes.kind === "open") {
+      const queued = statement(QUEUE_READERS_OF_KIND, roomId, "open");
       const grant = statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now);
-      const [updated, added, after, rank] = (await this.db.batch([update, grant, members, ranked])) as UserIdRow[][];
+      const [, updated, added, after, rank] = (await this.db.batch([queued, update, grant, members, ranked])) as UserIdRow[][];
       return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], madePrivate: false, ranked: isRanked(rank!) };
     }
     if (changes.kind !== "closed") {
@@ -5738,10 +5748,11 @@ export class WorkspaceStore {
     }
     const memberIds = JSON.stringify(changes.memberIds);
     // Whether it was open, and whom it takes out, are read before the room's kind changes, which says whether anyone suspended stays.
-    const [madePrivate, , removed, updated, added, after, rank] = (await this.db.batch([
+    const [madePrivate, , removed, , updated, added, after, rank] = (await this.db.batch([
       statement(QUEUE_OPEN_ROOMS_ONLY_REVOCATION, OPEN_ROOMS_ONLY, code, dueAt, roomId),
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
+      statement(QUEUE_READERS_OF_KIND, roomId, "closed"),
       update,
       statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
       members,
@@ -5794,6 +5805,7 @@ export class WorkspaceStore {
       // Its messages all go, a banned person's with them, and the search index forgets them.
       statement(`DELETE FROM pending_purges WHERE room_id = ?`, roomId),
       statement(`DELETE FROM pending_reindexes WHERE room_id = ?`, roomId),
+      statement(`DELETE FROM pending_readers WHERE room_id = ?`, roomId),
       statement(`DELETE FROM rooms WHERE id = ?`, roomId),
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
     ])) as UserIdRow[][];
