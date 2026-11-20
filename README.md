@@ -41,8 +41,8 @@ Cloudflare's network, quiet rooms hibernate, and every push to your copy deploys
 Rooms for every project, private rooms for the few who need them, and DMs with one person or a few.
 Reply in a thread to keep a room on topic, and tick **Also send to the room** when everyone should see
 the answer. Mention people, or the whole room with @channel and @here, and everyone with @everyone in
-an open room, quote a message, react with any emoji or a few words of your own, and edit or delete what
-you wrote.
+an open room, which administrators can keep to themselves or turn off in a room, quote a message, react
+with any emoji or a few words of your own, and edit or delete what you wrote.
 
 Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
 says whether you hear about every message, only mentions, or nothing. You see who's here and who's

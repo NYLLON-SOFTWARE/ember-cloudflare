@@ -48,6 +48,7 @@ const settingsWith = (members: User[], others: User[] = []): RoomSettings => ({
   room: general,
   canAdminister: false,
   canChangeHuddles: false,
+  canChangeChannelMentions: false,
   people: [...members.map((person) => ({ ...person, member: true })), ...others.map((person) => ({ ...person, member: false }))],
   section: null,
   sections: [],

@@ -30,6 +30,9 @@ const sameMembers = (a: ReadonlySet<UserId>, b: ReadonlySet<UserId>) => a.size =
 /** Whether a room's settings allow huddles in it, which they do until they say not. */
 const allowsHuddles = (settings: RoomSettings) => settings.room.huddles !== false;
 
+/** Whether a room's settings let @channel, @here and @everyone notify it, which they do until they say not. */
+const allowsChannelMentions = (settings: RoomSettings) => settings.room.channelMentions !== false;
+
 /** Whether two choices of section are the same: the same section, none, or a new one of the same name. */
 const sameSection = (a: SectionChoice, b: SectionChoice) => (typeof a === "object" && a !== null && typeof b === "object" && b !== null ? a.name === b.name : a === b);
 
@@ -55,10 +58,12 @@ interface Props {
  * one form for the other in place, opens it to everyone or makes it private to the people whose switches
  * are on; under the form, they can delete it. Leaving with changes asks first. Where huddles are on,
  * an administrator's form has the Huddles switch, which says whether the room allows them, as a Slack
- * channel's settings do for its workspace's owners and admins. Whoever can change the room picks its
- * sidebar section too, and an administrator can make one there. Everyone else sees the room's name and
- * people, in the form for its kind, and can leave a private room, and whoever has no Huddles switch,
- * the room's creator among them, reads that it has no huddles when it doesn't. The server refuses the
+ * channel's settings do for its workspace's owners and admins, and every administrator's has the
+ * Room-wide mentions switch, which says whether @channel, @here and @everyone notify it. Whoever can
+ * change the room picks its sidebar section too, and an administrator can make one there. Everyone else
+ * sees the room's name and people, in the form for its kind, and can leave a private room, and whoever
+ * has no Huddles switch, or no Room-wide mentions switch, the room's creator among them, reads that the
+ * room has no huddles, or that those mentions notify nobody there, when that's so. The server refuses the
  * last of its people who could open it, saying why: the page can't tell who they are, as it lists
  * active people, bots among them, and none who are suspended.
  */
@@ -71,8 +76,9 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const [savedSection, setSavedSection] = useState<SectionChoice>(null);
   // Who the private form lets in, starting with the room's members.
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
-  // Whether the Huddles switch is on, starting as the room's settings have it.
+  // Whether the Huddles and Room-wide mentions switches are on, starting as the room's settings have them.
   const [huddles, setHuddles] = useState(true);
+  const [channelMentions, setChannelMentions] = useState(true);
   const huddlesOn = useAccount().huddles;
   // Whether a huddle is going on in the room, which turning huddles off there would end.
   const live = useContext(HuddlesContext).live[roomId] !== undefined;
@@ -97,6 +103,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
         setSavedSection(settings.section?.id ?? null);
         setChosen(membersOf(settings));
         setHuddles(allowsHuddles(settings));
+        setChannelMentions(allowsChannelMentions(settings));
       },
       (error: unknown) => {
         // A page left before its settings load only reports a session that's ended, which goes to sign in.
@@ -129,11 +136,13 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
    * this person, settling with whether it was. The form is then compared with what's saved.
    */
   const send = () => {
-    // The switch is sent only where it shows, so saving a room while huddles are off, or as anyone but an administrator, leaves its own setting alone.
+    // A switch is sent only where it shows, so saving a room while huddles are off, or as anyone but an administrator, leaves its own setting alone.
     const kept = {
       name,
       icon: icon ?? "",
       ...(huddlesOn && settings?.canChangeHuddles && { huddles }),
+      // The Room-wide mentions switch is sent only once it's moved, as the section is.
+      ...(settings?.canChangeChannelMentions && channelMentions !== allowsChannelMentions(settings) && { channelMentions }),
       // The section is sent only once another is picked, so one deleted since the page loaded isn't refused.
       ...(!sameSection(section, savedSection) && { section }),
     } satisfies RoomChanges;
@@ -184,10 +193,20 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       !sameSection(section, savedSection) ||
       access !== opened ||
       (huddlesOn && huddles !== allowsHuddles(settings)) ||
+      channelMentions !== allowsChannelMentions(settings) ||
       (!open && !sameMembers(chosen, membersOf(settings))));
   // The Huddles row is there while huddles are on: with its switch for an administrator, and for anyone
   // else, the room's creator too, only where the room has none, to say so.
   const huddlesRow = !huddlesOn || !settings ? null : settings.canChangeHuddles ? { allowed: huddles, onChange: setHuddles, live } : allowsHuddles(settings) ? null : { allowed: false };
+  // The Room-wide mentions row has its switch for an administrator, and for anyone else only says they
+  // notify nobody, where they don't.
+  const channelMentionsRow = !settings
+    ? null
+    : settings.canChangeChannelMentions
+      ? { allowed: channelMentions, onChange: setChannelMentions }
+      : allowsChannelMentions(settings)
+        ? null
+        : { allowed: false };
   // The Everyone switch moves between the room's two forms, keeping the draft.
   const stays = useCallback((path: string) => path === roomSettingsPath("open", roomId) || path === roomSettingsPath("closed", roomId), [roomId]);
   return (
@@ -216,6 +235,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
               ))
             }
             huddles={huddlesRow}
+            channelMentions={channelMentionsRow}
             saving={busy}
             onSave={save}
             ref={roomForm}

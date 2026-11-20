@@ -38,6 +38,8 @@ const workspace: Omit<Bootstrap, "user"> = {
     hideTranslationButtons: true,
     customStyles: "",
     restrictRoomCreation: false,
+    restrictChannelMentions: false,
+    restrictEveryoneMention: false,
     logo: null,
     customDomain: null,
     joinLink: false,

@@ -54,6 +54,8 @@ const isSameAccount = (a: Account, b: Account) =>
   a.hideTranslationButtons === b.hideTranslationButtons &&
   a.customStyles === b.customStyles &&
   a.restrictRoomCreation === b.restrictRoomCreation &&
+  a.restrictChannelMentions === b.restrictChannelMentions &&
+  a.restrictEveryoneMention === b.restrictEveryoneMention &&
   a.logo === b.logo &&
   a.customDomain === b.customDomain &&
   a.joinLink === b.joinLink &&

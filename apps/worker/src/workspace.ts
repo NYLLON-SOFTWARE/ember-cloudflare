@@ -185,6 +185,7 @@ import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RES
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
 import {
+  allowingChannelMentions,
   allowingHuddles,
   NEW_ACCOUNT_LOOKS,
   WorkspaceStore,
@@ -482,6 +483,8 @@ const accountOf = (
     hideTranslationButtons,
     customStyles,
     restrictRoomCreation,
+    restrictChannelMentions,
+    restrictEveryoneMention,
     customDomain,
     joinLink,
     openSignUp,
@@ -504,6 +507,8 @@ const accountOf = (
   hideTranslationButtons,
   customStyles,
   restrictRoomCreation,
+  restrictChannelMentions,
+  restrictEveryoneMention,
   logo: storedLogo && accountLogoPath(updatedAt),
   customDomain,
   joinLink,
@@ -1572,7 +1577,17 @@ export class Workspace extends DurableObject<Env> {
   ): Promise<Account | AccountRefusal | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // Only what differs is written.
-      const { hideTranslationButtons, restrictRoomCreation, huddleCameras, huddleScreens, joinLink, openSignUp, emailDomainSignUp } = settings ?? {};
+      const {
+        hideTranslationButtons,
+        restrictRoomCreation,
+        restrictChannelMentions,
+        restrictEveryoneMention,
+        huddleCameras,
+        huddleScreens,
+        joinLink,
+        openSignUp,
+        emailDomainSignUp,
+      } = settings ?? {};
       const memberful = memberfulChange(account, settings ?? {});
       const ssoSwitches = ssoChange(account, settings ?? {});
       const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
@@ -1583,6 +1598,8 @@ export class Workspace extends DurableObject<Env> {
         ...(tagline !== undefined && tagline !== account.tagline && { tagline }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
+        ...(restrictChannelMentions !== undefined && restrictChannelMentions !== account.restrictChannelMentions && { restrictChannelMentions }),
+        ...(restrictEveryoneMention !== undefined && restrictEveryoneMention !== account.restrictEveryoneMention && { restrictEveryoneMention }),
         ...(huddleCameras !== undefined && huddleCameras !== account.huddleCameras && { huddleCameras }),
         ...(huddleScreens !== undefined && huddleScreens !== account.huddleScreens && { huddleScreens }),
         ...(moving && { customDomain }),
@@ -5582,7 +5599,8 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes `changes` to room `roomId` as the person `credentials` signs in, answering the room as it
    * is then: "not found" as for its settings, "forbidden" unless they can change it, "administrators
-   * only" for turning huddles on or off in it unless they're one, "blocked words" for a new name with
+   * only" for turning huddles on or off in it unless they're one, "mentions administrators only" for
+   * @channel, @here and @everyone likewise, "blocked words" for a new name with
    * a word Blocked words keeps out, though the name it has stays, why the section it chooses is refused
    * (`chosenSection`), or null without a valid session. Anyone it takes out of the room is told to
    * reconnect, and finds it gone, and it leaves their sidebars. Everyone in it sees it as it is now in
@@ -5594,7 +5612,7 @@ export class Workspace extends DurableObject<Env> {
     credentials: Credentials,
     roomId: RoomId,
     changes: RoomChanges,
-  ): Promise<SharedRoom | "not found" | "forbidden" | "administrators only" | "blocked words" | SectionRefusal | null> {
+  ): Promise<SharedRoom | "not found" | "forbidden" | "administrators only" | "mentions administrators only" | "blocked words" | SectionRefusal | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
@@ -5602,23 +5620,29 @@ export class Workspace extends DurableObject<Env> {
       if (!found) return "not found";
       if (!found.canAdminister) return "forbidden";
       const allowed = found.room.huddles !== false;
-      // Huddles sent as they are turn nothing on or off, which anyone who can change the room may send.
+      const mentionsAllowed = found.room.channelMentions !== false;
+      // Switches sent as they are turn nothing on or off, which anyone who can change the room may send.
       if (changes.huddles !== undefined && changes.huddles !== allowed && !found.canChangeHuddles) return "administrators only";
+      if (changes.channelMentions !== undefined && changes.channelMentions !== mentionsAllowed && !found.canChangeChannelMentions) {
+        return "mentions administrators only";
+      }
       // Its settings send the name it has with every change.
       if (changes.name && changes.name !== found.room.name && (await this.hasBlockedWord(changes.name))) return "blocked words";
       const chosen = changes.section === undefined ? null : await this.chosenSection(changes.section, user.id);
       if (typeof chosen === "string") return chosen;
       // Its settings send the section it's in with every change too, which moves it nowhere.
       const moved = chosen && (chosen.made || chosen.section?.id !== found.section?.id) ? chosen : null;
-      const { huddles: _, ...room } = found.room;
+      const { huddles: _, channelMentions: __, ...room } = found.room;
       const changed: SharedRoom = {
         ...room,
         ...(changes.name && { name: changes.name }),
         ...(changes.kind && { kind: changes.kind }),
         ...(changes.icon !== undefined && { icon: changes.icon || null }),
         ...allowingHuddles(changes.huddles ?? allowed),
+        ...allowingChannelMentions(changes.channelMentions ?? mentionsAllowed),
       };
-      if (!changes.name && !changes.kind && changes.icon === undefined && changes.huddles === undefined && !moved) return changed;
+      const switched = changes.huddles !== undefined || changes.channelMentions !== undefined;
+      if (!changes.name && !changes.kind && changes.icon === undefined && !switched && !moved) return changed;
       const now = Date.now();
       // As when signing out, until the database says it queued nothing.
       let queued = changes.kind === "closed";

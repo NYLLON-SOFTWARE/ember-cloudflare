@@ -65,6 +65,16 @@ import { TurnstileSettings } from "./turnstile-settings";
 import { TurnstileSetup } from "./turnstile-setup";
 import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
 
+/** The settings Room order and permissions' switches keep to administrators. */
+type Restriction = "restrictRoomCreation" | "restrictChannelMentions" | "restrictEveryoneMention";
+
+/** Room order and permissions' switches, in order, each by the setting it saves and what it says. */
+const RESTRICTIONS: { setting: Restriction; label: string }[] = [
+  { setting: "restrictRoomCreation", label: "Must be admin to create new rooms" },
+  { setting: "restrictChannelMentions", label: "Must be admin to use @channel and @here" },
+  { setting: "restrictEveryoneMention", label: "Must be admin to use @everyone" },
+];
+
 interface Props {
   me: Me;
   /** Where Go Back goes: the last room visited. */
@@ -112,7 +122,8 @@ interface Props {
  *   The rail's icons are in Custom styles (`NavigationIconSettings`), where the project's owner moved
  *   them.
  * - Rooms and permissions: New room, which members don't get while only administrators can create
- *   rooms, and for administrators, New section, then the switch that says so, and the rooms' order for
+ *   rooms, and for administrators, New section, then the switch that says so, the switches that keep
+ *   @channel and @here, and @everyone, to administrators, as Slack's settings do, and the rooms' order for
  *   everyone, in their sections, each room linking to its settings.
  * - Membership: for administrators, the Reports list first, then who can join, with switches for Open,
  *   the join link, which they can regenerate, Memberful and single sign-on, which Set up single sign-on
@@ -161,8 +172,8 @@ export function WorkspaceSettingsPage({
   const [regenerating, setRegenerating] = useState(false);
   // Where the Hide translation buttons switch was moved to, until Save changes saves it with the name.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
-  // Where Must be admin to create new rooms was moved to, while that's saved.
-  const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
+  // Where each of Room order and permissions' switches was moved to, while that's saved.
+  const [restricting, setRestricting] = useState<Partial<Record<Restriction, boolean>>>({});
   // Set up email, while it's open, with what to go on to once it closes with Ember able to send email.
   const [emailSetup, setEmailSetup] = useState<{ then?: () => void } | null>(null);
   const [settingUpTurnstile, setSettingUpTurnstile] = useState(false);
@@ -365,10 +376,10 @@ export function WorkspaceSettingsPage({
       },
     );
   };
-  const switchRoomCreation = (restrict: boolean) => {
-    if (restrictingCreation !== null) return;
-    setRestrictingCreation(restrict);
-    saveSwitch({ restrictRoomCreation: restrict }, () => setRestrictingCreation(null));
+  const switchRestriction = (setting: Restriction, restrict: boolean) => {
+    if (restricting[setting] !== undefined) return;
+    setRestricting((moved) => ({ ...moved, [setting]: restrict }));
+    saveSwitch({ [setting]: restrict }, () => setRestricting(({ [setting]: _, ...moved }) => moved));
   };
   const sharedRooms = useMemo(() => rooms && apart(rooms).shared, [rooms]);
 
@@ -560,16 +571,16 @@ export function WorkspaceSettingsPage({
         </div>
         {settings?.canAdminister ? (
           <>
-            <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-5">
-              <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
-                <Crown className="size-[18px]" />
-                Must be admin to create new rooms
-              </div>
-              <Switch
-                checked={restrictingCreation ?? account.restrictRoomCreation}
-                onCheckedChange={switchRoomCreation}
-                aria-label="Must be admin to create new rooms"
-              />
+            <div className="flex flex-col gap-4 border-t pt-5">
+              {RESTRICTIONS.map(({ setting, label }) => (
+                <div key={setting} className="flex items-center gap-x-[1ch] gap-y-4">
+                  <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
+                    <Crown className="size-[18px] shrink-0" />
+                    {label}
+                  </div>
+                  <Switch checked={restricting[setting] ?? account[setting]} onCheckedChange={(restrict) => switchRestriction(setting, restrict)} aria-label={label} />
+                </div>
+              ))}
             </div>
             {sharedRooms && (
               <RoomOrder
