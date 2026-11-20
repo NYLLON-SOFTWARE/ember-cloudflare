@@ -60,6 +60,7 @@ import {
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
+  type NotifiedCounts,
   type PersonRole,
   type Profile,
   type ProfileChanges,
@@ -485,6 +486,7 @@ const accountOf = (
     restrictRoomCreation,
     restrictChannelMentions,
     restrictEveryoneMention,
+    warnBeforeNotifying,
     customDomain,
     joinLink,
     openSignUp,
@@ -510,6 +512,7 @@ const accountOf = (
   restrictRoomCreation,
   restrictChannelMentions,
   restrictEveryoneMention,
+  warnBeforeNotifying,
   logo: storedLogo && accountLogoPath(updatedAt),
   customDomain,
   joinLink,
@@ -1584,6 +1587,7 @@ export class Workspace extends DurableObject<Env> {
         restrictRoomCreation,
         restrictChannelMentions,
         restrictEveryoneMention,
+        warnBeforeNotifying,
         huddleCameras,
         huddleScreens,
         joinLink,
@@ -1602,6 +1606,7 @@ export class Workspace extends DurableObject<Env> {
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
         ...(restrictChannelMentions !== undefined && restrictChannelMentions !== account.restrictChannelMentions && { restrictChannelMentions }),
         ...(restrictEveryoneMention !== undefined && restrictEveryoneMention !== account.restrictEveryoneMention && { restrictEveryoneMention }),
+        ...(warnBeforeNotifying !== undefined && warnBeforeNotifying !== account.warnBeforeNotifying && { warnBeforeNotifying }),
         ...(huddleCameras !== undefined && huddleCameras !== account.huddleCameras && { huddleCameras }),
         ...(huddleScreens !== undefined && huddleScreens !== account.huddleScreens && { huddleScreens }),
         ...(huddleVideo !== undefined && huddleVideo !== account.huddleVideo && { huddleVideo }),
@@ -4141,6 +4146,24 @@ export class Workspace extends DurableObject<Env> {
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
     const [people, notifying] = await Promise.all([this.store.mentionable(query, roomId, user.id), special && roomId !== null ? this.store.notifyingMentions(roomId, user.id) : []]);
     return { people, specialMentions: notifying.filter((mention) => mention.startsWith(query.toLowerCase())) };
+  }
+
+  /**
+   * How many people are in room `roomId`, and how many of them, but the person `credentials` signs in,
+   * each special mention that would notify the room from them would notify, as their composer asks before
+   * sending one, @here's those active now: "not found" unless they're in the room, or null without a
+   * valid session.
+   */
+  async notified(credentials: Credentials, roomId: RoomId): Promise<NotifiedCounts | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isMember(roomId, user.id))) return "not found";
+    const [notifying, { everyone, active }] = await Promise.all([
+      this.store.notifyingMentions(roomId, user.id),
+      this.store.notifiedCounts(roomId, user.id, [...this.presence.active()]),
+    ]);
+    const mentions = Object.fromEntries(notifying.map((mention) => [mention, mention === "here" ? active : everyone]));
+    return { members: everyone + 1, mentions };
   }
 
   /**

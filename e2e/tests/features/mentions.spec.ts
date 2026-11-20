@@ -209,8 +209,10 @@ test.describe("Highlight mentions of you", () => {
 
 // Slack's @here and @channel, which notify the room rather than someone.
 test.describe("Notify a room", () => {
-  test("offers @here and @channel after the people, and @here first once it's typed in full, which Space picks, highlighting the message for everyone", async ({ members }) => {
+  test("offers @here and @channel after the people, and @here first once it's typed in full, which Space picks, highlighting the message for everyone", async ({ members, participant }) => {
     const tag = newTag();
+    // With whoever made the room, and other tests' people, it holds more than six, so sending asks first.
+    for (const name of ["Hopper", "Joan", "Kay", "Lin"]) await participant(`${name} ${tag}`);
     const ada = await members.signIn(`Ada ${tag}`);
     const grace = await members.signIn(`Grace ${tag}`);
 
@@ -227,11 +229,44 @@ test.describe("Notify a room", () => {
     await listClosed(grace);
     await expect(grace.composer().getByText("@here", { exact: true })).toBeVisible();
     await grace.composer().press("Enter");
+    // Ada's tab is in use, so @here notifies someone.
+    await expect(grace.page.getByRole("dialog").getByRole("button", { name: "Send" })).toBeFocused();
+    await grace.page.keyboard.press("Enter");
 
     for (const member of [ada, grace]) {
       await expect(member.message("Lunch?")).toContainText("Lunch? @here");
       await expect(member.message("Lunch?").locator(".border-mention")).toHaveCSS("border-left-width", "2px");
     }
+  });
+
+  test("asks before @channel notifies a room of six or more, as Slack asks, going back to the message on Escape and sending it on Enter", async ({ members, participant }) => {
+    const tag = newTag();
+    // With whoever made the room, and other tests' people, it holds more than six.
+    for (const name of ["Hopper", "Joan", "Kay", "Lin"]) await participant(`${name} ${tag}`);
+    const ada = await members.signIn(`Ada ${tag}`);
+    const grace = await members.signIn(`Grace ${tag}`);
+
+    await grace.composer().pressSequentially("Standup ");
+    await typeMention(grace.composer(), "channel");
+    await expect(offered(grace).first()).toHaveText("@channel Notify everyone in this room");
+    await grace.composer().press("Tab");
+    await listClosed(grace);
+    await grace.composer().press("Enter");
+    const dialog = grace.page.getByRole("dialog");
+    await expect(dialog.getByRole("heading")).toHaveText(/^Notify [\d,]+ people\?$/);
+    await expect(dialog).toContainText("@channel notifies everyone in #general.");
+    await expect(dialog.getByRole("button", { name: "Send" })).toBeFocused();
+    await grace.page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(grace.composer()).toBeFocused();
+    await expect(grace.composer()).toContainText("Standup @channel");
+
+    await grace.composer().press("Enter");
+    await expect(dialog.getByRole("button", { name: "Send" })).toBeFocused();
+    await grace.page.keyboard.press("Enter");
+    await expect(dialog).toBeHidden();
+    for (const member of [ada, grace]) await expect(member.message("Standup")).toContainText("Standup @channel");
+    await expect(grace.composer()).toHaveText("");
   });
 });
 

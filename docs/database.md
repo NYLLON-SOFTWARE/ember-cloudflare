@@ -237,7 +237,10 @@ Objects, D1 or speed call for something else.
   `messages.notifies` (room migration 0082) keeps the widest it made, `here`, `channel` or `everyone`,
   or null for none, and an edit can only narrow it, since an edit notifies nobody. The room's log
   reads it with the message's text, and history sends it, which highlights the message as one that
-  mentions everyone.
+  mentions everyone. Before a message making one goes, the composer asks the Workspace how many people
+  the room holds and how many each mention would notify (`GET /api/rooms/<id>/notified`), to ask its
+  writer first in a room of six or more, as Slack does: one batch of two counts over the room's
+  memberships, @here's of those whose tabs are in use, which it binds as one JSON list, as the pushes do.
 - **Sessions keep a digest of their token.** Campfire stores each session's token as it is and signs
   the cookie that carries it. We store an HMAC of the token, keyed by `SESSION_SECRET`, so a leaked
   database or backup holds no live sessions; changing the secret still signs everyone out, as

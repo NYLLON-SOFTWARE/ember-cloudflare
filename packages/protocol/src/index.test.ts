@@ -366,7 +366,7 @@ describe("One live connection per tab outside the open room", () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -776,6 +776,16 @@ describe("Only administrators create rooms (setting)", () => {
       settings: { restrictRoomCreation: false, hideTranslationButtons: true },
     });
     expect(parseAccountChanges({ settings: { restrictRoomCreation: "true" } })).toBe("Must be admin to create new rooms must be true or false");
+  });
+});
+
+describe("Warn before notifying a room of six or more (setting)", () => {
+  it("takes the warning's switch as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: false } })).toEqual({ settings: { warnBeforeNotifying: false } });
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: true, hideTranslationButtons: false } })).toEqual({
+      settings: { warnBeforeNotifying: true, hideTranslationButtons: false },
+    });
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: "no" } })).toBe("Warn before notifying a room of six or more must be true or false");
   });
 });
 

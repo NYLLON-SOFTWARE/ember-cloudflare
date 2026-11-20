@@ -1,4 +1,4 @@
-import type { Account, AccountSettings, BotAnswer, BotSettings, Message, NewWorkspace, RoomId, SpecialMention, WorkspaceServerFrame } from "@ember/protocol";
+import type { Account, AccountSettings, BotAnswer, BotSettings, Message, NewWorkspace, NotifiedCounts, RoomId, SpecialMention, WorkspaceServerFrame } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -237,6 +237,66 @@ describe("Who can notify a room", () => {
     expect(await offered(ada, room.id)).toEqual(["here", "channel", "everyone"]);
     expect(await offered(grace, room.id)).toEqual(["here", "channel"]);
     expect(await offered(ada, quiet.id)).toEqual([]);
+  });
+});
+
+describe("Ask before notifying a room", () => {
+  /** What `GET /api/rooms/<id>/notified` answers `session`, or someone signed out, as the composer asks before sending. */
+  const notified = async (session: Session | null, roomId: RoomId) => {
+    const response = await api(`/api/rooms/${roomId}/notified`, { headers: session ? { Cookie: session.cookie } : {} });
+    return { status: response.status, counts: response.ok ? ((await response.json()) as NotifiedCounts) : null };
+  };
+
+  it("counts the people in a room, but bots and those whose accounts aren't active, and whom each special mention would notify from whoever asks, @here those whose tabs are in use", async () => {
+    const [ada, grace, lin, hopper, nina, bot] = [await signIn("Ada"), await signIn("Grace"), await signIn("Lin"), await signIn("Hopper"), await signIn("Nina"), await signIn("Bot")];
+    await workspaceSql("UPDATE users SET guest = 0 WHERE id = ?", ada.user.id);
+    await workspaceSql("UPDATE users SET role = 2 WHERE id = ?", bot.user.id);
+    await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", nina.user.id);
+    const closed = (await createRoom("Launch", { closedTo: [ada, grace, lin, hopper, nina, bot].map(({ user }) => user.id), as: ada })).id;
+    const open = (await createRoom("Everyone", { as: ada })).id;
+    // Grace's tab is in use, and Lin's says it isn't.
+    await openWorkspaceSocket(grace);
+    const linsTab = await openWorkspaceSocket(lin);
+    linsTab.send(JSON.stringify({ type: "presence.active", active: false }));
+    while ((await linsTab.next()).type !== "presence");
+
+    expect(await notified(ada, closed)).toEqual({ status: 200, counts: { members: 4, mentions: { here: 1, channel: 3 } } });
+    expect(await notified(ada, open)).toEqual({ status: 200, counts: { members: 4, mentions: { here: 1, channel: 3, everyone: 3 } } });
+    // Grace, a guest, can't use @everyone, and whoever asks is never counted as notified.
+    expect(await notified(grace, open)).toEqual({ status: 200, counts: { members: 4, mentions: { here: 0, channel: 3 } } });
+    expect(await notified(ada, (await direct(ada, grace)).id)).toEqual({ status: 200, counts: { members: 2, mentions: {} } });
+  });
+
+  it("warns until an administrator turns the warning off, telling every open tab", async () => {
+    const ada = await setUp();
+    const tab = await openWorkspaceSocket(ada);
+    const change = async (settings: AccountSettings) => {
+      const response = await api("/api/account", { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ settings }) });
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { account: Account }).account;
+    };
+
+    expect((await change({ restrictRoomCreation: true })).warnBeforeNotifying).toBe(true);
+    await tab.next();
+    const account = await change({ warnBeforeNotifying: false });
+    expect(account.warnBeforeNotifying).toBe(false);
+    expect(await tab.next()).toEqual({ type: "account.updated", account } satisfies WorkspaceServerFrame);
+    const [stored] = (await workspaceSql("SELECT settings FROM accounts")) as Array<{ settings: string }>;
+    expect(JSON.parse(stored!.settings)).toMatchObject({ warn_before_notifying: false });
+    expect((await change({ warnBeforeNotifying: true })).warnBeforeNotifying).toBe(true);
+  });
+
+  it("counts no special mention in a room whose settings turn them off, and answers only the room's members", async () => {
+    const ada = await setUp();
+    const grace = await signIn("Grace");
+    const [quiet, closed] = [await createRoom("Quiet", { as: ada }), await createRoom("Leads", { closedTo: [ada.user.id], as: ada })];
+    expect((await api(`/api/rooms/${quiet.id}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ channelMentions: false }) })).status).toBe(200);
+
+    expect(await notified(ada, quiet.id)).toEqual({ status: 200, counts: { members: 2, mentions: {} } });
+    expect((await notified(grace, closed.id)).status).toBe(404);
+    expect((await notified(ada, "0000000000000000")).status).toBe(404);
+    expect((await notified(ada, "not-a-room")).status).toBe(404);
+    expect((await notified(null, quiet.id)).status).toBe(401);
   });
 });
 
