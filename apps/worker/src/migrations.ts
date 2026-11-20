@@ -81,6 +81,7 @@ import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
 import searchFiltersByRoom from "../search-migrations/0004_search_filters_by_room.sql";
+import searchReaders from "../search-migrations/0005_search_readers.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -194,6 +195,7 @@ export const SEARCH_MIGRATIONS: Migration[] = [
   { name: "0002_search_results.sql", scope: "search", sql: searchResults },
   { name: "0003_search_filters.sql", scope: "search", sql: searchFilters },
   { name: "0004_search_filters_by_room.sql", scope: "search", sql: searchFiltersByRoom },
+  { name: "0005_search_readers.sql", scope: "search", sql: searchReaders },
 ];
 
 /**

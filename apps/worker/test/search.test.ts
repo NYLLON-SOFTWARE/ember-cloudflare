@@ -4,7 +4,6 @@ import {
   SEARCH_LIMIT,
   SEARCH_TOO_LONG,
   searchQuery,
-  searchTerms,
   type Me,
   type Message,
   type NewWorkspace,
@@ -22,6 +21,7 @@ import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { MIGRATIONS } from "../src/migrations";
 import { searchStatement, type IndexedMessage, type IndexSearch, type SearchFacts, type SearchIndex } from "../src/search-index";
+import { wordsOf } from "../src/search-words";
 import type { Workspace } from "../src/workspace";
 import {
   api,
@@ -101,8 +101,8 @@ async function reply(client: Socket, parent: Pick<Message, "id">, body: string):
   }
 }
 
-/** What the index is asked for a search of `terms` in `roomIds`, newest first, from the start, and anything else `search` says. */
-const indexSearch = (terms: string, roomIds: RoomId[], search: Partial<IndexSearch> = {}): IndexSearch => ({ terms, roomIds, sort: "newest", after: null, ...search });
+/** What the index is asked for a search of `words` in `roomIds`, as someone in them, newest first, from the start, and anything else `search` says. */
+const indexSearch = (words: string[], roomIds: RoomId[], search: Partial<IndexSearch> = {}): IndexSearch => ({ words, roomIds, searcherId: "searcher", sort: "newest", after: null, ...search });
 
 /** A message as a room sends it to the index, written by nobody in particular, with no thread, link, file or mention. */
 const indexed = (message: Omit<IndexedMessage, keyof SearchFacts> & Partial<SearchFacts>): IndexedMessage => ({
@@ -185,7 +185,7 @@ describe("Search messages", () => {
     await caughtUp(room);
     // Asking the index itself, quoting each word but not sanitizing them first.
     for (const query of ["NOT", "OR", "AND", "NEAR", "eel NOT", "NOT eel", "shark OR", '"', "*", "", "a\0b", "\0", "́"]) {
-      await expect(searchIndexStub().search(indexSearch(searchTerms(query), [room])), JSON.stringify(query)).resolves.toMatchObject({ hits: expect.any(Array) });
+      await expect(searchIndexStub().search(indexSearch(query.split(" "), [room])), JSON.stringify(query)).resolves.toMatchObject({ hits: expect.any(Array) });
       expect((await searchAs(jason.session, query)).status, JSON.stringify(query)).toBe(200);
     }
     expect(await found(jason.session, "NOT eel")).toEqual([message.id]);
@@ -216,16 +216,16 @@ describe("Search messages", () => {
   it("answers the words each match matched when its text has the index's marks itself, however many", async () => {
     const index = searchIndexStub();
     const at = (second: number, text: string): IndexedMessage => indexed({ id: `message-${second}`, createdAt: new Date(Date.UTC(2026, 9, 16, 10, 0, second)).toISOString(), text, message: "{}" });
-    const wordsOf = async (terms: string) => (await index.search(indexSearch(terms, ["room-a"]))).hits.map(({ words }) => words);
+    const wordsOf = async (word: string) => (await index.search(indexSearch([word], ["room-a"]))).hits.map(({ words }) => words);
     // U+0001 and U+0002 are the marks the index has FTS5 put around each matching word.
     await index.apply("room-a", 1, [at(0, "\u0002 Pear \u0002"), at(1, "\u0001\u0002 PEAR")], []);
-    expect(await wordsOf('"pear"')).toEqual([["PEAR"], ["Pear"]]);
+    expect(await wordsOf("pear")).toEqual([["PEAR"], ["Pear"]]);
 
     // A page of the longest messages a room takes, each all opening marks that nothing closes after its
     // word: read on to its end from every one of them, they'd keep the index long past the test's time.
     const unclosed = "plum 日 ".padEnd(MAX_MESSAGE_LENGTH, "\u0001");
     await index.apply("room-a", 2, Array.from({ length: SEARCH_LIMIT }, (_, second) => at(2 + second, unclosed)), []);
-    expect(await wordsOf('"plum"')).toEqual(Array.from({ length: SEARCH_LIMIT }, () => ["plum"]));
+    expect(await wordsOf("plum")).toEqual(Array.from({ length: SEARCH_LIMIT }, () => ["plum"]));
   });
 
   it("finds a message by its plain text, not its markup", async () => {
@@ -323,35 +323,37 @@ describe("Search messages", () => {
   });
 
   it("reads the first matches off the index in order, with nothing to sort, whatever its filters", async () => {
-    await searchIndexStub().search(indexSearch('"aardvark"', []));
+    await searchIndexStub().search(indexSearch(["aardvark"], []));
     const filters: Array<Partial<IndexSearch>> = [
       {},
       { sort: "oldest", after: 5 },
       { creatorId: "ada", includes: { userId: "ada", directIds: ["dm"] }, hasLink: true, hasFile: true, inThread: true },
       { creatorId: "ada", sort: "oldest", after: 5 },
     ];
-    for (const terms of ['"aardvark"', ""]) {
+    for (const words of [["aardvark"], []]) {
       for (const filter of filters) {
-        const { sql, values } = searchStatement(indexSearch(terms, ["room"], filter));
-        const plan = (await searchSql(`EXPLAIN QUERY PLAN ${sql}`, ...(values as Array<string | number>))).map((row) => (row as { detail: string }).detail).join("; ");
-        expect(plan, `${terms} ${JSON.stringify(filter)}`).not.toContain("TEMP B-TREE");
+        for (const keys of [[], [1, 2, 3]]) {
+          const { sql, values } = searchStatement(indexSearch(words, ["room"], filter), keys);
+          const plan = (await searchSql(`EXPLAIN QUERY PLAN ${sql}`, ...(values as Array<string | number>))).map((row) => (row as { detail: string }).detail).join("; ");
+          expect(plan, `${words} ${JSON.stringify(filter)} ${keys}`).not.toContain("TEMP B-TREE");
+        }
       }
     }
   });
 
   it("has nothing to sort in one room or several, whichever filters a search has and wherever it starts, and walks one with words from the index of words", async () => {
-    await searchIndexStub().search(indexSearch('"aardvark"', []));
+    await searchIndexStub().search(indexSearch(["aardvark"], []));
     const each: Array<Partial<IndexSearch>> = [{ creatorId: "ada" }, { includes: { userId: "ada", directIds: ["dm"] } }, { hasLink: true }, { hasFile: true }, { inThread: true }];
     const filters = Array.from({ length: 2 ** each.length }, (_, chosen): Partial<IndexSearch> => Object.assign({}, ...each.filter((_, at) => chosen & (1 << at))));
     const starts = (["newest", "oldest"] as const).flatMap((sort) => [null, 5].map((after) => ({ sort, after })));
-    for (const terms of ['"aardvark"', ""]) {
+    for (const words of [["aardvark"], []]) {
       for (const roomIds of [["room"], ["room", "dm"]]) {
-        for (const search of filters.flatMap((filter) => starts.map((start) => indexSearch(terms, roomIds, { ...filter, ...start })))) {
-          const { sql, values } = searchStatement(search);
+        for (const search of filters.flatMap((filter) => starts.map((start) => indexSearch(words, roomIds, { ...filter, ...start })))) {
+          const { sql, values } = searchStatement(search, [1, 2]);
           const plan = (await searchSql(`EXPLAIN QUERY PLAN ${sql}`, ...(values as Array<string | number>))).map((row) => (row as { detail: string }).detail).join("; ");
           expect(plan, JSON.stringify(search)).not.toContain("TEMP B-TREE");
           // Never from someone's messages, say, which it would read in every room, and sort.
-          if (terms !== "") expect(plan, JSON.stringify(search)).toMatch(/^SCAN search_index /);
+          if (words.length > 0) expect(plan, JSON.stringify(search)).toMatch(/^SCAN search_index /);
         }
       }
     }
@@ -370,7 +372,7 @@ describe("Search messages", () => {
     await searchSql(`INSERT INTO search_index (rowid, body) SELECT id, 'sparsekeyword' FROM search_messages WHERE room_id = 'elsewhere'`);
 
     expect(await found(ada.session, "sparsekeyword")).toEqual([message.id]);
-    expect(await searchIndexStub().search(indexSearch('"sparsekeyword"', []))).toEqual({ hits: [], next: null });
+    expect(await searchIndexStub().search(indexSearch(["sparsekeyword"], []))).toEqual({ hits: [], next: null });
     // As a search of filters alone does, when the newest messages are elsewhere.
     expect(await found(ada.session, { q: "", in: room })).toEqual([message.id]);
   });
@@ -419,8 +421,8 @@ describe("Search messages", () => {
     const filters: Array<Partial<IndexSearch>> = [{}, { creatorId: "ada" }, { includes: ada }, { hasLink: true }, { hasFile: true }, { inThread: true }, { creatorId: "ada", includes: ada, hasLink: true, inThread: true }];
     const starts = (["newest", "oldest"] as const).flatMap((sort) => [null, first + 150 * 1024].map((after) => ({ sort, after })));
     // In her room alone, in it and one with no messages, and in none, as a search in a room she isn't in is.
-    const alone = [["hers"], ["hers", "nowhere"], []].flatMap((roomIds) => filters.flatMap((filter) => starts.map((start) => indexSearch("", roomIds, { ...filter, ...start }))));
-    const words = [indexSearch('"quokka"', ["hers"]), indexSearch('"quokka"', ["hers"], { creatorId: "ada", sort: "oldest", after: first + 150 * 1024 })];
+    const alone = [["hers"], ["hers", "nowhere"], []].flatMap((roomIds) => filters.flatMap((filter) => starts.map((start) => indexSearch([], roomIds, { ...filter, ...start }))));
+    const words = [indexSearch(["quokka"], ["hers"]), indexSearch(["quokka"], ["hers"], { creatorId: "ada", sort: "oldest", after: first + 150 * 1024 })];
 
     await fill("hers", 300, first);
     const [before, beforeWords] = [await searched(alone), await searched(words)];
@@ -570,18 +572,18 @@ describe("Search messages", () => {
   it("takes each room's changes in order, so a call that arrives late changes nothing, and numbers messages by when they were written", async () => {
     const index = searchIndexStub();
     const at = (time: string, id: string, text: string): IndexedMessage => indexed({ id, createdAt: `2026-10-16T${time}Z`, text, message: JSON.stringify({ text }) });
-    const hits = async (terms: string, roomIds: RoomId[]) => (await index.search(indexSearch(terms, roomIds))).hits.map(({ messageId, roomId }) => ({ messageId, roomId }));
+    const hits = async (word: string, roomIds: RoomId[]) => (await index.search(indexSearch([word], roomIds))).hits.map(({ messageId, roomId }) => ({ messageId, roomId }));
     await index.apply("room-a", 2, [at("10:00:01.000", "later", "pear newer")], []);
     await index.apply("room-a", 1, [at("10:00:01.000", "later", "pear older")], []);
-    expect(await index.search(indexSearch('"newer"', ["room-a"]))).toEqual({
+    expect(await index.search(indexSearch(["newer"], ["room-a"]))).toEqual({
       hits: [{ number: Date.parse("2026-10-16T10:00:01.000Z") * 1024, messageId: "later", roomId: "room-a", message: JSON.stringify({ text: "pear newer" }), words: ["newer"] }],
       next: null,
     });
-    expect(await hits('"older"', ["room-a"])).toEqual([]);
+    expect(await hits("older", ["room-a"])).toEqual([]);
 
     // Heard of after the later one, and from another room, but written before it, as in the same millisecond.
     await index.apply("room-b", 1, [at("10:00:00.000", "earlier", "pear"), at("10:00:01.000", "same-b", "pear"), at("10:00:01.000", "same-a", "pear")], []);
-    expect(await hits('"pear"', ["room-a", "room-b"])).toEqual([
+    expect(await hits("pear", ["room-a", "room-b"])).toEqual([
       { messageId: "same-b", roomId: "room-b" },
       { messageId: "same-a", roomId: "room-b" },
       { messageId: "later", roomId: "room-a" },
@@ -590,12 +592,12 @@ describe("Search messages", () => {
 
     // An edit keeps its number, and what results show of it, and a deletion takes it out.
     await index.apply("room-b", 2, [at("10:00:00.000", "earlier", "pear edited")], ["same-a"]);
-    expect(await hits('"pear"', ["room-a", "room-b"])).toEqual([
+    expect(await hits("pear", ["room-a", "room-b"])).toEqual([
       { messageId: "same-b", roomId: "room-b" },
       { messageId: "later", roomId: "room-a" },
       { messageId: "earlier", roomId: "room-b" },
     ]);
-    expect((await index.search(indexSearch('"edited"', ["room-b"]))).hits[0]?.message).toBe(JSON.stringify({ text: "pear edited" }));
+    expect((await index.search(indexSearch(["edited"], ["room-b"]))).hits[0]?.message).toBe(JSON.stringify({ text: "pear edited" }));
   });
 
   it("forgets a deleted room's messages, and takes nothing more from it", async () => {
@@ -730,6 +732,278 @@ describe("Search messages", () => {
     expect(tooLong.status).toBe(422);
     expect(await tooLong.json()).toEqual({ error: SEARCH_TOO_LONG });
     expect((await searchAs(ada, "eel")).headers.get("Cache-Control")).toBe("no-store");
+  });
+});
+
+describe("Words kept by who can read them", () => {
+  /** A message as a room sends it to the index, `second` seconds into a minute. */
+  const at = (second: number, id: string, text: string): IndexedMessage =>
+    indexed({ id, createdAt: new Date(Date.UTC(2026, 10, 19, 10, 0, second)).toISOString(), text, message: JSON.stringify({ text }) });
+
+  /** The ids of the messages the index finds for a search of `words` in `roomIds` as `searcherId`, newest first. */
+  const idsFound = async (words: string[], roomIds: RoomId[], searcherId = "searcher") =>
+    (await searchIndexStub().search(indexSearch(words, roomIds, { searcherId }))).hits.map(({ messageId }) => messageId);
+
+  /** The numbers of the messages that have `word` plainly, as the open rooms' list of it holds them. */
+  const plainly = async (word: string) => ((await searchSql("SELECT rowid FROM search_index WHERE search_index MATCH ?", `"${word}"`)) as Array<{ rowid: number }>).map(({ rowid }) => rowid);
+
+  /** Every word the index keeps of message `messageId`, as FTS5 has it once it's stemmed. */
+  async function wordsKeptOf(messageId: string): Promise<string[]> {
+    await searchSql("CREATE VIRTUAL TABLE IF NOT EXISTS search_index_words USING fts5vocab(search_index, 'instance')");
+    try {
+      const rows = (await searchSql(
+        "SELECT term FROM search_index_words WHERE doc = (SELECT id FROM search_messages WHERE message_id = ?) ORDER BY offset",
+        messageId,
+      )) as Array<{ term: string }>;
+      return rows.map(({ term }) => term);
+    } finally {
+      await searchSql("DROP TABLE search_index_words");
+    }
+  }
+
+  it("keeps a private room's words under its key, which only a search in the room finds them by", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("closed", "members");
+    await index.apply("open", 1, [at(0, "in-open", "a quokka in the open")], []);
+    await index.apply("closed", 1, [at(1, "in-closed", "a quokka behind doors")], []);
+
+    expect(await idsFound(["quokka"], ["open", "closed"])).toEqual(["in-closed", "in-open"]);
+    expect(await idsFound(["quokka"], ["closed"])).toEqual(["in-closed"]);
+    expect(await idsFound(["quokka"], ["open"])).toEqual(["in-open"]);
+    expect(await idsFound(["quokka", "doors"], ["open", "closed"])).toEqual(["in-closed"]);
+    // The open room's list of the word has its message alone.
+    expect(await plainly("quokka")).toEqual([Date.parse("2026-11-19T10:00:00Z") * 1024]);
+    expect((await wordsKeptOf("in-closed")).every((word) => word.startsWith(""))).toBe(true);
+    expect(await searchSql("SELECT message_id, keyed FROM search_messages ORDER BY id")).toEqual([
+      { message_id: "in-open", keyed: 0 },
+      { message_id: "in-closed", keyed: 1 },
+    ]);
+  });
+
+  it("keeps a DM's words under each of its people's keys, so one key finds all of someone's DMs", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("ada-grace", ["ada", "grace"]);
+    await index.setReaders("ada-alone", ["ada"]);
+    await index.setReaders("grace-hopper", ["grace", "hopper"]);
+    await index.apply("ada-grace", 1, [at(0, "ada-grace", "quokka for two")], []);
+    await index.apply("ada-alone", 1, [at(1, "ada-alone", "quokka note to self")], []);
+    await index.apply("grace-hopper", 1, [at(2, "grace-hopper", "quokka, privately")], []);
+
+    expect(await idsFound(["quokka"], ["ada-grace", "ada-alone"], "ada")).toEqual(["ada-alone", "ada-grace"]);
+    expect(await idsFound(["quokka"], ["ada-grace", "grace-hopper"], "grace")).toEqual(["grace-hopper", "ada-grace"]);
+    expect(await idsFound(["quokka"], ["grace-hopper"], "hopper")).toEqual(["grace-hopper"]);
+    // Only someone's own key finds their DMs, whatever rooms a search names.
+    expect(await idsFound(["quokka"], ["ada-grace", "ada-alone"], "hopper")).toEqual([]);
+    expect(await plainly("quokka")).toEqual([]);
+    // Each of its people's keys keeps all its words, once.
+    expect((await wordsKeptOf("ada-grace")).map((word) => word.slice(word.indexOf("") + 1))).toEqual(["quokka", "for", "two", "quokka", "for", "two"]);
+  });
+
+  it("answers the words each match matched as its text has them, stemmed, without their keys", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("closed", "members");
+    await index.setReaders("ada-grace", ["ada", "grace"]);
+    const text = "Deploying the deploys, then DEPLOYED: deploy_bot's deploy, at the cafe\u0301";
+    await index.apply("open", 1, [at(0, "in-open", text)], []);
+    await index.apply("closed", 1, [at(1, "in-closed", text)], []);
+    await index.apply("ada-grace", 1, [at(2, "in-dm", text)], []);
+    const words = async (searched: string[]) =>
+      (await index.search(indexSearch(searched, ["open", "closed", "ada-grace"], { searcherId: "ada" }))).hits.map(({ messageId, words }) => [messageId, words]);
+
+    expect(await words(["deploy"])).toEqual(["in-dm", "in-closed", "in-open"].map((id) => [id, ["Deploying", "deploys", "DEPLOYED", "deploy"]]));
+    // A word FTS5 finds as several matches as one plainly, and each of its words under a key, as the search page marks them.
+    expect(await words(["deploy_bot"])).toEqual([
+      ["in-dm", ["deploy", "bot"]],
+      ["in-closed", ["deploy", "bot"]],
+      ["in-open", ["deploy_bot"]],
+    ]);
+    // Spelled as its text spells them, where an accent is a mark after its letter too, however a search spells them.
+    for (const searched of ["café", "cafe\u0301", "cafe"]) {
+      expect(await words([searched]), searched).toEqual(["in-dm", "in-closed", "in-open"].map((id) => [id, ["cafe\u0301"]]));
+    }
+  });
+
+  it("finds the same messages by words kept under a key as by plain ones, of three letters or more", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("closed", "members");
+    const texts = [
+      "Deploying the deploys, then DEPLOYED: deploy",
+      "Our generalization generalizes generally",
+      "naïve café über-cool İstanbul",
+      "éclair and ﬁnancial things",
+      "日本語のテキスト and 中文",
+      "foo_bar baz-qux",
+      "Ⅻ twelve ١٢٣ digits",
+      "yellow ytterbium yielding",
+      "hoping hopped hopes hope",
+      "emoji 👍🏽 okay",
+      "New Tai Lue ᦀᦰᦂ and Vedic ᳲᳳ",
+      "relational conditional rational",
+      // Accents as marks after their letters, of which Ọ̀ and ọ́ have no letter of their own.
+      "cre\u0300me bru\u0302le\u0301e in O\u0323\u0300yo\u0323\u0301",
+    ];
+    await index.apply("open", 1, texts.map((text, second) => at(second, `open-${second}`, text)), []);
+    await index.apply("closed", 1, texts.map((text, second) => at(second + 30, `closed-${second}`, text)), []);
+    const queries = ["deploy", "deployed", "generalize", "general", "naive", "cafe", "über", "istanbul", "éclair", "eclair", "financial", "日本語のテキスト", "中文", "foo_bar", "bar", "qux", "twelve", "ⅻ", "digit", "yellow", "ytterbium", "yield", "hope", "hoping", "okay", "ᦀ", "ᦂ", "relate", "condition", "ration", "crème", "creme", "brûlée", "brulee", "oyo", "Ọ̀yọ́", "O\u0323\u0300yo\u0323\u0301"];
+    for (const query of queries) {
+      const inOpen = (await idsFound([query], ["open"])).map((id) => id.slice("open-".length));
+      const inClosed = (await idsFound([query], ["closed"])).map((id) => id.slice("closed-".length));
+      expect(inClosed, query).toEqual(inOpen);
+    }
+  });
+
+  it("keeps no part of a private room's words plainly, even where FTS5 ends a word that JavaScript doesn't", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("closed", "members");
+    // U+19B0 is a vowel sign of New Tai Lue's, and U+1CF2 a Vedic sign, which Unicode now calls letters.
+    const texts = ["xᦰyonder", "xᳲyonder", "xyonder", "x1yonder", "x\u0301yonder", "x🏽yonder", "x‍yonder", "x_yonder"];
+    await index.apply("closed", 1, texts.map((text, second) => at(second, `closed-${second}`, text)), []);
+    for (const [second, text] of texts.entries()) {
+      const kept = await wordsKeptOf(`closed-${second}`);
+      expect(kept.length, JSON.stringify(text)).toBeGreaterThan(0);
+      expect(kept.filter((word) => !word.startsWith("")), JSON.stringify(text)).toEqual([]);
+    }
+    expect(await plainly("yonder")).toEqual([]);
+    // FTS5 keeps U+0301 in the word it follows, as an accent, so that message's word is xyonder, as it would be plainly.
+    const yonder = texts.flatMap((text, second) => (text === "x\u0301yonder" ? [] : [`closed-${second}`]));
+    expect(await idsFound(["yonder"], ["closed"])).toEqual(yonder.toReversed());
+    expect(await idsFound(["xyonder"], ["closed"])).toEqual([`closed-${texts.indexOf("x\u0301yonder")}`]);
+  });
+
+  it("keeps no part of a private room's words plainly, whatever characters they have", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("closed", "members");
+    // Each character the index keeps in a word, between an x and its code point in hex, which shows in any
+    // part of the word kept plainly.
+    const words: string[] = [];
+    for (let code = 0; code <= 0x10ffff; code++) {
+      const word = `x${String.fromCodePoint(code)}${code.toString(16)}`;
+      if ((code < 0xd800 || code > 0xdfff) && wordsOf(word).length === 1) words.push(word);
+    }
+    for (let start = 0, seq = 1; start < words.length; start += 20_000, seq++) {
+      const messages = [0, 10_000].map((from) =>
+        at(seq, `closed-${start + from}`, words.slice(start + from, start + from + 10_000).join(" ")),
+      );
+      await index.apply("closed", seq, messages.filter(({ text }) => text !== ""), []);
+    }
+    await searchSql("CREATE VIRTUAL TABLE search_index_terms USING fts5vocab(search_index, 'row')");
+    expect(await searchSql("SELECT term FROM search_index_terms WHERE substr(term, 1, 1) <> ?", "\ue000")).toEqual([]);
+    expect(await searchSql("SELECT sum(cnt) AS n FROM search_index_terms")).toEqual([{ n: words.length }]);
+  });
+
+  it("keeps a message's words plainly whatever keys its text writes out, which no key finds", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("closed", "members");
+    await index.apply("closed", 1, [at(0, "in-closed", "quokka")], []);
+    // The closed room's key is 1, and a key is put between U+E000 and U+E001.
+    await index.apply("open", 1, [at(1, "in-open", "1quokka 1wallaby")], []);
+    expect(await idsFound(["quokka"], ["open", "closed"])).toEqual(["in-open", "in-closed"]);
+    expect(await idsFound(["wallaby"], ["open", "closed"])).toEqual(["in-open"]);
+    expect((await wordsKeptOf("in-open")).some((word) => word.includes("") || word.includes(""))).toBe(false);
+    expect(await plainly("wallaby")).toHaveLength(1);
+  });
+
+  it("keeps what it took before it heard who can read a room as it took it, and finds that and what it takes after", async () => {
+    const index = searchIndexStub();
+    await index.apply("closed", 1, [at(0, "before", "quokka before")], []);
+    await index.setReaders("closed", "members");
+    await index.apply("closed", 2, [at(1, "after", "quokka after")], []);
+    expect(await idsFound(["quokka"], ["closed"])).toEqual(["after", "before"]);
+    expect(await searchSql("SELECT message_id, keyed FROM search_messages ORDER BY id")).toEqual([
+      { message_id: "before", keyed: 0 },
+      { message_id: "after", keyed: 1 },
+    ]);
+
+    // An edit takes the message's words as the room keeps them now.
+    await index.apply("closed", 3, [at(0, "before", "quokka edited")], []);
+    expect(await idsFound(["edited"], ["closed"])).toEqual(["before"]);
+    expect(await plainly("quokka")).toEqual([]);
+  });
+
+  it("still finds a room's words under its key once everyone can read it, and keeps its new ones plainly", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("opened", "members");
+    await index.apply("opened", 1, [at(0, "private", "quokka in private")], []);
+    await index.setReaders("opened", "everyone");
+    await index.apply("opened", 2, [at(1, "public", "quokka in public")], []);
+    expect(await idsFound(["quokka"], ["opened"])).toEqual(["public", "private"]);
+    expect(await plainly("quokka")).toHaveLength(1);
+    expect(await searchSql("SELECT count(*) AS n FROM search_readers")).toEqual([{ n: 0 }]);
+    // Private again, it keeps its key.
+    await index.setReaders("opened", "members");
+    expect(await searchSql("SELECT key FROM search_keys WHERE room_id = 'opened'")).toEqual([{ key: 1 }]);
+  });
+
+  it("forgets who could read a deleted room, and keeps its key from anyone else", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("doomed", "members");
+    await index.setReaders("ada-grace", ["ada", "grace"]);
+    await index.apply("doomed", 1, [at(0, "doomed", "quokka")], []);
+    expect(await index.forget("doomed", 10)).toBe(false);
+    await index.forget("ada-grace", 10);
+    expect(await searchSql("SELECT room_id FROM search_readers")).toEqual([]);
+    await index.setReaders("another", "members");
+    expect(await searchSql("SELECT key, room_id, user_id FROM search_keys ORDER BY key")).toEqual([
+      { key: 1, room_id: "doomed", user_id: null },
+      { key: 2, room_id: null, user_id: "ada" },
+      { key: 3, room_id: null, user_id: "grace" },
+      { key: 4, room_id: "another", user_id: null },
+    ]);
+  });
+
+  it("reads none of the matches in private rooms and DMs a search doesn't look in", async () => {
+    const index = searchIndexStub();
+    const first = Date.UTC(2026, 10, 19) * 1024;
+    /** Puts `count` messages with the word quokka in room `room` of the index, numbered from `from`, a millisecond apart. */
+    const fill = async (room: RoomId, readers: "members" | UserId[], count: number, from: number) => {
+      await index.setReaders(room, readers);
+      for (let start = 0; start < count; start += 100) {
+        const batch = Array.from({ length: Math.min(100, count - start) }, (_, at) => {
+          const number = from + (start + at) * 1024;
+          return indexed({ id: `${room}-${number}`, createdAt: new Date(number / 1024).toISOString(), text: `quokka ${start + at}`, message: "{}" });
+        });
+        await index.apply(room, start / 100 + 1, batch, []);
+      }
+    };
+    /** What the index finds for `search`, with the statements it runs and the rows each reads. */
+    const searched = (search: IndexSearch) =>
+      runInDurableObject(searchIndexStub(), (instance: SearchIndex) => {
+        const object = instance as unknown as { sql: SqlStorage };
+        const sql = object.sql;
+        const run: Array<{ statement: string; cursor: { rowsRead: number } }> = [];
+        object.sql = {
+          exec: (statement: string, ...values: unknown[]) => {
+            const cursor = sql.exec(statement, ...values);
+            run.push({ statement, cursor });
+            return cursor;
+          },
+        } as unknown as SqlStorage;
+        try {
+          return { found: instance.search(search), statements: run.map(({ statement }) => statement), rowsRead: run.map(({ cursor }) => cursor.rowsRead) };
+        } finally {
+          object.sql = sql;
+        }
+      });
+    const hers = indexSearch(["quokka"], ["hers", "ada-grace"], { searcherId: "ada" });
+    const hersAlone = indexSearch(["quokka"], ["hers"], { searcherId: "ada" });
+
+    await fill("hers", "members", 300, first);
+    await fill("ada-grace", ["ada", "grace"], 300, first + 512);
+    const [before, beforeAlone] = [await searched(hers), await searched(hersAlone)];
+    expect(before.found.hits).toHaveLength(SEARCH_LIMIT);
+
+    // Elsewhere, more than her rooms hold: private rooms and others' DMs, older than hers, among them and newer.
+    await fill("elsewhere", "members", 1_100, first - 2_000 * 1024);
+    await fill("lobby", "members", 1_100, first + 256);
+    await fill("grace-hopper", ["grace", "hopper"], 1_100, first + 2_000 * 1024);
+    expect(await searched(hers)).toEqual(before);
+    expect(await searched(hersAlone)).toEqual(beforeAlone);
+
+    // Her DMs share her key, so a search in one of them reads the matches in the rest, which she can read
+    // too, and one in none of them reads none, as an app she hasn't let read her DMs searches.
+    await fill("ada-hopper", ["ada", "hopper"], 1_100, first + 128);
+    expect(await searched(hersAlone)).toEqual(beforeAlone);
+    expect((await searched(hers)).found).toEqual(before.found);
   });
 });
 

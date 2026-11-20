@@ -59,8 +59,10 @@ const SEARCH_TABLES = [
   "search_index_data",
   "search_index_docsize",
   "search_index_idx",
+  "search_keys",
   "search_mentions",
   "search_messages",
+  "search_readers",
   "search_rooms",
 ];
 
@@ -407,7 +409,7 @@ describe("Durable Object SQLite or D1", () => {
       }
       /** The numbers of general's messages that meet `filters`, newest first. */
       const numbers = (filters: Partial<IndexSearch> = {}) => {
-        const { sql: query, values } = searchStatement({ terms: "", roomIds: ["general"], sort: "newest", after: null, ...filters });
+        const { sql: query, values } = searchStatement({ words: [], roomIds: ["general"], searcherId: "ada", sort: "newest", after: null, ...filters }, []);
         return sql
           .exec<{ number: number }>(query, ...values)
           .toArray()
