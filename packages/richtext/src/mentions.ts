@@ -4,7 +4,7 @@
 // sgid that starts like a URL, as `gid://` does, since DOMPurify vets every attribute's value as one.
 
 import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH, sanitizeContentAttribute } from "./content";
-import { detach, getAttr, setAttr, textContent, type Element } from "./tree";
+import { createText, detach, getAttr, replaceEach, setAttr, textContent, type Element, type Text } from "./tree";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode, specialMentionOf, type MentionUser, type ResolveMention, type SpecialMention } from "./attachments";
 import { BODY, ParseLimitError, type HtmlParser } from "./markup";
 import { isPlainParagraph } from "./plain-paragraph";
@@ -118,6 +118,23 @@ export function editableBody(parse: HtmlParser, stored: string, card: (userId: s
     else if (person) setAttr(attachment, "content", mentionContent(person));
     else detach(attachment);
   }
+  return toHtml(content, { escapeAttributeBrackets: true });
+}
+
+/**
+ * Stored markup with each special mention it makes that `refused` names as the text it shows, "@here" and
+ * the like, as one its sender may not use is kept: it notifies nobody, and shows as what it says. Its
+ * plain text stays as it was.
+ */
+export function specialMentionsAsText(parse: HtmlParser, stored: string, refused: readonly SpecialMention[]): string {
+  if (refused.length === 0 || isPlainParagraph(stored)) return stored;
+  const content = parse(stored, BODY);
+  const asText = new Map<Element, Text[]>();
+  for (const attachment of attachmentNodes(content)) {
+    const mention = specialMentionOf(getAttr(attachment, "sgid") ?? "");
+    if (mention !== undefined && refused.includes(mention)) asText.set(attachment, [createText(`@${mention}`)]);
+  }
+  replaceEach(asText);
   return toHtml(content, { escapeAttributeBrackets: true });
 }
 

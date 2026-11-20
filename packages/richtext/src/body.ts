@@ -6,7 +6,18 @@ import { autoLink } from "./autolink";
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { displayBody } from "./display";
 import { forOneReading, ParseLimitError, type HtmlParser } from "./markup";
-import { editableBody, mentionedUsers, mentionsIn, specialMentionsAttached, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
+import {
+  editableBody,
+  mentionedUsers,
+  mentionsIn,
+  specialMentionsAsText,
+  specialMentionsAttached,
+  userIdFromSgid,
+  userIdsIn,
+  usersAttached,
+  writtenMentions,
+  type MentionCard,
+} from "./mentions";
 import { plainParagraphLines } from "./plain-paragraph";
 import { hasPreview } from "./previews";
 import { canonicalize } from "./render";
@@ -112,6 +123,7 @@ export function withParser(parse: HtmlParser) {
     mentionsIn: (markup: string) => mentionsIn(parse, markup),
     writtenBody: (markup: string) => writtenBody(parse, markup),
     editableBody: (stored: string, card: (userId: string) => MentionCard | undefined, host: string) => editableBody(parse, stored, card, host),
+    specialMentionsAsText: (stored: string, refused: readonly SpecialMention[]) => specialMentionsAsText(parse, stored, refused),
     autoLink: (html: string) => autoLink(parse, html),
     displayBody: (html: string, plainText: string, host: string) => displayBody(parse, html, plainText, host),
     hasPreview: (markup: string) => hasPreview(parse, markup),

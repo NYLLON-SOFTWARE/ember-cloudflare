@@ -9,6 +9,7 @@ import {
   mentionsIn,
   specialMentionContent,
   specialMentionPromptItem,
+  specialMentionsAsText,
   userIdFromSgid,
   userIdsIn,
   writtenMentions,
@@ -83,6 +84,17 @@ describe("How mentions look", () => {
     expect(editableBody(parseHtml, `<p>${special("here")}</p>`, () => undefined, "")).toBe(
       `<p><action-text-attachment content-type="application/vnd.campfire.mention" sgid="here" content="${content}"></action-text-attachment></p>`,
     );
+  });
+
+  it("keeps the special mentions it's told were refused as the text they show, and the rest as they are", () => {
+    const body = `<p>${special("here")} and ${special("channel")}, ${mention(1)} and ${special("here")}</p>`;
+    expect(specialMentionsAsText(parseHtml, body, ["here"])).toBe(`<p>@here and ${special("channel")}, ${mention(1)} and @here</p>`);
+    const kept = specialMentionsAsText(parseHtml, body, ["here", "channel", "everyone"]);
+    expect(kept).toBe(`<p>@here and @channel, ${mention(1)} and @here</p>`);
+    expect(specialMentionsAsText(parseHtml, body, [])).toBe(body);
+    expect(specialMentionsAsText(parseHtml, "<p>@here</p>", ["here"])).toBe("<p>@here</p>");
+    // Which stores as it is, its plain text as it was.
+    expect(prepareBody(parseHtml, kept, resolve)).toEqual({ ...prepareBody(parseHtml, body, resolve), html: kept, specialMentions: [] });
   });
 
   it("skips what's past the parser's limits", () => {

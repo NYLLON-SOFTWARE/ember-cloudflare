@@ -229,6 +229,11 @@ Objects, D1 or speed call for something else.
   the Workspace whether it may notify the room, which only a message sent to a room's timeline does,
   not one in a DM, a reply in a thread, a bot's reply or an AI's answer, and never one from an AI
   agent, and whether it may with @everyone, which only an open room takes, from anyone but a guest.
+  The Workspace answers in one statement, which reads too the account's settings, where
+  administrators can keep @channel and @here, or @everyone, to themselves, and
+  `rooms.channel_mentions_allowed` (workspace migration 0083), 1 until an administrator turns them
+  off in the room's settings. A special mention the answer leaves out is stored as the text it
+  shows, so it notifies nobody, and doesn't look as if it did.
   `messages.notifies` (room migration 0082) keeps the widest it made, `here`, `channel` or `everyone`,
   or null for none, and an edit can only narrow it, since an edit notifies nobody. The room's log
   reads it with the message's text, and history sends it, which highlights the message as one that

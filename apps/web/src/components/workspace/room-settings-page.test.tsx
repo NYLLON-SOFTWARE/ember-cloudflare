@@ -9,7 +9,7 @@ import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { HuddlesContext, type Huddles } from "./huddle-button";
-import { HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED } from "./room-form";
+import { CHANNEL_MENTIONS_ALLOWED, CHANNEL_MENTIONS_NOT_ALLOWED, HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED } from "./room-form";
 import { CONFIRM_DELETE, CONFIRM_LEAVE, RoomSettingsPage } from "./room-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
@@ -23,6 +23,7 @@ const openSettings = (canAdminister = true): RoomSettings => ({
   room: design,
   canAdminister,
   canChangeHuddles: canAdminister,
+  canChangeChannelMentions: canAdminister,
   people: [ada, grace, linus].map((person) => ({ ...person, member: true })),
   section: null,
   sections: [],
@@ -31,6 +32,7 @@ const closedSettings: RoomSettings = {
   room: leads,
   canAdminister: true,
   canChangeHuddles: true,
+  canChangeChannelMentions: true,
   people: [
     { ...ada, member: true },
     { ...grace, member: false },
@@ -112,7 +114,7 @@ describe("Room settings page", () => {
     serve(openSettings());
     showPage(design);
     await roomName();
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Room-wide mentions"]);
     expect(screen.getByRole("switch", { name: "Give only some access to this room" })).toBeChecked();
     for (const person of [ada, grace, linus]) {
       expect(hasCheckMark(person.name)).toBe(true);
@@ -124,10 +126,10 @@ describe("Room settings page", () => {
     serve(closedSettings);
     showPage(leads);
     await roomName();
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Linus Torvalds", "Grace Hopper"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Linus Torvalds", "Grace Hopper", "Room-wide mentions"]);
     expect(screen.getByRole("switch", { name: "Give everyone access to this room" })).not.toBeChecked();
     // One line under Everyone, and one between the members and everyone else.
-    expect(screen.getByRole("list").querySelectorAll(":scope > hr")).toHaveLength(2);
+    expect(screen.getAllByRole("list")[0]!.querySelectorAll(":scope > hr")).toHaveLength(2);
     expect([ada, grace, linus].map((person) => accessSwitch(person).getAttribute("aria-checked"))).toEqual(["true", "false", "true"]);
   });
 
@@ -400,7 +402,7 @@ describe("Who can change a room", () => {
   });
 
   it("shows them a private room's members, then everyone else, with no Everyone row or switches", async () => {
-    serve({ ...closedSettings, canAdminister: false, canChangeHuddles: false });
+    serve({ ...closedSettings, canAdminister: false, canChangeHuddles: false, canChangeChannelMentions: false });
     showPage(leads);
     expect(await screen.findByRole("heading", { level: 2, name: "Leads" })).toBeInTheDocument();
     expect(names()).toEqual(["Ada Lovelace", "Linus Torvalds", "Grace Hopper"]);
@@ -458,8 +460,8 @@ describe("Allow huddles in a room", () => {
   /** The page where huddles are on. */
   const showWithHuddles = (room: Room, live?: Huddles["live"]) => showPage(room, undefined, huddlesOn(live));
   const withoutHuddles = (settings: RoomSettings): RoomSettings => ({ ...settings, room: { ...settings.room, huddles: false } });
-  /** The settings of whoever made the room and isn't an administrator: theirs to change, but for its huddles. */
-  const asCreator = (settings: RoomSettings): RoomSettings => ({ ...settings, canChangeHuddles: false });
+  /** The settings of whoever made the room and isn't an administrator: theirs to change, but for its huddles and room-wide mentions. */
+  const asCreator = (settings: RoomSettings): RoomSettings => ({ ...settings, canChangeHuddles: false, canChangeChannelMentions: false });
   const huddlesSwitch = () => screen.findByRole("switch", { name: "Allow huddles in this room" });
   const huddle = { startedAt: "2026-11-17T09:00:00.000Z", userIds: [grace.id] };
 
@@ -467,7 +469,7 @@ describe("Allow huddles in a room", () => {
     serve(withoutHuddles(openSettings()), { saved: { ...design, name: "Design team", huddles: false } });
     const { onSaved, user } = showPage(design);
     await user.type(await roomName(), " team");
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Room-wide mentions"]);
     expect(screen.queryByRole("switch", { name: "Allow huddles in this room" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
@@ -479,7 +481,7 @@ describe("Allow huddles in a room", () => {
     const allowed = showWithHuddles(design);
     expect(await huddlesSwitch()).toBeChecked();
     expect(await huddlesSwitch()).toHaveAccessibleDescription(HUDDLES_ALLOWED);
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Huddles"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Huddles", "Room-wide mentions"]);
     allowed.unmount();
 
     vi.restoreAllMocks();
@@ -588,6 +590,59 @@ describe("Allow huddles in a room", () => {
   });
 });
 
+describe("Allow @channel, @here and @everyone in a room", () => {
+  const mentionsSwitch = () => screen.findByRole("switch", { name: "Allow @channel, @here and @everyone in this room" });
+  const quiet = (settings: RoomSettings): RoomSettings => ({ ...settings, room: { ...settings.room, channelMentions: false } });
+
+  it("gives an administrator the Room-wide mentions switch under the people, on for a room they notify and off for one they don't", async () => {
+    serve(openSettings());
+    const allowed = showPage(design);
+    expect(await mentionsSwitch()).toBeChecked();
+    expect(await mentionsSwitch()).toHaveAccessibleDescription(CHANNEL_MENTIONS_ALLOWED);
+    expect(rowOf("Room-wide mentions").querySelector("svg")).toHaveClass("iconoir-at-sign");
+    allowed.unmount();
+
+    vi.restoreAllMocks();
+    serve(quiet(closedSettings));
+    showPage(leads);
+    expect(await mentionsSwitch()).not.toBeChecked();
+    expect(await mentionsSwitch()).toHaveAccessibleDescription(CHANNEL_MENTIONS_NOT_ALLOWED);
+  });
+
+  it("turns them off with Save, sending the switch only once it's moved, and counts it as a change to ask about", async () => {
+    const saved: Room = { ...design, channelMentions: false };
+    serve(openSettings(), { saved });
+    const { onSaved, user } = showPage(design);
+    await user.click(await mentionsSwitch());
+    act(() => navigate("/rooms/general"));
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    expect(sent()).toEqual({ name: "Design", icon: "", channelMentions: false, kind: "open" });
+  });
+
+  it("only tells whoever can't change them that they notify nobody, the room's creator too, and nothing of a room they notify", async () => {
+    const asCreator = (settings: RoomSettings): RoomSettings => ({ ...settings, canChangeChannelMentions: false });
+    serve(asCreator(quiet(openSettings())), { saved: { ...design, name: "Design team", channelMentions: false } });
+    const creator = showPage(design);
+    expect(await screen.findByText(CHANNEL_MENTIONS_NOT_ALLOWED)).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Allow @channel, @here and @everyone in this room" })).not.toBeInTheDocument();
+    await creator.user.type(await roomName(), " team{Enter}");
+    await waitFor(() => expect(creator.onSaved).toHaveBeenCalledOnce());
+    expect(sent()).toEqual({ name: "Design team", icon: "", kind: "open" });
+    creator.unmount();
+
+    vi.restoreAllMocks();
+    serve(openSettings(false));
+    showPage(design);
+    expect(await screen.findByRole("heading", { level: 2, name: "Design" })).toBeInTheDocument();
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds"]);
+    expect(screen.queryByText(CHANNEL_MENTIONS_ALLOWED)).not.toBeInTheDocument();
+  });
+});
+
 describe("Delete a room", () => {
   const deleteButton = () => screen.findByRole("button", { name: "Delete Design" });
   const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
@@ -674,7 +729,7 @@ describe("Delete a room", () => {
 describe("Leave a private room", () => {
   const leaveButton = () => screen.findByRole("button", { name: "Leave Leads" });
   const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
-  const asMember: RoomSettings = { ...closedSettings, canAdminister: false, canChangeHuddles: false };
+  const asMember: RoomSettings = { ...closedSettings, canAdminister: false, canChangeHuddles: false, canChangeChannelMentions: false };
 
   it("offers Leave to someone in a private room they can't change, in its own panel", async () => {
     serve(asMember);

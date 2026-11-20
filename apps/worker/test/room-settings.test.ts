@@ -67,6 +67,7 @@ describe("Room settings page", () => {
       room,
       canAdminister: true,
       canChangeHuddles: false,
+      canChangeChannelMentions: false,
       people: [
         { ...ada.user, member: true },
         { ...grace.user, member: false },
@@ -336,6 +337,71 @@ describe("Allow huddles in a room", () => {
     const { room } = (await response.json()) as { room: SharedRoom };
     expect(room).not.toHaveProperty("huddles");
     expect(await kept(room.id)).toEqual([{ huddles_allowed: 1 }]);
+  });
+});
+
+describe("Allow @channel, @here and @everyone in a room", () => {
+  /** A room as `session`'s sidebar lists it. */
+  const listed = async (roomId: RoomId, session: Session) => ((await (await api("/api/sidebar", as(session))).json()) as Sidebar).rooms.find((room) => room.id === roomId);
+
+  /** What the Workspace keeps of whether a room's settings let them notify it. */
+  const kept = (roomId: RoomId) => workspaceSql("SELECT channel_mentions_allowed FROM rooms WHERE id = ?", roomId);
+
+  it("lets them notify a room until an administrator turns them off, which its settings and its people's sidebars then say", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    await promote(ada);
+    const [room, other] = [await createRoom("Announcements", { as: ada }), await createRoom("Design", { as: ada })];
+    expect(room).not.toHaveProperty("channelMentions");
+
+    const response = await change(room.id, ada, { channelMentions: false });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ room: { ...room, channelMentions: false } satisfies SharedRoom });
+    expect(((await (await settings(room.id, grace)).json()) as RoomSettings).room).toEqual({ ...room, channelMentions: false });
+    expect(await listed(room.id, grace)).toMatchObject({ ...room, channelMentions: false });
+    expect(await kept(room.id)).toEqual([{ channel_mentions_allowed: 0 }]);
+    // In that room alone.
+    expect(await listed(other.id, grace)).not.toHaveProperty("channelMentions");
+    expect(await kept(other.id)).toEqual([{ channel_mentions_allowed: 1 }]);
+
+    // They stay off through the room's other changes, huddles' too, until it allows them again.
+    const news: SharedRoom = { ...room, name: "News", channelMentions: false, huddles: false };
+    expect(await (await change(room.id, ada, { name: "News", huddles: false })).json()).toEqual({ room: news });
+    const { room: allowing } = (await (await change(room.id, ada, { channelMentions: true })).json()) as { room: SharedRoom };
+    expect(allowing).toEqual({ ...room, name: "News", huddles: false });
+    expect(await kept(room.id)).toEqual([{ channel_mentions_allowed: 1 }]);
+  });
+
+  it("is an administrator's to turn off and on, and not the room's creator's, nor anyone else's in it, who may send it as it is", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const room = await createRoom("Design", { as: ada });
+    await promote(grace);
+    const can = async (session: Session) => ((await (await settings(room.id, session)).json()) as RoomSettings).canChangeChannelMentions;
+    expect([await can(ada), await can(grace), await can(linus)]).toEqual([false, true, false]);
+
+    const asAda = await change(room.id, ada, { name: "Renamed", channelMentions: false });
+    expect(asAda.status).toBe(403);
+    expect(await asAda.json()).toEqual({ error: "Only administrators can turn @channel, @here and @everyone on or off in a room" });
+    expect((await change(room.id, linus, { channelMentions: false })).status).toBe(403);
+    expect(await nameOf(room.id)).toBe("Design");
+    expect(await kept(room.id)).toEqual([{ channel_mentions_allowed: 1 }]);
+
+    expect(await (await change(room.id, ada, { name: "Studio", channelMentions: true })).json()).toEqual({ room: { ...room, name: "Studio" } });
+    expect((await change(room.id, grace, { channelMentions: false })).status).toBe(200);
+    expect((await change(room.id, ada, { channelMentions: true })).status).toBe(403);
+    expect(await kept(room.id)).toEqual([{ channel_mentions_allowed: 0 }]);
+  });
+
+  it("takes only true or false, and otherwise keeps the room as it is", async () => {
+    const ada = await signIn("Ada");
+    await promote(ada);
+    const room = await createRoom("Design", { as: ada });
+    for (const channelMentions of [null, 0, "false"]) {
+      const response = await change(room.id, ada, { name: "Renamed", channelMentions });
+      expect(response.status, JSON.stringify(channelMentions)).toBe(422);
+      expect(await response.json()).toEqual({ error: "Room-wide mentions must be true or false" });
+    }
+    expect(await nameOf(room.id)).toBe("Design");
+    expect(await kept(room.id)).toEqual([{ channel_mentions_allowed: 1 }]);
   });
 });
 
