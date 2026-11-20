@@ -306,6 +306,39 @@ describe("Sidebar section", () => {
     expect(signOut).toHaveBeenCalledTimes(2);
     expect(asking()).not.toBeInTheDocument();
   });
+
+  it("leaves the section a later save chose, should the settings loaded for one made answer after it", async () => {
+    const madeSettings: RoomSettings = { ...openSettings(), section: { id: "s3", name: "Design work" }, sections: [...sections, { id: "s3", name: "Design work", rooms: 1 }] };
+    let answerReload = (_: Response) => {};
+    const gets = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method !== "PATCH").length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      if (init?.method === "PATCH") return Promise.resolve(Response.json({ room: design }));
+      // The settings the page loads again once the section is made answer only when the test says.
+      if (gets() === 2) return new Promise((resolve) => (answerReload = resolve));
+      return Promise.resolve(Response.json({ ...openSettings(), sections }));
+    });
+    const { user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(gets()).toBe(2));
+
+    // Sales is picked and saved before they answer.
+    await user.click(field());
+    await user.click(screen.getByRole("menuitemradio", { name: /^Sales/ }));
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(2));
+    await act(async () => answerReload(Response.json(madeSettings)));
+    expect(field()).toHaveTextContent("Sales");
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(3);
+    expect(asking()).not.toBeInTheDocument();
+  });
 });
 
 describe("Switch a room between open and private", () => {

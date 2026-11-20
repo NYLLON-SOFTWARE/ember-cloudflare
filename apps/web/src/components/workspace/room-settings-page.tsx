@@ -81,6 +81,9 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   // The form the page opened on, which the Everyone switch can move away from and back to, or the one
   // last saved.
   const [opened, setOpened] = useState(access);
+  // How many times the room has been saved here, so settings loaded again after one save can't undo what
+  // a later one saved.
+  const saves = useRef(0);
   const roomForm = useRef<HTMLFormElement>(null);
   const mounted = useMounted();
   useTitle(settings && `Edit settings for ${settings.room.name}`);
@@ -146,6 +149,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       setSettings((settings) => settings && { ...settings, room, people: settings.people.map((person) => ({ ...person, member: access === "open" || chosen.has(person.id) })) });
       setOpened(access);
       setSavedSection(section);
+      saves.current++;
       return leaving;
     });
   };
@@ -168,8 +172,10 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const showSectionMade = () => {
     if (typeof section !== "object" || section === null) return;
     const made = section;
+    const asked = saves.current;
     fetchRoomSettings(roomId).then((loaded) => {
-      if (!mounted.current) return;
+      // Settings that answer after another save may be from before it.
+      if (!mounted.current || saves.current !== asked) return;
       setSettings((settings) => settings && { ...settings, sections: loaded.sections });
       const sectionId = loaded.section?.id ?? null;
       setSavedSection(sectionId);
