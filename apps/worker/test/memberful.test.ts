@@ -290,6 +290,7 @@ const account = (memberful: Partial<Pick<Account, "memberfulJoin" | "memberfulSi
   huddles: false,
   huddleCameras: true,
   huddleScreens: true,
+  huddleVideo: "hd",
   ...memberful,
 });
 

@@ -85,6 +85,7 @@ const account = (changes: Partial<Account> = {}): Account => ({
   huddles: false,
   huddleCameras: true,
   huddleScreens: true,
+  huddleVideo: "hd",
   ...changes,
 });
 

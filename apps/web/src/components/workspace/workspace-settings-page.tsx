@@ -5,6 +5,7 @@ import {
   MAX_LOGO_SIZE,
   MAX_TAGLINE_LENGTH,
   type Account,
+  type AccountChanges,
   type AccountSettings,
   type DirectoryUser,
   type EmailInvitation,
@@ -18,6 +19,7 @@ import {
   type SidebarSection,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import type { HuddleVideoQuality } from "@ember/protocol/huddles";
 import type { MemberfulSaved } from "@ember/protocol/memberful";
 import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
@@ -46,7 +48,7 @@ import { CustomDomainSettings } from "./custom-domain-settings";
 import { EmberVersion } from "./ember-version";
 import { EmailSettings, sendsEmail } from "./email-settings";
 import { EmailSetup } from "./email-setup";
-import { HuddleRelay, HuddlesSettings, HuddleSwitches } from "./huddles-settings";
+import { HuddleRelay, HuddlesSettings, HuddleSwitches, HuddleVideo } from "./huddles-settings";
 import { HuddlesSetup } from "./huddles-setup";
 import { InviteByEmail } from "./invite-by-email";
 import { InviteLink } from "./invite-link";
@@ -327,10 +329,12 @@ export function WorkspaceSettingsPage({
     );
   }
 
-  // A switch saves at once, with no notice after, then `settled` is called.
-  const saveSwitch = (settings: AccountSettings, settled: () => void) => {
+  // A switch saves at once, with no notice after, then `settled` is called, as does huddles' video quality.
+  const saveSwitch = (settings: AccountSettings, settled: () => void) => saveAtOnce({ settings }, settled);
+  const saveHuddleVideo = (huddleVideo: HuddleVideoQuality, settled: () => void) => saveAtOnce({ huddleVideo }, settled);
+  const saveAtOnce = (changes: AccountChanges, settled: () => void) => {
     const answered = askForAccount();
-    changeAccount({ settings }).then(
+    changeAccount(changes).then(
       (account) => {
         answered(account);
         if (mounted.current) settled();
@@ -749,6 +753,7 @@ export function WorkspaceSettingsPage({
             <>
               <HuddlesSettings huddles={settings.huddles} onSetUp={() => setSettingUpHuddles(true)} onStopped={() => showHuddles(null)} onFailed={onFailed} />
               {settings.huddles !== null && <HuddleSwitches saveSwitch={saveSwitch} />}
+              {settings.huddles !== null && <HuddleVideo save={saveHuddleVideo} />}
               {settings.huddles !== null && <HuddleRelay relayKeyId={settings.huddles.relayKeyId} onSetUp={() => setSettingUpRelay(true)} onStopped={showHuddles} onFailed={onFailed} />}
               {settingUpRelay && settings.huddles !== null && (
                 <RelaySetup

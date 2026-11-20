@@ -366,7 +366,7 @@ describe("One live connection per tab outside the open room", () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -792,6 +792,16 @@ describe("Screen sharing in huddles (setting)", () => {
     expect(parseAccountChanges({ settings: { huddleScreens: false } })).toEqual({ settings: { huddleScreens: false } });
     expect(parseAccountChanges({ settings: { huddleScreens: true, huddleCameras: false } })).toEqual({ settings: { huddleScreens: true, huddleCameras: false } });
     expect(parseAccountChanges({ settings: { huddleScreens: 0 } })).toBe("Screen sharing must be true or false");
+  });
+});
+
+describe("Video quality in huddles (setting)", () => {
+  it("takes Standard, HD or Full HD, beside the settings and the rest", () => {
+    for (const huddleVideo of ["standard", "hd", "full-hd"]) expect(parseAccountChanges({ huddleVideo })).toEqual({ huddleVideo });
+    expect(parseAccountChanges({ huddleVideo: "full-hd", settings: { huddleCameras: true }, name: "Fernwood" })).toEqual({ huddleVideo: "full-hd", settings: { huddleCameras: true }, name: "Fernwood" });
+    for (const huddleVideo of ["", "HD", "4k", "1080p", true, 720, null, ["hd"]]) expect(parseAccountChanges({ huddleVideo }), JSON.stringify(huddleVideo)).toBe('Video quality must be "standard", "hd" or "full-hd"');
+    // It isn't one of the switches.
+    expect(parseAccountChanges({ settings: { huddleVideo: "hd" } })).toBe("Unknown setting: huddleVideo");
   });
 });
 

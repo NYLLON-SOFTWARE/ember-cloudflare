@@ -70,7 +70,7 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
@@ -188,6 +188,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           name = account.name,
           tagline = account.tagline,
           settings: changed,
+          huddleVideo = account.huddleVideo,
           customDomain = account.customDomain,
           emailDomains = keptDomains,
           emailFrom = email.from,
@@ -209,6 +210,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           restrictEveryoneMention: changed?.restrictEveryoneMention ?? account.restrictEveryoneMention,
           huddleCameras: changed?.huddleCameras ?? account.huddleCameras,
           huddleScreens: changed?.huddleScreens ?? account.huddleScreens,
+          huddleVideo,
           customDomain,
           joinLink: changed?.joinLink ?? account.joinLink,
           openSignUp: changed?.openSignUp ?? account.openSignUp,
@@ -2334,6 +2336,8 @@ describe("Set up huddles", () => {
   /** The card under it, which says whether cameras may go on in a huddle, and after that, whether screens may be shared. */
   const camerasCard = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Cameras" });
   const screensRow = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Screen sharing" });
+  /** The card after that, which says how sharp huddles' video is. */
+  const videoCard = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Video quality" });
   /** And the last, which says whether huddles have a relay. */
   const relayCard = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Relay for strict networks" });
   /** A TURN key's ID and its API token, as an administrator copies them from Cloudflare's dashboard. */
@@ -2345,8 +2349,9 @@ describe("Set up huddles", () => {
     expect(card).toHaveTextContent("Huddles let people in a room talk to each other live.");
     const huddlesSwitch = within(card).getByRole("switch", { name: "Audio and video chat" });
     expect(huddlesSwitch).not.toBeChecked();
-    // What people may do in a huddle waits for huddles, as their relay does.
+    // What people may do in a huddle waits for huddles, as their video quality and relay do.
     expect(camerasCard()).not.toBeInTheDocument();
+    expect(videoCard()).not.toBeInTheDocument();
     expect(relayCard()).not.toBeInTheDocument();
 
     await user.click(huddlesSwitch);
@@ -2361,6 +2366,7 @@ describe("Set up huddles", () => {
     expect(huddlesSwitch).toBeChecked();
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "PUT", body: JSON.stringify(APP) }));
     expect(camerasCard()).toBeInTheDocument();
+    expect(videoCard()).toBeInTheDocument();
     expect(relayCard()).toBeInTheDocument();
 
     await user.click(within(card).getByRole("button", { name: "Change keys" }));
@@ -2391,6 +2397,7 @@ describe("Set up huddles", () => {
     expect(card).toHaveTextContent("Huddles let people in a room talk to each other live.");
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "DELETE" }));
     expect(camerasCard()).not.toBeInTheDocument();
+    expect(videoCard()).not.toBeInTheDocument();
     expect(relayCard()).not.toBeInTheDocument();
   });
 
@@ -2519,6 +2526,31 @@ describe("Set up huddles", () => {
     expect(screensSwitch).not.toBeChecked();
   });
 
+  it("has a Video quality card between that card and the relay's, whose choice is saved at once with no notice, and follows the workspace socket", async () => {
+    serve({ ...asAdministrator, huddles: { appId: APP.appId, relayKeyId: null } });
+    const { onAccountChanged, user } = showPage();
+    await huddlesCard();
+    const video = videoCard()!;
+    const quality = (name: string) => within(video).getByRole("radio", { name });
+    expect(camerasCard()!.parentElement!.compareDocumentPosition(video) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(video.compareDocumentPosition(relayCard()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(video).toHaveTextContent("How sharp cameras and shared screens look in huddles.");
+    expect(quality("HD")).toBeChecked();
+
+    await user.click(quality("Full HD"));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, huddleVideo: "full-hd" }));
+    await waitFor(() => expect(quality("Full HD")).toBeEnabled());
+    expect(quality("Full HD")).toBeChecked();
+    await user.click(quality("Standard"));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, huddleVideo: "standard" }));
+    expect(saved()).toEqual([{ huddleVideo: "full-hd" }, { huddleVideo: "standard" }]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Chosen in another tab.
+    act(() => workspaceSays({ ...asAdministrator.account, huddleVideo: "hd" }));
+    expect(quality("HD")).toBeChecked();
+  });
+
   it("keeps the card out of Rooms and permissions, where it was", async () => {
     showPage();
     await huddlesCard();
@@ -2536,6 +2568,7 @@ describe("Set up huddles", () => {
     expect(screen.queryByRole("region", { name: "Audio and video chat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Cameras" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Screen sharing" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Video quality" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Relay for strict networks" })).not.toBeInTheDocument();
   });
 });

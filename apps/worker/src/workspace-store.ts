@@ -71,7 +71,7 @@ import {
 } from "@ember/protocol/assistant";
 import type { AgentAccess, AgentProfile, AgentRoom } from "@ember/protocol/agents";
 import type { AppId } from "@ember/protocol/apps";
-import { ALL_HUDDLE_SOUNDS, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
+import { ALL_HUDDLE_SOUNDS, DEFAULT_HUDDLE_VIDEO, isHuddleVideoQuality, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type HuddleVideoQuality, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
 import { DEFAULT_GROUPS_CLAIM, DEFAULT_SSO_NAME } from "@ember/protocol/sso";
 import { SPECIAL_MENTIONS, type SpecialMention } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
@@ -113,7 +113,8 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
  * anyone may create rooms and use @channel, @here and @everyone, no custom domain, people join with the
  * join link but can't sign up without it, nor join with Memberful or an email domain, members sign in
- * with passwords, the rail has its own icons, and in huddles cameras may go on and screens be shared.
+ * with passwords, the rail has its own icons, and in huddles cameras may go on and screens be shared,
+ * at huddles' own video quality.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
@@ -124,6 +125,7 @@ export const NEW_ACCOUNT_LOOKS = {
   restrictEveryoneMention: false,
   huddleCameras: true,
   huddleScreens: true,
+  huddleVideo: DEFAULT_HUDDLE_VIDEO as HuddleVideoQuality,
   customDomain: null,
   joinLink: true,
   openSignUp: false,
@@ -273,10 +275,10 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, the custom domain and the ones it moved away from, the navigation icons whose slots
- * change, the From address, the sealed Resend API key, Turnstile's keys, Memberful's, the SFU app
- * huddles run through, the domains Email domain lets in, and the words Blocked words keeps out.
- * Memberful's two settings change together, or not at all, as `memberful`.
+ * switches change, huddles' video quality, the custom domain and the ones it moved away from, the
+ * navigation icons whose slots change, the From address, the sealed Resend API key, Turnstile's keys,
+ * Memberful's, the SFU app huddles run through, the domains Email domain lets in, and the words Blocked
+ * words keeps out. Memberful's two settings change together, or not at all, as `memberful`.
  */
 export type AccountChange = Partial<
   Pick<
@@ -289,6 +291,7 @@ export type AccountChange = Partial<
     | "restrictEveryoneMention"
     | "huddleCameras"
     | "huddleScreens"
+    | "huddleVideo"
     | "customDomain"
     | "otherAddresses"
     | "joinLink"
@@ -1560,6 +1563,9 @@ const showsHuddleCameras = (settings: Record<string, unknown> | null) => setting
 /** Whether they let screens be shared in huddles, which they keep as `huddle_screens`: unless that's stored as false, as the Screen sharing switch stores it. */
 const sharesHuddleScreens = (settings: Record<string, unknown> | null) => settings?.huddle_screens !== false;
 
+/** How sharp they have huddles' video, which they keep as `huddle_video`: huddles' own quality until Video quality stores one. */
+const huddleVideoIn = (settings: Record<string, unknown> | null): HuddleVideoQuality => (isHuddleVideoQuality(settings?.huddle_video) ? settings.huddle_video : DEFAULT_HUDDLE_VIDEO);
+
 /**
  * How Ember AI asks AI Gateway, which the account's settings keep as `assistant`, `{ account_id,
  * api_token, model, format, models, web_tools, web_tools_asked_at, provider_endpoints_tried_at }`, the
@@ -2574,6 +2580,7 @@ const SET_RESTRICT_CHANNEL_MENTIONS = setSetting("restrict_channel_mentions_to_a
 const SET_RESTRICT_EVERYONE_MENTION = setSetting("restrict_everyone_mention_to_administrators");
 const SET_HUDDLE_CAMERAS = setSetting("huddle_cameras");
 const SET_HUDDLE_SCREENS = setSetting("huddle_screens");
+const SET_HUDDLE_VIDEO = setSetting("huddle_video");
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
 const SET_JOIN_LINK = setSetting("join_link");
 const SET_OPEN_SIGN_UP = setSetting("open_sign_up");
@@ -3713,6 +3720,7 @@ export class WorkspaceStore {
       restrictEveryoneMention: restrictsEveryoneMention(settings),
       huddleCameras: showsHuddleCameras(settings),
       huddleScreens: sharesHuddleScreens(settings),
+      huddleVideo: huddleVideoIn(settings),
       customDomain: customDomainIn(settings),
       joinLink: joinsWithLinkIn(settings),
       openSignUp: signsUpOpenlyIn(settings),
@@ -3760,6 +3768,7 @@ export class WorkspaceStore {
       restrictEveryoneMention,
       huddleCameras,
       huddleScreens,
+      huddleVideo,
       customDomain,
       otherAddresses,
       joinLink,
@@ -3788,6 +3797,7 @@ export class WorkspaceStore {
       ...(restrictEveryoneMention === undefined ? [] : [statement(SET_RESTRICT_EVERYONE_MENTION, JSON.stringify(restrictEveryoneMention), now)]),
       ...(huddleCameras === undefined ? [] : [statement(SET_HUDDLE_CAMERAS, JSON.stringify(huddleCameras), now)]),
       ...(huddleScreens === undefined ? [] : [statement(SET_HUDDLE_SCREENS, JSON.stringify(huddleScreens), now)]),
+      ...(huddleVideo === undefined ? [] : [statement(SET_HUDDLE_VIDEO, JSON.stringify(huddleVideo), now)]),
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
       ...(otherAddresses === undefined ? [] : [statement(REMEMBER_OTHER_ADDRESSES, JSON.stringify(otherAddresses))]),
       ...(joinLink === undefined ? [] : [statement(SET_JOIN_LINK, JSON.stringify(joinLink), now)]),
