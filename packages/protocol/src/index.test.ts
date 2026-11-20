@@ -153,7 +153,7 @@ describe("Send a message", () => {
   });
 
   it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {
-    expect(ROOM_PROTOCOL).toBe(4);
+    expect(ROOM_PROTOCOL).toBe(5);
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
@@ -221,6 +221,18 @@ describe("Custom reactions", () => {
   it("limits reactions to the stored column width", () => {
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH) })).not.toBeNull();
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH + 1) })).toBeNull();
+  });
+});
+
+describe("Pin a message", () => {
+  it("takes the message a pin is of, and asks for the room's pins without anything else", () => {
+    expect(parse({ type: "pin.create", messageId: "m1" })).toEqual({ type: "pin.create", messageId: "m1" });
+    expect(parse({ type: "pin.delete", messageId: "m1" })).toEqual({ type: "pin.delete", messageId: "m1" });
+    expect(parse({ type: "pins.list" })).toEqual({ type: "pins.list" });
+    for (const bad of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ type: "pin.create", messageId: bad }), String(bad)).toBeNull();
+      expect(parse({ type: "pin.delete", messageId: bad }), String(bad)).toBeNull();
+    }
   });
 });
 

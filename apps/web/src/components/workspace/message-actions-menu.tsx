@@ -15,7 +15,7 @@ import {
 } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
+import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -66,6 +66,10 @@ interface Props {
    * thread, whose own composer is there to reply in.
    */
   threadPath?: string;
+  /** Whether the message is pinned to its room, which names Unpin instead of Pin to room. */
+  pinned: boolean;
+  /** Pins or unpins the message, or is left out where its messages aren't pinned, as a thread's aren't. */
+  onPin?: () => void;
   onReact: (emoji: string) => void;
   /** Writes a reply in the composer, given the quote it starts with. */
   onQuote: (quote: string) => void;
@@ -104,11 +108,11 @@ export interface MessageActionsHandle {
  * on someone else's message. Once opened, the bar stays in the page while it's shut, so Copy link keeps
  * its color.
  *
- * With a mouse, Message options then opens More actions under the bar, as Slack's does: Quote, Copy text,
- * Copy link, Block or Unblock its author and Report message on someone else's message, and on messages
- * you can change, Edit message and Delete message.
+ * With a mouse, Message options then opens More actions under the bar, as Slack's does: Pin to room, or
+ * Unpin, Quote, Copy text, Copy link, Block or Unblock its author and Report message on someone else's
+ * message, and on messages you can change, Edit message and Delete message.
  */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, block, onReport, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, pinned, onPin, onReact, onQuote, onEdit, onDelete, onNewBoost, block, onReport, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -178,6 +182,13 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const newBoost = () => {
     close();
     onNewBoost();
+  };
+
+  // Pinning closes the bar too, handing focus back to Message options, as a reaction does.
+  const pin = onPin === undefined ? undefined : () => {
+    close();
+    onPin();
+    trigger.current?.focus({ preventScroll: true });
   };
 
   // So do Block and Unblock, and Report message, whose dialog takes it.
@@ -370,7 +381,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     if (open && actionsOpen && focusingActions.current) focusFirstAction();
   }, [open, trayOpen, actionsOpen, overlapping]);
 
-  const pinned = open && overlapping;
+  const triggerPinned = open && overlapping;
 
   const options = (
     <button
@@ -390,10 +401,10 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
         // lower on a run's first message, whose text starts 4px lower in its row. With a mouse, the open bar
         // keeps room for it as its last button, which stays shaded while More actions is open, as More
         // reactions does while its tray is.
-        pinned
+        triggerPinned
           ? "fixed top-(--trigger-top) left-(--trigger-left) z-31"
           : cn("absolute right-5 max-md:right-3 touch:translate-x-1.5", threaded ? "-top-1.5 touch:-top-[11px]" : "-top-0.5 touch:-top-[7px]"),
-        pinned && actionsOpen && "bg-hover",
+        triggerPinned && actionsOpen && "bg-hover",
       )}
     >
       <MoreHoriz />
@@ -404,7 +415,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     <div ref={container} className="contents">
       {/* Every message has Message options, so only a mouse, which can show its tooltip, gets one. As the bar's
           last button, the tooltip says what it opens. */}
-      {overlapping ? <ActionTooltip label={pinned ? "More actions" : "Message options"}>{options}</ActionTooltip> : options}
+      {overlapping ? <ActionTooltip label={triggerPinned ? "More actions" : "Message options"}>{options}</ActionTooltip> : options}
       {rendered && (
         <div
           ref={menu}
@@ -447,6 +458,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 <PageLink href={threadPath} aria-label="Reply in thread" className={ACTION} onClick={close}>
                   <MessageText />
                 </PageLink>
+              </ActionTooltip>
+            )}
+            {/* With no More actions to hold it, a finger pins from the bar. */}
+            {!overlapping && pin !== undefined && (
+              <ActionTooltip label={pinned ? "Unpin" : "Pin to room"}>
+                <button type="button" aria-label={pinned ? "Unpin" : "Pin to room"} className={ACTION} onClick={pin}>
+                  <Pin />
+                </button>
               </ActionTooltip>
             )}
             {/* More actions holds Quote and Copy link with a mouse. A huddle's message has nothing of its author's to quote. */}
@@ -512,6 +531,13 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             hidden={!actionsOpen}
             className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-1 group-data-[panel-above]/menu:-order-1")}
           >
+            {/* As Slack's menu has it, pinning first, whatever kind of message it is. */}
+            {pin !== undefined && (
+              <button type="button" className={ITEM} onClick={pin}>
+                <Pin />
+                {pinned ? "Unpin" : "Pin to room"}
+              </button>
+            )}
             {/* Quoting a file message would quote nothing, as its text is empty, and a huddle's message shows none of its own. */}
             {!message.attachment && !message.huddle && (
               <QuoteButton message={message} nodes={nodes} className={ITEM} onQuote={quote}>
