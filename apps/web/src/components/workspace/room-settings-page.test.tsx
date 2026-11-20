@@ -339,6 +339,34 @@ describe("Sidebar section", () => {
     expect(signOut).toHaveBeenCalledTimes(3);
     expect(asking()).not.toBeInTheDocument();
   });
+
+  it("leaves a later save to say how it went, should the settings loaded for a section made fail during it", async () => {
+    let [answerReload, answerSave] = [(_: Response) => {}, (_: Response) => {}];
+    const calls = (method: "GET" | "PATCH") => vi.mocked(fetch).mock.calls.filter(([, init]) => (init?.method ?? "GET") === method).length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      // The dialog's save answers at once, and the form's own Save once the test says.
+      if (init?.method === "PATCH") return calls("PATCH") === 1 ? Promise.resolve(Response.json({ room: design })) : new Promise((resolve) => (answerSave = resolve));
+      return calls("GET") === 1 ? Promise.resolve(Response.json({ ...openSettings(), sections })) : new Promise((resolve) => (answerReload = resolve));
+    });
+    const { onFailed, onMissing, user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls("GET")).toBe(2));
+
+    await user.type(await roomName(), " team");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await act(async () => answerReload(Response.json({ error: "Workspace unavailable" }, { status: 503 })));
+    expect(screen.getByRole("button", { name: "Delete Design" })).toBeDisabled();
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(onMissing).not.toHaveBeenCalled();
+    await act(async () => answerSave(Response.json({ room: { ...design, name: "Design team" } })));
+    expect(location.pathname).toBe("/rooms/design");
+  });
 });
 
 describe("Switch a room between open and private", () => {

@@ -81,9 +81,9 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   // The form the page opened on, which the Everyone switch can move away from and back to, or the one
   // last saved.
   const [opened, setOpened] = useState(access);
-  // How many times the room has been saved here, so settings loaded again after one save can't undo what
-  // a later one saved.
-  const saves = useRef(0);
+  // How many times saving or deleting the room has started here, so that settings loaded again before
+  // one neither undo what it saves nor speak for it.
+  const changesStarted = useRef(0);
   const roomForm = useRef<HTMLFormElement>(null);
   const mounted = useMounted();
   useTitle(settings && `Edit settings for ${settings.room.name}`);
@@ -143,13 +143,13 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     const changes: RoomChanges = access === "open" ? { ...kept, kind: access } : { ...kept, kind: access, memberIds: [...chosen] };
     const leaving = access === "closed" && !chosen.has(me.id);
     const answered = askForRoom();
+    changesStarted.current++;
     return changeRoom(roomId, changes).then((room) => {
       answered(leaving ? { type: "gone", roomId: room.id } : { type: "saved", room });
       // An open room takes in everyone.
       setSettings((settings) => settings && { ...settings, room, people: settings.people.map((person) => ({ ...person, member: access === "open" || chosen.has(person.id) })) });
       setOpened(access);
       setSavedSection(section);
-      saves.current++;
       return leaving;
     });
   };
@@ -172,16 +172,25 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const showSectionMade = () => {
     if (typeof section !== "object" || section === null) return;
     const made = section;
-    const asked = saves.current;
-    fetchRoomSettings(roomId).then((loaded) => {
-      // Settings that answer after another save may be from before it.
-      if (!mounted.current || saves.current !== asked) return;
-      setSettings((settings) => settings && { ...settings, sections: loaded.sections });
-      const sectionId = loaded.section?.id ?? null;
-      setSavedSection(sectionId);
-      // Unless another has been picked since.
-      setSection((picked) => (sameSection(picked, made) ? sectionId : picked));
-    }, failed);
+    const asked = changesStarted.current;
+    // Once the room is being saved or deleted again, what these settings say is from before that, and how
+    // it goes is that change's to say.
+    const outrun = () => !mounted.current || changesStarted.current !== asked;
+    fetchRoomSettings(roomId).then(
+      (loaded) => {
+        if (outrun()) return;
+        setSettings((settings) => settings && { ...settings, sections: loaded.sections });
+        const sectionId = loaded.section?.id ?? null;
+        setSavedSection(sectionId);
+        // Unless another has been picked since.
+        setSection((picked) => (sameSection(picked, made) ? sectionId : picked));
+      },
+      (error: unknown) => {
+        if (outrun()) return;
+        if (isMissing(error)) onMissing();
+        else onFailed(error);
+      },
+    );
   };
 
   /** Once `question` is confirmed, has `go` take the room from this person, then from the sidebar. */
@@ -189,6 +198,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     if (!confirm(question)) return;
     setBusy(true);
     const answered = askForRoom();
+    changesStarted.current++;
     go(roomId).then(() => {
       answered({ type: "gone", roomId });
       // Gone, it goes home, with no alert.
