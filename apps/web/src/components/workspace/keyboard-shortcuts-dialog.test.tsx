@@ -36,6 +36,8 @@ describe("Keyboard shortcuts dialog", () => {
     render(<Shortcuts />);
     const dialog = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
     expect(within(dialog).getAllByRole("region").map((group) => group.getAttribute("aria-label"))).toEqual(["Navigate", "Huddles", "Write a message", "Format text", "Edit a message"]);
+    expect(keysOf("Go back")).toEqual(["⌘", "["]);
+    expect(keysOf("Go forward")).toEqual(["⌘", "]"]);
     expect(keysOf("Search")).toEqual(["⌘", "F"]);
     expect(keysOf("Open the room above or below")).toEqual(["⌥", "↑ ↓"]);
     expect(keysOf("Open the unread room above or below")).toEqual(["⌥", "⇧", "↑ ↓"]);
@@ -50,6 +52,7 @@ describe("Keyboard shortcuts dialog", () => {
   it("shows Ctrl and Alt on other keyboards", () => {
     on("Win32");
     render(<Shortcuts />);
+    expect(keysOf("Go back")).toEqual(["Alt", "←"]);
     expect(keysOf("Search")).toEqual(["Ctrl", "F"]);
     expect(keysOf("Open the unread room above or below")).toEqual(["Alt", "Shift", "↑ ↓"]);
     expect(keysOf("Move a starred room up or down")).toEqual(["Alt", "↑ ↓"]);

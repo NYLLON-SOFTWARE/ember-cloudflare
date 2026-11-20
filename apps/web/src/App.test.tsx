@@ -11,6 +11,7 @@ import {
   type AccountDeletion,
   type Bootstrap,
   type Message,
+  type ProfileChanges,
   type WorkspaceSettings,
 } from "@ember/protocol";
 import type { HuddlesSetup } from "@ember/protocol/huddles";
@@ -37,7 +38,7 @@ const EMAIL_LINK_TOKEN = "Gr-_em".repeat(7) + "D";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
 /** What the deployment's Set up Ember form suggests. */
 const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
@@ -138,7 +139,7 @@ function serve({
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
-      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, signInWithMemberful: false, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, passwordResetCodes, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, signInWithMemberful: false, signInWithSso: null, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, passwordResetCodes, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];
@@ -193,6 +194,7 @@ function serve({
         canAdminister: me.administrator,
         memberfulSite: null,
         memberfulWebhooks: false,
+        sso: null,
         memberfulKeys: null,
         memberfulSiteKept: null,
         turnstile: null,
@@ -203,6 +205,7 @@ function serve({
         email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
         invitations: [],
         emailDomains: [],
+        blockedWords: [],
         addresses: { deployed: null, others: [] },
       } satisfies WorkspaceSettings);
     if (route === "PUT /api/account/huddles") {
@@ -210,7 +213,11 @@ function serve({
       return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId, relayKeyId: null } });
     }
     if (route === "GET /api/users") return Response.json({ users: [] });
-    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null, apps: [], outsideAi: null } });
+    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, username: null, emailAddress: null, bio: null, apps: [], outsideAi: null } });
+    if (route === "PATCH /api/users/me/profile") {
+      const { username = null } = JSON.parse(String(init?.body)) as ProfileChanges;
+      return Response.json({ profile: { name: me.name, username, emailAddress: null, bio: null, apps: [], outsideAi: null } });
+    }
     if (route === "PATCH /api/account") {
       const { name = account.name, tagline = account.tagline, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
       account = { ...account, name, tagline, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons, customDomain };
@@ -936,6 +943,28 @@ describe("Sign in with Memberful", () => {
     render(<App />);
     expect(await signInPage()).toBeInTheDocument();
     expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
+  });
+
+  it("welcomes someone new who joined with it, outside the workspace, then goes on to the page they signed in from", async () => {
+    history.replaceState(null, "", "/welcome?return_to=%2Frooms%2Fgeneral");
+    serve({ signedIn: true });
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Welcome to Ember" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("link", { name: "Your profile" })).toHaveLength(0);
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText("Username")).toBeEnabled());
+    await user.type(screen.getByLabelText("Username"), "ada");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname + location.search).toBe("/rooms/general");
+  });
+
+  it("sends someone signed out at the welcome page to sign in, coming back to it after", async () => {
+    history.replaceState(null, "", "/welcome?return_to=%2Frooms%2Fgeneral");
+    serve({ signedIn: false });
+    render(<App />);
+    expect(await signInPage()).toBeInTheDocument();
+    expect(sessionStorage.getItem("ember:return-to")).toBe("/welcome?return_to=%2Frooms%2Fgeneral");
   });
 });
 

@@ -38,6 +38,12 @@ const TITLE = "Update models.json from models.dev and LiteLLM";
 const BRANCHES = "check-models/";
 const ISSUE_TITLE = "Models to look at, from models.dev and LiteLLM";
 
+/**
+ * Who gh says opened what a workflow opens with the token GitHub gives it, as the check's issues are.
+ * No person's login has a slash.
+ */
+const WORKFLOWS_AUTHOR = "app/github-actions";
+
 /** What the check says when it finds nothing to change or look at. */
 const AGREES = "models.json agrees with models.dev and LiteLLM, and they list no newer models.";
 
@@ -291,6 +297,27 @@ interface Opened {
   url: string;
 }
 
+/** A pull request as gh lists it, with whether its branch is in another repository than this one, as a fork's is. */
+interface ListedPull extends Opened {
+  headRefName: string;
+  isCrossRepository?: boolean;
+}
+
+/** An issue as gh lists it, with who opened it. */
+interface ListedIssue extends Opened {
+  title: string;
+  author?: { login?: string };
+}
+
+/**
+ * Whether a pull request's branch is in this repository, where only those who may push to it can make
+ * or change one. Anyone can open one from a fork, with a branch there named as the check's.
+ */
+const isFromRepository = (pull: ListedPull) => pull.isCrossRepository === false;
+
+/** Whether an issue is one this workflow opened. Anyone who may open one can give it the check's title. */
+const isWorkflows = (issue: ListedIssue) => issue.author?.login === WORKFLOWS_AUTHOR;
+
 /**
  * Pushes the change in `text` to a branch named after it and opens a pull request with it, unless one is
  * open already, or, with nothing to change, opens an issue with what to look at, or edits the one open,
@@ -299,10 +326,12 @@ interface Opened {
  */
 function publish(findings: Findings, text: string): void {
   const body = reportOf(findings);
-  const pulls = listed<Opened & { headRefName: string }>(["pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName"]).filter(({ headRefName }) =>
-    headRefName.startsWith(BRANCHES),
+  const pulls = listed<ListedPull>(["pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,isCrossRepository"]).filter(
+    (pull) => pull.headRefName.startsWith(BRANCHES) && isFromRepository(pull),
   );
-  const issues = listed<Opened & { title: string }>(["issue", "list", "--state", "open", "--limit", "100", "--json", "number,url,title"]).filter(({ title }) => title === ISSUE_TITLE);
+  const issues = listed<ListedIssue>(["issue", "list", "--state", "open", "--limit", "100", "--json", "number,url,title,author"]).filter(
+    (issue) => issue.title === ISSUE_TITLE && isWorkflows(issue),
+  );
   const close = (kind: "pr" | "issue", open: Opened[], reason: string) => {
     for (const { number } of open) run("gh", [kind, "close", String(number), "--comment", reason, ...(kind === "pr" ? ["--delete-branch"] : [])]);
   };

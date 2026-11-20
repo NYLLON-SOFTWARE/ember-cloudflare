@@ -1,4 +1,4 @@
-import { hasWords, MAX_SEARCH_LENGTH, sanitizeSearch, searchTerms, type Message, type RoomId } from "@ember/protocol";
+import { hasWords, MAX_SEARCH_LENGTH, searchWords, type Message, type RoomId, type UserId } from "@ember/protocol";
 import type { Env } from "../env";
 import { searchIndex } from "../search-index";
 import { matchesOf } from "../searches";
@@ -33,10 +33,13 @@ const TAKES = {
   additionalProperties: false,
 };
 
-/** The tool that searches room `roomId` for an answerer asked there, leaving out the messages `read` with its question, as the model has them. */
-export function roomSearch(env: Env, roomId: RoomId, read: readonly string[]): EmberTool {
+/**
+ * The tool that searches room `roomId` for an answerer asked there by `askerId`, as they'd search it,
+ * leaving out the messages `read` with its question, as the model has them.
+ */
+export function roomSearch(env: Env, roomId: RoomId, askerId: UserId, read: readonly string[]): EmberTool {
   const given = new Set(read);
-  return { name: NAME, description: DESCRIPTION, takes: TAKES, run: ({ words }) => searched(env, roomId, given, words) };
+  return { name: NAME, description: DESCRIPTION, takes: TAKES, run: ({ words }) => searched(env, roomId, askerId, given, words) };
 }
 
 /**
@@ -46,10 +49,10 @@ export function roomSearch(env: Env, roomId: RoomId, read: readonly string[]): E
  * found in a room that's private once they're read are unlogged, as the room may have been made private
  * since the answer began in the open.
  */
-async function searched(env: Env, roomId: RoomId, given: ReadonlySet<string>, words: unknown): Promise<string | Unlogged> {
+async function searched(env: Env, roomId: RoomId, askerId: UserId, given: ReadonlySet<string>, words: unknown): Promise<string | Unlogged> {
   if (typeof words !== "string" || !hasWords(words)) throw new ToolError("Give the words to find, as `words`.");
   if (words.length > MAX_SEARCH_LENGTH) throw new ToolError("That's too much to search for. Give one or two words.");
-  const { hits, next } = await searchIndex(env).search({ terms: searchTerms(sanitizeSearch(words)), roomIds: [roomId], sort: "newest", after: null });
+  const { hits, next } = await searchIndex(env).search({ words: searchWords(words), roomIds: [roomId], searcherId: askerId, sort: "newest", after: null });
   // Every other match on the page is read before the newest are taken, as one the room no longer has is left out.
   const ungiven = hits.filter(({ messageId }) => !given.has(messageId));
   const others = await matchesOf(env, ungiven);

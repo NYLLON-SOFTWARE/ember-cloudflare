@@ -4,6 +4,7 @@ import {
   AGENT_TOOLS_FULL,
   APP_CHANGED,
   APP_IS_EMBER,
+  APP_TOKEN_STAYS,
   APP_URL_REFUSED,
   APPS_FORBIDDEN,
   APPS_FULL,
@@ -21,8 +22,11 @@ import {
 } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { evictDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fingerprintOf, MAX_TOOL_SCHEMA_LENGTH } from "../src/apps/mcp";
+import { credentialsFor } from "../src/auth";
+import type { Env } from "../src/env";
 import { api, apiWith, builtPages, cookieOf, freshDeploy, origin, shown, workspaceSql, workspaceStub, type Session } from "./support";
 
 // Apps: the MCP servers an administrator connects on the AI assistant tab, whose tools Ember reads from
@@ -453,6 +457,43 @@ describe("A connected app", () => {
     expect(without).toMatchObject({ hasToken: false, url: "http://localhost:3845/v2/mcp", tools: [{ name: "create_issue" }] });
     expect(asked.every(({ url, authorization }) => url === "http://localhost:3845/v2/mcp" && authorization === null)).toBe(true);
     expect(await refusalOf(await change(administrator, app.id, { url: "http://mcp.tracker.example" }), 422)).toEqual({ error: APP_URL_REFUSED, field: "url" });
+  });
+
+  it("sends its token only to the address it was given for, so another address needs it given again, or none", async () => {
+    const administrator = await setUp();
+    server.token = "tracker-secret-token";
+    const app = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "tracker-secret-token" }), 201);
+    asked = [];
+
+    const stays = { error: APP_TOKEN_STAYS, field: "token" };
+    expect(await refusalOf(await change(administrator, app.id, { url: "http://localhost:3845/v2/mcp" }), 422)).toEqual(stays);
+    expect(await refusalOf(await change(administrator, app.id, { name: "Bugs", url: TRACKER }), 422)).toEqual(stays);
+    expect(asked).toEqual([]);
+    expect(await appOf(await show(administrator, app.id))).toEqual(app);
+    // At the address it has, it's kept.
+    expect(await appOf(await change(administrator, app.id, { name: "Bugs", url: LOCAL }))).toEqual({ ...app, name: "Bugs" });
+    expect(asked).toEqual([]);
+
+    // Given again, it goes to the new address, which keeps it.
+    const moved = await appOf(await change(administrator, app.id, { url: "http://localhost:3845/v2/mcp", token: "tracker-secret-token" }));
+    expect(moved).toMatchObject({ url: "http://localhost:3845/v2/mcp", hasToken: true });
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every(({ url, authorization }) => url === "http://localhost:3845/v2/mcp" && authorization === "Bearer tracker-secret-token")).toBe(true);
+    asked = [];
+    await appOf(await readAgain(administrator, app.id));
+    expect(asked.every(({ url, authorization }) => url === "http://localhost:3845/v2/mcp" && authorization === "Bearer tracker-secret-token")).toBe(true);
+  });
+
+  it("keeps a token at the address it was given for, even from a change asked for before the app had it", async () => {
+    const administrator = await setUp();
+    const app = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    server.token = "tracker-secret-token";
+    const moved = await appOf(await change(administrator, app.id, { url: "http://localhost:3845/v2/mcp", token: "tracker-secret-token" }));
+
+    // As a change of its name at the address it had, which found no token there, reaches the Workspace only now.
+    const credentials = await credentialsFor(administrator.cookie.split("=")[1]!, new Request(origin), env as unknown as Env);
+    expect(await workspaceStub().changeApp(credentials, app.id, { name: "Bugs", url: LOCAL }, null)).toBe("token stays");
+    expect(await appOf(await show(administrator, app.id))).toEqual(moved);
   });
 
   it("has its tools read again, which shows what its server lists now, and stays as it was when the server doesn't answer", async () => {

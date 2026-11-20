@@ -264,19 +264,52 @@ describe("publishing the check, as the Check models workflow does", () => {
     expect(publish(CHEAPER, CHEAPER_LITELLM).status).toBe(0);
     const branch = /--head (check-models\/[0-9a-f]{8})/.exec(calls().find((call) => call.startsWith("pr create"))!)![1]!;
     const GH_PULLS = JSON.stringify([
-      { number: 5, url: "https://github.com/me/ember/pull/5", headRefName: "check-models/0badc0de" },
-      { number: 7, url: "https://github.com/me/ember/pull/7", headRefName: branch },
-      { number: 9, url: "https://github.com/me/ember/pull/9", headRefName: "update-ember/v0.5.0" },
+      { number: 5, url: "https://github.com/me/ember/pull/5", headRefName: "check-models/0badc0de", isCrossRepository: false },
+      { number: 7, url: "https://github.com/me/ember/pull/7", headRefName: branch, isCrossRepository: false },
+      { number: 9, url: "https://github.com/me/ember/pull/9", headRefName: "update-ember/v0.5.0", isCrossRepository: false },
     ]);
     check(repo, "git", ["switch", "--quiet", "main"]);
     rmSync(path.join(dir, "gh", "calls"));
     const { status, output } = publish(CHEAPER, CHEAPER_LITELLM, { GH_PULLS });
     expect(status, output).toBe(0);
     expect(output).toContain("https://github.com/me/ember/pull/7 has these changes already.");
-    expect(calls().filter((call) => !call.endsWith("list --state open --limit 100 --json number,url,headRefName") && !call.startsWith("issue list"))).toEqual([
+    expect(calls().filter((call) => !call.startsWith("pr list") && !call.startsWith("issue list"))).toEqual([
       "pr edit 7 --body-file -",
       "pr close 5 --comment https://github.com/me/ember/pull/7 has these changes. --delete-branch",
     ]);
+  });
+
+  it("takes no fork's pull request for its own, even with its branch's name, and leaves those alone", () => {
+    expect(publish(CHEAPER, CHEAPER_LITELLM).status).toBe(0);
+    const branch = /--head (check-models\/[0-9a-f]{8})/.exec(calls().find((call) => call.startsWith("pr create"))!)![1]!;
+    const GH_PULLS = JSON.stringify([
+      { number: 11, url: "https://github.com/me/ember/pull/11", headRefName: branch, isCrossRepository: true },
+      { number: 10, url: "https://github.com/me/ember/pull/10", headRefName: "check-models/0badc0de", isCrossRepository: true },
+      { number: 7, url: "https://github.com/me/ember/pull/7", headRefName: branch, isCrossRepository: false },
+    ]);
+    check(repo, "git", ["switch", "--quiet", "main"]);
+    rmSync(path.join(dir, "gh", "calls"));
+    let { status, output } = publish(CHEAPER, CHEAPER_LITELLM, { GH_PULLS });
+    expect(status, output).toBe(0);
+    expect(output).toContain("https://github.com/me/ember/pull/7 has these changes already.");
+    expect(calls().filter((call) => !call.startsWith("pr list") && !call.startsWith("issue list"))).toEqual(["pr edit 7 --body-file -"]);
+    // gh gives only the fields it's asked for, so the check has to ask which are forks'.
+    expect(calls()).toContain("pr list --state open --limit 100 --json number,url,headRefName,isCrossRepository");
+
+    // With only forks' pull requests open, it opens its own, and closes none once nothing changes.
+    const FORKS = JSON.stringify(JSON.parse(GH_PULLS).slice(0, 2));
+    rmSync(path.join(dir, "gh", "calls"));
+    ({ status, output } = publish(CHEAPER, CHEAPER_LITELLM, { GH_PULLS: FORKS }));
+    expect(status, output).toBe(0);
+    expect(output).toContain("Opened https://github.com/me/ember/pull/7, which updates models.json.");
+    expect(calls().filter((call) => !call.startsWith("pr list") && !call.startsWith("issue list"))).toEqual([
+      `pr create --base main --head ${branch} --title Update models.json from models.dev and LiteLLM --body-file -`,
+    ]);
+    check(repo, "git", ["switch", "--quiet", "main"]);
+    rmSync(path.join(dir, "gh", "calls"));
+    ({ status, output } = publish(MODELS_DEV, LITELLM, { GH_PULLS: FORKS }));
+    expect(status, output).toBe(0);
+    expect(calls().filter((call) => !call.startsWith("pr list") && !call.startsWith("issue list"))).toEqual([]);
   });
 
   it("opens an issue with only something to look at, which the next week's edits, and closes once there's nothing", () => {
@@ -287,7 +320,7 @@ describe("publishing the check, as the Check models workflow does", () => {
     expect(calls()).toContain("issue create --title Models to look at, from models.dev and LiteLLM --body-file -");
     expect(body("issue")).toContain("### To look at\n\n- GPT-6.1 Sol costs $2 / $10 in models.json, but models.dev says $1.75 / $14, and LiteLLM $2 / $10.");
 
-    const GH_ISSUES = JSON.stringify([{ number: 8, url: "https://github.com/me/ember/issues/8", title: "Models to look at, from models.dev and LiteLLM" }]);
+    const GH_ISSUES = JSON.stringify([{ number: 8, url: "https://github.com/me/ember/issues/8", title: "Models to look at, from models.dev and LiteLLM", author: { login: "app/github-actions" } }]);
     ({ status, output } = publish(disagreeing, LITELLM, { GH_ISSUES }));
     expect(status, output).toBe(0);
     expect(calls()).toContain("issue edit 8 --body-file -");
@@ -296,6 +329,28 @@ describe("publishing the check, as the Check models workflow does", () => {
     expect(status, output).toBe(0);
     expect(output).toContain("models.json agrees with models.dev and LiteLLM, and they list no newer models.");
     expect(calls()).toContain("issue close 8 --comment models.json agrees with models.dev and LiteLLM now.");
+  });
+
+  it("takes no issue someone else opened with its title for its own, and leaves those alone", () => {
+    const disagreeing = modelsDevWith("openai", "gpt-6.1-sol", { cost: { input: 1.75, output: 14 } });
+    const theirs = { number: 12, url: "https://github.com/me/ember/issues/12", title: "Models to look at, from models.dev and LiteLLM", author: { login: "someone" } };
+    const ours = { number: 8, url: "https://github.com/me/ember/issues/8", title: "Models to look at, from models.dev and LiteLLM", author: { login: "app/github-actions" } };
+    let { status, output } = publish(disagreeing, LITELLM, { GH_ISSUES: JSON.stringify([theirs, ours]) });
+    expect(status, output).toBe(0);
+    expect(output).toContain("Nothing in models.json changes, and https://github.com/me/ember/issues/8 says what to look at.");
+    expect(calls().filter((call) => !call.includes(" list "))).toEqual(["issue edit 8 --body-file -"]);
+    // gh gives only the fields it's asked for, so the check has to ask who opened each.
+    expect(calls()).toContain("issue list --state open --limit 100 --json number,url,title,author");
+
+    // With only theirs open, it opens its own, and closes none once there's nothing to look at.
+    rmSync(path.join(dir, "gh", "calls"));
+    ({ status, output } = publish(disagreeing, LITELLM, { GH_ISSUES: JSON.stringify([theirs]) }));
+    expect(status, output).toBe(0);
+    expect(calls().filter((call) => !call.includes(" list "))).toEqual(["issue create --title Models to look at, from models.dev and LiteLLM --body-file -"]);
+    rmSync(path.join(dir, "gh", "calls"));
+    ({ status, output } = publish(MODELS_DEV, LITELLM, { GH_ISSUES: JSON.stringify([theirs]) }));
+    expect(status, output).toBe(0);
+    expect(calls().filter((call) => !call.includes(" list "))).toEqual([]);
   });
 
   it("opens an issue linking to the pull request to open when GitHub doesn't let the workflow open one", () => {

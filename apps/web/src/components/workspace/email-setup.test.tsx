@@ -18,6 +18,8 @@ const EMBER: Account = {
   openSignUp: false,
   memberfulJoin: false,
   memberfulSignIn: false,
+  ssoJoin: false,
+  ssoSignIn: false,
   emailDomainSignUp: false,
   emailDomains: [],
   navigationIcons: {},
@@ -229,6 +231,16 @@ describe("Sending email", () => {
     expect(keyField()).toHaveValue(RESEND_KEY);
     expect(button("Continue")).toBeEnabled();
     expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("keeps the API key out of its field's value attribute, where custom CSS could read it", async () => {
+    serve(NEW_EMAIL);
+    const { user } = showSetup(NEW_EMAIL);
+    await user.click(await screen.findByRole("radio", { name: "Resend" }));
+    await user.click(button("Continue"));
+    await user.type(await screen.findByRole("textbox", { name: "API key" }), RESEND_KEY);
+    expect(keyField()).toHaveValue(RESEND_KEY);
+    expect(keyField()).not.toHaveAttribute("value");
   });
 
   it("can't be closed while it checks a key, and says Checking…", async () => {

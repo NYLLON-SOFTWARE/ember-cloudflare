@@ -3,6 +3,7 @@ import {
   APP_IS_EMBER,
   APP_SIGN_IN_ENDED,
   APP_SIGNED_IN,
+  APP_TOKEN_STAYS,
   APPS_FORBIDDEN,
   APPS_FULL,
   TOOL_GONE,
@@ -37,7 +38,7 @@ import type { Env } from "../env";
 import { notFound } from "../error-pages";
 import { anyOtherPage, formAnswer } from "../pages";
 import { urlOf } from "../request-url";
-import { workspace, type BegunAppSignIn, type Credentials } from "../workspace";
+import { movesItsToken, workspace, type BegunAppSignIn, type Credentials } from "../workspace";
 import { appConnector } from "./connector";
 import type { ReadApp } from "./mcp";
 import { CLIENT_DOCUMENT_PATH, clientMetadataOf } from "./oauth";
@@ -247,6 +248,8 @@ export function clientDocument(request: Request): Response {
  * As with connecting one, someone who isn't an administrator hears so first, then that Ember AI is off,
  * then that there's no such app, before anything that was sent is read. An app that's signed in to
  * keeps its address and takes no token: Ember's sign-in is to the server there, and is sent nowhere else.
+ * A token, too, goes only to the address it was given for, so another address needs it given again, or
+ * "" for none.
  */
 export async function changeApp(request: Request, env: Env, appId: AppId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -263,6 +266,7 @@ export async function changeApp(request: Request, env: Env, appId: AppId): Promi
     if (url !== access.url || changes.token !== undefined) return formAnswer(signedInRefusal(url !== access.url), 422);
     return appAnswer(await ember.changeApp(credentials, appId, changes, null));
   }
+  if (movesItsToken(access, changes)) return formAnswer(TOKEN_STAYS, 422);
   const token = changes.token === undefined ? (access.key?.token ?? null) : changes.token === "" ? null : changes.token;
   if (url === access.url && token === (access.key?.token ?? null)) return appAnswer(await ember.changeApp(credentials, appId, changes, null));
   const read = await appConnector(env).read(url, token === null ? null : { token });
@@ -336,10 +340,13 @@ async function ownAddressRefusal(request: Request, env: Env, url: string): Promi
 }
 
 /** Why a request about apps isn't done: there's no such app, agent or tool, or the person asking can't, or not now. */
-type Refusal = "off" | "full" | "changed" | "signed in" | "gone" | "not found" | "forbidden" | null;
+type Refusal = "off" | "full" | "changed" | "signed in" | "token stays" | "gone" | "not found" | "forbidden" | null;
 
 /** Why an app that's signed in to keeps its address, or else takes no token, said on that field. */
 const signedInRefusal = (moved: boolean): AppRefused => ({ error: APP_SIGNED_IN, field: moved ? "url" : "token" });
+
+/** Why an app's token isn't sent to another address than the one it was given for, said on its field. */
+const TOKEN_STAYS: AppRefused = { error: APP_TOKEN_STAYS, field: "token" };
 
 /** What a request about an app answers: the app as its page then shows it, with `status`, or why it was refused. */
 function appAnswer(app: App | Refusal, status = 200): Response {
@@ -358,5 +365,6 @@ function refused(why: Refusal): Response {
   if (why === "forbidden") return problem(403, APPS_FORBIDDEN);
   if (why === "not found") return problem(404, "Not found");
   if (why === "signed in") return formAnswer(signedInRefusal(true), 422);
+  if (why === "token stays") return formAnswer(TOKEN_STAYS, 422);
   return problem(409, why === "off" ? ASSISTANT_OFF : why === "changed" ? APP_CHANGED : why === "gone" ? TOOL_GONE : APPS_FULL);
 }

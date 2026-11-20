@@ -52,8 +52,24 @@ const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
 });
 /** A camera's stream, as much of one as a tile reads, which is the way it faces, where the browser says: jsdom has none. */
 const camera = (facingMode?: string) => ({ getVideoTracks: () => [{ getSettings: () => ({ facingMode }) }] }) as unknown as MediaStream;
-/** And a shared screen's, of which it reads nothing. */
-const shared = () => ({}) as MediaStream;
+/** And a shared screen's, of which it reads nothing but its picture, which has come. */
+const shared = () => ({ getVideoTracks: () => [] }) as unknown as MediaStream;
+/** A camera's stream whose first packets have yet to come, and what brings them. */
+function cameraToCome(): { stream: MediaStream; come: () => void } {
+  const picture = Object.assign(new EventTarget(), { muted: true });
+  const come = () => {
+    picture.muted = false;
+    picture.dispatchEvent(new Event("unmute"));
+  };
+  return { stream: { getVideoTracks: () => [picture] } as unknown as MediaStream, come };
+}
+/** What `picture` is given from here on, in turn: nothing, or a stream. jsdom's video keeps what it's given and makes nothing of it. */
+function givenTo(picture: HTMLVideoElement): Array<MediaProvider | null> {
+  const given: Array<MediaProvider | null> = [];
+  let has = picture.srcObject;
+  Object.defineProperty(picture, "srcObject", { configurable: true, get: () => has, set: (value: MediaProvider | null) => void given.push((has = value)) });
+  return given;
+}
 const crowd = (count: number) => Array.from({ length: count }, (_, index) => inHuddle({ id: `u${index}`, name: `Person ${index}` }));
 /** Hears that the session has ended, which none here does. */
 const failed = vi.fn();
@@ -214,6 +230,7 @@ afterEach(() => {
   failed.mockClear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   Reflect.deleteProperty(navigator, "mediaDevices");
 });
 
@@ -507,6 +524,95 @@ describe("The tiles of a huddle", () => {
     // Someone else's is as it is whichever way it faces.
     rerender(<HuddleView huddle={huddle({ watched: new Map([["sam", camera("user")]]) })} room={general} me={me} onFailed={failed} />);
     expect(screen.getByLabelText("Sam Rivera's camera")).not.toHaveClass("-scale-x-100");
+  });
+
+  it("gives a picture its stream once the stream's first packets come, as WebKit can show nothing of one it's given before", () => {
+    const sams = cameraToCome();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams.stream]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    expect(picture.srcObject).not.toBe(sams.stream);
+    sams.come();
+    expect(picture.srcObject).toBe(sams.stream);
+  });
+
+  it("gives a picture that's gone before its stream's first packets came nothing once they come", () => {
+    const sams = cameraToCome();
+    const { rerender } = renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams.stream]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    rerender(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
+    sams.come();
+    expect(picture.srcObject).toBeNull();
+  });
+
+  it("gives a picture that shows nothing for three seconds its stream again, as WebKit shows it then, three times at most", () => {
+    vi.useFakeTimers();
+    const sams = camera();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams]]) }));
+    const given = givenTo(screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera"));
+    vi.advanceTimersByTime(2999);
+    expect(given).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(given).toEqual([null, sams]);
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([null, sams, null, sams, null, sams]);
+  });
+
+  it("counts those seconds from when a picture is given its stream, which is once the stream's first packets have come", () => {
+    vi.useFakeTimers();
+    const sams = cameraToCome();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams.stream]]) }));
+    const given = givenTo(screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([]);
+    sams.come();
+    vi.advanceTimersByTime(2999);
+    expect(given).toEqual([sams.stream]);
+    vi.advanceTimersByTime(1);
+    expect(given).toEqual([sams.stream, null, sams.stream]);
+  });
+
+  it("leaves a picture that shows within those seconds as it is", () => {
+    vi.useFakeTimers();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", camera()]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    const given = givenTo(picture);
+    vi.advanceTimersByTime(2999);
+    fireEvent(picture, new Event("loadedmetadata"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([]);
+  });
+
+  it("gives a picture that fails its stream again, and counts the seconds anew for it, three times at most however it comes to show nothing", () => {
+    vi.useFakeTimers();
+    const sams = camera();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    const given = givenTo(picture);
+    vi.advanceTimersByTime(1000);
+    fireEvent(picture, new Event("error"));
+    expect(given).toEqual([null, sams]);
+    vi.advanceTimersByTime(2999);
+    expect(given).toEqual([null, sams]);
+    vi.advanceTimersByTime(1);
+    expect(given).toEqual([null, sams, null, sams]);
+    fireEvent(picture, new Event("loadedmetadata"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([null, sams, null, sams]);
+
+    for (let failures = 0; failures < 5; failures++) fireEvent(picture, new Event("error"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([null, sams, null, sams, null, sams]);
+  });
+
+  it("gives a picture that's gone nothing more, whether it showed nothing or failed", () => {
+    vi.useFakeTimers();
+    const { rerender } = renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", camera()]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    rerender(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
+    const given = givenTo(picture);
+    vi.advanceTimersByTime(60_000);
+    fireEvent(picture, new Event("error"));
+    expect(given).toEqual([]);
   });
 
   it("plays a picture the browser kept from playing at the person's next click or key, until it's gone", async () => {
@@ -1083,7 +1189,7 @@ describe("The buttons along the base of a huddle", () => {
 
   it("lists a shared room's people as its settings have them, and reports a session that's ended when that's why they didn't come", async () => {
     const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      Response.json({ room: general, canAdminister: false, people: [ada, sam, priya].map((person) => ({ ...person, member: true })) }),
+      Response.json({ room: general, canAdminister: false, people: [ada, sam, priya].map((person) => ({ ...person, member: true })), section: null, sections: [] }),
     );
     const { user } = renderView();
     await user.click(screen.getByRole("button", { name: "Invite people" }));
