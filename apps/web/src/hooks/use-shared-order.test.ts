@@ -15,6 +15,12 @@ describe("Sidebar sections in Rooms and permissions", () => {
     expect(withSectionMoved(rows, [three!, "a", one!, "b", "c", two!, "d"], three!)).toEqual(["a", three, "d", one, "b", "c", two]);
   });
 
+  it("leaves the rows as they are once the dragged section is deleted, and a section made since the drag began where it is", () => {
+    expect(withSectionMoved(["a", "b", "c", three!, "d"], ["a", "b", "c", two!, one!, three!, "d"], one!)).toEqual(["a", "b", "c", three, "d"]);
+    const four = headingOf("s4");
+    expect(withSectionMoved([...rows, four, "e"], ["a", "b", "c", two!, one!, three!, "d"], one!)).toEqual(["a", two, one, "b", "c", three, "d", four, "e"]);
+  });
+
   it("tells a heading's row from a room's", () => {
     expect(sectionOfHeading(headingOf("s1"))).toBe("s1");
     expect(sectionOfHeading("r1")).toBeNull();

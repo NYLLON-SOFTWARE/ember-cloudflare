@@ -62,8 +62,10 @@ function rowsOf(roomIds: RoomId[], sectionIds: SectionId[], sectionOf: (roomId: 
 }
 
 /**
- * `rows` once section `heading`'s heading is where `draft` has put it, among the other headings: its
- * rooms go with it, and every other row stays with its own heading.
+ * `rows` once section `heading`'s heading is where `draft` has put it, after as many of the other
+ * headings as it's after there: its rooms go with it, and every other row stays with its own heading.
+ * The drag that made `draft` began with the rows as they were then, so a section made since stays where
+ * it is, and one deleted since, the dragged one too, is gone.
  */
 export function withSectionMoved(rows: string[], draft: string[], heading: string): string[] {
   const roomsUnder = new Map<string, string[]>();
@@ -73,7 +75,8 @@ export function withSectionMoved(rows: string[], draft: string[], heading: strin
     if (sectionOfHeading(row) === null) under.push(row);
     else roomsUnder.set(row, (under = []));
   }
-  const others = draft.filter((row) => row !== heading && roomsUnder.has(row));
+  if (!roomsUnder.has(heading)) return rows;
+  const others = rows.filter((row) => row !== heading && roomsUnder.has(row));
   const place = draft.slice(0, draft.indexOf(heading)).filter((row) => roomsUnder.has(row)).length;
   const headings = [...others.slice(0, place), heading, ...others.slice(place)];
   return [...loose, ...headings.flatMap((row) => [row, ...roomsUnder.get(row)!])];
@@ -82,6 +85,7 @@ export function withSectionMoved(rows: string[], draft: string[], heading: strin
 /** `rows` without the rooms under heading `heading`, which a heading dragged folds away as it goes. */
 function folded(rows: string[], heading: string): string[] {
   const start = rows.indexOf(heading) + 1;
+  if (start === 0) return rows;
   let end = start;
   while (end < rows.length && sectionOfHeading(rows[end]!) === null) end++;
   return [...rows.slice(0, start), ...rows.slice(end)];
@@ -189,7 +193,10 @@ export function useSharedOrder({ rooms, sharedOrder, sections, onSaved, onSessio
     },
     onMove: (moved, row) => {
       setDraggingHeading(false);
-      stage(sectionOfHeading(row) === null ? moved : withSectionMoved(rows, moved, row));
+      if (sectionOfHeading(row) === null) return stage(moved);
+      // Deleted while its heading was dragged, a section has nowhere to go.
+      if (rows.includes(row)) stage(withSectionMoved(rows, moved, row));
+      else setStatus({ message: "Section move canceled. It was deleted.", error: false });
     },
     onCancel: () => {
       setDraggingHeading(false);

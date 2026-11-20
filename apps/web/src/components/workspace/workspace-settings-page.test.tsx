@@ -3207,6 +3207,21 @@ describe("Sidebar sections in Rooms and permissions", () => {
       expect(orderRow("§ Engineering")).toHaveFocus();
     });
 
+    it("lets go of a section deleted while its heading is dragged, its rooms left in none", async () => {
+      await showSections();
+      layOutRows();
+      pressGrip("§ Engineering");
+      expect(rows()).toEqual(["Design", "§ Engineering", "§ Sales"]);
+      // Deleted in another tab, as the sidebar hears.
+      act(() => sidebarSays(adasRooms, [], [{ ...sales, roomIds: [] }]));
+      expect(rows()).toEqual(["Design", "general", "random", "§ Sales"]);
+      dragTo(170);
+      fireEvent.pointerUp(window);
+      expect(status()).toHaveTextContent("Section move canceled. It was deleted.");
+      expect(rows()).toEqual(["Design", "general", "random", "§ Sales"]);
+      expect(button("Save order")).toBeDisabled();
+    });
+
     it("drags a room into a section, under its heading, or out of every section, above the first", async () => {
       await showSections();
       layOutRows();

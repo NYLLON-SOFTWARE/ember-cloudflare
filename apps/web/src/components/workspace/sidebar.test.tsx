@@ -271,6 +271,15 @@ describe("Sidebar sections", () => {
     expect(divider("Revenue")).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("folds a section in every sidebar drawn at once, as the drawer's is beside the one a wider window shows", async () => {
+    renderSidebar({ rooms: listedRooms, sections });
+    renderSidebar({ rooms: listedRooms, sections });
+    const [shown, drawer] = screen.getAllByRole("button", { name: "Revenue" });
+    await userEvent.click(drawer!);
+    expect(drawer).toHaveAttribute("aria-expanded", "false");
+    expect(shown).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("lists only the sections with a room Activity shows", () => {
     renderSidebar({ rooms: listedRooms, sections, unreadOnly: true });
     expect(listed()).toEqual(["#backend"]);
