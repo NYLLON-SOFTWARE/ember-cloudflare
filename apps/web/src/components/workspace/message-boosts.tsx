@@ -1,7 +1,7 @@
 import { useId, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
-import { ArrowUp, Emoji, Plus, Xmark } from "@/components/icons/iconoir";
+import { ArrowUp, Emoji, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { pressedAlone } from "@/lib/keyboard";
@@ -32,8 +32,8 @@ export function groupBoosts(boosts: readonly Boost[]): BoostGroup[] {
   return [...groups.values()];
 }
 
-/** How many of a reaction's boosters its chip shows faces for, so it's no wider for five than for two. */
-const FACES = 2;
+/** How many of a reaction's boosters its chip stacks, so it's no wider for five than for three. */
+const STACKED = 3;
 
 const namesOf = new Intl.ListFormat("en-US", { type: "conjunction" });
 
@@ -51,7 +51,7 @@ interface Props {
   onAddBoost: (button: HTMLButtonElement) => void;
   /** Closes the Custom reaction form. */
   onCloseCustom: () => void;
-  /** Hands focus to the message's Message options, as a reaction sent here does. */
+  /** Hands focus to the message's Message options, as a reaction sent or taken back here does. */
   returnFocus: () => void;
 }
 
@@ -73,6 +73,16 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
     returnFocus();
   };
 
+  // A tap adds the reaction, or takes back yours, each copy a quick double tap may have stored. Where the chip
+  // goes with them, focus goes to Message options, as it would with the chip.
+  const toggle = ({ content, boosts }: BoostGroup) => {
+    const mine = boosts.filter((boost) => boost.booster.id === me.id);
+    if (mine.length === 0) return actions!.boost(message.id, content);
+    const sent = mine.map((boost) => actions!.unboost(boost.id)).every(Boolean);
+    if (sent && mine.length === boosts.length) returnFocus();
+    return sent;
+  };
+
   return (
     <div
       className={cn(
@@ -86,7 +96,7 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
     >
       <ul aria-label="Reactions" className="flex flex-wrap gap-x-[0.4ch] empty:hidden">
         {groupBoosts(message.boosts).map((group) => (
-          <BoostChip key={group.content} group={group} me={me} onToggle={actions && ((mine) => (mine ? actions.unboost(mine.id) : actions.boost(message.id, group.content)))} />
+          <BoostChip key={group.content} group={group} me={me} onToggle={actions && (() => toggle(group))} />
         ))}
       </ul>
       {customizing ? (
@@ -109,14 +119,14 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
 }
 
 /**
- * One reaction: the faces of the first two who added it, with a plus over them once more have, then the
- * reaction, larger when it's all emoji. The whole chip is one button, so a fingertip can't miss it: it adds
+ * One reaction: the face of whoever added it first, with a disc stacked behind it for each of the next two,
+ * then the reaction, larger when it's all emoji. The whole chip is one button, so a fingertip can't miss it: it adds
  * the reaction for you, or takes yours back once you've added it, which the chip marks. Who added it is in
  * its name, which a mouse shows too. Where nothing can be done to the message, the chip only shows.
  */
-function BoostChip({ group, me, onToggle }: { group: BoostGroup; me: Me; onToggle: ((mine: Boost | undefined) => boolean) | null }) {
+function BoostChip({ group, me, onToggle }: { group: BoostGroup; me: Me; onToggle: (() => boolean) | null }) {
   const nameOf = useNameOf();
-  const mine = group.boosts.find((boost) => boost.booster.id === me.id);
+  const mine = group.boosts.some((boost) => boost.booster.id === me.id);
   // Each booster once, though a bot may have added the reaction more than once.
   const boosters = [...new Map(group.boosts.map((boost) => [boost.booster.id, boost.booster])).values()];
   const names = boosters.map((booster) => (booster.id === me.id ? "you" : nameOf(booster)));
@@ -128,24 +138,22 @@ function BoostChip({ group, me, onToggle }: { group: BoostGroup; me: Me; onToggl
         type="button"
         aria-label={label}
         title={label}
-        aria-pressed={onToggle ? mine !== undefined : undefined}
-        disabled={!onToggle}
-        onClick={() => onToggle?.(mine)}
+        aria-pressed={onToggle ? mine : undefined}
+        // Still focusable where nothing can be done, so who reacted can be read there too.
+        aria-disabled={!onToggle || undefined}
+        onClick={() => onToggle?.()}
         className={cn(
-          "flex max-w-full cursor-pointer items-center gap-x-[0.4ch] rounded-[4rem] border bg-background py-[0.1em] pr-[calc(0.2em+0.4ch)] pl-[0.1em] disabled:cursor-default",
-          "enabled:hover:not-active:border-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground",
-          mine && "border-link enabled:hover:not-active:border-link",
+          "flex max-w-full cursor-pointer items-center gap-x-[0.4ch] rounded-[4rem] border bg-background py-[0.1em] pr-[calc(0.2em+0.4ch)] pl-[0.1em] aria-disabled:cursor-default",
+          "not-aria-disabled:hover:not-active:border-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground",
+          mine && "border-link not-aria-disabled:hover:not-active:border-link",
         )}
       >
-        <span aria-hidden="true" className="relative flex shrink-0">
-          {boosters.slice(0, FACES).map((booster, index) => (
-            <UserAvatar key={booster.id} user={booster} className={cn("size-[2.2ch] font-medium ring-2 ring-background", index > 0 && "-ml-[0.8ch]")} />
+        <span aria-hidden="true" className="flex shrink-0">
+          <UserAvatar user={boosters[0]!} className="z-[1] size-[2.2ch] font-medium ring-2 ring-background" />
+          {/* Whoever else added it, as blank discs stacked behind the first face, two at most. */}
+          {boosters.slice(1, STACKED).map((booster) => (
+            <span key={booster.id} className="-ml-[1.6ch] size-[2.2ch] rounded-full bg-muted-foreground/30 ring-2 ring-background" />
           ))}
-          {boosters.length > FACES && (
-            <span className="absolute -top-1 -right-1 grid size-3 place-items-center rounded-full bg-foreground text-background ring-2 ring-background">
-              <Plus className="size-2.5" />
-            </span>
-          )}
         </span>
         <span aria-hidden="true" className={cn("min-w-0 leading-normal", isAllEmoji(group.content) ? "text-base" : "text-[0.8rem]")}>
           {group.content}

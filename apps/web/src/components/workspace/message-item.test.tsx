@@ -1308,16 +1308,18 @@ describe("React to a message", () => {
     expect(within(chips[2]!).getByText("Nice one!")).toHaveClass("text-[0.8rem]");
   });
 
-  it("shows the faces of the first two who reacted, and a plus once more have", () => {
+  it("stacks a blank disc behind the first face for each of the next two who reacted, and no more", () => {
     const linus = { id: "u3", name: "Linus" };
+    const ken = { id: "u4", name: "Ken" };
     const { update } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", linus, "👍")] }));
     const chip = () => reactions().getByRole("button");
-    expect(chip().querySelectorAll("img")).toHaveLength(2);
-    expect(chip().querySelector("svg")).toBeNull();
-    update(message({ boosts: [boost("b1", grace, "👍"), boost("b2", linus, "👍"), boost("b3", ada, "👍")] }));
-    expect(chip().querySelectorAll("img")).toHaveLength(2);
-    expect(chip().querySelector("svg")).not.toBeNull();
-    expect(chip()).toHaveAccessibleName("👍, 3 reactions: Grace, Linus, and you");
+    const discs = () => chip().querySelectorAll("[class*=bg-muted-foreground]").length;
+    expect(chip().querySelectorAll("img")).toHaveLength(1);
+    expect(discs()).toBe(1);
+    update(message({ boosts: [boost("b1", grace, "👍"), boost("b2", linus, "👍"), boost("b3", ada, "👍"), boost("b4", ken, "👍")] }));
+    expect(chip().querySelectorAll("img")).toHaveLength(1);
+    expect(discs()).toBe(2);
+    expect(chip()).toHaveAccessibleName("👍, 4 reactions: Grace, Linus, you, and Ken");
   });
 
   it("opens the bar with More reactions from Add a boost, focusing the first, and Escape hands focus back", async () => {
@@ -1350,7 +1352,8 @@ describe("React to a message", () => {
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(<MessageItem message={message({ boosts: [boost("b1", ada, "👍")] })} me={{ ...ada, administrator: true }} threaded={false} editing={false} actions={null} editors={editors} />);
     const chip = reactions().getByRole("button", { name: "👍, 1 reaction: you" });
-    expect(chip).toBeDisabled();
+    expect(chip).toHaveAttribute("aria-disabled", "true");
+    expect(chip).toHaveAttribute("title", "👍, 1 reaction: you");
     expect(chip).not.toHaveAttribute("aria-pressed");
     expect(screen.queryByRole("button", { name: "Add a boost" })).not.toBeInTheDocument();
   });
@@ -1477,6 +1480,15 @@ describe("Join or take back a reaction", () => {
     act(() => chip.focus());
     await user.keyboard("{Enter}");
     expect(actions.unboost).toHaveBeenCalledTimes(2);
+    // Others' reactions keep the chip, so it keeps focus.
+    expect(chip).toHaveFocus();
+  });
+
+  it("hands focus to Message options as you take back a reaction only you had added, every copy of it", async () => {
+    const { actions, user } = show(message({ boosts: [boost("b1", ada, "👍"), boost("b2", ada, "👍")] }));
+    await user.click(reactions().getByRole("button", { name: "👍, 1 reaction: you" }));
+    expect(actions.unboost.mock.calls).toEqual([["b1"], ["b2"]]);
+    expect(optionsOn("Hello")).toHaveFocus();
   });
 });
 
