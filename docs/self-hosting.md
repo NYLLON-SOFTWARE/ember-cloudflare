@@ -1750,10 +1750,12 @@ What a self-hoster should know, beyond keeping the setup password and link to th
   localhost, and on a Worker with neither, setup is open or closed as [Deploying](#deploying) says.
 - `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
   `wrangler dev`, as `.dev.vars.example` says.
-- With Open on, anyone who finds the address can make an account, with any email address, and
-  create rooms unless Must be admin to create new rooms is on. Turnstile, given its keys, keeps most
-  bots out, and until then its limits keep a flood from filling the free plan. The join link has no
-  limits, since its secrecy is the gate: regenerate it if it gets out.
+- With Open on, anyone who finds the address can make an account, with any email address, create
+  rooms unless Must be admin to create new rooms is on, and notify a room with @channel and @here,
+  and everyone with @everyone, unless the switches beside it keep those to administrators.
+  Turnstile, given its keys, keeps most bots out, and until then its limits keep a flood from
+  filling the free plan. The join link has no limits, since its secrecy is the gate: regenerate it
+  if it gets out.
 - A Resend API key pasted into Set up email is kept encrypted, and never shown again, even to
   administrators: Membership says only that Ember has one. Make it a key with Sending access, as Resend
   suggests, so that one that got out could do no more than send email. A Turnstile secret key given in

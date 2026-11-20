@@ -27,7 +27,7 @@ import {
 } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
-import { hasPreview, prepareBody, userIdFromSgid, userIdsIn, type PreparedBody, type SpecialMention } from "@ember/richtext";
+import { hasPreview, prepareBody, specialMentionsAsText, userIdFromSgid, userIdsIn, type PreparedBody, type SpecialMention } from "@ember/richtext";
 import {
   AGENT_NOTES,
   AnswerError,
@@ -1231,10 +1231,10 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async create(store: MessageStore, user: User, clientMessageId: string, body: StoredBody, now: string, posting: Posting = {}): Promise<Message> {
     const { kind, posted, inThread } = posting;
-    const notifies = await this.notifying(store.roomId, user, body, posting);
+    const notifying = await this.notifying(store.roomId, user, body, posting);
     // Before the batch, which on D1 may save the message even when it fails.
     if (!inThread || inThread.alsoSend) this.readers.clear();
-    const { message, seq, parent } = await store.create(sortableId(), clientMessageId, user, { ...body, notifies }, now, kind, posted, inThread);
+    const { message, seq, parent } = await store.create(sortableId(), clientMessageId, user, notifying, now, kind, posted, inThread);
     if (!inThread || inThread.alsoSend) this.seenBy.set(message.id, this.viewersOfNew(inThread));
     this.broadcast({ type: "message.created", message, seq });
     if (parent) this.broadcast({ type: "message.updated", ...parent });
@@ -1247,22 +1247,27 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Whom a new message from `user`, posted as `posting` says, notifies with the special mentions `body`
-   * makes: the widest of those the Workspace says notify the room from them, as Slack notifies each
-   * person once. Only a message sent to the room does, not a reply in a thread, nor a reply to a bot's
-   * delivery, an AI's answer or what an AI app sends (a "reply"), and none does while the Workspace
-   * can't say.
+   * `body` as a new message from `user`, posted as `posting` says, keeps it, with whom it notifies with
+   * the special mentions it makes: the widest of those the Workspace says notify the room from them, as
+   * Slack notifies each person once, and the rest kept as the plain text they show, as Slack keeps a
+   * mention its sender may not use. Only a message sent to the room notifies, not a reply in a thread,
+   * nor a reply to a bot's delivery, an AI's answer or what an AI app sends (a "reply"), and none does
+   * while the Workspace can't say.
    */
-  private async notifying(roomId: RoomId, user: User, body: StoredBody, { kind = "message", inThread }: Posting): Promise<SpecialMention | undefined> {
+  private async notifying(roomId: RoomId, user: User, body: StoredBody, { kind = "message", inThread }: Posting): Promise<StoredBody> {
     const made = body.specialMentions ?? [];
-    if (made.length === 0 || kind !== "message" || inThread) return undefined;
+    if (made.length === 0 || kind !== "message" || inThread) return body;
+    let notifying: SpecialMention[];
     try {
-      const notifying = await workspace(this.env).notifyingMentions(roomId, user.id);
-      return widestOf(made.filter((mention) => notifying.includes(mention)));
+      notifying = await workspace(this.env).notifyingMentions(roomId, user.id);
     } catch (error) {
       console.error("Could not ask whom a message's special mentions notify, so it notifies nobody", error);
-      return undefined;
+      return body;
     }
+    const allowed = made.filter((mention) => notifying.includes(mention));
+    const refused = made.filter((mention) => !notifying.includes(mention));
+    const kept = refused.length === 0 ? body : { ...body, html: specialMentionsAsText(body.html, refused), specialMentions: allowed };
+    return { ...kept, notifies: widestOf(allowed) };
   }
 
   /**

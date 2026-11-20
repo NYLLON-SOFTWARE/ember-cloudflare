@@ -111,15 +111,18 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 
 /**
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
- * anyone may create rooms, no custom domain, people join with the join link but can't sign up without
- * it, nor join with Memberful or an email domain, members sign in with passwords, the rail has its
- * own icons, and in huddles cameras may go on and screens be shared, at huddles' own video quality.
+ * anyone may create rooms and use @channel, @here and @everyone, no custom domain, people join with the
+ * join link but can't sign up without it, nor join with Memberful or an email domain, members sign in
+ * with passwords, the rail has its own icons, and in huddles cameras may go on and screens be shared,
+ * at huddles' own video quality.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
   hideTranslationButtons: true,
   customStyles: "",
   restrictRoomCreation: false,
+  restrictChannelMentions: false,
+  restrictEveryoneMention: false,
   huddleCameras: true,
   huddleScreens: true,
   huddleVideo: DEFAULT_HUDDLE_VIDEO as HuddleVideoQuality,
@@ -284,6 +287,8 @@ export type AccountChange = Partial<
     | "tagline"
     | "hideTranslationButtons"
     | "restrictRoomCreation"
+    | "restrictChannelMentions"
+    | "restrictEveryoneMention"
     | "huddleCameras"
     | "huddleScreens"
     | "huddleVideo"
@@ -1431,6 +1436,15 @@ function hidesTranslationButtons(settings: Record<string, unknown> | null): bool
  */
 const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_room_creation_to_administrators);
 
+/**
+ * Whether the account's settings let only administrators use @channel and @here: only while the setting
+ * is present, as for creating rooms.
+ */
+const restrictsChannelMentions = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_channel_mentions_to_administrators);
+
+/** Whether the account's settings let only administrators use @everyone: only while the setting is present. */
+const restrictsEveryoneMention = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_everyone_mention_to_administrators);
+
 /** The account's tagline, which its settings keep as `tagline`, or empty while it has none. */
 const taglineIn = (settings: Record<string, unknown> | null) => (typeof settings?.tagline === "string" ? settings.tagline : "");
 
@@ -1721,11 +1735,20 @@ interface HuddlesAllowedRow {
   huddles_allowed: number;
 }
 
-interface RoomToChangeRow extends Omit<SharedRoom, "huddles">, HuddlesAllowedRow, RoomSectionRow {
+/**
+ * Whether a room's settings allow @channel, @here and @everyone in it, as `rooms.channel_mentions_allowed`
+ * keeps it: 1 until they're turned off there.
+ */
+interface ChannelMentionsAllowedRow {
+  channel_mentions_allowed: number;
+}
+
+interface RoomToChangeRow extends Omit<SharedRoom, "huddles" | "channelMentions">, HuddlesAllowedRow, ChannelMentionsAllowedRow, RoomSectionRow {
   /** Its section's name, or null for none. */
   section_name: string | null;
   can_administer: number;
   can_change_huddles: number;
+  can_change_channel_mentions: number;
 }
 
 /** A room as the statements that read its section read it: null for none. */
@@ -1747,7 +1770,7 @@ interface StartRow {
 }
 
 /** A room someone is in, as `ROOMS_FOR_USER` reads it: a DM's name and icon are null, and it's in no section. */
-interface SidebarRow extends HuddleRow, HuddlesAllowedRow, StartRow, RoomSectionRow {
+interface SidebarRow extends HuddleRow, HuddlesAllowedRow, ChannelMentionsAllowedRow, StartRow, RoomSectionRow {
   id: RoomId;
   kind: SidebarRoom["kind"];
   name: string | null;
@@ -1811,12 +1834,21 @@ export const allowingHuddles = (allowed: boolean): Pick<SharedRoom, "huddles"> =
 
 const allowsHuddles = ({ huddles_allowed }: HuddlesAllowedRow) => huddles_allowed !== 0;
 
+/** What a shared room says of @channel, @here and @everyone in it: that they're off while its settings don't allow them, and nothing otherwise. */
+export const allowingChannelMentions = (allowed: boolean): Pick<SharedRoom, "channelMentions"> => (allowed ? {} : { channelMentions: false });
+
+/** What a shared room says of what its settings allow in it, as `row` reads them. */
+const roomSwitches = (row: HuddlesAllowedRow & ChannelMentionsAllowedRow): Pick<SharedRoom, "huddles" | "channelMentions"> => ({
+  ...allowingHuddles(allowsHuddles(row)),
+  ...allowingChannelMentions(row.channel_mentions_allowed !== 0),
+});
+
 /** A DM, `id`, last active at `activeAt`, with the people `members` reads, and who it welcomes, if anyone. */
 const directOf = (id: RoomId, activeAt: string, members: DirectMemberRow[], start: StartRow): DirectRoom => ({ id, kind: "direct", members: membersOf(members), activeAt, ...joinedOf(start) });
 
 /** A room someone is in, with the people in it if it's a DM, whom `members` reads. */
 const roomOf = (row: SidebarRow, members: DirectMemberRow[] = []): Room =>
-  row.kind === "direct" ? directOf(row.id, row.active_at, members, row) : { id: row.id, kind: row.kind, name: row.name ?? "", icon: row.icon, ...allowingHuddles(allowsHuddles(row)) };
+  row.kind === "direct" ? directOf(row.id, row.active_at, members, row) : { id: row.id, kind: row.kind, name: row.name ?? "", icon: row.icon, ...roomSwitches(row) };
 
 /**
  * A room as someone's sidebar lists it, with whether it's marked unread for them, since when, and in a
@@ -1831,9 +1863,10 @@ const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom 
 });
 
 const roomToChange = (row: RoomToChangeRow) => ({
-  room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon, ...allowingHuddles(allowsHuddles(row)) },
+  room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon, ...roomSwitches(row) },
   canAdminister: row.can_administer === 1,
   canChangeHuddles: row.can_change_huddles === 1,
+  canChangeChannelMentions: row.can_change_channel_mentions === 1,
   section: row.section_id === null || row.section_name === null ? null : { id: row.section_id, name: row.section_name },
 });
 
@@ -1889,7 +1922,7 @@ function welcomedBy({ id, name }: User, welcomes: Welcome[], started: Array<{ id
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, ${START}, memberships.unread_at IS NOT NULL AS unread,
     memberships.unread_at AS unread_since, memberships.unread_count, memberships.involvement, rooms.shared_position, rooms.huddle_started_at,
-    rooms.huddle_user_ids, rooms.huddles_allowed, rooms.section_id
+    rooms.huddle_user_ids, rooms.huddles_allowed, rooms.channel_mentions_allowed, rooms.section_id
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY memberships.created_at, rooms.created_at, rooms.id`;
 
@@ -2369,13 +2402,17 @@ function messagePushesOf(roomId: RoomId, { seq, userId, threadOnly, message }: R
 }
 
 /**
- * Whether a message by ?2 in room ?1 can notify the room with a special mention: it's a room, not a DM, and
- * ?2 isn't an AI agent, a bot without a token, as @ember and the agents administrators make are. And
- * whether it can with @everyone too: the room is open, so everyone is in it, and ?2 isn't a guest, as
- * Slack's guests can't use it.
+ * Whether a message by ?2 in room ?1 can notify the room with a special mention: it's a room, not a DM,
+ * that allows them, and ?2 isn't an AI agent, a bot without a token, as @ember and the agents
+ * administrators make are. And whether it can with @everyone too: the room is open, so everyone is in it,
+ * and ?2 isn't a guest, as Slack's guests can't use it. With whether ?2 is an administrator and the
+ * account's settings, which can keep either to administrators.
  */
-const NOTIFIES_ROOM = `SELECT rooms.kind = 'open' AND users.guest = 0 AS everyone FROM rooms, users
-  WHERE rooms.id = ?1 AND rooms.kind <> 'direct' AND users.id = ?2 AND NOT (users.role = ${BOT} AND users.bot_token IS NULL)`;
+const NOTIFIES_ROOM = `SELECT rooms.kind = 'open' AND users.guest = 0 AS everyone, users.role = ${ADMINISTRATOR} AS administrator,
+    (SELECT settings FROM accounts) AS settings
+  FROM rooms, users
+  WHERE rooms.id = ?1 AND rooms.kind <> 'direct' AND rooms.channel_mentions_allowed = 1 AND users.id = ?2
+    AND NOT (users.role = ${BOT} AND users.bot_token IS NULL)`;
 
 /**
  * Whether push subscription ?1 is still saved, for someone active. Its id is never another's, as
@@ -2539,6 +2576,8 @@ export const setSetting = (key: string) => `UPDATE accounts SET settings = json_
 const SET_TAGLINE = setSetting("tagline");
 const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
+const SET_RESTRICT_CHANNEL_MENTIONS = setSetting("restrict_channel_mentions_to_administrators");
+const SET_RESTRICT_EVERYONE_MENTION = setSetting("restrict_everyone_mention_to_administrators");
 const SET_HUDDLE_CAMERAS = setSetting("huddle_cameras");
 const SET_HUDDLE_SCREENS = setSetting("huddle_screens");
 const SET_HUDDLE_VIDEO = setSetting("huddle_video");
@@ -3357,9 +3396,15 @@ const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = use
 /** Whether they can turn huddles on or off in it: only administrators can, as a Slack workspace's owners and admins can in a channel. */
 const CAN_CHANGE_HUDDLES = `users.role = ${ADMINISTRATOR} AS can_change_huddles`;
 
-/** A room someone is in, unless it's a DM, whether they can change it, and turn huddles on or off in it, and its section. */
-export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, rooms.huddles_allowed, rooms.section_id, sections.name AS section_name,
-    ${CAN_ADMINISTER}, ${CAN_CHANGE_HUDDLES}
+/** Whether they can allow @channel, @here and @everyone in it or not: only administrators can, as for huddles. */
+const CAN_CHANGE_CHANNEL_MENTIONS = `users.role = ${ADMINISTRATOR} AS can_change_channel_mentions`;
+
+/**
+ * A room someone is in, unless it's a DM, whether they can change it, turn huddles on or off in it and
+ * allow @channel, @here and @everyone there or not, and its section.
+ */
+export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, rooms.huddles_allowed, rooms.channel_mentions_allowed, rooms.section_id,
+    sections.name AS section_name, ${CAN_ADMINISTER}, ${CAN_CHANGE_HUDDLES}, ${CAN_CHANGE_CHANNEL_MENTIONS}
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
     LEFT JOIN sections ON sections.id = rooms.section_id
   WHERE memberships.room_id = ? AND memberships.user_id = ? AND rooms.kind <> 'direct'`;
@@ -3431,14 +3476,16 @@ export const ROOM_MEMBERS = `SELECT user_id FROM memberships WHERE room_id = ?`;
 const ROOM_RANKED = `SELECT shared_position IS NOT NULL AS ranked FROM rooms WHERE id = ?`;
 
 /**
- * Renames a room, changes its kind, sets its icon and says whether it allows huddles, keeping whichever
- * is null as it is, and records when, unless nothing changes. An icon of "" is the default `#`, stored
- * as null.
+ * Renames a room, changes its kind, sets its icon and says whether it allows huddles, and @channel, @here
+ * and @everyone, keeping whichever is null as it is, and records when, unless nothing changes. An icon of
+ * "" is the default `#`, stored as null.
  */
 const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?1, name), kind = coalesce(?2, kind),
-    icon = CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END, huddles_allowed = coalesce(?6, huddles_allowed), updated_at = ?4
+    icon = CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END, huddles_allowed = coalesce(?6, huddles_allowed),
+    channel_mentions_allowed = coalesce(?7, channel_mentions_allowed), updated_at = ?4
   WHERE id = ?5 AND (name IS NOT coalesce(?1, name) OR kind IS NOT coalesce(?2, kind)
-    OR icon IS NOT CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END OR huddles_allowed IS NOT coalesce(?6, huddles_allowed)) RETURNING id`;
+    OR icon IS NOT CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END OR huddles_allowed IS NOT coalesce(?6, huddles_allowed)
+    OR channel_mentions_allowed IS NOT coalesce(?7, channel_mentions_allowed)) RETURNING id`;
 
 /** Of the rooms a JSON list names, those that are neither registered nor deleted. */
 const UNREGISTERED_ROOMS = `SELECT DISTINCT value AS id FROM json_each(?)
@@ -3669,6 +3716,8 @@ export class WorkspaceStore {
       hideTranslationButtons: hidesTranslationButtons(settings),
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
+      restrictChannelMentions: restrictsChannelMentions(settings),
+      restrictEveryoneMention: restrictsEveryoneMention(settings),
       huddleCameras: showsHuddleCameras(settings),
       huddleScreens: sharesHuddleScreens(settings),
       huddleVideo: huddleVideoIn(settings),
@@ -3715,6 +3764,8 @@ export class WorkspaceStore {
       tagline,
       hideTranslationButtons,
       restrictRoomCreation,
+      restrictChannelMentions,
+      restrictEveryoneMention,
       huddleCameras,
       huddleScreens,
       huddleVideo,
@@ -3742,6 +3793,8 @@ export class WorkspaceStore {
       ...(tagline === undefined ? [] : [statement(SET_TAGLINE, JSON.stringify(tagline), now)]),
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
+      ...(restrictChannelMentions === undefined ? [] : [statement(SET_RESTRICT_CHANNEL_MENTIONS, JSON.stringify(restrictChannelMentions), now)]),
+      ...(restrictEveryoneMention === undefined ? [] : [statement(SET_RESTRICT_EVERYONE_MENTION, JSON.stringify(restrictEveryoneMention), now)]),
       ...(huddleCameras === undefined ? [] : [statement(SET_HUDDLE_CAMERAS, JSON.stringify(huddleCameras), now)]),
       ...(huddleScreens === undefined ? [] : [statement(SET_HUDDLE_SCREENS, JSON.stringify(huddleScreens), now)]),
       ...(huddleVideo === undefined ? [] : [statement(SET_HUDDLE_VIDEO, JSON.stringify(huddleVideo), now)]),
@@ -5251,13 +5304,17 @@ export class WorkspaceStore {
 
   /**
    * The special mentions that notify room `roomId` when `userId` makes them: @here and @channel in a
-   * room that isn't a DM, from anyone but an AI agent, and @everyone too in an open room, from anyone
-   * but a guest; none otherwise.
+   * room that isn't a DM and allows them, from anyone but an AI agent, and @everyone too in an open
+   * room, from anyone but a guest; none otherwise. Either can be kept to administrators.
    */
   async notifyingMentions(roomId: RoomId, userId: UserId): Promise<SpecialMention[]> {
-    const [room] = await this.db.all<{ everyone: number }>(NOTIFIES_ROOM, roomId, userId);
+    const [room] = await this.db.all<{ everyone: number; administrator: number; settings: string | null }>(NOTIFIES_ROOM, roomId, userId);
     if (!room) return [];
-    return room.everyone === 1 ? [...SPECIAL_MENTIONS] : ["here", "channel"];
+    const settings = storedSettings(room.settings);
+    const mayUse = (restricted: boolean) => !restricted || room.administrator === 1;
+    return SPECIAL_MENTIONS.filter((mention) =>
+      mention === "everyone" ? room.everyone === 1 && mayUse(restrictsEveryoneMention(settings)) : mayUse(restrictsChannelMentions(settings)),
+    );
   }
 
   /** The kind of room `roomId`, a DM's too, or null when there's no such room. */
@@ -6037,10 +6094,13 @@ export class WorkspaceStore {
   }
 
   /**
-   * Room `roomId`, unless it's a DM or someone isn't in it, whether they can change it, and turn huddles
-   * on or off in it, and its section.
+   * Room `roomId`, unless it's a DM or someone isn't in it, whether they can change it, turn huddles on or
+   * off in it and allow @channel, @here and @everyone there or not, and its section.
    */
-  async roomToChange(roomId: RoomId, userId: UserId): Promise<{ room: SharedRoom; canAdminister: boolean; canChangeHuddles: boolean; section: Section | null } | null> {
+  async roomToChange(
+    roomId: RoomId,
+    userId: UserId,
+  ): Promise<{ room: SharedRoom; canAdminister: boolean; canChangeHuddles: boolean; canChangeChannelMentions: boolean; section: Section | null } | null> {
     const [row] = await this.db.all<RoomToChangeRow>(ROOM_TO_CHANGE, roomId, userId);
     return row ? roomToChange(row) : null;
   }
@@ -6066,15 +6126,25 @@ export class WorkspaceStore {
   }
 
   /**
-   * Makes `changes` to a room in one transaction: renames it, allows huddles in it or not, puts it in
-   * the section `section` chooses, making that first if it's new, and makes it open to everyone active,
-   * or private to just the people `memberIds` names, taking anyone else out but those suspended in a
-   * room that was private already, whom its settings don't list, and queueing closing their sockets
-   * there with `code`, due at `dueAt`, and telling the search index who can read it if its kind changes.
-   * Answers what it changed, who's in the room then, and whether the shared order ranks it.
+   * Makes `changes` to a room in one transaction: renames it, allows huddles, and @channel, @here and
+   * @everyone, in it or not, puts it in the section `section` chooses, making that first if it's new,
+   * and makes it open to everyone active, or private to just the people `memberIds` names, taking anyone
+   * else out but those suspended in a room that was private already, whom its settings don't list, and
+   * queueing closing their sockets there with `code`, due at `dueAt`, and telling the search index who
+   * can read it if its kind changes. Answers what it changed, who's in the room then, and whether the
+   * shared order ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, section: ChosenSection | null, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
-    const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId, changes.huddles === undefined ? null : Number(changes.huddles));
+    const update = statement(
+      UPDATE_ROOM,
+      changes.name ?? null,
+      changes.kind ?? null,
+      changes.icon ?? null,
+      now,
+      roomId,
+      changes.huddles === undefined ? null : Number(changes.huddles),
+      changes.channelMentions === undefined ? null : Number(changes.channelMentions),
+    );
     const members = statement(ROOM_MEMBERS, roomId);
     const ranked = statement(ROOM_RANKED, roomId);
     // After the rest, so each change reads its answers where it did before sections.

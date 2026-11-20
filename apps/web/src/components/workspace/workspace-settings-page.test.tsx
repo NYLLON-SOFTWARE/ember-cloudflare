@@ -70,7 +70,7 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
@@ -206,6 +206,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           tagline,
           hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
+          restrictChannelMentions: changed?.restrictChannelMentions ?? account.restrictChannelMentions,
+          restrictEveryoneMention: changed?.restrictEveryoneMention ?? account.restrictEveryoneMention,
           huddleCameras: changed?.huddleCameras ?? account.huddleCameras,
           huddleScreens: changed?.huddleScreens ?? account.huddleScreens,
           huddleVideo,
@@ -2682,6 +2684,41 @@ describe("Create an open room", () => {
     expect(newRoom).toHaveAttribute("href", "/rooms/opens/new");
     await user.click(newRoom);
     expect(location.pathname).toBe("/rooms/opens/new");
+  });
+});
+
+describe("Only administrators use @channel, @here and @everyone (settings)", () => {
+  const roomsSection = () => screen.getByRole("region", { name: "Room order and permissions" });
+  showingSection("channel-settings");
+
+  it("gives administrators a crowned switch for each under Must be admin to create new rooms, each saved at once on its own", async () => {
+    const { onAccountChanged, user } = showPage();
+    const channel = await screen.findByRole("switch", { name: "Must be admin to use @channel and @here" });
+    const everyone = screen.getByRole("switch", { name: "Must be admin to use @everyone" });
+    expect(within(roomsSection()).getAllByRole("switch").map((control) => control.getAttribute("aria-label"))).toEqual([
+      "Must be admin to create new rooms",
+      "Must be admin to use @channel and @here",
+      "Must be admin to use @everyone",
+    ]);
+    for (const control of [channel, everyone]) {
+      expect(control.parentElement!.querySelector("svg")).toHaveClass("iconoir-crown");
+      expect(control).not.toBeChecked();
+    }
+
+    await user.click(channel);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, restrictChannelMentions: true }));
+    await user.click(everyone);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, restrictChannelMentions: true, restrictEveryoneMention: true }));
+    expect(saved()).toEqual([{ settings: { restrictChannelMentions: true } }, { settings: { restrictEveryoneMention: true } }]);
+    expect([channel, everyone].map((control) => control.getAttribute("aria-checked"))).toEqual(["true", "true"]);
+  });
+
+  it("follows the workspace socket, for a switch moved in another tab", async () => {
+    showPage();
+    const everyone = await screen.findByRole("switch", { name: "Must be admin to use @everyone" });
+    act(() => workspaceSays({ ...asAdministrator.account, restrictEveryoneMention: true }));
+    expect(everyone).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Must be admin to use @channel and @here" })).not.toBeChecked();
   });
 });
 
