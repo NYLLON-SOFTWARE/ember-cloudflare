@@ -206,7 +206,7 @@ describe("Someone you've blocked", () => {
 
     const now = new Date().toISOString();
     const marks = await workspaceSql(MARK_UNREAD, now, room, grace.user.id, "[]", 1);
-    expect(marks).toEqual([{ user_id: linus.user.id, unread_at: now, unread_count: 1 }]);
+    expect(marks).toEqual([{ user_id: linus.user.id, unread_at: now, unread_count: 1, mention_count: 0 }]);
     const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${MARK_UNREAD}`, "", room, grace.user.id, "[]", 1)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
     expect(plan).toMatch(/SEARCH blocks USING (COVERING )?INDEX sqlite_autoindex_blocks_1 \(user_id=\? AND blocked_id=\?\)/);
   });

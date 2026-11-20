@@ -163,6 +163,19 @@ describe("Unread rooms", () => {
     expect(roomListReducer(read, { type: "loaded", list }).list!.rooms).toEqual([room("r1", "Design"), room("r2", "general")]);
   });
 
+  it("counts the mentions a room's mark says it has, until it's read, keeping the count as the room's saved", () => {
+    const design = room("r1", "Design");
+    const listed = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([design]) });
+    const marked = roomListReducer(roomListReducer(listed, { type: "marked", roomId: "r1", at: NOON }), { type: "marked", roomId: "r1", at: NOON, mentions: 2 });
+    const counted: SidebarRoom = { ...design, unread: true, unreadSince: NOON, mentionCount: 2 };
+    expect(marked.list!.rooms).toEqual([counted]);
+    expect(withRoom(marked.list!.rooms, { id: "r1", kind: "open", name: "Design", icon: null })).toEqual([counted]);
+    // A mark the server makes again, after a read the same events bring, comes with no mentions of its own.
+    const later = "2026-10-15T12:05:00.000Z";
+    expect(roomListReducer(marked, { type: "marked", roomId: "r1", at: later }).list!.rooms).toEqual([{ ...design, unread: true, unreadSince: later }]);
+    expect(roomListReducer(marked, { type: "marked", roomId: "r1", at: null }).list!.rooms).toEqual([design]);
+  });
+
   it("counts the messages a DM's mark says have come since, until it's read, keeping the count as the DM's saved", () => {
     const dm = direct("d1", "Ada", "Grace");
     const listed = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([dm]) });
