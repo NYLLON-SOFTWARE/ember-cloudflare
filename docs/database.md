@@ -32,7 +32,7 @@ So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed
 `message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
-`memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`,
+`memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,
 `deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms`, `search_keys`, `search_readers` and the
 FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
@@ -141,7 +141,11 @@ Objects, D1 or speed call for something else.
   stems a word under a key as it does the word alone, as keys are written in digits and consonants,
   but for words of one or two letters. The index keeps an open room's words plainly, as before, and a
   room's it hasn't heard about too: nothing tells it about a room yet, so no copy of Ember needs this
-  release's code to read its index until the next one, which does.
+  release's code to read its index until the next one, which does. Meanwhile the Workspace queues each
+  room whose kind changes in `pending_readers` (migration 0080), for that release to tell the index
+  of. That release also has the index ask who can read each room it holds messages of and hasn't heard
+  about, so the index misses no room whose kind changed while a copy ran this release, before the next
+  or after going back to it.
 - **Search filters are conditions on the index's own rows.** Slack narrows a search with modifiers
   such as `in:`, `from:` and `has:link`, which Campfire has none of. The index keeps what they narrow
   by beside each message (search migration 0003): who wrote it, the thread it's in, whether it has a

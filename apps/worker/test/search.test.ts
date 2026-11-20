@@ -1007,6 +1007,49 @@ describe("Words kept by who can read them", () => {
   });
 });
 
+describe("Rooms the search index is due to hear who can read again", () => {
+  /** The rooms queued to tell the index who can read them, with how many times each was queued again. */
+  const queued = () => workspaceSql("SELECT room_id, version FROM pending_readers ORDER BY room_id");
+  /** Changes room `roomId` as `session` does in its settings. */
+  const change = (roomId: RoomId, session: Session, changes: object) =>
+    api(`/api/rooms/${roomId}`, { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify(changes) });
+
+  it("queues no room or DM as it's made", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    await createRoom("Lobby", { as: ada });
+    await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+    await direct(ada, grace);
+    await direct(ada);
+    expect(await queued()).toEqual([]);
+  });
+
+  it("queues a room again each time its kind changes, and not for a change that leaves its kind", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+    expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id, grace.user.id] })).status).toBe(200);
+    expect((await change(room.id, ada, { name: "Roadmap" })).status).toBe(200);
+    expect(await queued()).toEqual([]);
+    expect((await change(room.id, ada, { kind: "open" })).status).toBe(200);
+    expect(await queued()).toEqual([{ room_id: room.id, version: 0 }]);
+    expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+    expect(await queued()).toEqual([{ room_id: room.id, version: 1 }]);
+
+    const opened = await createRoom("Lobby", { as: ada });
+    expect((await change(opened.id, ada, { kind: "open" })).status).toBe(200);
+    expect(await queued()).toEqual([{ room_id: room.id, version: 1 }]);
+    expect((await change(opened.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+    expect(await queued()).toEqual([room.id, opened.id].sort().map((id) => ({ room_id: id, version: id === room.id ? 1 : 0 })));
+  });
+
+  it("forgets a deleted room's", async () => {
+    const ada = await signIn("Ada");
+    const [kept, deleted] = [await createRoom("Plans", { as: ada }), await createRoom("Roadmap", { as: ada })];
+    for (const room of [kept, deleted]) expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+    expect((await api(`/api/rooms/${deleted.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
+    expect(await queued()).toEqual([{ room_id: kept.id, version: 0 }]);
+  });
+});
+
 describe("Search filters", () => {
   it("finds only messages in the room a search is in, and none in a room the searcher isn't in", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
