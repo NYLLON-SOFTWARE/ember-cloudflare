@@ -21,15 +21,20 @@ export type Readers = "everyone" | "members" | UserId[];
  */
 const ENDS_WORDS = /[ᦰ-ᧀᧈᧉᳲᳳ]/gu;
 
-/** A word as FTS5's tokenizer finds one, or part of one: letters, numbers and characters for private use. */
-const WORD = /[\p{L}\p{N}\p{Co}]+/gu;
+/**
+ * A word as FTS5's tokenizer finds one, or part of one: a letter, number or character for private use,
+ * then more of them and of the marks it keeps in a word as accents, though it starts none at one, as
+ * U+0301 after an e writes é.
+ */
+const WORD = /[\p{L}\p{N}\p{Co}][\p{L}\p{N}\p{Co}̀-̄̆-̛̣̌̏̑-̨̭̮̰̱]*/gu;
 
 /**
- * The words of `text`, in order, as FTS5's tokenizer finds them, or split finer, at a mark that isn't
- * part of a letter once it's composed, say. A word kept under a key then never holds a character FTS5
- * would end it at, which would leave the rest of it a word of its own, kept plainly.
+ * The words of `text`, in order and spelled as it spells them, as FTS5's tokenizer finds them, or split
+ * finer, at a character the Unicode it goes by didn't have, which it takes for a letter, as it takes the
+ * newer emoji. A word kept under a key then never holds a character FTS5 would end it at, which would
+ * leave the rest of it a word of its own, kept plainly, and a match's words are as its text has them.
  */
-export const wordsOf = (text: string): string[] => text.normalize("NFC").replace(ENDS_WORDS, " ").match(WORD) ?? [];
+export const wordsOf = (text: string): string[] => text.replace(ENDS_WORDS, " ").match(WORD) ?? [];
 
 /**
  * The digits a key is written in: decimal digits and consonants but y, which Porter's stemmer, which

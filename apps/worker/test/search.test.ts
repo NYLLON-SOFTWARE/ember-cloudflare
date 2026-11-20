@@ -21,6 +21,7 @@ import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { MIGRATIONS } from "../src/migrations";
 import { searchStatement, type IndexedMessage, type IndexSearch, type SearchFacts, type SearchIndex } from "../src/search-index";
+import { wordsOf } from "../src/search-words";
 import type { Workspace } from "../src/workspace";
 import {
   api,
@@ -802,7 +803,7 @@ describe("Words kept by who can read them", () => {
     const index = searchIndexStub();
     await index.setReaders("closed", "members");
     await index.setReaders("ada-grace", ["ada", "grace"]);
-    const text = "Deploying the deploys, then DEPLOYED: deploy_bot's deploy";
+    const text = "Deploying the deploys, then DEPLOYED: deploy_bot's deploy, at the cafe\u0301";
     await index.apply("open", 1, [at(0, "in-open", text)], []);
     await index.apply("closed", 1, [at(1, "in-closed", text)], []);
     await index.apply("ada-grace", 1, [at(2, "in-dm", text)], []);
@@ -816,6 +817,10 @@ describe("Words kept by who can read them", () => {
       ["in-closed", ["deploy", "bot"]],
       ["in-open", ["deploy_bot"]],
     ]);
+    // Spelled as its text spells them, where an accent is a mark after its letter too, however a search spells them.
+    for (const searched of ["café", "cafe\u0301", "cafe"]) {
+      expect(await words([searched]), searched).toEqual(["in-dm", "in-closed", "in-open"].map((id) => [id, ["cafe\u0301"]]));
+    }
   });
 
   it("finds the same messages by words kept under a key as by plain ones, of three letters or more", async () => {
@@ -834,10 +839,12 @@ describe("Words kept by who can read them", () => {
       "emoji 👍🏽 okay",
       "New Tai Lue ᦀᦰᦂ and Vedic ᳲᳳ",
       "relational conditional rational",
+      // Accents as marks after their letters, of which Ọ̀ and ọ́ have no letter of their own.
+      "cre\u0300me bru\u0302le\u0301e in O\u0323\u0300yo\u0323\u0301",
     ];
     await index.apply("open", 1, texts.map((text, second) => at(second, `open-${second}`, text)), []);
     await index.apply("closed", 1, texts.map((text, second) => at(second + 30, `closed-${second}`, text)), []);
-    const queries = ["deploy", "deployed", "generalize", "general", "naive", "cafe", "über", "istanbul", "éclair", "eclair", "financial", "日本語のテキスト", "中文", "foo_bar", "bar", "qux", "twelve", "ⅻ", "digit", "yellow", "ytterbium", "yield", "hope", "hoping", "okay", "ᦀ", "ᦂ", "relate", "condition", "ration"];
+    const queries = ["deploy", "deployed", "generalize", "general", "naive", "cafe", "über", "istanbul", "éclair", "eclair", "financial", "日本語のテキスト", "中文", "foo_bar", "bar", "qux", "twelve", "ⅻ", "digit", "yellow", "ytterbium", "yield", "hope", "hoping", "okay", "ᦀ", "ᦂ", "relate", "condition", "ration", "crème", "creme", "brûlée", "brulee", "oyo", "Ọ̀yọ́", "O\u0323\u0300yo\u0323\u0301"];
     for (const query of queries) {
       const inOpen = (await idsFound([query], ["open"])).map((id) => id.slice("open-".length));
       const inClosed = (await idsFound([query], ["closed"])).map((id) => id.slice("closed-".length));
@@ -849,7 +856,7 @@ describe("Words kept by who can read them", () => {
     const index = searchIndexStub();
     await index.setReaders("closed", "members");
     // U+19B0 is a vowel sign of New Tai Lue's, and U+1CF2 a Vedic sign, which Unicode now calls letters.
-    const texts = ["xᦰyonder", "xᳲyonder", "xyonder", "x1yonder", "x́yonder", "x🏽yonder", "x‍yonder", "x_yonder"];
+    const texts = ["xᦰyonder", "xᳲyonder", "xyonder", "x1yonder", "x\u0301yonder", "x🏽yonder", "x‍yonder", "x_yonder"];
     await index.apply("closed", 1, texts.map((text, second) => at(second, `closed-${second}`, text)), []);
     for (const [second, text] of texts.entries()) {
       const kept = await wordsKeptOf(`closed-${second}`);
@@ -857,7 +864,31 @@ describe("Words kept by who can read them", () => {
       expect(kept.filter((word) => !word.startsWith("")), JSON.stringify(text)).toEqual([]);
     }
     expect(await plainly("yonder")).toEqual([]);
-    expect(await idsFound(["yonder"], ["closed"])).toEqual(texts.map((_, second) => `closed-${second}`).toReversed());
+    // FTS5 keeps U+0301 in the word it follows, as an accent, so that message's word is xyonder, as it would be plainly.
+    const yonder = texts.flatMap((text, second) => (text === "x\u0301yonder" ? [] : [`closed-${second}`]));
+    expect(await idsFound(["yonder"], ["closed"])).toEqual(yonder.toReversed());
+    expect(await idsFound(["xyonder"], ["closed"])).toEqual([`closed-${texts.indexOf("x\u0301yonder")}`]);
+  });
+
+  it("keeps no part of a private room's words plainly, whatever characters they have", async () => {
+    const index = searchIndexStub();
+    await index.setReaders("closed", "members");
+    // Each character the index keeps in a word, between an x and its code point in hex, which shows in any
+    // part of the word kept plainly.
+    const words: string[] = [];
+    for (let code = 0; code <= 0x10ffff; code++) {
+      const word = `x${String.fromCodePoint(code)}${code.toString(16)}`;
+      if ((code < 0xd800 || code > 0xdfff) && wordsOf(word).length === 1) words.push(word);
+    }
+    for (let start = 0, seq = 1; start < words.length; start += 20_000, seq++) {
+      const messages = [0, 10_000].map((from) =>
+        at(seq, `closed-${start + from}`, words.slice(start + from, start + from + 10_000).join(" ")),
+      );
+      await index.apply("closed", seq, messages.filter(({ text }) => text !== ""), []);
+    }
+    await searchSql("CREATE VIRTUAL TABLE search_index_terms USING fts5vocab(search_index, 'row')");
+    expect(await searchSql("SELECT term FROM search_index_terms WHERE substr(term, 1, 1) <> ?", "\ue000")).toEqual([]);
+    expect(await searchSql("SELECT sum(cnt) AS n FROM search_index_terms")).toEqual([{ n: words.length }]);
   });
 
   it("keeps a message's words plainly whatever keys its text writes out, which no key finds", async () => {
