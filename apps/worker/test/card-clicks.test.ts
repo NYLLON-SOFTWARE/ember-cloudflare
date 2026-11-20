@@ -200,7 +200,7 @@ describe("Buttons that act", () => {
     expect(sentIn(delivered[0]!).actions).not.toEqual([expect.objectContaining({ block_id: expect.anything() })]);
   });
 
-  it("puts the payload a bot answers in its card's place, for everyone, marked as edited", async () => {
+  it("puts the payload a bot answers in its card's place, for everyone, unmarked, as nobody edited it", async () => {
     const { ada, bot, general } = await withBot();
     const [inRoom, kai] = [await connect(general, ada), await connect(general, "Kai")];
     const message = await postCard(inRoom, general, bot.key);
@@ -211,7 +211,7 @@ describe("Buttons that act", () => {
     for (const client of [inRoom, kai]) {
       const { message: replaced } = await client.next("message.updated");
       expect(replaced).toMatchObject({ id: message.id, creator: { id: bot.id }, body: "", plainText: "v42 approved by Kai", cards: [{ source: "blocks", parts: [{ kind: "section" }] }] });
-      expect(replaced.editedAt).not.toBeNull();
+      expect(replaced.editedAt).toBeNull();
     }
     expect(await kai.next("card.clicked")).toEqual({ type: "card.clicked", clickId });
     // Only whoever clicked hears the click was taken.

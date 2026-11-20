@@ -418,7 +418,8 @@ test.describe("Apps", () => {
     await askEmber(page, `${FILE_QUESTION} ${title}`);
     const card = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title });
     await expect(card).toContainText("create_issue, with:");
-    await expect(card).toContainText(`"title": "${title}"`);
+    await expect(card).toContainText(`Title: ${title}`);
+    await expect(card).not.toContainText("{");
     await expect(card).toContainText("Ada Lovelace or an administrator can allow this call.");
     expect(mcp.calls).toEqual([]);
 

@@ -734,6 +734,14 @@ export class MessageStore {
     return this.replaceBody(message, body, now, message.editedAt);
   }
 
+  /**
+   * Gives the card `message` the text and cards `body` in place of its own once it's answered, as
+   * `updateBody` does, but without marking it edited, as a card that answers a click hasn't been.
+   */
+  answerCard(message: Message, body: StoredBody, now: string): Promise<{ message: Message; seq: number }> {
+    return this.replaceBody(message, body, now, message.editedAt);
+  }
+
   private async replaceBody(message: Message, body: StoredBody, now: string, editedAt: string | null): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
