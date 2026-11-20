@@ -95,7 +95,7 @@ describe("Where bots show up", () => {
   it("finds active bots with everyone else, but not deleted ones", async () => {
     const bots = [{ ...person("b1", "Build Bot"), role: "bot" as const }, { ...person("b2", "Old Bot", "deactivated"), role: "bot" as const }];
     const { user } = showDialog({ people: [...everyone, ...bots] });
-    await waitFor(() => expect(listed()).toEqual(["Ada Byron", "alan Turing", "Barbara Liskov", "Build Bot", "Grace Hopper", "Linus Torvalds"]));
+    await waitFor(() => expect(listed()).toEqual(["Ada Byron", "Ada Lovelace (you)", "alan Turing", "Barbara Liskov", "Build Bot", "Grace Hopper", "Linus Torvalds"]));
     await user.type(search(), "bot");
     expect(listed()).toEqual(["Build Bot"]);
   });
@@ -113,7 +113,7 @@ describe("Where bots show up", () => {
   it("badges every agent the people directory lists, and no other bot", async () => {
     const bots = [{ ...person("b1", "Build Bot"), role: "bot" as const }, { ...person("b2", "Recap"), role: "bot" as const, agent: true as const }];
     showDialog({ people: [...everyone, ...bots] });
-    await waitFor(() => expect(listed()).toEqual(["Ada Byron", "alan Turing", "Barbara Liskov", "Build Bot", "Grace Hopper", "Linus Torvalds", "Recap Agent"]));
+    await waitFor(() => expect(listed()).toEqual(["Ada Byron", "Ada Lovelace (you)", "alan Turing", "Barbara Liskov", "Build Bot", "Grace Hopper", "Linus Torvalds", "Recap Agent"]));
     expect(within(option("Recap Agent")).getByText("Agent")).toHaveAttribute("data-slot", "badge");
   });
 });
@@ -167,7 +167,7 @@ describe("AI agents only administrators can ask", () => {
 });
 
 describe("New direct message dialog", () => {
-  it("opens titled New direct message, focused on the search, listing everyone else active by name", async () => {
+  it("opens titled New direct message, focused on the search, listing everyone active by name, you marked", async () => {
     showDialog();
     const dialog = screen.getByRole("dialog", { name: "New direct message" });
     expect(dialog).toHaveAccessibleDescription("Find people by full name. You can also type @name.");
@@ -176,8 +176,8 @@ describe("New direct message dialog", () => {
     // Entering it keeps the usual cursor.
     expect(search()).toHaveAttribute("data-ember-preserve-selection");
     expect(search()).toHaveAttribute("aria-controls", screen.getByRole("listbox", { name: "People" }).id);
-    // Ada, deactivated Edsger and the case of a name don't count.
-    await waitFor(() => expect(listed()).toEqual(["Ada Byron", "alan Turing", "Barbara Liskov", "Grace Hopper", "Linus Torvalds"]));
+    // You're listed with the rest for your DM with yourself; deactivated Edsger and the case of a name don't count.
+    await waitFor(() => expect(listed()).toEqual(["Ada Byron", "Ada Lovelace (you)", "alan Turing", "Barbara Liskov", "Grace Hopper", "Linus Torvalds"]));
     expect(status()).toHaveTextContent("Choose one or more people.");
     expect(screen.queryByRole("group", { name: "Selected people" })).not.toBeInTheDocument();
     expect(start()).toBeDisabled();
@@ -185,7 +185,7 @@ describe("New direct message dialog", () => {
 
   it("lists 20 people at a time, with Show more people until everyone's shown", async () => {
     const many = Array.from({ length: 45 }, (_, i) => person(`p${i}`, `Person ${String(i).padStart(2, "0")}`));
-    const { user } = showDialog({ people: [ada, ...many] });
+    const { user } = showDialog({ people: many });
     expect(listed()).toHaveLength(20);
     expect(listed().at(-1)).toBe("Person 19");
     await user.click(screen.getByRole("button", { name: "Show more people" }));
@@ -204,7 +204,7 @@ describe("New direct message dialog", () => {
   it("searches as you type, anywhere in a name and in any case, without the @s before it", async () => {
     const { user } = showDialog();
     await user.type(search(), "@@ADA");
-    expect(listed()).toEqual(["Ada Byron"]);
+    expect(listed()).toEqual(["Ada Byron", "Ada Lovelace (you)"]);
     await user.clear(search());
     await user.type(search(), "  RING ");
     expect(listed()).toEqual(["alan Turing"]);
@@ -229,13 +229,13 @@ describe("New direct message dialog", () => {
     await user.click(option("Grace Hopper"));
     await user.click(option("alan Turing"));
     expect(chips()).toEqual(["Grace Hopper", "alan Turing"]);
-    expect(listed()).toEqual(["Ada Byron", "Barbara Liskov", "Linus Torvalds"]);
+    expect(listed()).toEqual(["Ada Byron", "Ada Lovelace (you)", "Barbara Liskov", "Linus Torvalds"]);
     expect(search()).toHaveFocus();
     expect(start()).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Remove Grace Hopper" }));
     expect(chips()).toEqual(["alan Turing"]);
-    expect(listed()).toEqual(["Ada Byron", "Barbara Liskov", "Grace Hopper", "Linus Torvalds"]);
+    expect(listed()).toEqual(["Ada Byron", "Ada Lovelace (you)", "Barbara Liskov", "Grace Hopper", "Linus Torvalds"]);
     expect(search()).toHaveFocus();
 
     await user.type(search(), "turing");
@@ -255,7 +255,7 @@ describe("New direct message dialog", () => {
     expect(search()).toHaveAttribute("aria-activedescendant", option("Linus Torvalds").id);
     await user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Ada Byron");
-    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
     expect(chips()).toEqual(["Barbara Liskov"]);
     expect(highlighted()).toBeNull();
     expect(search()).not.toHaveAttribute("aria-activedescendant");
@@ -267,10 +267,10 @@ describe("New direct message dialog", () => {
     expect(highlighted()).toBeNull();
   });
 
-  it("says there's nobody else to message", () => {
-    showDialog({ people: [ada, edsger] });
+  it("says there's nobody to message when the directory lists nobody active", () => {
+    showDialog({ people: [edsger] });
     expect(listed()).toEqual([]);
-    expect(status()).toHaveTextContent("No other people are available to message yet.");
+    expect(status()).toHaveTextContent("No people are available to message yet.");
   });
 
   it("loads the people again each time it opens, saying so until a first copy comes, with Try again should it fail", async () => {
@@ -290,16 +290,32 @@ describe("New direct message dialog", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
 
     rerender(everyone);
-    expect(listed()).toHaveLength(5);
+    expect(listed()).toHaveLength(6);
     expect(status()).toHaveTextContent("Choose one or more people.");
   });
 
   it("lists the people it has while it loads them again, and keeps them if that fails", async () => {
     showDialog({ reloadPeople: () => Promise.reject(new TypeError("Failed to fetch")) });
     await act(async () => {});
-    expect(listed()).toHaveLength(5);
+    expect(listed()).toHaveLength(6);
     expect(status()).toHaveTextContent("Choose one or more people.");
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  });
+
+  it("starts your DM with yourself when you pick yourself, alone in it as the server answers it", async () => {
+    const { fetch, answer } = holdStart();
+    const { user, askForRoom, onAnswered } = showDialog();
+    await user.click(option("Ada Lovelace (you)"));
+    // The chip names you as the sidebar does, and you leave the list while picked.
+    expect(chips()).toEqual(["Ada Lovelace"]);
+    expect(listed()).not.toContain("Ada Lovelace (you)");
+    await user.click(start());
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [ada.id] }) }));
+    expect(askForRoom).toHaveBeenCalledOnce();
+    const room: DirectRoom = { id: "d9", kind: "direct", members: [{ id: ada.id, name: ada.name }], activeAt: "2026-10-15T12:00:00.000Z" };
+    await answer(Response.json({ room }, { status: 201 }));
+    expect(onAnswered).toHaveBeenCalledExactlyOnceWith({ type: "saved", room });
+    expect(location.pathname).toBe("/rooms/d9");
   });
 
   it("starts the DM between you and the people picked, lists it, and goes there", async () => {

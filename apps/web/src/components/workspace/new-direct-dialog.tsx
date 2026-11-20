@@ -75,10 +75,11 @@ interface Props {
 }
 
 /**
- * New direct message: a search of the active people, 20 at a time, to pick one or more of, by pointer or
- * with the arrow keys and Enter, as chips that take them back out, and Start conversation, which opens
- * the DM between them and you, starting it if they don't have one, and goes there. It's open from when
- * it's shown until it closes, which it can't while a DM is starting.
+ * New direct message: a search of the active people, you among them for your DM with yourself, 20 at a
+ * time, to pick one or more of, by pointer or with the arrow keys and Enter, as chips that take them
+ * back out, and Start conversation, which opens the DM between them and you, starting it if they don't
+ * have one, and goes there. It's open from when it's shown until it closes, which it can't while a DM
+ * is starting.
  */
 export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose, onLeftOut, onFailed }: Props) {
   const people = useContext(PeopleContext);
@@ -228,7 +229,7 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
             ? "Everyone shown is selected."
             : name
               ? "No people found. Try another name."
-              : "No other people are available to message yet.";
+              : "No people are available to message yet.";
 
   return (
     <Dialog open={open} onOpenChange={(open) => open || close()}>
@@ -317,6 +318,7 @@ export function NewDirectDialog({ opener, me, reloadPeople, askForRoom, onClose,
                   <UserAvatar user={person} />
                   <span className="min-w-0 wrap-anywhere">
                     {nameOf(person)}
+                    {person.id === me.id && " (you)"}
                     {person.username && <span className="text-muted-foreground"> @{person.username}</span>}
                     {isAgent(person) && <AgentBadge className="ms-0.5" />}
                   </span>
