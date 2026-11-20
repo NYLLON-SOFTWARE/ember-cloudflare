@@ -1,5 +1,5 @@
 import type { Room, RoomSettings } from "@ember/protocol";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +12,7 @@ import { HuddlesContext, type Huddles } from "./huddle-button";
 import { HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED } from "./room-form";
 import { CONFIRM_DELETE, CONFIRM_LEAVE, RoomSettingsPage } from "./room-settings-page";
 
-const ada = { id: "u1", name: "Ada Lovelace" };
+const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace = { id: "u2", name: "Grace Hopper" };
 const linus = { id: "u3", name: "Linus Torvalds" };
 const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
@@ -24,6 +24,8 @@ const openSettings = (canAdminister = true): RoomSettings => ({
   canAdminister,
   canChangeHuddles: canAdminister,
   people: [ada, grace, linus].map((person) => ({ ...person, member: true })),
+  section: null,
+  sections: [],
 });
 const closedSettings: RoomSettings = {
   room: leads,
@@ -34,6 +36,8 @@ const closedSettings: RoomSettings = {
     { ...grace, member: false },
     { ...linus, member: true },
   ],
+  section: null,
+  sections: [],
 };
 
 /** Answers `settings` for the page, then `saved` (or `refusal`) for a change. */
@@ -220,6 +224,59 @@ describe("Room icon picker", () => {
     await pick("Use Lock icon");
     act(() => navigate("/rooms/general"));
     expect(location.pathname).toBe("/rooms/general");
+  });
+});
+
+describe("Sidebar section", () => {
+  const sections = [
+    { id: "s1", name: "Engineering", rooms: 2 },
+    { id: "s2", name: "Sales", rooms: 0 },
+  ];
+  const inEngineering: RoomSettings = { ...openSettings(), section: { id: "s1", name: "Engineering" }, sections };
+  const field = () => screen.getByRole("button", { name: "Sidebar section" });
+
+  it("starts with the room's section, and sends one only once another is picked", async () => {
+    serve(inEngineering, { saved: design });
+    const { onSaved, user } = showPage(design);
+    await roomName();
+    expect(field()).toHaveTextContent("Engineering");
+    await user.click(field());
+    expect(screen.getAllByRole("menuitemradio").map((item) => item.textContent)).toEqual(["No section", "Engineering2 rooms", "SalesNo rooms"]);
+    expect(screen.getByRole("menuitemradio", { name: /^Engineering/ })).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(design));
+    expect(sent()).toEqual({ name: "Design", icon: "", kind: "open" });
+  });
+
+  it("takes the room out of its section, which counts as a change until it's put back", async () => {
+    serve(inEngineering, { saved: design });
+    const { onSaved, user } = showPage(design);
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitemradio", { name: "No section" }));
+    expect(field()).toHaveTextContent("No section");
+    act(() => navigate("/rooms/general"));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(design));
+    expect(sent()).toEqual({ name: "Design", icon: "", kind: "open", section: null });
+  });
+
+  it("offers New section only to an administrator, and nothing to someone who can't change the room", async () => {
+    serve(inEngineering);
+    const { user } = showPage(design);
+    await roomName();
+    await user.click(field());
+    expect(screen.queryByRole("menuitem", { name: "New section…" })).not.toBeInTheDocument();
+    cleanup();
+
+    serve({ ...openSettings(false), section: { id: "s1", name: "Engineering" } });
+    showPage(design);
+    expect(await screen.findByRole("heading", { level: 2, name: "Design" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sidebar section" })).not.toBeInTheDocument();
   });
 });
 

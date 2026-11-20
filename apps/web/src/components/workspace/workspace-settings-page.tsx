@@ -13,7 +13,9 @@ import {
   type PersonRole,
   type ReleaseCheck,
   type RoomId,
+  type SavedRoomLayout,
   type SidebarRoom,
+  type SidebarSection,
   type WorkspaceSettings,
 } from "@ember/protocol";
 import type { MemberfulSaved } from "@ember/protocol/memberful";
@@ -55,6 +57,7 @@ import { ReportsList } from "./reports-list";
 import { PicturePicker } from "./picture-picker";
 import { RelaySetup } from "./relay-setup";
 import { RoomOrder } from "./room-order";
+import { SectionNameDialog } from "./section-name-dialog";
 import { SettingsLayout, workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE, TITLE_LINK } from "./settings-page";
 import { SsoSetup } from "./sso-setup";
@@ -83,8 +86,12 @@ interface Props {
   rooms: SidebarRoom[] | null;
   /** The ones of them the shared order ranks, in its order. */
   sharedOrder: RoomId[];
-  /** Called with the rooms of theirs the shared order ranks, as the server answers them, once they save it. */
-  onSharedOrderSaved: (sharedOrder: RoomId[]) => void;
+  /** The sidebar's sections, in order, each with which of `rooms` are in it: for an administrator, every section. */
+  sections: SidebarSection[];
+  /** Called with the layout as the server answers it, once they save the order. */
+  onSharedOrderSaved: (layout: SavedRoomLayout) => void;
+  /** Called once a section is made, renamed or deleted, for the sidebar to load again, settling once it has or failed. */
+  onSectionsChanged: () => Promise<void>;
   /** Called with null when the session has expired. */
   onSessionChanged: (me: Me | null) => void;
   /** For an administrator, the release this Ember is and the newest one, once the Worker has said, or else null. */
@@ -105,8 +112,8 @@ interface Props {
  *   The rail's icons are in Custom styles (`NavigationIconSettings`), where the project's owner moved
  *   them.
  * - Rooms and permissions: New room, which members don't get while only administrators can create
- *   rooms, then for administrators, the switch that says so, and the rooms' order for everyone, each
- *   linking to its settings.
+ *   rooms, and for administrators, New section, then the switch that says so, and the rooms' order for
+ *   everyone, in their sections, each room linking to its settings.
  * - Membership: for administrators, the Reports list first, then who can join, with switches for Open,
  *   the join link, which they can regenerate, Memberful and single sign-on, which Set up single sign-on
  *   sets up, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
@@ -131,7 +138,9 @@ export function WorkspaceSettingsPage({
   onFailed,
   rooms,
   sharedOrder,
+  sections,
   onSharedOrderSaved,
+  onSectionsChanged,
   onSessionChanged,
   release,
   onCheckForUpdates,
@@ -164,6 +173,7 @@ export function WorkspaceSettingsPage({
   // Set up single sign-on, while it's open, with what to go on to once it closes with the provider saved.
   const [ssoSetup, setSsoSetup] = useState<{ then?: () => void } | null>(null);
   const [settingUpRelay, setSettingUpRelay] = useState(false);
+  const [makingSection, setMakingSection] = useState(false);
   const account = useAccount();
   const name = typedName ?? account.name;
   const tagline = typedTagline ?? account.tagline;
@@ -533,12 +543,20 @@ export function WorkspaceSettingsPage({
           <h2 id="channel-settings-heading" className={TITLE}>
             Room order and permissions
           </h2>
-          {(me.administrator || !account.restrictRoomCreation) && (
-            <PageLink href={newRoomPath("open")} className={TITLE_LINK}>
-              <Plus className="size-[18px]" />
-              <span>New room</span>
-            </PageLink>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {settings?.canAdminister && (
+              <button type="button" onClick={() => setMakingSection(true)} className={cn(TITLE_LINK, "cursor-pointer")}>
+                <Plus className="size-[18px]" />
+                <span>New section</span>
+              </button>
+            )}
+            {(me.administrator || !account.restrictRoomCreation) && (
+              <PageLink href={newRoomPath("open")} className={TITLE_LINK}>
+                <Plus className="size-[18px]" />
+                <span>New room</span>
+              </PageLink>
+            )}
+          </div>
         </div>
         {settings?.canAdminister ? (
           <>
@@ -553,7 +571,18 @@ export function WorkspaceSettingsPage({
                 aria-label="Must be admin to create new rooms"
               />
             </div>
-            {sharedRooms && <RoomOrder rooms={sharedRooms} sharedOrder={sharedOrder} onSaved={onSharedOrderSaved} onSessionChanged={onSessionChanged} />}
+            {sharedRooms && (
+              <RoomOrder
+                rooms={sharedRooms}
+                sharedOrder={sharedOrder}
+                sections={sections}
+                onSaved={onSharedOrderSaved}
+                onSectionsChanged={onSectionsChanged}
+                onFailed={onFailed}
+                onSessionChanged={onSessionChanged}
+              />
+            )}
+            {makingSection && <SectionNameDialog section={null} onSaved={() => void onSectionsChanged()} onClose={() => setMakingSection(false)} onFailed={onFailed} />}
           </>
         ) : (
           settings && <p className="text-muted-foreground">Community admins manage room order and permissions.</p>

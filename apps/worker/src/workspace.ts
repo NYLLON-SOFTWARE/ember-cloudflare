@@ -16,6 +16,7 @@ import {
   isRoomId,
   mailboxOf,
   mailboxUnder,
+  MAX_SECTIONS,
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
@@ -68,8 +69,13 @@ import {
   type RoomChanges,
   type RoomId,
   type RoomKind,
+  type RoomLayout,
   type RoomSettings,
+  type SavedRoomLayout,
   type Search,
+  type Section,
+  type SectionChoice,
+  type SectionId,
   type SentTestEmail,
   type SharedRoom,
   type Sidebar,
@@ -215,6 +221,7 @@ import {
   type StoredAppRead,
   type AgentToolPicks,
   type ChangedPicks,
+  type ChosenSection,
   type StoredToolPick,
   type StoredAgentSettings,
   type StoredBot,
@@ -829,6 +836,12 @@ export type SignUpRefusal = "closed" | "full";
 
 /** Why someone can't be called a name: it's an agent's, or it has a word Blocked words keeps out. */
 export type NameRefusal = "agent's name" | "blocked words";
+
+/**
+ * Why a room can't go in the section New room or its settings choose: it isn't there, a new one is an
+ * administrator's to make, there are as many as there can be, or its name has a word Blocked words keeps out.
+ */
+export type SectionRefusal = "no such section" | "new sections administrators only" | "too many sections" | "blocked words";
 
 /** What a room's events answer: what the room is to deliver, and the version of the blocked words (`blockedWords`). */
 export type RoomEventAnswer = RoomEventDeliveries & { blockedWords: string };
@@ -3596,16 +3609,30 @@ export class Workspace extends DurableObject<Env> {
    * The sidebar of the person `credentials` signs in: the rooms they're in, the ones they've starred and
    * the shared order of the rest, with the welcome card's invitation if they're an administrator in the
    * workspace's first room who hasn't dismissed the card, the huddles going on in their rooms, which of
-   * a huddle's sounds they hear, once they've turned one off, and for an administrator, how many open
-   * reports they see. Null without a valid session.
+   * a huddle's sounds they hear, once they've turned one off, for an administrator, how many open
+   * reports they see, and the sections: every one for an administrator, or else the ones with a room of
+   * theirs. Null without a valid session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, sharedOrder, huddles, blocks, huddleSounds, invitationRoomId, openReports }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, sharedOrder, sections, huddles, blocks, huddleSounds, invitationRoomId, openReports }, account] = await Promise.all([
+      this.store.roomsFor(user.id),
+      this.joinableAccount(),
+    ]);
     const invited = invitationRoomId !== null && rooms.some((room) => room.id === invitationRoomId);
     const invitation = account && invited ? { roomId: invitationRoomId, joinCode: account.joinCode } : null;
-    return { rooms, favorites, sharedOrder, invitation, huddles, blocks, ...(!hearsAllHuddleSounds(huddleSounds) && { huddleSounds }), ...(openReports !== null && { openReports }) };
+    return {
+      rooms,
+      favorites,
+      sharedOrder,
+      ...(sections.length > 0 && { sections }),
+      invitation,
+      huddles,
+      blocks,
+      ...(!hearsAllHuddleSounds(huddleSounds) && { huddleSounds }),
+      ...(openReports !== null && { openReports }),
+    };
   }
 
   /**
@@ -3640,19 +3667,107 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Puts the rooms in the sidebar of the administrator `credentials` signs in, DMs aside, in the shared
-   * order in the order `roomIds` lists them, answering the rooms they're in that it ranks, in its order:
-   * "forbidden" unless they're an administrator and every room is one they could order, or null without
-   * a valid session. Every sidebar loads again, its own included.
+   * order in the order `layout` lists them, and when it has sections, puts them in its order and each of
+   * those rooms in the section that lists it, or in none, answering the rooms they're in that the order
+   * ranks, in its order, and every section: "forbidden" unless they're an administrator and every room is
+   * one they could order, or null without a valid session. Every sidebar loads again, its own included.
    */
-  async setSharedOrder(credentials: Credentials, roomIds: RoomId[]): Promise<RoomId[] | "forbidden" | null> {
+  async setSharedOrder(credentials: Credentials, layout: RoomLayout): Promise<SavedRoomLayout | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
-      const sharedOrder = await this.store.setSharedOrder(user.id, roomIds);
-      if (!sharedOrder) return "forbidden";
+      const saved = await this.store.setSharedOrder(user.id, layout);
+      if (!saved) return "forbidden";
       this.broadcast({ type: "rooms.reordered" });
-      return sharedOrder;
+      return saved;
     });
+  }
+
+  /**
+   * Makes a section named `name`, after the others, as the administrator `credentials` signs in,
+   * answering it: "forbidden" unless they're an administrator, "taken" when a section has that name,
+   * "too many sections" when there are `MAX_SECTIONS`, "blocked words" for a name with a word Blocked
+   * words keeps out, or null without a valid session. Every administrator's sidebar, which has every
+   * section, loads again.
+   */
+  async makeSection(credentials: Credentials, name: string): Promise<Section | "forbidden" | "taken" | "too many sections" | "blocked words" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const { section: named, count } = await this.store.sectionNamed(name);
+      if (named) return "taken";
+      if (count >= MAX_SECTIONS) return "too many sections";
+      if (await this.hasBlockedWord(name)) return "blocked words";
+      const section = { id: sortableId(), name };
+      // One change at a time, nothing makes a section between reading them and making this one.
+      await this.store.makeSection(section, new Date().toISOString());
+      this.tell(await this.store.administratorIds(), { type: "rooms.reordered" });
+      return section;
+    });
+  }
+
+  /**
+   * Renames section `id` to `name` as the administrator `credentials` signs in, answering it: "forbidden"
+   * unless they're an administrator, "not found", "taken" when another section has that name, "blocked
+   * words" as for making one, or null without a valid session. Every sidebar loads again once it's
+   * renamed.
+   */
+  async renameSection(credentials: Credentials, id: SectionId, name: string): Promise<Section | "forbidden" | "not found" | "taken" | "blocked words" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (await this.hasBlockedWord(name)) return "blocked words";
+      const renamed = await this.store.renameSection(id, name, new Date().toISOString());
+      if (renamed === "not found" || renamed === "taken") return renamed;
+      if (renamed === "renamed") this.broadcast({ type: "rooms.reordered" });
+      return { id, name };
+    });
+  }
+
+  /**
+   * Deletes section `id` as the administrator `credentials` signs in, leaving its rooms in none,
+   * answering "deleted": "forbidden" unless they're an administrator, "not found", or null without a
+   * valid session. Every sidebar loads again.
+   */
+  async deleteSection(credentials: Credentials, id: SectionId): Promise<"deleted" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.deleteSection(id))) return "not found";
+      this.broadcast({ type: "rooms.reordered" });
+      return "deleted";
+    });
+  }
+
+  /**
+   * The section `choice` puts a room in as `userId` chooses: a section that's there, or none, or the
+   * one with the name it gives, or else a new one with that name, last, which only an administrator can
+   * make, while there are fewer than `MAX_SECTIONS`, and not with a word Blocked words keeps out.
+   * Answers why not instead. A change one at a time with the others, it's there still when it's saved.
+   */
+  private async chosenSection(choice: SectionChoice, userId: UserId): Promise<ChosenSection | SectionRefusal> {
+    if (choice === null) return { section: null, made: false };
+    if (typeof choice === "string") {
+      const section = await this.store.section(choice);
+      return section ? { section, made: false } : "no such section";
+    }
+    const { section, count } = await this.store.sectionNamed(choice.name);
+    if (section) return { section, made: false };
+    if (!(await this.store.isAdministrator(userId))) return "new sections administrators only";
+    if (count >= MAX_SECTIONS) return "too many sections";
+    if (await this.hasBlockedWord(choice.name)) return "blocked words";
+    return { section: { id: sortableId(), name: choice.name }, made: true };
+  }
+
+  /**
+   * Has the sidebars of every administrator load again, once `chosen` has made a section, since they
+   * list every section, though the room it's made for isn't in theirs.
+   */
+  private async sectionMade(chosen: ChosenSection | null): Promise<void> {
+    if (chosen?.made) this.tell(await this.store.administratorIds(), { type: "rooms.reordered" });
   }
 
   /**
@@ -3926,19 +4041,25 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Creates a room as the person `credentials` signs in: "forbidden" unless they may create rooms,
-   * "blocked words" for a name with a word Blocked words keeps out, or null without a valid session.
-   * Everyone it puts in sees it in their sidebars at once, and nobody else hears of it.
+   * Creates a room as the person `credentials` signs in, in the section it chooses, if any
+   * (`chosenSection`): "forbidden" unless they may create rooms, "blocked words" for a name with a word
+   * Blocked words keeps out, why the section is refused, or null without a valid session. Everyone it
+   * puts in sees it in their sidebars at once, under its section, and nobody else hears of it.
    */
-  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | "blocked words" | null> {
+  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | "blocked words" | SectionRefusal | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
-    if (await this.hasBlockedWord(room.name)) return "blocked words";
-    const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
-    const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
-    this.tell(memberIds, { type: "room.saved", room: created });
-    return created;
+    return this.oneAtATime(async () => {
+      if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
+      if (await this.hasBlockedWord(room.name)) return "blocked words";
+      const chosen = room.section === undefined ? null : await this.chosenSection(room.section, user.id);
+      if (typeof chosen === "string") return chosen;
+      const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
+      const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, chosen, new Date().toISOString());
+      this.tell(memberIds, { type: "room.saved", room: created, ...(chosen?.section && { section: chosen.section }) });
+      await this.sectionMade(chosen);
+      return created;
+    });
   }
 
   /**
@@ -3962,13 +4083,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * What the New room forms list, everyone active who can be put in a room, for the person `credentials`
-   * signs in: "forbidden" unless they may create rooms, or null without a valid session.
+   * What the New room forms list, everyone active who can be put in a room and the sections, for the
+   * person `credentials` signs in: "forbidden" unless they may create rooms, or null without a valid
+   * session.
    */
   async newRoomForm(credentials: Credentials): Promise<NewRoomForm | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return (await this.mayCreateRoomsAs(user.id)) ? { people: await this.store.activePeople() } : "forbidden";
+    if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
+    const [people, sections] = await Promise.all([this.store.activePeople(), this.store.sectionOptions(user.id)]);
+    return { people, sections };
   }
 
   /**
@@ -5444,13 +5568,18 @@ export class Workspace extends DurableObject<Env> {
    * Makes `changes` to room `roomId` as the person `credentials` signs in, answering the room as it
    * is then: "not found" as for its settings, "forbidden" unless they can change it, "administrators
    * only" for turning huddles on or off in it unless they're one, "blocked words" for a new name with
-   * a word Blocked words keeps out, though the name it has stays, or null without a valid session.
-   * Anyone it takes out of the room is told to reconnect, and finds it gone, and it leaves their
-   * sidebars. Everyone in it sees it as it is now in theirs, or, when only who's in it changed, the
-   * people it puts in do. A huddle going on in a room it turns huddles off in is left by each tab
-   * that hears so, and ends for whoever is in it still as the room next checks it (`huddlesIn`).
+   * a word Blocked words keeps out, though the name it has stays, why the section it chooses is refused
+   * (`chosenSection`), or null without a valid session. Anyone it takes out of the room is told to
+   * reconnect, and finds it gone, and it leaves their sidebars. Everyone in it sees it as it is now in
+   * theirs, under its section, or, when only who's in it changed, the people it puts in do. A huddle
+   * going on in a room it turns huddles off in is left by each tab that hears so, and ends for whoever is
+   * in it still as the room next checks it (`huddlesIn`).
    */
-  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | "administrators only" | "blocked words" | null> {
+  async changeRoom(
+    credentials: Credentials,
+    roomId: RoomId,
+    changes: RoomChanges,
+  ): Promise<SharedRoom | "not found" | "forbidden" | "administrators only" | "blocked words" | SectionRefusal | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
@@ -5462,6 +5591,10 @@ export class Workspace extends DurableObject<Env> {
       if (changes.huddles !== undefined && changes.huddles !== allowed && !found.canChangeHuddles) return "administrators only";
       // Its settings send the name it has with every change.
       if (changes.name && changes.name !== found.room.name && (await this.hasBlockedWord(changes.name))) return "blocked words";
+      const chosen = changes.section === undefined ? null : await this.chosenSection(changes.section, user.id);
+      if (typeof chosen === "string") return chosen;
+      // Its settings send the section it's in with every change too, which moves it nowhere.
+      const moved = chosen && (chosen.made || chosen.section?.id !== found.section?.id) ? chosen : null;
       const { huddles: _, ...room } = found.room;
       const changed: SharedRoom = {
         ...room,
@@ -5470,19 +5603,25 @@ export class Workspace extends DurableObject<Env> {
         ...(changes.icon !== undefined && { icon: changes.icon || null }),
         ...allowingHuddles(changes.huddles ?? allowed),
       };
-      if (!changes.name && !changes.kind && changes.icon === undefined && changes.huddles === undefined) return changed;
+      if (!changes.name && !changes.kind && changes.icon === undefined && changes.huddles === undefined && !moved) return changed;
       const now = Date.now();
       // As when signing out, until the database says it queued nothing.
       let queued = changes.kind === "closed";
       let saved: SavedRoomChange;
       try {
-        saved = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
+        saved = await this.store.changeRoom(roomId, changes, moved, CloseCode.Reconnect, now, new Date(now).toISOString());
         queued = saved.removedIds.length > 0 || saved.madePrivate;
       } finally {
         if (queued) await this.revocationsQueued(now);
       }
       this.tell(saved.removedIds, { type: "room.gone", roomId });
-      this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
+      const section = saved.sectionChanged ? moved!.section : found.section;
+      this.tell(saved.roomChanged || saved.sectionChanged ? saved.memberIds : saved.addedIds, {
+        type: "room.saved",
+        room: changed,
+        ...((section || saved.sectionChanged) && { section }),
+      });
+      await this.sectionMade(moved);
       // Whoever it puts in has heard nothing of a huddle going on there.
       const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
       if (huddle) this.tell(saved.addedIds, { type: "room.huddle", roomId, huddle });

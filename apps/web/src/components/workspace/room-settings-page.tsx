@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import type { Me, RoomChanges, RoomIconName, RoomId, RoomSettings, SectionChoice, UserId } from "@ember/protocol";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";
@@ -30,11 +30,14 @@ const sameMembers = (a: ReadonlySet<UserId>, b: ReadonlySet<UserId>) => a.size =
 /** Whether a room's settings allow huddles in it, which they do until they say not. */
 const allowsHuddles = (settings: RoomSettings) => settings.room.huddles !== false;
 
+/** Whether two choices of section are the same: the same section, none, or a new one of the same name. */
+const sameSection = (a: SectionChoice, b: SectionChoice) => (typeof a === "object" && a !== null && typeof b === "object" && b !== null ? a.name === b.name : a === b);
+
 interface Props {
   roomId: RoomId;
   /** Which of the two forms the address names. */
   access: Access;
-  me: User;
+  me: Me;
   /**
    * Called as the room is saved or deleted, with what lists it, for the sidebar, as the server answers:
    * as saved, or gone once it's saved without this person, or deleted. The page then shows the room, or
@@ -52,7 +55,8 @@ interface Props {
  * one form for the other in place, opens it to everyone or makes it private to the people whose switches
  * are on; under the form, they can delete it. Leaving with changes asks first. Where huddles are on,
  * an administrator's form has the Huddles switch, which says whether the room allows them, as a Slack
- * channel's settings do for its workspace's owners and admins. Everyone else sees the room's name and
+ * channel's settings do for its workspace's owners and admins. Whoever can change the room picks its
+ * sidebar section too, and an administrator can make one there. Everyone else sees the room's name and
  * people, in the form for its kind, and can leave a private room, and whoever has no Huddles switch,
  * the room's creator among them, reads that it has no huddles when it doesn't. The server refuses the
  * last of its people who could open it, saying why: the page can't tell who they are, as it lists
@@ -62,6 +66,9 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<RoomIconName | null>(null);
+  // The section picked, and the one the room is in, as loaded or last saved, which is sent only once another is picked.
+  const [section, setSection] = useState<SectionChoice>(null);
+  const [savedSection, setSavedSection] = useState<SectionChoice>(null);
   // Who the private form lets in, starting with the room's members.
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   // Whether the Huddles switch is on, starting as the room's settings have it.
@@ -86,6 +93,8 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
         setSettings(settings);
         setName(settings.room.name);
         setIcon(settings.room.icon);
+        setSection(settings.section?.id ?? null);
+        setSavedSection(settings.section?.id ?? null);
         setChosen(membersOf(settings));
         setHuddles(allowsHuddles(settings));
       },
@@ -121,7 +130,13 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
    */
   const send = () => {
     // The switch is sent only where it shows, so saving a room while huddles are off, or as anyone but an administrator, leaves its own setting alone.
-    const kept = { name, icon: icon ?? "", ...(huddlesOn && settings?.canChangeHuddles && { huddles }) } satisfies RoomChanges;
+    const kept = {
+      name,
+      icon: icon ?? "",
+      ...(huddlesOn && settings?.canChangeHuddles && { huddles }),
+      // The section is sent only once another is picked, so one deleted since the page loaded isn't refused.
+      ...(!sameSection(section, savedSection) && { section }),
+    } satisfies RoomChanges;
     const changes: RoomChanges = access === "open" ? { ...kept, kind: access } : { ...kept, kind: access, memberIds: [...chosen] };
     const leaving = access === "closed" && !chosen.has(me.id);
     const answered = askForRoom();
@@ -130,6 +145,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       // An open room takes in everyone.
       setSettings((settings) => settings && { ...settings, room, people: settings.people.map((person) => ({ ...person, member: access === "open" || chosen.has(person.id) })) });
       setOpened(access);
+      setSavedSection(section);
       return leaving;
     });
   };
@@ -163,7 +179,12 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const changed =
     !!settings?.canAdminister &&
     !busy &&
-    (name !== settings.room.name || icon !== settings.room.icon || access !== opened || (huddlesOn && huddles !== allowsHuddles(settings)) || (!open && !sameMembers(chosen, membersOf(settings))));
+    (name !== settings.room.name ||
+      icon !== settings.room.icon ||
+      !sameSection(section, savedSection) ||
+      access !== opened ||
+      (huddlesOn && huddles !== allowsHuddles(settings)) ||
+      (!open && !sameMembers(chosen, membersOf(settings))));
   // The Huddles row is there while huddles are on: with its switch for an administrator, and for anyone
   // else, the room's creator too, only where the room has none, to say so.
   const huddlesRow = !huddlesOn || !settings ? null : settings.canChangeHuddles ? { allowed: huddles, onChange: setHuddles, live } : allowsHuddles(settings) ? null : { allowed: false };
@@ -181,6 +202,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
             onNameChange={setName}
             icon={icon}
             onIconChange={setIcon}
+            section={{ sections: settings.sections, value: section, onChange: setSection, canMake: me.administrator }}
             // The private form has the Everyone row only for whoever can change the room.
             everyone={settings.canAdminister ? { on: open, onFlip: flip } : open ? { on: true } : null}
             // A private room lists its members first.

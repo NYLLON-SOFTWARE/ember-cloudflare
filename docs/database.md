@@ -31,7 +31,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
 `message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
-`bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
+`bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`, `sections`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,
 `deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms`, `search_keys`, `search_readers` and the
 FTS5 table `search_index`. A room's id also
@@ -383,6 +383,16 @@ Objects, D1 or speed call for something else.
   decide who can see a room, so nothing comes between the read and the writes. A deleted room leaves
   the order with its row. Whether only administrators create rooms stays in the account's settings,
   as in Campfire, and the Workspace keeps it with the rest of the account it has read.
+- **A room's sidebar section is a column of the room**, `rooms.section_id`, beside a `sections` table
+  of their names and places (workspace migration 0081), so the sidebar's statement reads each room's
+  section with the room, and the sections come from one more statement in the same batch. Saving the
+  layout in Rooms and permissions puts the sections in order, then each room the administrator could
+  order in its section, or in none, in two `UPDATE ... FROM json_each`, given the order and the
+  rooms' pairs of room and section as JSON values, so it binds the same few values however many rooms
+  there are, and skips what's in place already. A room in a section the layout doesn't list, as one
+  made after the page read the layout, stays where it is. Two sections can't share a name, with
+  letters in either case alike, which the statements that make and rename one check as they write,
+  and deleting one puts its rooms in none in the same batch.
 - **A room's huddle is columns of the room.** A huddle's sockets are its room's object's, which
   alone knows who's in it, and Campfire has nothing like one. For everyone in the room to see it, in
   the huddle or not, the Workspace keeps who's in it, a JSON list of their ids in the order they

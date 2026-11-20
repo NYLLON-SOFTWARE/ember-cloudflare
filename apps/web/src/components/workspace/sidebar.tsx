@@ -1,16 +1,17 @@
-import { useContext, useId, useMemo, type MouseEvent } from "react";
-import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@ember/protocol";
-import { ChatPlusIn, Headset, NavArrowRight, StarSolid } from "@/components/icons/iconoir";
+import { useContext, useId, useMemo, type MouseEvent, type ReactNode } from "react";
+import type { Favorites, LiveHuddle, Me, RoomId, Section, SidebarRoom, SidebarSection, UserId } from "@ember/protocol";
+import { ChatPlusIn, Headset, NavArrowDown, NavArrowRight, StarSolid } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
 import { PeopleContext, useNameOf, usePresenceOf, type Presence } from "@/hooks/use-directory";
+import { useFoldedSections } from "@/hooks/use-folded-sections";
 import { HUDDLES_PATH, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { membersShown } from "@/lib/directs";
 import { huddlesGoingOn } from "@/lib/huddle-list";
 import { inItsHuddle } from "@/lib/huddle-people";
-import { apart, inDirectOrder, inSidebarOrder, isQuietWelcome, markedUnread, type DirectSidebarRoom } from "@/lib/room-list";
+import { apart, inDirectOrder, inSections, inSidebarOrder, isQuietWelcome, markedUnread, type DirectSidebarRoom, type SharedSidebarRoom } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
 import { opensNewDirect } from "./new-direct-dialog";
@@ -39,6 +40,8 @@ interface Props {
   favorites: Favorites;
   /** The rooms the workspace's shared order ranks, which come next, in its order. */
   sharedOrder: RoomId[];
+  /** The sections, in order, whose rooms come after the rest, under their names. */
+  sections: SidebarSection[];
   /** The huddles going on in their rooms, by room, whose rows say who's in them. */
   huddles: Record<RoomId, LiveHuddle>;
   /** Whether the Huddles page is the one showing, which Huddles, over the rooms, goes to. */
@@ -69,8 +72,12 @@ interface Props {
  * shared order ranks, in its order, then the rest in the order they were put in them, so a new room
  * comes last, and a starred room's row ends with a star, with no grip, both as the project's owner
  * chose: held, the row can be dragged among the other starred rows, or moved with Alt and an arrow
- * (`useStarOrder`). The DMs follow, only the ones they're in, as the project's owner chose, rather than
- * Campfire's people to start one with too, latest active first, and a DM's row shows who else is in it.
+ * (`useStarOrder`). The rooms in a section that aren't starred come after the others, in the same
+ * order, set in under its name, which sits on a line across the sidebar, as the project's owner chose
+ * (2026-11-20), with the arrow at its end that folds the section, leaving only its rooms marked unread
+ * and the one open, and unfolds it again (`useFoldedSections`). The DMs follow, only the ones they're
+ * in, as the project's owner chose, rather than Campfire's people to start one with too, latest active
+ * first, and a DM's row shows who else is in it.
  * Someone who joins after them starts in a DM with them, as in Slack, which the project's owner chose
  * (2026-11-16), but the DMs that welcomed them as they joined show only once someone writes in one, or
  * while it's open or has a huddle going on. A DM with one other person shows whether they're active or
@@ -88,6 +95,7 @@ export function Sidebar({
   loaded,
   favorites,
   sharedOrder,
+  sections,
   huddles,
   onHuddles,
   currentRoomId,
@@ -111,6 +119,8 @@ export function Sidebar({
   const { order, moving, status, listRef, scrollerRef, listProps } = useStarOrder({ favorites, shown, nameOf, onSaved: onStarred, onSessionChanged });
   const listed = useMemo(() => inSidebarOrder(shared, order, sharedOrder), [shared, order, sharedOrder]);
   const starred = useMemo(() => new Set(order), [order]);
+  const grouped = useMemo(() => inSections(listed, sections, starred), [listed, sections, starred]);
+  const { folded, fold } = useFoldedSections();
   const directsListed = useMemo(
     () => inDirectOrder(directs.filter((room) => room.id === currentRoomId || room.id in huddles || !isQuietWelcome(room, meId))),
     [directs, currentRoomId, huddles, meId],
@@ -124,6 +134,44 @@ export function Sidebar({
     if (event.metaKey || event.ctrlKey || event.shiftKey) return;
     event.preventDefault();
     onSelect(roomId);
+  };
+  /** A room's row, set in under its section's name by `className` when it's in one. */
+  const roomRow = (room: SharedSidebarRoom, className?: string) => {
+    const unread = markedUnread(room, currentRoomId);
+    const star = starred.has(room.id);
+    const huddle = huddles[room.id];
+    // The words for who's in the room's huddle, which come with its mark.
+    const inHuddleId = `${huddleId}-${room.id}`;
+    return (
+      <a
+        key={room.id}
+        data-room-id={room.id}
+        href={roomPath(room.id)}
+        draggable={false}
+        aria-current={room.id === currentRoomId ? "page" : undefined}
+        // Every row says how the stars are reordered, a marked one says it's unread, which the eye sees
+        // by its weight and dot, and one with a huddle says who's in it, which the eye sees by its mark.
+        aria-describedby={[huddle && inHuddleId, unread && unreadId, helpId].filter(Boolean).join(" ")}
+        aria-keyshortcuts={star ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+        onClick={(event) => select(event, room.id)}
+        className={cn(
+          ROW,
+          "[-webkit-touch-callout:none]",
+          className,
+          unread && "font-[650]",
+          star && "cursor-grab",
+          room.id === moving && "relative z-[1] cursor-grabbing bg-background! shadow-[0_4px_14px_var(--color-drag-shadow)] outline outline-muted-foreground",
+        )}
+      >
+        <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
+        <span className="truncate">{room.name}</span>
+        {/* The huddle's mark, the dot and the star sit together at the row's end, pushed there by one auto
+            margin. The star's muted at 65%. */}
+        {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} className="ml-auto" />}
+        {unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />}
+        {star && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !huddle && !unread && "ml-auto")} />}
+      </a>
+    );
   };
   return (
     <div ref={scrollerRef} className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
@@ -146,40 +194,15 @@ export function Sidebar({
           Unread
         </span>
         <div ref={listRef} {...listProps} className={cn("flex flex-col gap-[3px]", moving && "select-none")}>
-          {listed.map((room) => {
-            const unread = markedUnread(room, currentRoomId);
-            const star = starred.has(room.id);
-            const huddle = huddles[room.id];
-            // The words for who's in the room's huddle, which come with its mark.
-            const inHuddleId = `${huddleId}-${room.id}`;
+          {grouped.loose.map((room) => roomRow(room))}
+          {grouped.sections.map(({ section, rooms }) => {
+            const isFolded = folded.has(section.id);
+            // Folded, it shows only the rooms marked unread, and the one open.
+            const shownRooms = isFolded ? rooms.filter((room) => room.id === currentRoomId || markedUnread(room, currentRoomId)) : rooms;
             return (
-              <a
-                key={room.id}
-                data-room-id={room.id}
-                href={roomPath(room.id)}
-                draggable={false}
-                aria-current={room.id === currentRoomId ? "page" : undefined}
-                // Every row says how the stars are reordered, a marked one says it's unread, which the eye sees
-                // by its weight and dot, and one with a huddle says who's in it, which the eye sees by its mark.
-                aria-describedby={[huddle && inHuddleId, unread && unreadId, helpId].filter(Boolean).join(" ")}
-                aria-keyshortcuts={star ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
-                onClick={(event) => select(event, room.id)}
-                className={cn(
-                  ROW,
-                  "[-webkit-touch-callout:none]",
-                  unread && "font-[650]",
-                  star && "cursor-grab",
-                  room.id === moving && "relative z-[1] cursor-grabbing bg-background! shadow-[0_4px_14px_var(--color-drag-shadow)] outline outline-muted-foreground",
-                )}
-              >
-                <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
-                <span className="truncate">{room.name}</span>
-                {/* The huddle's mark, the dot and the star sit together at the row's end, pushed there by one auto
-                    margin. The star's muted at 65%. */}
-                {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} className="ml-auto" />}
-                {unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />}
-                {star && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !huddle && !unread && "ml-auto")} />}
-              </a>
+              <SectionRooms key={section.id} section={section} folded={isFolded} onFold={() => fold(section.id, !isFolded)}>
+                {shownRooms.map((room) => roomRow(room, "ml-3"))}
+              </SectionRooms>
             );
           })}
         </div>
@@ -218,6 +241,42 @@ export function Sidebar({
         <p className="px-[9px] text-[13px] text-muted-foreground">{unreadOnly ? "You’re all caught up. No unread conversations." : "No conversations found."}</p>
       )}
       {agents > 0 && !unreadOnly && <AgentsRow count={agents} open={agentsOpen} onOpen={onOpenAgents} />}
+    </div>
+  );
+}
+
+interface SectionRoomsProps {
+  section: Section;
+  folded: boolean;
+  onFold: () => void;
+  /** The rows of its rooms that show. */
+  children: ReactNode;
+}
+
+/**
+ * A section's rooms, under its name: in small capitals at the start of a line across the sidebar, as a
+ * heading whose button, the whole line, folds the section with the arrow at its end, which points down
+ * while it's open and sideways once it's folded.
+ */
+function SectionRooms({ section, folded, onFold, children }: SectionRoomsProps) {
+  const nameId = useId();
+  return (
+    <div role="group" aria-labelledby={nameId} className="mt-3 flex flex-col gap-[3px] first:mt-0">
+      <h3>
+        <button
+          type="button"
+          aria-expanded={!folded}
+          onClick={onFold}
+          className="group flex min-h-7 w-full cursor-pointer items-center gap-2.5 rounded-lg px-[9px] text-start text-[11px] leading-4 font-semibold tracking-[0.07em] text-muted-foreground uppercase touch:min-h-11 hover:text-foreground"
+        >
+          <span id={nameId} className="min-w-0 truncate">
+            {section.name}
+          </span>
+          <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-border" />
+          <NavArrowDown aria-hidden="true" className={cn("size-[15px] shrink-0 transition-transform motion-reduce:transition-none", folded && "-rotate-90")} />
+        </button>
+      </h3>
+      {children}
     </div>
   );
 }

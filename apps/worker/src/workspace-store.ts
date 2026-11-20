@@ -5,6 +5,7 @@ import {
   MAX_FAVORITES,
   MAX_OTHER_ADDRESSES,
   MAX_PUSH_SUBSCRIPTIONS,
+  MAX_SECTIONS,
   MAX_SHARED_ORDER,
   NAVIGATION_SLOTS,
   PASSWORD_RESET_CODE_TRIES,
@@ -36,10 +37,16 @@ import {
   type RoomChanges,
   type RoomId,
   type RoomKind,
+  type RoomLayout,
   type RoomSettings,
+  type SavedRoomLayout,
   type Search,
+  type Section,
+  type SectionId,
+  type SectionOption,
   type SharedRoom,
   type SidebarRoom,
+  type SidebarSection,
   type User,
   type UserId,
   type UserStatus,
@@ -658,6 +665,8 @@ export interface SidebarRooms {
   rooms: SidebarRoom[];
   favorites: Favorites;
   sharedOrder: RoomId[];
+  /** Every section, for an active administrator, or else the ones with a room of theirs, each with which of their rooms are in it. */
+  sections: SidebarSection[];
   huddles: Record<RoomId, LiveHuddle>;
   blocks: Blocks;
   /** Which of a huddle's sounds they hear. */
@@ -705,6 +714,8 @@ export interface ReportedHuddle {
 export interface SavedRoomChange {
   /** Whether its name, kind or icon changed, or whether it allows huddles. */
   roomChanged: boolean;
+  /** Whether it moved to another section, or out of one. */
+  sectionChanged: boolean;
   memberIds: UserId[];
   /** Who the change put in the room. */
   addedIds: UserId[];
@@ -1703,9 +1714,17 @@ interface HuddlesAllowedRow {
   huddles_allowed: number;
 }
 
-interface RoomToChangeRow extends Omit<SharedRoom, "huddles">, HuddlesAllowedRow {
+interface RoomToChangeRow extends Omit<SharedRoom, "huddles">, HuddlesAllowedRow, RoomSectionRow {
+  /** Its section's name, or null for none. */
+  section_name: string | null;
   can_administer: number;
   can_change_huddles: number;
+}
+
+/** A room as the statements that read its section read it: null for none. */
+interface RoomSectionRow {
+  id: RoomId;
+  section_id: SectionId | null;
 }
 
 /** A room's huddle as the room last reported it: when it started, and who's in it, a JSON list of their ids in the order they joined. */
@@ -1720,8 +1739,8 @@ interface StartRow {
   started_at: string;
 }
 
-/** A room someone is in, as `ROOMS_FOR_USER` reads it: a DM's name and icon are null. */
-interface SidebarRow extends HuddleRow, HuddlesAllowedRow, StartRow {
+/** A room someone is in, as `ROOMS_FOR_USER` reads it: a DM's name and icon are null, and it's in no section. */
+interface SidebarRow extends HuddleRow, HuddlesAllowedRow, StartRow, RoomSectionRow {
   id: RoomId;
   kind: SidebarRoom["kind"];
   name: string | null;
@@ -1804,7 +1823,12 @@ const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom 
   involvement: row.involvement,
 });
 
-const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon, ...allowingHuddles(allowsHuddles(row)) }, canAdminister: row.can_administer === 1, canChangeHuddles: row.can_change_huddles === 1 });
+const roomToChange = (row: RoomToChangeRow) => ({
+  room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon, ...allowingHuddles(allowsHuddles(row)) },
+  canAdminister: row.can_administer === 1,
+  canChangeHuddles: row.can_change_huddles === 1,
+  section: row.section_id === null || row.section_name === null ? null : { id: row.section_id, name: row.section_name },
+});
 
 const storedSession = (row: SessionRow): StoredSession => ({
   id: row.session_id,
@@ -1858,7 +1882,7 @@ function welcomedBy({ id, name }: User, welcomes: Welcome[], started: Array<{ id
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, ${START}, memberships.unread_at IS NOT NULL AS unread,
     memberships.unread_at AS unread_since, memberships.unread_count, memberships.involvement, rooms.shared_position, rooms.huddle_started_at,
-    rooms.huddle_user_ids, rooms.huddles_allowed
+    rooms.huddle_user_ids, rooms.huddles_allowed, rooms.section_id
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY memberships.created_at, rooms.created_at, rooms.id`;
 
@@ -2576,13 +2600,14 @@ const SET_HUDDLE_SOUNDS = `UPDATE users SET huddle_music = coalesce(?2, huddle_m
  * The versions of ?'s stars and blocks, whether they're given the welcome card: whether they're an
  * active administrator who hasn't dismissed it, and which of a huddle's sounds they hear.
  */
-const SIDEBAR_USER = `SELECT favorites_version AS version, blocks_version,
+const SIDEBAR_USER = `SELECT favorites_version AS version, blocks_version, role = ${ADMINISTRATOR} AND status = ${ACTIVE} AS administrator,
     role = ${ADMINISTRATOR} AND status = ${ACTIVE} AND invitation_dismissed_at IS NULL AS invited, ${HUDDLE_SOUNDS}
   FROM users WHERE id = ?`;
 
 interface SidebarUserRow extends HuddleSoundsRow {
   version: number;
   blocks_version: number;
+  administrator: number;
   invited: number;
 }
 
@@ -2713,6 +2738,133 @@ export function mergedSharedOrder(saved: Array<{ id: RoomId; orderable: boolean 
   });
   return [...merged, ...listed];
 }
+
+/**
+ * Every section, in the sidebar's order: by place, and of two in one place, as the places a merged
+ * order leaves can be, the one made first first.
+ */
+const SECTIONS = `SELECT id, name FROM sections ORDER BY position, id`;
+
+/** The rooms ?1 is in that are in a section, with the section's id, in the order `ROOMS_FOR_USER` lists them. */
+export const ROOM_SECTIONS_FOR_USER = `SELECT rooms.id, rooms.section_id FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ?1 AND rooms.section_id IS NOT NULL ORDER BY memberships.created_at, rooms.created_at, rooms.id`;
+
+/** A section's name, as two sections can't have it: with ASCII letters in either case alike, as SQLite's NOCASE compares them. */
+const NAMED = (name: string) => `name = ${name} COLLATE NOCASE`;
+
+/** The section named ?1, if one is. */
+const SECTION_NAMED = `SELECT id, name FROM sections WHERE ${NAMED("?1")}`;
+
+/** Whether section ?1 is there. */
+const SECTION_FOUND = `SELECT EXISTS (SELECT 1 FROM sections WHERE id = ?1) AS found`;
+
+/** Section ?1, if it's there. */
+const SECTION = `SELECT id, name FROM sections WHERE id = ?1`;
+
+/** How many sections there are. */
+const SECTION_COUNT = `SELECT count(*) AS count FROM sections`;
+
+/**
+ * Makes section ?1, named ?2, at ?3, after the rest, unless there are ?4 already or one has its name,
+ * answering its id when it made it.
+ */
+const INSERT_SECTION = `INSERT INTO sections (id, name, position, created_at, updated_at)
+  SELECT ?1, ?2, coalesce((SELECT max(position) + 1 FROM sections), 0), ?3, ?3
+  WHERE (SELECT count(*) FROM sections) < ?4 AND NOT EXISTS (SELECT 1 FROM sections WHERE ${NAMED("?2")})
+  RETURNING id`;
+
+/** Whether a section but ?1 is named ?2. */
+const SECTION_NAME_TAKEN = `SELECT EXISTS (SELECT 1 FROM sections WHERE id <> ?1 AND ${NAMED("?2")}) AS taken`;
+
+/** Renames section ?1 to ?2 at ?3, unless that's its name already or another has it, answering its id when it renamed it. */
+const RENAME_SECTION = `UPDATE sections SET name = ?2, updated_at = ?3
+  WHERE id = ?1 AND name IS NOT ?2 AND NOT EXISTS (SELECT 1 FROM sections AS other WHERE other.id <> ?1 AND other.${NAMED("?2")})
+  RETURNING id`;
+
+/** Leaves the rooms in section ?1 in none. */
+const EMPTY_SECTION = `UPDATE rooms SET section_id = NULL WHERE section_id = ?1`;
+
+/** Deletes section ?1, answering its id if it was there. */
+const DELETE_SECTION = `DELETE FROM sections WHERE id = ?1 RETURNING id`;
+
+/**
+ * Puts room ?1 in section ?2, or in none for null, unless it's there already or the section isn't,
+ * answering the room's id when it moved.
+ */
+const PUT_ROOM_IN_SECTION = `UPDATE rooms SET section_id = ?2
+  WHERE id = ?1 AND section_id IS NOT ?2 AND (?2 IS NULL OR EXISTS (SELECT 1 FROM sections WHERE id = ?2)) RETURNING id`;
+
+/** Gives each section ?1, a JSON array of their ids, lists its place there, unless it has it already. */
+const ORDER_SECTIONS = `UPDATE sections SET position = listed.key FROM json_each(?1) AS listed
+  WHERE sections.id = listed.value AND sections.position IS NOT listed.key`;
+
+/**
+ * Puts each room ?1, a JSON array of `[room's id, section's id or null]`, places in its section, or in
+ * none for null, unless it's there already or the section isn't, and but for a room in a section that
+ * ?2, a JSON array of the sections' ids the layout lists, doesn't list, as one made since, which a
+ * layout from before it knows nothing of. The list goes in as one value, since there can be thousands of
+ * rooms, and as one list, since `json_each` finds nothing by its place.
+ */
+export const PLACE_ROOMS = `UPDATE rooms SET section_id = placed.section_id
+  FROM (SELECT json_extract(value, '$[0]') AS room_id, json_extract(value, '$[1]') AS section_id FROM json_each(?1)) AS placed
+  WHERE rooms.id = placed.room_id AND rooms.section_id IS NOT placed.section_id
+    AND (placed.section_id IS NULL OR placed.section_id IN (SELECT id FROM sections))
+    AND (rooms.section_id IS NULL OR rooms.section_id IN (SELECT value FROM json_each(?2)))`;
+
+/**
+ * The sections `sections` lists, in its order, each with which of the rooms `rooms` lists are in it:
+ * every section when `everySection` says so, as for an administrator, or else those with one.
+ */
+export function sidebarSectionsOf(sections: Section[], rooms: RoomSectionRow[], everySection: boolean): SidebarSection[] {
+  const roomsIn = Map.groupBy(
+    rooms.filter((room) => room.section_id !== null),
+    (room) => room.section_id!,
+  );
+  return sections.flatMap(({ id, name }) => {
+    const roomIds = (roomsIn.get(id) ?? []).map((room) => room.id);
+    return everySection || roomIds.length > 0 ? [{ id, name, roomIds }] : [];
+  });
+}
+
+/** The sections `sections` lists, in its order, each with how many of the rooms `rooms` lists are in it. */
+const sectionOptionsOf = (sections: Section[], rooms: RoomSectionRow[]): SectionOption[] =>
+  sidebarSectionsOf(sections, rooms, true).map(({ roomIds, ...section }) => ({ ...section, rooms: roomIds.length }));
+
+/**
+ * The sections once an administrator has put them in the order `listed` lists them, given the order
+ * `saved` has them in: the ones listed that are there, in that order, then the rest, made since the
+ * administrator's list was, in the order they had.
+ */
+export function mergedSectionOrder(saved: SectionId[], listed: SectionId[]): SectionId[] {
+  const there = new Set(saved);
+  const placed = listed.filter((id) => there.has(id));
+  const named = new Set(placed);
+  return [...placed, ...saved.filter((id) => !named.has(id))];
+}
+
+/**
+ * The statements that put the sections in the order `sections` lists them, given the order `saved` has
+ * them in, and each of the rooms `roomIds` lists in the section `sections` puts it in, or in none, but
+ * the rooms in a section it doesn't list, which stay there.
+ */
+function placing(roomIds: RoomId[], sections: NonNullable<RoomLayout["sections"]>, saved: Section[]): Statement[] {
+  const sectionOf = new Map(sections.flatMap((section) => section.roomIds.map((roomId) => [roomId, section.id] as const)));
+  const listed = sections.map((section) => section.id);
+  return [
+    statement(ORDER_SECTIONS, JSON.stringify(mergedSectionOrder(saved.map((section) => section.id), listed))),
+    statement(PLACE_ROOMS, JSON.stringify(roomIds.map((roomId) => [roomId, sectionOf.get(roomId) ?? null])), JSON.stringify(listed)),
+  ];
+}
+
+/** The section a change puts a room in, or null for none, and whether it's new, to make first. */
+export interface ChosenSection {
+  section: Section | null;
+  made: boolean;
+}
+
+/** The statements that make the section `chosen` puts a room in, if it's new, at `now`. */
+const makingSection = (chosen: ChosenSection | null, now: string): Statement[] =>
+  chosen?.made && chosen.section ? [statement(INSERT_SECTION, chosen.section.id, chosen.section.name, now, MAX_SECTIONS)] : [];
 
 /** Everyone active who can be put in a room, by name: all but an AI agent only administrators' direct messages reach, which is in none. */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} AND agent_access IS NOT 'admin-dms' ORDER BY lower(name), id`;
@@ -3139,9 +3291,11 @@ const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = use
 /** Whether they can turn huddles on or off in it: only administrators can, as a Slack workspace's owners and admins can in a channel. */
 const CAN_CHANGE_HUDDLES = `users.role = ${ADMINISTRATOR} AS can_change_huddles`;
 
-/** A room someone is in, unless it's a DM, and whether they can change it, and turn huddles on or off in it. */
-export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, rooms.huddles_allowed, ${CAN_ADMINISTER}, ${CAN_CHANGE_HUDDLES}
+/** A room someone is in, unless it's a DM, whether they can change it, and turn huddles on or off in it, and its section. */
+export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, rooms.huddles_allowed, rooms.section_id, sections.name AS section_name,
+    ${CAN_ADMINISTER}, ${CAN_CHANGE_HUDDLES}
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
+    LEFT JOIN sections ON sections.id = rooms.section_id
   WHERE memberships.room_id = ? AND memberships.user_id = ? AND rooms.kind <> 'direct'`;
 
 /**
@@ -4643,10 +4797,11 @@ export class WorkspaceStore {
    * The rooms someone is in, with their unread marks and the people in their DMs, the ones they've
    * starred, the huddles going on in their rooms, whom they've blocked, the workspace's first room, if
    * there is one yet and they're given the welcome card: an active administrator who hasn't dismissed it,
-   * and how many open reports they see, if they're an active administrator.
+   * how many open reports they see, if they're an active administrator, and the sections, every one for
+   * an active administrator, or else the ones with a room of theirs.
    */
   async roomsFor(userId: UserId): Promise<SidebarRooms> {
-    const [rows, [original], starred, [user], members, blocked, [reports]] = (await this.db.batch([
+    const [rows, [original], starred, [user], members, blocked, [reports], sections] = (await this.db.batch([
       statement(ROOMS_FOR_USER, userId),
       statement(ORIGINAL_ROOM),
       statement(FAVORITES_FOR_USER, userId),
@@ -4654,12 +4809,14 @@ export class WorkspaceStore {
       statement(DIRECT_MEMBERS_FOR_USER, userId),
       statement(BLOCKED_BY_USER, userId),
       statement(OPEN_REPORTS_OF_ADMINISTRATOR, userId),
-    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, SidebarUserRow[], DirectMemberRow[], BlockedRow[], Array<{ open: number }>];
+      statement(SECTIONS),
+    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, SidebarUserRow[], DirectMemberRow[], BlockedRow[], Array<{ open: number }>, Section[]];
     const membersByRoom = Map.groupBy(members, (member) => member.room_id);
     return {
       rooms: rows.map((row) => sidebarRoom(row, membersByRoom.get(row.id))),
       favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
       sharedOrder: sharedOrderOf(rows),
+      sections: sidebarSectionsOf(sections, rows, user?.administrator === 1),
       huddles: liveHuddlesIn(rows),
       blocks: { userIds: blocked.map((row) => row.blocked_id), version: user?.blocks_version ?? 0 },
       huddleSounds: user ? huddleSoundsOf(user) : ALL_HUDDLE_SOUNDS,
@@ -4786,28 +4943,82 @@ export class WorkspaceStore {
   /**
    * Puts the rooms in administrator `userId`'s sidebar, DMs aside, in the shared order in the order
    * `roomIds` lists them, as saving it on workspace settings does, merged with the order as
-   * `mergedSharedOrder` says, or clears the order when `roomIds` is empty. Answers the rooms they're in
-   * that the order ranks, in its order, as their sidebar lists them then, or null, having changed
-   * nothing, unless they're an active administrator and every room is one they could order, and the
-   * order holds at most `MAX_SHARED_ORDER` rooms. The Workspace makes this change one at a time with the
-   * others that change who can see a room or order them, so nothing changes what the first batch read
-   * before the second.
+   * `mergedSharedOrder` says, or clears the order when `roomIds` is empty, and when the layout has
+   * `sections`, puts the sections in their order, merged as `mergedSectionOrder` says, and each of those
+   * rooms in the section that lists it, or in none. Answers the rooms they're in that the order ranks,
+   * in its order, and every section, as their sidebar lists them then, or null, having changed nothing,
+   * unless they're an active administrator and every room is one they could order, and the order holds
+   * at most `MAX_SHARED_ORDER` rooms. The Workspace makes this change one at a time with the others that
+   * change who can see a room or order them, or change the sections, so nothing changes what the first
+   * batch read before the second.
    */
-  async setSharedOrder(userId: UserId, roomIds: RoomId[]): Promise<RoomId[] | null> {
-    const [[may], saved] = (await this.db.batch([
+  async setSharedOrder(userId: UserId, { roomIds, sections }: RoomLayout): Promise<SavedRoomLayout | null> {
+    const [[may], saved, savedSections] = (await this.db.batch([
       statement(MAY_ORDER_ROOMS, userId, JSON.stringify(roomIds)),
       statement(SHARED_ORDER_FOR_ADMINISTRATOR, userId),
-    ])) as [Array<{ allowed: number }>, Array<{ id: RoomId; orderable: number }>];
+      statement(SECTIONS),
+    ])) as [Array<{ allowed: number }>, Array<{ id: RoomId; orderable: number }>, Section[]];
     if (may?.allowed !== 1) return null;
     const merged = roomIds.length === 0 ? [] : mergedSharedOrder(saved.map((row) => ({ id: row.id, orderable: row.orderable === 1 })), roomIds);
     if (merged.length > MAX_SHARED_ORDER) return null;
     const listed = JSON.stringify(merged);
-    const [, , ranked] = (await this.db.batch([
+    const results = await this.db.batch([
       statement(UNRANK_ROOMS, listed),
       statement(RANK_ROOMS, listed),
+      ...(sections ? placing(roomIds, sections, savedSections) : []),
       statement(SHARED_ORDER_FOR_USER, userId),
-    ])) as [unknown[], unknown[], Array<{ id: RoomId }>];
-    return ranked.map((row) => row.id);
+      statement(SECTIONS),
+      statement(ROOM_SECTIONS_FOR_USER, userId),
+    ]);
+    const [ranked, sectionRows, placed] = results.slice(-3) as [Array<{ id: RoomId }>, Section[], RoomSectionRow[]];
+    return { sharedOrder: ranked.map((row) => row.id), sections: sidebarSectionsOf(sectionRows, placed, true) };
+  }
+
+  /** Every section, in order, with how many of the rooms `userId` is in are in it, as New room offers them. */
+  async sectionOptions(userId: UserId): Promise<SectionOption[]> {
+    const [sections, rooms] = (await this.db.batch([statement(SECTIONS), statement(ROOM_SECTIONS_FOR_USER, userId)])) as [Section[], RoomSectionRow[]];
+    return sectionOptionsOf(sections, rooms);
+  }
+
+  /** The section named `name`, as no two can be, if one is, and how many sections there are. */
+  async sectionNamed(name: string): Promise<{ section: Section | null; count: number }> {
+    const [[section], [counted]] = (await this.db.batch([statement(SECTION_NAMED, name), statement(SECTION_COUNT)])) as [Section[], Array<{ count: number }>];
+    return { section: section ?? null, count: counted!.count };
+  }
+
+  /** Section `id`, if it's there. */
+  async section(id: SectionId): Promise<Section | null> {
+    const [section] = await this.db.all<Section>(SECTION, id);
+    return section ?? null;
+  }
+
+  /**
+   * Makes `section`, after the rest, at `now`, unless there are `MAX_SECTIONS` already or one has its
+   * name, answering whether it made it.
+   */
+  async makeSection(section: Section, now: string): Promise<boolean> {
+    return (await this.db.all(INSERT_SECTION, section.id, section.name, now, MAX_SECTIONS)).length > 0;
+  }
+
+  /**
+   * Renames section `id` to `name` at `now`, answering "renamed", "unchanged" when that's its name
+   * already, "taken" when another section has it, or "not found".
+   */
+  async renameSection(id: SectionId, name: string, now: string): Promise<"renamed" | "unchanged" | "taken" | "not found"> {
+    const [[found], [taken], renamed] = (await this.db.batch([
+      statement(SECTION_FOUND, id),
+      statement(SECTION_NAME_TAKEN, id, name),
+      statement(RENAME_SECTION, id, name, now),
+    ])) as [Array<{ found: number }>, Array<{ taken: number }>, unknown[]];
+    if (found!.found !== 1) return "not found";
+    if (taken!.taken === 1) return "taken";
+    return renamed.length > 0 ? "renamed" : "unchanged";
+  }
+
+  /** Deletes section `id`, leaving its rooms in none, in one transaction, answering whether it was there. */
+  async deleteSection(id: SectionId): Promise<boolean> {
+    const [, deleted] = (await this.db.batch([statement(EMPTY_SECTION, id), statement(DELETE_SECTION, id)])) as unknown[][];
+    return deleted!.length > 0;
   }
 
   /**
@@ -5708,47 +5919,76 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** Room `roomId`, unless it's a DM or someone isn't in it, and whether they can change it, and turn huddles on or off in it. */
-  async roomToChange(roomId: RoomId, userId: UserId): Promise<{ room: SharedRoom; canAdminister: boolean; canChangeHuddles: boolean } | null> {
+  /**
+   * Room `roomId`, unless it's a DM or someone isn't in it, whether they can change it, and turn huddles
+   * on or off in it, and its section.
+   */
+  async roomToChange(roomId: RoomId, userId: UserId): Promise<{ room: SharedRoom; canAdminister: boolean; canChangeHuddles: boolean; section: Section | null } | null> {
     const [row] = await this.db.all<RoomToChangeRow>(ROOM_TO_CHANGE, roomId, userId);
     return row ? roomToChange(row) : null;
   }
 
-  /** The same, with everyone active who can be put in a room and whether they're in it, read together. */
+  /**
+   * The same, with everyone active who can be put in a room and whether they're in it, and for whoever
+   * can change it, the sections to put it in, read together.
+   */
   async roomSettings(roomId: RoomId, userId: UserId): Promise<RoomSettings | null> {
-    const [[row], people] = (await this.db.batch([statement(ROOM_TO_CHANGE, roomId, userId), statement(ACTIVE_PEOPLE_IN_ROOM, roomId)])) as [
-      RoomToChangeRow[],
-      Array<User & { member: number }>,
-    ];
-    return row ? { ...roomToChange(row), people: people.map((person) => ({ ...person, member: person.member === 1 })) } : null;
+    const [[row], people, sections, rooms] = (await this.db.batch([
+      statement(ROOM_TO_CHANGE, roomId, userId),
+      statement(ACTIVE_PEOPLE_IN_ROOM, roomId),
+      statement(SECTIONS),
+      statement(ROOM_SECTIONS_FOR_USER, userId),
+    ])) as [RoomToChangeRow[], Array<User & { member: number }>, Section[], RoomSectionRow[]];
+    if (!row) return null;
+    const settings = roomToChange(row);
+    return {
+      ...settings,
+      people: people.map((person) => ({ ...person, member: person.member === 1 })),
+      sections: settings.canAdminister ? sectionOptionsOf(sections, rooms) : [],
+    };
   }
 
   /**
-   * Makes `changes` to a room in one transaction: renames it, allows huddles in it or not, and makes it
-   * open to everyone active, or private to just the people `memberIds` names, taking anyone else out but
-   * those suspended in a room that was private already, whom its settings don't list, and queueing
-   * closing their sockets there with `code`, due at `dueAt`, and telling the search index who can read it
-   * if its kind changes. Answers what it changed, who's in the room then, and whether the shared order
-   * ranks it.
+   * Makes `changes` to a room in one transaction: renames it, allows huddles in it or not, puts it in
+   * the section `section` chooses, making that first if it's new, and makes it open to everyone active,
+   * or private to just the people `memberIds` names, taking anyone else out but those suspended in a
+   * room that was private already, whom its settings don't list, and queueing closing their sockets
+   * there with `code`, due at `dueAt`, and telling the search index who can read it if its kind changes.
+   * Answers what it changed, who's in the room then, and whether the shared order ranks it.
    */
-  async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
+  async changeRoom(roomId: RoomId, changes: RoomChanges, section: ChosenSection | null, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId, changes.huddles === undefined ? null : Number(changes.huddles));
     const members = statement(ROOM_MEMBERS, roomId);
     const ranked = statement(ROOM_RANKED, roomId);
+    // After the rest, so each change reads its answers where it did before sections.
+    const sectioning = [...makingSection(section, now), ...(section ? [statement(PUT_ROOM_IN_SECTION, roomId, section.section?.id ?? null)] : [])];
+    const changing = async (statements: Statement[]) => {
+      const answers = (await this.db.batch([...statements, ...sectioning])) as UserIdRow[][];
+      return { answers, sectionChanged: section !== null && answers.at(-1)!.length > 0 };
+    };
     if (changes.kind === "open") {
       const queued = statement(QUEUE_READERS_OF_KIND, roomId, "open");
       const grant = statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now);
-      const [, updated, added, after, rank] = (await this.db.batch([queued, update, grant, members, ranked])) as UserIdRow[][];
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], madePrivate: false, ranked: isRanked(rank!) };
+      const {
+        answers: [, updated, added, after, rank],
+        sectionChanged,
+      } = await changing([queued, update, grant, members, ranked]);
+      return { roomChanged: updated!.length > 0, sectionChanged, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], madePrivate: false, ranked: isRanked(rank!) };
     }
     if (changes.kind !== "closed") {
-      const [updated, after] = (await this.db.batch([update, members])) as UserIdRow[][];
+      const {
+        answers: [updated, after],
+        sectionChanged,
+      } = await changing([update, members]);
       // Nobody new is in it, so nobody's sidebar has left it out.
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], madePrivate: false, ranked: false };
+      return { roomChanged: updated!.length > 0, sectionChanged, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], madePrivate: false, ranked: false };
     }
     const memberIds = JSON.stringify(changes.memberIds);
     // Whether it was open, and whom it takes out, are read before the room's kind changes, which says whether anyone suspended stays.
-    const [madePrivate, , removed, , updated, added, after, rank] = (await this.db.batch([
+    const {
+      answers: [madePrivate, , removed, , updated, added, after, rank],
+      sectionChanged,
+    } = await changing([
       statement(QUEUE_OPEN_ROOMS_ONLY_REVOCATION, OPEN_ROOMS_ONLY, code, dueAt, roomId),
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
@@ -5757,9 +5997,10 @@ export class WorkspaceStore {
       statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
       members,
       ranked,
-    ])) as UserIdRow[][];
+    ]);
     return {
       roomChanged: updated!.length > 0,
+      sectionChanged,
       memberIds: userIdsOf(after!),
       addedIds: userIdsOf(added!),
       removedIds: userIdsOf(removed!),
@@ -5813,24 +6054,27 @@ export class WorkspaceStore {
   }
 
   /**
-   * Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one.
-   * Answers who's in it.
+   * Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one,
+   * in the section `section` chooses, if it's there, making that first if it's new, or in none. Answers
+   * who's in it.
    */
-  async createRoom(room: SharedRoom, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<UserId[]> {
-    const [, members] = (await this.db.batch([
+  async createRoom(room: SharedRoom, creatorId: UserId, memberIds: UserId[] | null, section: ChosenSection | null, now: string): Promise<UserId[]> {
+    const answers = (await this.db.batch([
+      ...makingSection(section, now),
       statement(
-        `INSERT INTO rooms (id, kind, name, icon, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO rooms (id, kind, name, icon, section_id, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, (SELECT id FROM sections WHERE id = ?), ?, ?, ?)`,
         room.id,
         room.kind,
         room.name,
         room.icon,
+        section?.section?.id ?? null,
         creatorId,
         now,
         now,
       ),
       memberIds ? statement(GRANT_ROOM_TO_USERS, room.id, now, now, JSON.stringify(memberIds)) : statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
     ])) as UserIdRow[][];
-    return userIdsOf(members!);
+    return userIdsOf(answers.at(-1)!);
   }
 
   /**

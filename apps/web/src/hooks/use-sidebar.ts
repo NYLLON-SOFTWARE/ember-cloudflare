@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type HuddleSounds, type Me, type RoomId, type User, type UserId, type WorkspaceClientFrame, type WorkspaceServerFrame } from "@ember/protocol";
+import {
+  CloseCode,
+  parseServerFrame,
+  type Account,
+  type DirectoryUser,
+  type HuddleSounds,
+  type Me,
+  type RoomId,
+  type SectionId,
+  type User,
+  type UserId,
+  type WorkspaceClientFrame,
+  type WorkspaceServerFrame,
+} from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import type { InvitationsChange } from "@/lib/huddle-invitations";
 import { activeStore, watchUse } from "@/lib/presence";
@@ -22,8 +35,9 @@ const DEPLOY_SPREAD_MS = [2_000, 10_000] as const;
 
 /**
  * How long, at most, a tab waits to load its sidebar again once an administrator has put the rooms in
- * order for everyone, each tab waiting a while at random, so that every tab in the workspace doesn't ask
- * the Workspace at once.
+ * order for everyone, or changed the sections, or once a room of its is put in a section it hasn't
+ * heard of, each tab waiting a while at random, so that every tab in the workspace doesn't ask the
+ * Workspace at once.
  */
 export const RELOAD_SPREAD_MS = 5_000;
 
@@ -77,7 +91,8 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * tab is shown after more than a minute hidden too, as
  * `refresh-room:visible` reloads it (Campfire's users/sidebar_helper.rb), which Campfire does on a
  * room's page and this does on every page, and, its rooms only, a while after the socket says the shared
- * order has changed. Once it says this person has been given another role, it loads again with the
+ * order or the sections have changed, or puts a room in a section the list hasn't yet, which it adds
+ * after the others meanwhile. Once it says this person has been given another role, it loads again with the
  * people directory, which lists administrators more. It loads again at once after a list that may have
  * a room in the wrong place, one this person was taken out of and put back in while the list was on its
  * way. `refresh` asks for it again, settling once a list asked for since has come, or failing as that
@@ -166,6 +181,8 @@ export function useSidebar(
     if (user.id === me.id) signsIn({ id: user.id, name: user.name, administrator: user.role === "administrator" });
   });
   const hidden = useEffectEvent((userId: UserId) => directory.remove(userId));
+  // Whether the list has a section, or has yet to come, and so will.
+  const knowsSection = useEffectEvent((sectionId: SectionId) => !list || (list.sections ?? []).some((section) => section.id === sectionId));
 
   useEffect(() => {
     let closed = false;
@@ -228,7 +245,9 @@ export function useSidebar(
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
-          return change({ type: "saved", room: frame.room });
+          // Where a section the list hasn't goes among the others, only the server's list says.
+          if (frame.section && !knowsSection(frame.section.id)) reloadRoomsSoon();
+          return change({ type: "saved", room: frame.room, ...(frame.section !== undefined && { section: frame.section }) });
         case "room.gone":
           heardOf(frame.roomId);
           gone(frame.roomId);

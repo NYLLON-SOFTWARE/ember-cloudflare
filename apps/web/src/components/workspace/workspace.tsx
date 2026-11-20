@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type AccountDeletion, type Blocks, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User, type UserId } from "@ember/protocol";
+import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type AccountDeletion, type Blocks, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SavedRoomLayout, type SidebarRoom, type SidebarSection, type User, type UserId } from "@ember/protocol";
 import { ALL_HUDDLE_SOUNDS, CAMERAS_OFF, SCREENS_OFF } from "@ember/protocol/huddles";
 import { useFlash } from "@/components/flash";
 import { Xmark } from "@/components/icons/iconoir";
@@ -135,10 +135,11 @@ interface Redirect {
   alert?: string;
 }
 
-/** The rooms, stars and shared order of someone whose rooms haven't loaded yet. */
+/** The rooms, stars, shared order and sections of someone whose rooms haven't loaded yet. */
 const NO_ROOMS: SidebarRoom[] = [];
 const NO_FAVORITES: Favorites = { rooms: [], version: 0 };
 const NO_ORDER: RoomId[] = [];
+const NO_SECTIONS: SidebarSection[] = [];
 const NO_BLOCKS: Blocks = { userIds: [], version: 0 };
 
 /** What the page shows while its rooms, or the page itself, load. */
@@ -314,6 +315,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const invitation = list?.invitation ?? null;
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
+  const sections = list?.sections ?? NO_SECTIONS;
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
 
   // Crossing 900px, as a big phone does on its side, closes the drawer.
@@ -550,13 +552,22 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // Whom you've blocked, by a key that stays the same while they do, so a list loaded again renders no message again.
   const blockedKey = JSON.stringify((list?.blocks ?? NO_BLOCKS).userIds);
   const blocking = useMemo<Blocking>(() => ({ blocked: new Set(JSON.parse(blockedKey) as UserId[]), setBlocked }), [blockedKey, setBlocked]);
+  // The sidebar loads again at once for the administrator who made, renamed or deleted a section, as it
+  // does soon for everyone else.
+  const reloadSections = useCallback(
+    () =>
+      refresh().catch((error) => {
+        if (mounted.current && isSignedOut(error)) onSessionChanged(null);
+      }),
+    [refresh, onSessionChanged, mounted],
+  );
   // A save's answer can come after a newer order has loaded, so the rooms load again once it's taken.
   const reorderedRooms = useCallback(
-    (sharedOrder: RoomId[]) => {
-      changeRooms({ type: "reordered", sharedOrder });
-      void refresh().catch((error) => mounted.current && isSignedOut(error) && onSessionChanged(null));
+    ({ sharedOrder, sections }: SavedRoomLayout) => {
+      changeRooms({ type: "reordered", sharedOrder, sections });
+      void reloadSections();
     },
-    [refresh, onSessionChanged, mounted],
+    [reloadSections],
   );
 
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
@@ -766,6 +777,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
       loaded={rooms !== null}
       favorites={favorites}
       sharedOrder={sharedOrder}
+      sections={sections}
       huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       onHuddles={route.page === "huddles"}
       currentRoomId={currentRoomId}
@@ -816,7 +828,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             onFailed={failed}
             rooms={rooms}
             sharedOrder={sharedOrder}
+            sections={sections}
             onSharedOrderSaved={reorderedRooms}
+            onSectionsChanged={reloadSections}
             onSessionChanged={onSessionChanged}
             release={release}
             onCheckForUpdates={checkForUpdates}

@@ -1189,7 +1189,7 @@ describe("The buttons along the base of a huddle", () => {
 
   it("lists a shared room's people as its settings have them, and reports a session that's ended when that's why they didn't come", async () => {
     const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      Response.json({ room: general, canAdminister: false, people: [ada, sam, priya].map((person) => ({ ...person, member: true })) }),
+      Response.json({ room: general, canAdminister: false, people: [ada, sam, priya].map((person) => ({ ...person, member: true })), section: null, sections: [] }),
     );
     const { user } = renderView();
     await user.click(screen.getByRole("button", { name: "Invite people" }));

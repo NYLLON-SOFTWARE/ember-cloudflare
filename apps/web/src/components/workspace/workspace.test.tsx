@@ -50,7 +50,7 @@ const roomList = (listed: Room[], favorites: RoomId[] = [], sharedOrder: RoomId[
   huddles: {},
   blocks: { userIds: [], version: 0 },
 });
-const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, canChangeHuddles: true, people: [{ ...ada, member: true }] };
+const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, canChangeHuddles: true, people: [{ ...ada, member: true }], section: null, sections: [] };
 const workspaceSettings: WorkspaceSettings = {
   account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
   joinCode: "aB3d-Ef5h-iJ7k",
@@ -392,7 +392,7 @@ describe("Create an open room", () => {
   it("makes a room from workspace settings, lists it below every other room, whatever its name, and opens it", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/general");
@@ -415,7 +415,7 @@ describe("Create an open room", () => {
     let answer = (_: Response) => {};
     serve({
       "GET /api/sidebar": () => new Promise((resolve) => (answer = resolve)),
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -456,7 +456,7 @@ describe("Room settings page", () => {
     const lists = [roomList(rooms)];
     serve({
       "GET /api/sidebar": () => Response.json(lists.shift() ?? roomList([older, ...rooms])),
-      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }], section: null, sections: [] }),
       "PATCH /api/rooms/older": () => Response.json({ room: { ...older, name: "elder" } }),
     });
     const { user } = showWorkspace("/rooms/closeds/older/edit");
@@ -495,7 +495,7 @@ describe("Add and remove private room members", () => {
     const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed", icon: null };
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, leadsRoom])),
-      "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }], section: null, sections: [] }),
       "PATCH /api/rooms/leads": () => Response.json({ room: leadsRoom }),
     });
     const { user } = showWorkspace("/rooms/closeds/leads/edit");
@@ -994,7 +994,7 @@ describe("Rename the workspace", () => {
 describe("Saved notices", () => {
   it("alerts with what the server said when something fails", async () => {
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ error: "Name must be 1 to 100 characters" }, { status: 422 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -1010,7 +1010,7 @@ describe("Saved notices", () => {
 
   it("shows the same alert again when it comes again", async () => {
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ error: "Name must be 1 to 100 characters" }, { status: 422 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -1933,7 +1933,7 @@ describe("Stay signed in, per device", () => {
 
   it("goes back to sign-in when a page that was left finds the session gone", async () => {
     let answer = (_: Response) => {};
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
     const { onSessionChanged, user } = showWorkspace("/rooms/opens/new");
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     act(() => navigate("/account/edit"));
@@ -1943,7 +1943,7 @@ describe("Stay signed in, per device", () => {
 
   it("says nothing more once another person's workspace has taken its place", async () => {
     let answer = (_: Response) => {};
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
     const { onSessionChanged, unmount, user } = showWorkspace("/rooms/opens/new");
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     // As App replaces it when another tab signs in as someone else.
@@ -2460,7 +2460,7 @@ describe("Community settings page", () => {
   });
 
   it("shows the room forms as part of Rooms and permissions", async () => {
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }) });
     showWorkspace("/rooms/opens/new");
     await screen.findByRole("textbox", { name: "Room name" });
     expect(sectionMarked()).toHaveTextContent("Rooms and permissions");

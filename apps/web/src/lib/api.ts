@@ -80,14 +80,18 @@ import {
   type Room,
   type RoomChanges,
   type RoomId,
+  type RoomLayout,
   type RoomSettings,
   type RoomSocketParams,
   type SavedPushSubscription,
+  type SavedRoomLayout,
   type Search,
   type SearchResults,
   type SearchSort,
   type SendingDomainCheck,
   type SentTestEmail,
+  type Section,
+  type SectionId,
   type SharedRoom,
   type Sidebar,
   type SignOut,
@@ -1130,12 +1134,31 @@ export async function setFavoriteOrder(roomIds: RoomId[]): Promise<Favorites> {
 }
 
 /**
- * Puts the rooms in this administrator's sidebar in the shared order, in the order `roomIds` lists them,
- * answering the rooms they're in that it ranks, in its order. Fails with a 403 ApiError for anyone but
- * an administrator, and for a room outside their sidebar.
+ * Puts the rooms in this administrator's sidebar in the shared order, in the order `layout` lists them,
+ * and when it has sections, the sections in its order, each with the rooms it lists, the rest in none,
+ * answering the rooms they're in that the order ranks, in its order, and every section. Fails with a 403
+ * ApiError for anyone but an administrator, and for a room outside their sidebar.
  */
-export async function setSharedOrder(roomIds: RoomId[]): Promise<RoomId[]> {
-  return (await request<{ sharedOrder: RoomId[] }>("/api/account/room_order", { method: "PUT", body: JSON.stringify({ roomIds }) })).sharedOrder;
+export async function setSharedOrder(layout: RoomLayout): Promise<SavedRoomLayout> {
+  return request<SavedRoomLayout>("/api/account/room_order", { method: "PUT", body: JSON.stringify(layout) });
+}
+
+/**
+ * Makes a sidebar section named `name`, after the others, answering it. Fails with a 409 ApiError when
+ * a section has that name, whatever its case, and a 403 for anyone but an administrator.
+ */
+export async function createSection(name: string): Promise<Section> {
+  return (await request<{ section: Section }>("/api/account/sections", { method: "POST", body: JSON.stringify({ name }) })).section;
+}
+
+/** Renames sidebar section `id`, answering it. Fails with a 409 ApiError when another section has the name. */
+export async function renameSection(id: SectionId, name: string): Promise<Section> {
+  return (await request<{ section: Section }>(`/api/account/sections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) })).section;
+}
+
+/** Deletes sidebar section `id`, leaving its rooms in none. */
+export async function deleteSection(id: SectionId): Promise<void> {
+  await request(`/api/account/sections/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /** Deletes a room, with its messages. */

@@ -45,6 +45,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "reports",
     "rooms",
     "searches",
+    "sections",
     "session_addresses",
     "sessions",
     "users",
