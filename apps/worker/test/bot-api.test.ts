@@ -379,6 +379,99 @@ describe("Bot keys", () => {
   });
 });
 
+describe("Bots send their key in a header", () => {
+  const bearer = (key: string, headers: Record<string, string> = {}) => ({ Authorization: `Bearer ${key}`, ...headers });
+  /** The keyless address of `room`'s messages, followed by `rest`. */
+  const keyless = (room: RoomId, rest = "") => `/bot/rooms/${room}/messages${rest}`;
+
+  it("posts, reads and links to the next page with the key in the header, at an address without it", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const created = await api(keyless(general), { method: "POST", body: "Hello!", headers: bearer(bot.key, FORM_TYPE) });
+    expect(created.status).toBe(201);
+    expect((await inRoom.next("message.created")).message.creator).toEqual({ id: bot.id, name: "Build Bot" });
+    for (let n = 0; n < HISTORY_PAGE_SIZE; n++) await posted(bot.key, general, `Message ${n}`);
+    const read = await api(keyless(general), { headers: bearer(bot.key) });
+    expect(read.status).toBe(200);
+    const link = read.headers.get("Link")!;
+    expect(link).toMatch(new RegExp(`^<${origin}/bot/rooms/${general}/messages\\?before=[^>]+>; rel="next"$`));
+    expect(link).not.toContain(bot.key);
+  });
+
+  it("edits, deletes and boosts with the key in the header", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const adas = await post(inRoom, "Ship it?");
+    const id = await posted(bot.key, general, "Deploying...");
+    await inRoom.next("message.created");
+    const edited = await api(keyless(general, `/${id}`), { method: "PATCH", body: "Edited", headers: bearer(bot.key, FORM_TYPE) });
+    expect([edited.status, ((await edited.json()) as ListedMessage).body.plain_text]).toEqual([200, "Edited"]);
+    const boosted = await api(keyless(general, `/${adas.id}/boosts`), { method: "POST", body: "👀", headers: bearer(bot.key, FORM_TYPE) });
+    expect(boosted.status).toBe(201);
+    const { id: boostId } = (await boosted.json()) as { id: string };
+    expect(await boostsIn(general)).toMatchObject([{ id: boostId, booster_id: bot.id }]);
+    expect((await api(keyless(general, `/${adas.id}/boosts/${boostId}`), { method: "DELETE", headers: bearer(bot.key) })).status).toBe(204);
+    expect((await api(keyless(general, `/${id}`), { method: "DELETE", headers: bearer(bot.key) })).status).toBe(204);
+    expect((await storedIn(general)).map(({ id: stored }) => stored)).toEqual([adas.id]);
+  });
+
+  it("refuses a request whose address and header hold different keys, even when both are good, changing nothing", async () => {
+    const { administrator, bot, general } = await withBot();
+    const other = await addBot(administrator, "Other Bot");
+    const id = await posted(bot.key, general, "Deploying...");
+    for (const [asked, response] of Object.entries(changesAs(bot.key, general, id, bearer(other.key)))) {
+      const refused = await response;
+      expect([asked, refused.status, (await refused.json()) as { error: string }]).toEqual([asked, 400, { error: expect.stringContaining("differ") }]);
+    }
+    expect((await readAs(bot.key, general, "", { headers: bearer(other.key) })).status).toBe(400);
+    expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
+    expect(await boostsIn(general)).toEqual([]);
+    // The same key in both is no disagreement.
+    expect((await postAs(bot.key, general, "Both", bearer(bot.key))).status).toBe(201);
+  });
+
+  it("answers a missing or wrong key as the path form does: 401, or an empty 404 for a room the bot isn't in", async () => {
+    const { administrator, bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deploying...");
+    for (const key of [`${bot.id}-wrongwrongxx`, `0nobody0000000-${tokenOf(bot)}`, ""]) {
+      const headers = key === "" ? {} : bearer(key);
+      const asked = {
+        post: api(keyless(general), { method: "POST", body: "Hello!", headers }),
+        read: api(keyless(general), { headers }),
+        delete: api(keyless(general, `/${id}`), { method: "DELETE", headers }),
+      };
+      for (const [what, response] of Object.entries(asked)) {
+        const answer = await response;
+        expect([key, what, answer.status, await answer.json()]).toEqual([key, what, 401, { error: "Unknown bot key" }]);
+      }
+    }
+    expect((await api(keyless(general), { headers: { Authorization: `Basic ${btoa(bot.key)}` } })).status).toBe(401);
+    expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
+    const closed = await createRoom("Closed", { closedTo: [administrator.user.id], as: administrator });
+    const outside = await api(keyless(closed.id), { headers: bearer(bot.key) });
+    expect([outside.status, await outside.text()]).toEqual([404, ""]);
+  });
+
+  it("leaves the web app's addresses as they are, and the Slack-compatible webhook's key in its path", async () => {
+    const { administrator, bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deploying...");
+    // A browser's GET of a message's address is the app's page, whatever header comes with it.
+    const asked = (headers: Record<string, string>) => api(`/rooms/${general}/messages/${id}`, { headers: { Cookie: administrator.cookie, ...headers } });
+    const [plain, withKey] = [await asked({}), await asked(bearer(bot.key))];
+    expect([withKey.status, withKey.headers.get("Content-Type")]).toEqual([plain.status, plain.headers.get("Content-Type")]);
+    const noPath = await api(`/bot/rooms/${general}/slack`, { method: "POST", body: JSON.stringify({ text: "Hi" }), headers: bearer(bot.key) });
+    expect(noPath.status).toBe(404);
+  });
+
+  it("answers a keyless request that fails as JSON", async () => {
+    const { bot, general } = await withBot();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken = { getByName: () => ({ botInRoom: () => Promise.reject(new Error("Workspace unavailable")) }) } as unknown as Env["WORKSPACE"];
+    const response = await apiWith({ WORKSPACE: broken }, keyless(general), { method: "POST", body: "Hello!", headers: bearer(bot.key) });
+    expect([response.status, await response.text()]).toEqual([500, '{"status":500,"error":"Internal Server Error"}']);
+  });
+});
+
 describe("Bots post messages", () => {
   it("posts the request's body, whatever its type, as the bot's message, which reaches everyone in the room at once", async () => {
     const { administrator, bot, general } = await withBot();

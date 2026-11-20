@@ -170,7 +170,7 @@ import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
-import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
+import { botAction, exception, isBotPath, isKeylessBotRequest, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import { guestSignIn, type Env } from "./env";
 import { failed, notFound } from "./error-pages";
@@ -1756,7 +1756,7 @@ function failure(request: Request, pathname: string, error: unknown): Response {
   const holdsSecrets = pathname === "/api/first_run" || pathname === "/api/first_run/check" || pathname === RECOVERY_PATH;
   console.error(`${request.method} ${withoutBotKeys(pathname)} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
-  if (isBotPath(pathname)) return exception(500);
+  if (isBotPath(pathname) || isKeylessBotRequest(request, pathname)) return exception(500);
   return failed(request);
 }
 

@@ -26,13 +26,15 @@ import { NO_STORAGE } from "../files/uploads";
 import { urlOf } from "../request-url";
 import type { PageCursor } from "../store";
 import { workspace, type BotKeyAccess } from "../workspace";
-import { botKeyParts } from "./keys";
+import { bearerKey, botKeyParts, isSameKey } from "./keys";
 import { railsJson } from "./rails-json";
 import { payloadOf, slackMessage, slackPayloadOf, type SlackError, type SlackPayload } from "./slack";
 
 // The bot API: a bot posts text or a file to a room it's in, and reads it, at /rooms/<room id>/<bot
 // key>/messages, and edits, deletes and boosts its messages under that. The key is all a bot has, so
-// these routes never read a session cookie, which leaves another site's page nothing to forge. At
+// these routes never read a session cookie, which leaves another site's page nothing to forge. The key
+// can also come as `Authorization: Bearer <bot key>` to /bot/rooms/<room id>/messages and what's under it,
+// an address with no key in it for a log to record. At
 // /rooms/<room id>/<bot key>/slack, a bot posts what a Slack incoming webhook is sent instead
 // (slack.ts), so tools that post to Slack can post to a room, and at
 // /rooms/<room id>/<bot key>/messages/<message id>/slack, what takes the place of a message it posted, as
@@ -47,6 +49,16 @@ const BOT_BOOST = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages\/([^/.]+)\/boosts\/([^
 const BOT_SLACK = /^\/rooms\/([^/.]+)\/([^/.]+)\/slack$/;
 const BOT_MESSAGE_SLACK = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages\/([^/.]+)\/slack$/;
 
+/**
+ * The same addresses with no key in them, for a bot that sends its key as `Authorization: Bearer`, under
+ * `/bot`. They can't be at `/rooms/<room id>/messages`, which the app answers GET at with Campfire's 404
+ * page, and under which a message's own address is a page of the app's; nothing else answers under `/bot`.
+ */
+const KEYLESS_MESSAGES = /^\/bot\/rooms\/([^/.]+)\/messages(?:\.json)?$/;
+const KEYLESS_MESSAGE = /^\/bot\/rooms\/([^/.]+)\/messages\/([^/.]+)(?:\.json)?$/;
+const KEYLESS_BOOSTS = /^\/bot\/rooms\/([^/.]+)\/messages\/([^/.]+)\/boosts(?:\.json)?$/;
+const KEYLESS_BOOST = /^\/bot\/rooms\/([^/.]+)\/messages\/([^/.]+)\/boosts\/([^/.]+)(?:\.json)?$/;
+
 /** A key in a room's address for bots, as Campfire's `LogScrubbingFormatter` finds one, or in its Slack-compatible webhook's. */
 const BOT_KEY_IN_PATH = /(\/rooms\/[^/\s]+\/)[^/\s]+(?=\/(?:messages|slack)\b)/g;
 
@@ -57,6 +69,7 @@ const BOT_KEY_IN_PATH = /(\/rooms\/[^/\s]+\/)[^/\s]+(?=\/(?:messages|slack)\b)/g
 const MAX_BODY_BYTES = 3 * MAX_MESSAGE_HTML_LENGTH;
 
 const UNKNOWN_BOT_KEY = "Unknown bot key";
+const DIFFERING_KEYS = "The key in the address and the one in the Authorization header differ";
 /** Why a form's `attachment` that's text posts nothing. */
 const NOT_A_FILE = "An attachment has to be a file";
 
@@ -70,24 +83,68 @@ const JSON_TYPE = "application/json; charset=utf-8";
 /** How a bot may keep JSON it's answered, as Rack::ETag allows JSON with an ETag: only once it's checked it's current. */
 const REVALIDATE = "max-age=0, private, must-revalidate";
 
-/** What answers a request to a room's address for bots, if it's one the bot API takes. */
+/**
+ * What answers a request to a room's address for bots, if it's one the bot API takes: with the bot's key in
+ * the address, or, for all but the Slack-compatible ones, in an `Authorization: Bearer` header at an
+ * address without it.
+ */
 export function botAction(request: Request, env: Env, pathname: string): (() => Promise<Response>) | null {
   const { method } = request;
   const messages = pathname.match(BOT_MESSAGES);
-  if (messages && method === "POST") return () => createMessage(request, env, messages[1]!, messages[2]!);
-  if (messages && (method === "GET" || method === "HEAD")) return () => listMessages(request, env, messages[1]!, messages[2]!);
+  if (messages && method === "POST") return agreeing(request, messages[2]!, () => createMessage(request, env, messages[1]!, messages[2]!));
+  if (messages && (method === "GET" || method === "HEAD")) return agreeing(request, messages[2]!, () => listMessages(request, env, messages[1]!, messages[2]!));
   const message = pathname.match(BOT_MESSAGE);
-  if (message && (method === "PUT" || method === "PATCH")) return () => updateMessage(request, env, message[1]!, message[2]!, message[3]!);
-  if (message && method === "DELETE") return () => deleteMessage(env, message[1]!, message[2]!, message[3]!);
+  if (message && (method === "PUT" || method === "PATCH")) return agreeing(request, message[2]!, () => updateMessage(request, env, message[1]!, message[2]!, message[3]!));
+  if (message && method === "DELETE") return agreeing(request, message[2]!, () => deleteMessage(env, message[1]!, message[2]!, message[3]!));
   const boosts = pathname.match(BOT_BOOSTS);
-  if (boosts && method === "POST") return () => createBoost(request, env, boosts[1]!, boosts[2]!, boosts[3]!);
+  if (boosts && method === "POST") return agreeing(request, boosts[2]!, () => createBoost(request, env, boosts[1]!, boosts[2]!, boosts[3]!));
   const boost = pathname.match(BOT_BOOST);
-  if (boost && method === "DELETE") return () => deleteBoost(env, boost[1]!, boost[2]!, boost[3]!, boost[4]!);
+  if (boost && method === "DELETE") return agreeing(request, boost[2]!, () => deleteBoost(env, boost[1]!, boost[2]!, boost[3]!, boost[4]!));
   const slack = pathname.match(BOT_SLACK);
   if (slack && method === "POST") return () => postSlackMessage(request, env, slack[1]!, slack[2]!);
   const slackMessage = pathname.match(BOT_MESSAGE_SLACK);
   if (slackMessage && (method === "POST" || method === "PUT" || method === "PATCH")) return () => replaceWithSlackMessage(request, env, slackMessage[1]!, slackMessage[2]!, slackMessage[3]!);
+  return keylessAction(request, env, pathname);
+}
+
+/**
+ * What answers a request to a room's address for bots with no key in it, which the bot's `Authorization`
+ * header brings instead. The handlers read the key as they read a path's segment, so it goes to them
+ * escaped as one, and a request without one finds no bot, as a wrong key does.
+ */
+function keylessAction(request: Request, env: Env, pathname: string): (() => Promise<Response>) | null {
+  const { method } = request;
+  const key = () => encodeURIComponent(bearerKey(request) ?? "");
+  const messages = pathname.match(KEYLESS_MESSAGES);
+  if (messages && method === "POST") return () => createMessage(request, env, messages[1]!, key());
+  if (messages && (method === "GET" || method === "HEAD")) return () => listMessages(request, env, messages[1]!, key(), true);
+  const message = pathname.match(KEYLESS_MESSAGE);
+  if (message && (method === "PUT" || method === "PATCH")) return () => updateMessage(request, env, message[1]!, key(), message[2]!);
+  if (message && method === "DELETE") return () => deleteMessage(env, message[1]!, key(), message[2]!);
+  const boosts = pathname.match(KEYLESS_BOOSTS);
+  if (boosts && method === "POST") return () => createBoost(request, env, boosts[1]!, key(), boosts[2]!);
+  const boost = pathname.match(KEYLESS_BOOST);
+  if (boost && method === "DELETE") return () => deleteBoost(env, boost[1]!, key(), boost[2]!, boost[3]!);
   return null;
+}
+
+/** Whether `request` is one the bot API takes at an address with no key in it, whose failures answer JSON. */
+export function isKeylessBotRequest({ method }: Request, pathname: string): boolean {
+  if (KEYLESS_MESSAGES.test(pathname)) return method === "POST" || method === "GET" || method === "HEAD";
+  if (KEYLESS_MESSAGE.test(pathname)) return method === "PUT" || method === "PATCH" || method === "DELETE";
+  if (KEYLESS_BOOSTS.test(pathname)) return method === "POST";
+  return KEYLESS_BOOST.test(pathname) && method === "DELETE";
+}
+
+/** What a request answers whose address and `Authorization` header name different keys. */
+const differingKeys = () => Response.json({ error: DIFFERING_KEYS }, { status: 400 });
+
+/** `answer`, unless the request's `Authorization` header holds a key other than the address's `key` segment. */
+function agreeing(request: Request, key: string, answer: () => Promise<Response>): () => Promise<Response> {
+  return async () => {
+    const given = bearerKey(request);
+    return given !== null && !isSameKey(segmentText(key), given) ? differingKeys() : answer();
+  };
 }
 
 /** Whether `pathname` is one of the bot API's addresses, whose failures answer JSON. */
@@ -445,7 +502,8 @@ async function bodyText(request: Request): Promise<string | null> {
 }
 
 /**
- * `GET /rooms/<room id>/<bot key>/messages`: a page of the room's messages as JSON, oldest first, as
+ * `GET /rooms/<room id>/<bot key>/messages`, or `GET /bot/rooms/<room id>/messages` with the key in `Authorization`
+ * (`keyless`, whose `Link` has none either): a page of the room's messages as JSON, oldest first, as
  * `index` answers it: the newest 40, or the 40 before the message `?before` names or after the one
  * `?after` does, with how many the room has in `X-Total-Count` and a `Link` to the next page when the
  * room has more beyond this one. A message deleted but kept for its thread's replies has nothing to
@@ -453,7 +511,7 @@ async function bodyText(request: Request): Promise<string | null> {
  * also sent to the room isn't on the page, as it isn't in the room's timeline: `?thread` reads its thread
  * (`listThread`).
  */
-async function listMessages(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
+async function listMessages(request: Request, env: Env, roomId: RoomId, key: string, keyless = false): Promise<Response> {
   const access = await botIn(env, roomId, key);
   if (access instanceof Response) return access;
   const url = urlOf(request);
@@ -468,7 +526,7 @@ async function listMessages(request: Request, env: Env, roomId: RoomId, key: str
   const etag = await etagOf(body);
   const headers = new Headers({ "X-Total-Count": String(page.total), ETag: etag, "Cache-Control": REVALIDATE });
   const next = nextPage(page, cursor);
-  if (next) headers.set("Link", `<${origin}/rooms/${roomId}/${key}/messages?${next}>; rel="next"`);
+  if (next) headers.set("Link", `<${origin}${keyless ? "/bot" : ""}/rooms/${roomId}${keyless ? "" : `/${key}`}/messages?${next}>; rel="next"`);
   if (isFresh(request, etag)) return new Response(null, { status: 304, headers });
   headers.set("Content-Type", JSON_TYPE);
   return new Response(request.method === "HEAD" ? null : body, { headers });
