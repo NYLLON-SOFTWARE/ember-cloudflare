@@ -1372,6 +1372,27 @@ describe("Top bar", () => {
     await waitFor(async () => expect(await roomHeading()).toHaveTextContent("Ember"));
   });
 
+  it("asks before leaving a room's unsaved settings for your DM with @ember, which it starts only once you go", async () => {
+    serve({
+      "GET /api/users": () => Response.json({ users: [ember] }),
+      "GET /api/rooms/general/settings": () => Response.json(generalSettings),
+      "POST /api/directs": () => Response.json({ room: withEmber }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/opens/general/edit");
+    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
+    // Found by its name alone: jsdom counts the page heading's header as a banner too, though it's inside main.
+    const ask = await screen.findByRole("button", { name: "Ask @ember" });
+    await user.click(ask);
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(location.pathname).toBe("/rooms/opens/general/edit");
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/directs")).toBe(false);
+
+    await user.click(ask);
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/d9"));
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [ASSISTANT_ID] }) }));
+  });
+
   it("has no Ask @ember while Ember AI is off, nor where @ember is kept for administrators", async () => {
     serve({ "GET /api/users": () => Response.json({ users: [{ ...ember, status: "deactivated" }] }) });
     const { unmount } = showWorkspace("/rooms/general");

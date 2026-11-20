@@ -29,7 +29,7 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { isQuietWelcome, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
+import { afterNavigating, leave, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
 import { HuddlesContext, joinsNoHuddle, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
@@ -988,7 +988,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             field={searchField}
             ember={ember}
             onAskEmber={() => {
-              if (ember) void startDirectWith(ember);
+              // Once the page's guard lets it, as the button on someone's page does, so the DM isn't started for a page kept.
+              if (ember) leave(() => startDirectWith(ember));
             }}
           />
           <div
