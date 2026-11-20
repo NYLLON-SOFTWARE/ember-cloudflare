@@ -367,6 +367,28 @@ describe("Sidebar section", () => {
     await act(async () => answerSave(Response.json({ room: { ...design, name: "Design team" } })));
     expect(location.pathname).toBe("/rooms/design");
   });
+
+  it("goes to sign in when the settings loaded for a section made find the session gone, though the page was left", async () => {
+    let answerReload = (_: Response) => {};
+    const gets = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method !== "PATCH").length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      if (init?.method === "PATCH") return Promise.resolve(Response.json({ room: design }));
+      return gets() === 1 ? Promise.resolve(Response.json({ ...openSettings(), sections })) : new Promise((resolve) => (answerReload = resolve));
+    });
+    const { onFailed, user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    act(() => leave(vi.fn(async () => false)));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(gets()).toBe(2));
+
+    act(() => navigate("/rooms/general"));
+    expect(screen.queryByRole("textbox", { name: "Room name" })).not.toBeInTheDocument();
+    await act(async () => answerReload(Response.json({ error: "Not signed in" }, { status: 401 })));
+    expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
+  });
 });
 
 describe("Switch a room between open and private", () => {

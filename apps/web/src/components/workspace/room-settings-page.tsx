@@ -186,7 +186,8 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
         setSection((picked) => (sameSection(picked, made) ? sectionId : picked));
       },
       (error: unknown) => {
-        if (outrun()) return;
+        // As ever, a session that's ended goes to sign in, from any page.
+        if (outrun() && !isSignedOut(error)) return;
         if (isMissing(error)) onMissing();
         else onFailed(error);
       },
