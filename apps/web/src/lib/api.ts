@@ -61,6 +61,7 @@ import {
   type NewRoomForm,
   type NewBot,
   type NewWorkspace,
+  type NotifiedCounts,
   type OpenSignUp,
   type PastHuddle,
   type PastHuddles,
@@ -1101,6 +1102,14 @@ export async function startDirect(userIds: UserId[]): Promise<DirectRoom> {
 /** A room's settings. Fails with a 404 ApiError for a room this person isn't in, or a DM. */
 export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
   return request<RoomSettings>(`/api/rooms/${encodeURIComponent(roomId)}/settings`);
+}
+
+/**
+ * How many people each special mention this person may use in a room would notify there, as their
+ * composer asks before sending one. Fails with a 404 ApiError for a room this person isn't in.
+ */
+export async function fetchNotified(roomId: RoomId): Promise<NotifiedCounts> {
+  return request<NotifiedCounts>(`/api/rooms/${encodeURIComponent(roomId)}/notified`);
 }
 
 /** Changes a room, answering it as it is then. */

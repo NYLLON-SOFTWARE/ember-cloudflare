@@ -40,6 +40,7 @@ const workspace: Omit<Bootstrap, "user"> = {
     restrictRoomCreation: false,
     restrictChannelMentions: false,
     restrictEveryoneMention: false,
+    warnBeforeNotifying: true,
     logo: null,
     customDomain: null,
     joinLink: false,

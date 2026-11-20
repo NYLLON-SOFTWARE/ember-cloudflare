@@ -75,6 +75,7 @@ import {
   type MemberfulStatus,
   type NewJoinCode,
   type NewRoomForm,
+  type NotifiedCounts,
   type PersonAnswer,
   type ProfileAnswer,
   type ReleaseCheck,
@@ -1317,6 +1318,14 @@ async function newRoomForm(request: Request, env: Env): Promise<Response> {
   return form === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json(form satisfies NewRoomForm);
 }
 
+/** How many people a room holds, and how many each special mention the asker may use would notify there, for its members. */
+async function notified(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const counts = credentials && (await workspace(env).notified(credentials, roomId));
+  if (!counts) return problem(401, "Not signed in");
+  return counts === "not found" ? problem(404, ROOM_NOT_FOUND) : json(counts satisfies NotifiedCounts);
+}
+
 /** A room's settings page, for its members, read-only for those who can't change it. */
 async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1655,6 +1664,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const huddleInvitation = pathname.match(/^\/api\/rooms\/([^/]+)\/huddle\/invitation$/);
   if (huddleInvitation && request.method === "DELETE")
     return () => (isRoomId(huddleInvitation[1]!) ? answerHuddleInvitation(request, env, huddleInvitation[1]!) : problem(404, ROOM_NOT_FOUND));
+  const notifiedBy = pathname.match(/^\/api\/rooms\/([^/]+)\/notified$/);
+  if (notifiedBy && request.method === "GET") return () => (isRoomId(notifiedBy[1]!) ? notified(request, env, notifiedBy[1]!) : problem(404, ROOM_NOT_FOUND));
   const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
   if (settings && request.method === "GET") return () => (isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND));
   const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);

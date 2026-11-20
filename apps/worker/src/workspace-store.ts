@@ -111,10 +111,10 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 
 /**
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
- * anyone may create rooms and use @channel, @here and @everyone, no custom domain, people join with the
- * join link but can't sign up without it, nor join with Memberful or an email domain, members sign in
- * with passwords, the rail has its own icons, and in huddles cameras may go on and screens be shared,
- * at huddles' own video quality.
+ * anyone may create rooms and use @channel, @here and @everyone, which ask first in a room of six or
+ * more, no custom domain, people join with the join link but can't sign up without it, nor join with
+ * Memberful or an email domain, members sign in with passwords, the rail has its own icons, and in
+ * huddles cameras may go on and screens be shared, at huddles' own video quality.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
@@ -123,6 +123,7 @@ export const NEW_ACCOUNT_LOOKS = {
   restrictRoomCreation: false,
   restrictChannelMentions: false,
   restrictEveryoneMention: false,
+  warnBeforeNotifying: true,
   huddleCameras: true,
   huddleScreens: true,
   huddleVideo: DEFAULT_HUDDLE_VIDEO as HuddleVideoQuality,
@@ -289,6 +290,7 @@ export type AccountChange = Partial<
     | "restrictRoomCreation"
     | "restrictChannelMentions"
     | "restrictEveryoneMention"
+    | "warnBeforeNotifying"
     | "huddleCameras"
     | "huddleScreens"
     | "huddleVideo"
@@ -1445,6 +1447,16 @@ const restrictsChannelMentions = (settings: Record<string, unknown> | null) => i
 /** Whether the account's settings let only administrators use @everyone: only while the setting is present. */
 const restrictsEveryoneMention = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_everyone_mention_to_administrators);
 
+/**
+ * Whether the account's settings have a message whose special mention would notify a room of six or
+ * more ask its writer first: until the setting is stored, then only while it's present, as for hiding
+ * the translation buttons. Settings that don't parse ask.
+ */
+function warnsBeforeNotifying(settings: Record<string, unknown> | null): boolean {
+  const warn = settings ? settings.warn_before_notifying : true;
+  return warn === undefined || isPresent(warn);
+}
+
 /** The account's tagline, which its settings keep as `tagline`, or empty while it has none. */
 const taglineIn = (settings: Record<string, unknown> | null) => (typeof settings?.tagline === "string" ? settings.tagline : "");
 
@@ -2401,6 +2413,13 @@ function messagePushesOf(roomId: RoomId, { seq, userId, threadOnly, message }: R
   return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentioned), JSON.stringify(message.followerIds ?? []));
 }
 
+/** How many people are in room ?1 but ?2, those whose accounts are active, but bots, which no mention notifies. */
+const NOTIFIED_MEMBERS = `SELECT count(*) AS people FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ?1 AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}`;
+
+/** How many of them the JSON array ?3 names, as @here notifies those active now. */
+const NOTIFIED_ACTIVE_MEMBERS = `${NOTIFIED_MEMBERS} AND memberships.user_id IN (SELECT value FROM json_each(?3))`;
+
 /**
  * Whether a message by ?2 in room ?1 can notify the room with a special mention: it's a room, not a DM,
  * that allows them, and ?2 isn't an AI agent, a bot without a token, as @ember and the agents
@@ -2578,6 +2597,7 @@ const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
 const SET_RESTRICT_CHANNEL_MENTIONS = setSetting("restrict_channel_mentions_to_administrators");
 const SET_RESTRICT_EVERYONE_MENTION = setSetting("restrict_everyone_mention_to_administrators");
+const SET_WARN_BEFORE_NOTIFYING = setSetting("warn_before_notifying");
 const SET_HUDDLE_CAMERAS = setSetting("huddle_cameras");
 const SET_HUDDLE_SCREENS = setSetting("huddle_screens");
 const SET_HUDDLE_VIDEO = setSetting("huddle_video");
@@ -3718,6 +3738,7 @@ export class WorkspaceStore {
       restrictRoomCreation: restrictsRoomCreation(settings),
       restrictChannelMentions: restrictsChannelMentions(settings),
       restrictEveryoneMention: restrictsEveryoneMention(settings),
+      warnBeforeNotifying: warnsBeforeNotifying(settings),
       huddleCameras: showsHuddleCameras(settings),
       huddleScreens: sharesHuddleScreens(settings),
       huddleVideo: huddleVideoIn(settings),
@@ -3766,6 +3787,7 @@ export class WorkspaceStore {
       restrictRoomCreation,
       restrictChannelMentions,
       restrictEveryoneMention,
+      warnBeforeNotifying,
       huddleCameras,
       huddleScreens,
       huddleVideo,
@@ -3795,6 +3817,7 @@ export class WorkspaceStore {
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
       ...(restrictChannelMentions === undefined ? [] : [statement(SET_RESTRICT_CHANNEL_MENTIONS, JSON.stringify(restrictChannelMentions), now)]),
       ...(restrictEveryoneMention === undefined ? [] : [statement(SET_RESTRICT_EVERYONE_MENTION, JSON.stringify(restrictEveryoneMention), now)]),
+      ...(warnBeforeNotifying === undefined ? [] : [statement(SET_WARN_BEFORE_NOTIFYING, JSON.stringify(warnBeforeNotifying), now)]),
       ...(huddleCameras === undefined ? [] : [statement(SET_HUDDLE_CAMERAS, JSON.stringify(huddleCameras), now)]),
       ...(huddleScreens === undefined ? [] : [statement(SET_HUDDLE_SCREENS, JSON.stringify(huddleScreens), now)]),
       ...(huddleVideo === undefined ? [] : [statement(SET_HUDDLE_VIDEO, JSON.stringify(huddleVideo), now)]),
@@ -5315,6 +5338,15 @@ export class WorkspaceStore {
     return SPECIAL_MENTIONS.filter((mention) =>
       mention === "everyone" ? room.everyone === 1 && mayUse(restrictsEveryoneMention(settings)) : mayUse(restrictsChannelMentions(settings)),
     );
+  }
+
+  /** How many people are in room `roomId` but `userId`, and how many of them the list `activeIds` names, as @here notifies. */
+  async notifiedCounts(roomId: RoomId, userId: UserId, activeIds: UserId[]): Promise<{ everyone: number; active: number }> {
+    const [[everyone], [active]] = (await this.db.batch([
+      statement(NOTIFIED_MEMBERS, roomId, userId),
+      statement(NOTIFIED_ACTIVE_MEMBERS, roomId, userId, JSON.stringify(activeIds)),
+    ])) as [[{ people: number }], [{ people: number }]];
+    return { everyone: everyone!.people, active: active!.people };
   }
 
   /** The kind of room `roomId`, a DM's too, or null when there's no such room. */
