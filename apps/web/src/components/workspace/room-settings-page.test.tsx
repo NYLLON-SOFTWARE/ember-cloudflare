@@ -1,4 +1,4 @@
-import type { Room, RoomSettings } from "@ember/protocol";
+import type { Me, Room, RoomSettings } from "@ember/protocol";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -60,22 +60,22 @@ function holdChange(settings: RoomSettings, method: "PATCH" | "DELETE" = "PATCH"
 
 type Callbacks = Pick<Parameters<typeof RoomSettingsPage>[0], "askForRoom" | "onMissing" | "onFailed">;
 
-/** The page, as Ada, at the form its address names, as the workspace shows it. */
-function SettingsRoute(callbacks: Callbacks) {
+/** The page, as Ada unless it says otherwise, at the form its address names, as the workspace shows it. */
+function SettingsRoute({ me, ...callbacks }: Callbacks & { me: Me }) {
   const route = useRoute();
   return route.page === "room-settings" ? (
-    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={ada} {...callbacks} />
+    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={me} {...callbacks} />
   ) : null;
 }
 
-function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`, wrapper?: (props: { children: ReactNode }) => ReactNode) {
+function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`, wrapper?: (props: { children: ReactNode }) => ReactNode, me: Me = ada) {
   const [onSaved, onLeft, onMissing, onFailed] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
   // The answers the page lists: rooms saved, and those it took Ada out of or deleted.
   const askForRoom = () => (answer: RoomAnswer) => (answer.type === "saved" ? onSaved(answer.room) : onLeft(answer.roomId));
   history.replaceState(null, "", path);
   const { unmount } = render(
     <Sheet>
-      <SettingsRoute askForRoom={askForRoom} onMissing={onMissing} onFailed={onFailed} />
+      <SettingsRoute me={me} askForRoom={askForRoom} onMissing={onMissing} onFailed={onFailed} />
     </Sheet>,
     { wrapper },
   );
@@ -277,6 +277,34 @@ describe("Sidebar section", () => {
     showPage(design);
     expect(await screen.findByRole("heading", { level: 2, name: "Design" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sidebar section" })).not.toBeInTheDocument();
+  });
+
+  it("shows a section the dialog made by its name, should the page stay, as it does when signing out fails", async () => {
+    let settings: RoomSettings = { ...openSettings(), sections };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method !== "PATCH") return Response.json(settings);
+      settings = { ...settings, section: { id: "s3", name: "Design work" }, sections: [...sections, { id: "s3", name: "Design work", rooms: 1 }] };
+      return Response.json({ room: design });
+    });
+    const { user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    expect(sent()).toEqual({ name: "Design", icon: "", kind: "open", section: { name: "Design work" } });
+
+    await waitFor(() => expect(field()).toHaveTextContent("Design work"));
+    expect(screen.queryByRole("textbox", { name: "New section’s name" })).not.toBeInTheDocument();
+    await user.click(field());
+    expect(screen.getByRole("menuitemradio", { name: /^Design work/ })).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{Escape}");
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(2);
+    expect(asking()).not.toBeInTheDocument();
   });
 });
 

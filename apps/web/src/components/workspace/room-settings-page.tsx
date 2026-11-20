@@ -160,6 +160,24 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     }, failed);
   };
 
+  /**
+   * Once the unsaved changes dialog has saved the room with a new section and the page stays, as it does
+   * when signing out fails, the section shows by its name, as the menu then lists it, rather than as one
+   * still to make: the settings load again for it, since what saving answers is the room alone.
+   */
+  const showSectionMade = () => {
+    if (typeof section !== "object" || section === null) return;
+    const made = section;
+    fetchRoomSettings(roomId).then((loaded) => {
+      if (!mounted.current) return;
+      setSettings((settings) => settings && { ...settings, sections: loaded.sections });
+      const sectionId = loaded.section?.id ?? null;
+      setSavedSection(sectionId);
+      // Unless another has been picked since.
+      setSection((picked) => (sameSection(picked, made) ? sectionId : picked));
+    }, failed);
+  };
+
   /** Once `question` is confirmed, has `go` take the room from this person, then from the sidebar. */
   const goOnceConfirmed = (question: string, go: (roomId: RoomId) => Promise<void>) => {
     if (!confirm(question)) return;
@@ -235,7 +253,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
           <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_DELETE, deleteRoom)} />
         </Panel>
       )}
-      <UnsavedChanges changed={changed} stays={stays} onSave={send} form={roomForm} />
+      <UnsavedChanges changed={changed} stays={stays} onSave={send} onStayAfterSave={showSectionMade} form={roomForm} />
     </SettingsPage>
   );
 }
