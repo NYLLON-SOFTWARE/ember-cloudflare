@@ -1,4 +1,4 @@
-import type { UserId } from "@ember/protocol";
+import type { RoomId, RoomKind, UserId } from "@ember/protocol";
 
 // The words the search index keeps of each message (search-migrations/0005_search_readers.sql). An open
 // room's are kept as its messages have them, since everyone in Ember can read those. Those of a room
@@ -13,6 +13,21 @@ import type { UserId } from "@ember/protocol";
  * people of a DM.
  */
 export type Readers = "everyone" | "members" | UserId[];
+
+/** Who can read a room, as the Workspace tells the index, or null for a room it no longer has. */
+export interface RoomReaders {
+  roomId: RoomId;
+  readers: Readers | null;
+}
+
+/**
+ * Who can read a room of `kind`, as the index keeps its words: everyone, for an open room, each of the
+ * `people` of a DM of one or two people, whose DMs all share their keys, or its members.
+ */
+export function readersOf(kind: RoomKind, people: UserId[] | null): Readers {
+  if (kind === "open") return "everyone";
+  return kind === "direct" && people !== null && people.length <= 2 ? people : "members";
+}
 
 /**
  * The characters FTS5's tokenizer ends a word at though JavaScript counts them as letters, since the

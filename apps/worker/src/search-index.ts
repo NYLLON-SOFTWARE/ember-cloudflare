@@ -2,7 +2,8 @@ import { SEARCH_LIMIT, type RoomId, type SearchSort, type UserId } from "@ember/
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import { migrate } from "./migrations";
-import { keyedText, matchOf, plainText, unkeyed, type Readers } from "./search-words";
+import { keyedText, matchOf, plainText, unkeyed, type Readers, type RoomReaders } from "./search-words";
+import { workspace } from "./workspace";
 
 // The search index (search-migrations/): every message's plain text in one FTS5 table, an open room's as
 // it is and the rest's words under keys (search-words.ts), what search results show of it and what
@@ -77,6 +78,31 @@ const PER_MILLISECOND = 1024;
 /** What a deleted room's place in its log becomes, past any call it made before. */
 const FORGOTTEN = Number.MAX_SAFE_INTEGER;
 
+/**
+ * How long ago the messages the index keeps under their room's keys as soon as it hears who can read the
+ * room can be from, and how many of them it takes at most: it keeps earlier ones under them a few at a
+ * time (`REKEYED_PER_RUN`).
+ */
+const REKEYED_AT_ONCE_MS = 60 * 60 * 1000;
+const MOST_REKEYED_AT_ONCE = 200;
+
+/**
+ * How many messages taken before their rooms' words were kept under keys the index keeps under them a
+ * run, and how long it waits between runs: 3,000 a day, each writing three rows, half what taking a new
+ * message writes, so under a tenth of the 100,000 rows Workers Free lets a day write, which running out
+ * of stops Ember until midnight UTC.
+ */
+const REKEYED_PER_RUN = 125;
+const REKEY_RUNS_EVERY_MS = 60 * 60 * 1000;
+
+/** Where the index keeps when the walk's next run is due, in milliseconds since the epoch, while it has one. */
+const REKEY_DUE = "rekeyDue";
+
+/** How many rooms it asks the Workspace about in a call, how many calls a run makes at most, and how long it waits when one fails. */
+const ROOMS_PER_ASK = 100;
+const ASKS_PER_RUN = 10;
+const ASK_AGAIN_MS = 60 * 1000;
+
 /** A statement's SQL and the values it binds, in order. */
 export interface SearchStatement {
   sql: string;
@@ -134,8 +160,9 @@ const FOUND = `search_messages.id AS number, search_messages.message_id AS messa
  * of `keys`. It's the one statement whatever the rooms it doesn't look in hold: were another to run when
  * their messages left the page short, the time a search took would tell the searcher what's written in
  * rooms they can't read. A search of filters alone reads nothing of those rooms, but one with words still
- * passes over their matches kept plainly, so the time it takes grows with how many of those have its
- * words (`wordsStatement`).
+ * passes over their matches kept plainly, open rooms' and those it took before it heard who can read
+ * their rooms and hasn't kept under keys yet (`hear`), so the time it takes grows with how many of those
+ * have its words (`wordsStatement`).
  */
 export function searchStatement(search: IndexSearch, keys: number[]): SearchStatement {
   const words = wordsSearched(search);
@@ -276,6 +303,14 @@ const KEYS_FOR_SEARCH = `SELECT key FROM search_keys WHERE room_id IN (SELECT va
 const LATEST_NUMBERS = `SELECT firsts.value AS first, (SELECT max(id) FROM search_messages WHERE id BETWEEN firsts.value AND firsts.value + ${PER_MILLISECOND - 1}) AS latest
   FROM json_each(?1) AS firsts`;
 
+/**
+ * Up to ?4 of room ?1's messages numbered below ?2 and from ?3 whose words the index keeps plainly,
+ * newest first, with what it keeps of them.
+ */
+const PLAIN_MESSAGES = `SELECT search_messages.id AS number, search_index.body FROM search_messages JOIN search_index ON search_index.rowid = search_messages.id
+  WHERE search_messages.room_id = ?1 AND search_messages.id < ?2 AND search_messages.id >= ?3 AND search_messages.keyed = 0
+  ORDER BY search_messages.id DESC LIMIT ?4`;
+
 /** The first number a message of the millisecond of `createdAt` can have. */
 const firstNumber = (createdAt: string) => Date.parse(createdAt) * PER_MILLISECOND;
 
@@ -290,23 +325,28 @@ const byTime = (a: IndexedMessage, b: IndexedMessage) => firstNumber(a.createdAt
  */
 export class SearchIndex extends DurableObject<Env> {
   private readonly sql: SqlStorage;
+  /** The Workspace being asked who can read rooms, while it is (`hearUnheard`). */
+  private asking: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     migrate(ctx.storage, "search");
     this.sql = ctx.storage.sql;
+    // A copy that updates, or comes back to this release, holds rooms it hasn't heard about.
+    void ctx.blockConcurrencyWhile(() => this.wakeForNext());
   }
 
   /**
    * Takes room `roomId`'s log up to its change `seq`: `messages`, as they are now, and the messages
    * `deletedIds` names, which are gone. A message keeps its number when it's edited. A call the room made
    * before one the index has taken, or after the room was deleted, changes nothing. It's one transaction,
-   * and nothing can run between its reads and its writes, which never wait.
+   * and nothing can run between its reads and its writes, which never wait. The index then asks who can
+   * read the room, if it hasn't heard, and until it does keeps its words plainly.
    */
   apply(roomId: RoomId, seq: number, messages: IndexedMessage[], deletedIds: string[]): void {
-    this.ctx.storage.transactionSync(() => {
-      const [taken] = this.sql.exec<{ seq: number }>(`SELECT seq FROM search_rooms WHERE room_id = ?`, roomId).toArray();
-      if (taken && taken.seq >= seq) return;
+    const unheard = this.ctx.storage.transactionSync(() => {
+      const [taken] = this.sql.exec<{ seq: number; heard: number }>(`SELECT seq, heard FROM search_rooms WHERE room_id = ?`, roomId).toArray();
+      if (taken && taken.seq >= seq) return false;
       const listed = JSON.stringify(messages.map(({ id }) => id));
       const indexed = this.sql.exec<{ id: number; message_id: string }>(`SELECT id, message_id FROM search_messages WHERE message_id IN (SELECT value FROM json_each(?))`, listed);
       const known = new Map(indexed.toArray().map((row) => [row.message_id, row.id]));
@@ -327,7 +367,9 @@ export class SearchIndex extends DurableObject<Env> {
         this.sql.exec(`INSERT OR IGNORE INTO search_mentions (id, user_id) SELECT ?, value FROM json_each(?)`, number, JSON.stringify(mentionIds));
       }
       this.sql.exec(`INSERT INTO search_rooms (room_id, seq) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq`, roomId, seq);
+      return !taken?.heard;
     });
+    if (unheard) this.hearNow();
   }
 
   /**
@@ -359,21 +401,195 @@ export class SearchIndex extends DurableObject<Env> {
   }
 
   /**
+   * Keeps the words of each room `rooms` lists as who can read it says from now on, as the Workspace
+   * tells the index as a room's kind changes (`hear`), but for a room the Workspace no longer has.
+   */
+  async setReadersOf(rooms: RoomReaders[]): Promise<void> {
+    this.ctx.storage.transactionSync(() => {
+      for (const { roomId, readers } of rooms) if (readers !== null) this.hear(roomId, readers);
+    });
+    await this.wakeForNext();
+  }
+
+  /**
+   * Notes the index has heard who can read room `roomId`, unless it's deleted, and keeps its words as
+   * `readers` says from now on. When that changes how it keeps them, it keeps the room's messages of the
+   * last hour under its keys at once, up to `MOST_REKEYED_AT_ONCE` of them, and leaves any earlier ones it
+   * keeps plainly to the walk (`walk`), or ends the room's walk once everyone can read it.
+   */
+  private hear(roomId: RoomId, readers: Readers): void {
+    const [room] = this.sql.exec<{ seq: number; heard: number }>(`SELECT seq, heard FROM search_rooms WHERE room_id = ?`, roomId).toArray();
+    if (room?.seq === FORGOTTEN) return;
+    // A room it holds no messages of takes them from its log's first change on, numbered from 1.
+    if (!room) this.sql.exec(`INSERT INTO search_rooms (room_id, seq, heard) VALUES (?, 0, 1)`, roomId);
+    else if (room.heard === 0) this.sql.exec(`UPDATE search_rooms SET heard = 1 WHERE room_id = ?`, roomId);
+    if (!this.setReaders(roomId, readers)) return;
+    const keys = this.keysOf(roomId);
+    const since = (Date.now() - REKEYED_AT_ONCE_MS) * PER_MILLISECOND;
+    const rekeyed = keys.length === 0 ? [] : this.rekey(roomId, keys, FORGOTTEN, since, MOST_REKEYED_AT_ONCE);
+    const newest = keys.length === 0 ? null : this.newestPlain(roomId, rekeyed.at(-1) ?? FORGOTTEN);
+    if (newest === null) {
+      this.sql.exec(`DELETE FROM search_rekeys WHERE room_id = ?`, roomId);
+      return;
+    }
+    this.sql.exec(`INSERT INTO search_rekeys (room_id, before) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET before = excluded.before`, roomId, newest + 1);
+    if (this.ctx.storage.kv.get(REKEY_DUE) === undefined) this.ctx.storage.kv.put(REKEY_DUE, Date.now());
+  }
+
+  /**
    * Keeps the words of room `roomId`'s messages from now on as who can read them, `readers`, says: plainly
    * for everyone, under the room's key for its members, or under each person's. A key, once given, stays
-   * the room's or the person's. The messages it has already keep their words as they are.
+   * the room's or the person's. Answers whether that changes how it keeps them.
    */
-  setReaders(roomId: RoomId, readers: Readers): void {
-    this.ctx.storage.transactionSync(() => {
-      if (readers === "everyone") {
-        this.sql.exec(`DELETE FROM search_readers WHERE room_id = ?`, roomId);
-        return;
+  private setReaders(roomId: RoomId, readers: Readers): boolean {
+    const [kept] = this.sql.exec<{ people: string | null }>(`SELECT people FROM search_readers WHERE room_id = ?`, roomId).toArray();
+    if (readers === "everyone") {
+      if (kept) this.sql.exec(`DELETE FROM search_readers WHERE room_id = ?`, roomId);
+      return kept !== undefined;
+    }
+    const people = readers === "members" ? null : JSON.stringify([...new Set(readers)]);
+    if (kept && kept.people === people) return false;
+    this.sql.exec(`INSERT INTO search_readers (room_id, people) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET people = excluded.people`, roomId, people);
+    if (people === null) this.sql.exec(`INSERT INTO search_keys (room_id) VALUES (?) ON CONFLICT DO NOTHING`, roomId);
+    else this.sql.exec(`INSERT INTO search_keys (user_id) SELECT value FROM json_each(?) WHERE true ON CONFLICT DO NOTHING`, people);
+    return true;
+  }
+
+  /**
+   * Keeps up to `limit` of room `roomId`'s messages numbered below `before` and from `since` whose words
+   * the index keeps plainly under `keys` instead, newest first, and answers their numbers in that order.
+   */
+  private rekey(roomId: RoomId, keys: number[], before: number, since: number, limit: number): number[] {
+    const plain = this.sql.exec<{ number: number; body: string }>(PLAIN_MESSAGES, roomId, before, since, limit).toArray();
+    if (plain.length === 0) return [];
+    for (const { number, body } of plain) {
+      this.sql.exec(`DELETE FROM search_index WHERE rowid = ?`, number);
+      this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keyedText(body, keys));
+    }
+    const numbers = plain.map(({ number }) => number);
+    this.sql.exec(`UPDATE search_messages SET keyed = 1 WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(numbers));
+    return numbers;
+  }
+
+  /** The number of room `roomId`'s newest message numbered below `before` whose words the index keeps plainly, if any. */
+  private newestPlain(roomId: RoomId, before: number): number | null {
+    const [row] = this.sql.exec<{ id: number }>(`SELECT id FROM search_messages WHERE room_id = ? AND id < ? AND keyed = 0 ORDER BY id DESC LIMIT 1`, roomId, before).toArray();
+    return row?.id ?? null;
+  }
+
+  /**
+   * Keeps up to `limit` of the messages taken before their rooms' words were kept under keys under them,
+   * newest first, whatever their rooms: those of the room whose walk has the newest left, down to the
+   * newest another room's has left, then that room's, and so on. Answers whether any walk has further to
+   * go.
+   */
+  private walk(limit: number): boolean {
+    return this.ctx.storage.transactionSync(() => {
+      for (let left = limit; left > 0; ) {
+        const [first, second] = this.sql.exec<{ room_id: RoomId; before: number }>(`SELECT room_id, before FROM search_rekeys ORDER BY before DESC LIMIT 2`).toArray();
+        if (!first) return false;
+        const keys = this.keysOf(first.room_id);
+        // An edit since may have kept the walk's newest under keys already.
+        const newest = keys.length === 0 ? null : this.newestPlain(first.room_id, first.before);
+        if (newest === null) {
+          this.sql.exec(`DELETE FROM search_rekeys WHERE room_id = ?`, first.room_id);
+          continue;
+        }
+        const rekeyed = this.rekey(first.room_id, keys, newest + 1, Math.min(second?.before ?? 0, newest), left);
+        left -= rekeyed.length;
+        const next = this.newestPlain(first.room_id, rekeyed.at(-1)!);
+        if (next === null) this.sql.exec(`DELETE FROM search_rekeys WHERE room_id = ?`, first.room_id);
+        else this.sql.exec(`UPDATE search_rekeys SET before = ? WHERE room_id = ?`, next + 1, first.room_id);
       }
-      const people = readers === "members" ? null : JSON.stringify([...new Set(readers)]);
-      this.sql.exec(`INSERT INTO search_readers (room_id, people) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET people = excluded.people`, roomId, people);
-      if (people === null) this.sql.exec(`INSERT INTO search_keys (room_id) VALUES (?) ON CONFLICT DO NOTHING`, roomId);
-      else this.sql.exec(`INSERT INTO search_keys (user_id) SELECT value FROM json_each(?) WHERE true ON CONFLICT DO NOTHING`, people);
+      return this.sql.exec(`SELECT 1 FROM search_rekeys LIMIT 1`).toArray().length > 0;
     });
+  }
+
+  /**
+   * Asks about the rooms the index hasn't heard about at once, as a room it hasn't heard about sends it
+   * messages, rather than once its alarm goes off, and without the room waiting for the answer, then sets
+   * the alarm for what that leaves. Asking already, it asks about this room too before it's done.
+   */
+  private hearNow(): void {
+    if (this.asking) return;
+    void this.hearUnheard()
+      .then(
+        () => this.wakeForNext(),
+        (error) => {
+          console.error("Could not ask the Workspace who can read rooms; trying again later", error);
+          return this.wakeForNext(Date.now() + ASK_AGAIN_MS);
+        },
+      )
+      .catch((error) => console.error("Could not set the search index's alarm", error));
+  }
+
+  /** Asks about the rooms the index hasn't heard about (`askAboutUnheard`), unless it's asking already, and answers once it has. */
+  private hearUnheard(): Promise<void> {
+    this.asking ??= this.askAboutUnheard().finally(() => {
+      this.asking = null;
+    });
+    return this.asking;
+  }
+
+  /**
+   * Asks the Workspace who can read the rooms the index holds messages of but hasn't heard about,
+   * `ROOMS_PER_ASK` at a time, up to `ASKS_PER_RUN` times, and hears each as it answers, but for one it
+   * has been told of since it asked, as the room's kind changed, which the answer may be from before. A
+   * deleted room needs no asking.
+   */
+  private async askAboutUnheard(): Promise<void> {
+    for (let asks = 0; asks < ASKS_PER_RUN; asks++) {
+      const unheard = this.sql.exec<{ room_id: RoomId; seq: number }>(`SELECT room_id, seq FROM search_rooms WHERE heard = 0 LIMIT ?`, ROOMS_PER_ASK).toArray();
+      if (unheard.length === 0) return;
+      const deleted = unheard.filter(({ seq }) => seq === FORGOTTEN).map(({ room_id }) => room_id);
+      const asked = unheard.filter(({ seq }) => seq !== FORGOTTEN).map(({ room_id }) => room_id);
+      const answers = asked.length === 0 ? [] : await workspace(this.env).roomReaders(asked);
+      this.ctx.storage.transactionSync(() => {
+        this.sql.exec(`UPDATE search_rooms SET heard = 1 WHERE room_id IN (SELECT value FROM json_each(?))`, JSON.stringify(deleted));
+        for (const { roomId, readers } of answers) {
+          const [room] = this.sql.exec<{ heard: number }>(`SELECT heard FROM search_rooms WHERE room_id = ?`, roomId).toArray();
+          if (room?.heard !== 0) continue;
+          if (readers === null) this.sql.exec(`UPDATE search_rooms SET heard = 1 WHERE room_id = ?`, roomId);
+          else this.hear(roomId, readers);
+        }
+      });
+    }
+  }
+
+  /**
+   * Asks about the rooms the index hasn't heard about, then takes the walk a run further, if that's due,
+   * and sets the alarm for what's next.
+   */
+  override async alarm(): Promise<void> {
+    let askAt = Date.now();
+    try {
+      await this.hearUnheard();
+    } catch (error) {
+      console.error("Could not ask the Workspace who can read rooms; trying again later", error);
+      askAt = Date.now() + ASK_AGAIN_MS;
+    }
+    const due = this.ctx.storage.kv.get<number>(REKEY_DUE);
+    if (due !== undefined && due <= Date.now()) {
+      if (this.walk(REKEYED_PER_RUN)) this.ctx.storage.kv.put(REKEY_DUE, Date.now() + REKEY_RUNS_EVERY_MS);
+      else this.ctx.storage.kv.delete(REKEY_DUE);
+    }
+    await this.wakeForNext(askAt);
+  }
+
+  /**
+   * Sets the alarm for what the index has next to do, unless it's set sooner: ask about the rooms it
+   * hasn't heard about, at `askAt`, and take the walk further, when that's due.
+   */
+  private async wakeForNext(askAt = Date.now()): Promise<void> {
+    const unheard = this.sql.exec(`SELECT 1 FROM search_rooms WHERE heard = 0 LIMIT 1`).toArray().length > 0;
+    const next = Math.min(unheard ? askAt : Infinity, this.ctx.storage.kv.get<number>(REKEY_DUE) ?? Infinity);
+    if (next !== Infinity) await this.wake(next);
+  }
+
+  /** Sets the alarm for `at`, or now, once that has passed, unless it's set sooner. */
+  private async wake(at: number): Promise<void> {
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null || alarm > at) await this.ctx.storage.setAlarm(Math.max(at, Date.now()));
   }
 
   /** The keys room `roomId`'s messages keep their words under, in order, or none when they keep them plainly. */
@@ -396,8 +612,9 @@ export class SearchIndex extends DurableObject<Env> {
    */
   forget(roomId: RoomId, limit: number): boolean {
     return this.ctx.storage.transactionSync(() => {
-      this.sql.exec(`INSERT INTO search_rooms (room_id, seq) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq`, roomId, FORGOTTEN);
+      this.sql.exec(`INSERT INTO search_rooms (room_id, seq, heard) VALUES (?, ?, 1) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq, heard = 1`, roomId, FORGOTTEN);
       this.sql.exec(`DELETE FROM search_readers WHERE room_id = ?`, roomId);
+      this.sql.exec(`DELETE FROM search_rekeys WHERE room_id = ?`, roomId);
       const ids = this.sql.exec<{ id: number }>(`SELECT id FROM search_messages WHERE room_id = ? LIMIT ?`, roomId, limit + 1).toArray();
       const forgotten = JSON.stringify(ids.slice(0, limit).map(({ id }) => id));
       this.sql.exec(`DELETE FROM search_index WHERE rowid IN (SELECT value FROM json_each(?))`, forgotten);
