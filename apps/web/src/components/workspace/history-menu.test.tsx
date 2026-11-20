@@ -66,6 +66,16 @@ describe("History", () => {
     expect(huddles!.querySelector("time")).toHaveAttribute("dateTime", new Date(NOW.getTime() - 30_000).toISOString());
   });
 
+  it("says how long ago each was as it opens, however long the page has shown", async () => {
+    visited("/huddles", 30_000);
+    const shown = showClock();
+    expect((await opened(shown)).listed).toEqual([["Huddles", "Just now"]]);
+    await shown.user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    vi.setSystemTime(NOW.getTime() + 2 * 60 * MINUTE);
+    expect((await opened(shown)).listed).toEqual([["Huddles", "2 hr"]]);
+  });
+
   it("names a thread by its room or the people in its DM, a search by its filters and words, and someone by their name, as their pages are titled", async () => {
     visited("/users/u2", 4 * MINUTE);
     visited(searchPath({ q: "release notes", in: "general", hasLink: true }), 3 * MINUTE);

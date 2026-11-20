@@ -54,6 +54,25 @@ function placeOf(visit: Visit, me: Me, rooms: readonly Room[], people: People, n
   }
 }
 
+/**
+ * History's places, as links, each with how long ago it was shown. The menu mounts them as it opens, so
+ * that's as of then, however long the page has shown since it last changed.
+ */
+function PlaceItems({ places }: { places: readonly Place[] }) {
+  const now = new Date();
+  return places.map(({ address, at, label, mark }) => (
+    <DropdownMenuItem key={address} asChild className="min-h-10 gap-2.5 rounded-[7px] px-2 text-[14px] text-foreground focus:bg-hover">
+      <PageLink href={address}>
+        <span className="grid w-[18px] shrink-0 place-items-center text-muted-foreground">{mark}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <time dateTime={new Date(at).toISOString()} className="shrink-0 text-xs text-muted-foreground">
+          {visitedLabel(new Date(at), now)}
+        </time>
+      </PageLink>
+    </DropdownMenuItem>
+  ));
+}
+
 interface Props {
   me: Me;
   /** The rooms and DMs the sidebar lists, which name the places History lists, and leave out those gone. */
@@ -74,7 +93,6 @@ export function HistoryMenu({ me, rooms, className }: Props) {
   useEffect(() => {
     if (here !== null) recordVisit(me.id, here);
   }, [me.id, here]);
-  const now = new Date();
   const places = visits.filter(({ address }) => address !== here).flatMap((visit) => placeOf(visit, me, rooms, people, names) ?? []);
   return (
     <DropdownMenu>
@@ -86,17 +104,7 @@ export function HistoryMenu({ me, rooms, className }: Props) {
       <DropdownMenuContent align="start" sideOffset={6} className="w-[320px] rounded-[12px] bg-background p-2 shadow-[0_8px_24px_var(--color-menu-shadow)]">
         <DropdownMenuLabel className="px-2 pt-1 pb-2 text-xs font-semibold text-muted-foreground">History</DropdownMenuLabel>
         {places.length === 0 && <p className="px-2 pb-2 text-sm text-muted-foreground">Rooms, DMs and searches you visit show up here.</p>}
-        {places.map(({ address, at, label, mark }) => (
-          <DropdownMenuItem key={address} asChild className="min-h-10 gap-2.5 rounded-[7px] px-2 text-[14px] text-foreground focus:bg-hover">
-            <PageLink href={address}>
-              <span className="grid w-[18px] shrink-0 place-items-center text-muted-foreground">{mark}</span>
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-              <time dateTime={new Date(at).toISOString()} className="shrink-0 text-xs text-muted-foreground">
-                {visitedLabel(new Date(at), now)}
-              </time>
-            </PageLink>
-          </DropdownMenuItem>
-        ))}
+        <PlaceItems places={places} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
