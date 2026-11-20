@@ -1313,7 +1313,7 @@ describe("React to a message", () => {
     const ken = { id: "u4", name: "Ken" };
     const { update } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", linus, "👍")] }));
     const chip = () => reactions().getByRole("button");
-    const discs = () => chip().querySelectorAll("[class*=bg-muted-foreground]").length;
+    const discs = () => chip().querySelectorAll(".bg-selected-dark").length;
     expect(chip().querySelectorAll("img")).toHaveLength(1);
     expect(discs()).toBe(1);
     update(message({ boosts: [boost("b1", grace, "👍"), boost("b2", linus, "👍"), boost("b3", ada, "👍"), boost("b4", ken, "👍")] }));

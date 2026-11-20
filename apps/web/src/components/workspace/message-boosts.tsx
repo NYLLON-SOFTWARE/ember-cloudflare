@@ -148,11 +148,11 @@ function BoostChip({ group, me, onToggle }: { group: BoostGroup; me: Me; onToggl
           mine && "border-link not-aria-disabled:hover:not-active:border-link",
         )}
       >
-        <span aria-hidden="true" className="flex shrink-0">
-          <UserAvatar user={boosters[0]!} className="z-[1] size-[2.2ch] font-medium ring-2 ring-background" />
-          {/* Whoever else added it, as blank discs stacked behind the first face, two at most. */}
-          {boosters.slice(1, STACKED).map((booster) => (
-            <span key={booster.id} className="-ml-[1.6ch] size-[2.2ch] rounded-full bg-muted-foreground/30 ring-2 ring-background" />
+        <span aria-hidden="true" className="isolate flex shrink-0">
+          <UserAvatar user={boosters[0]!} className="relative z-[2] size-[2.2ch] font-medium ring-2 ring-background" />
+          {/* Whoever else added it, as blank discs stacked behind the first face, each behind the one before. */}
+          {boosters.slice(1, STACKED).map((booster, index) => (
+            <span key={booster.id} className={cn("relative -ml-[1.6ch] size-[2.2ch] rounded-full bg-selected-dark ring-2 ring-background", index === 0 ? "z-[1]" : "z-0")} />
           ))}
         </span>
         <span aria-hidden="true" className={cn("min-w-0 leading-normal", isAllEmoji(group.content) ? "text-base" : "text-[0.8rem]")}>
