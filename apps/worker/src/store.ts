@@ -354,6 +354,14 @@ export const DELETION_OF = `SELECT seq FROM message_deletions WHERE room_id = ? 
 const MESSAGES_WITH_IDS = `${SELECT_MESSAGES} WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
 
 /**
+ * A room's oldest messages, and the ones after one of them, whatever thread each is in and deleted or
+ * not: an export reads a room a page at a time, oldest first, as the search reindex does by its log,
+ * which these read whole. Two statements, as one with `? IS NULL OR id > ?` couldn't walk the index.
+ */
+const OLDEST_EVERYTHING = `${SELECT_MESSAGES} WHERE room_id = ? ORDER BY id LIMIT ?`;
+const EVERYTHING_AFTER = `${SELECT_MESSAGES} WHERE room_id = ? AND id > ? ORDER BY id LIMIT ?`;
+
+/**
  * The longest row the search index keeps for a result to show, in UTF-16 code units: a row of Durable
  * Object SQLite takes 2 MB, and each unit takes at most 3 bytes of UTF-8, so this leaves room for the rest
  * of the index's row. A message with more, as one with many cards can have, goes without, and a search
@@ -537,6 +545,19 @@ export class MessageStore {
   /** The messages `ids` names that the room has, in no particular order, for search results. */
   async withIds(ids: string[]): Promise<Message[]> {
     return this.messagesOf(await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids)));
+  }
+
+  /**
+   * The oldest `limit` messages of the room after `after`, or of the whole room when it's null, oldest
+   * first, for an export to walk it: every message, replies sent only to their threads included, and
+   * deleted ones too, which keep their row for their threads. Whether the room has more after them.
+   */
+  async exportPage(after: string | null, limit: number): Promise<{ messages: Message[]; hasMore: boolean }> {
+    const rows =
+      after === null
+        ? await this.db.all<MessageRow>(OLDEST_EVERYTHING, this.roomId, limit + 1)
+        : await this.db.all<MessageRow>(EVERYTHING_AFTER, this.roomId, after, limit + 1);
+    return { messages: await this.messagesOf(rows.slice(0, limit)), hasMore: rows.length > limit };
   }
 
   /**

@@ -254,6 +254,53 @@ export interface Directory {
   users: DirectoryUser[];
 }
 
+/**
+ * Someone as an export lists them: what the workspace keeps of who they are, for whoever keeps the
+ * export, their role among it. A bot has no email address, and neither has a guest who signs in with
+ * just a name.
+ */
+export interface ExportedUser {
+  id: UserId;
+  name: string;
+  emailAddress: string | null;
+  /** What they say about themselves, or null when they haven't said. */
+  bio: string | null;
+  role: Role;
+  status: UserStatus;
+}
+
+/**
+ * A room as an export lists it, as the workspace keeps it. A closed room or a DM is for just the
+ * people `memberIds` names, which an export says, so its reader can tell who could read it; an open
+ * room is everyone's, and has none.
+ */
+export interface ExportedRoom {
+  id: RoomId;
+  kind: RoomKind;
+  /** Its name, which a DM has none of, being named after its members. */
+  name: string | null;
+  /** Null for the default `#`. */
+  icon: RoomIconName | null;
+  /** When it was made, as an ISO time. */
+  createdAt: string;
+  /** Everyone in it, by id, for a closed room or a DM. */
+  memberIds?: UserId[];
+}
+
+/** What `GET /api/export` answers an administrator: everyone and every room, but no messages, which each room's own object keeps. */
+export interface ExportedListing {
+  users: ExportedUser[];
+  rooms: ExportedRoom[];
+}
+
+/** How many of a room's messages `GET /api/export/rooms/<room id>/messages` answers at once. */
+export const EXPORT_PAGE_SIZE = 100;
+
+/** A page of a room's messages for an export: the oldest ones after its cursor, oldest first, and whether the room has more after them. */
+export interface ExportedMessages {
+  messages: Message[];
+  hasMore: boolean;
+}
 export type RoomKind = "open" | "closed" | "direct";
 
 /** A room's icon: the name of one of the Lucide or Iconoir icons in the room icon picker's catalog. */
