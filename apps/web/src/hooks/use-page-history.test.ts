@@ -1,11 +1,12 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HISTORY_KEPT, historyAddressOf, recordVisit, usePageHistory, withVisit } from "./use-page-history";
+import { HISTORY_KEPT, historyAddressOf, mergedVisits, recordVisit, usePageHistory, withVisit } from "./use-page-history";
 
 /** Another tab's History for `userId`, as it writes it to storage, and tells this one. */
 function recordedInAnotherTab(userId: string, visits: unknown) {
-  localStorage.setItem(`ember:history:${userId}`, JSON.stringify(visits));
-  window.dispatchEvent(new StorageEvent("storage", { key: `ember:history:${userId}` }));
+  const key = `ember:history:${userId}`;
+  localStorage.setItem(key, JSON.stringify(visits));
+  window.dispatchEvent(new StorageEvent("storage", { key, newValue: localStorage.getItem(key) }));
 }
 
 const refuseStorage = () => {
@@ -55,6 +56,24 @@ describe("History's list", () => {
     expect(added.at(-1)).toEqual({ address: "/rooms/r18", at: 82 });
   });
 
+  it("merges two lists, each page once at its latest visit, newest first, keeping the newest twenty", () => {
+    const here = [
+      { address: "/rooms/r2", at: 2 },
+      { address: "/rooms/r1", at: 1 },
+    ];
+    const there = [
+      { address: "/rooms/r1", at: 3 },
+      { address: "/huddles", at: 0 },
+    ];
+    expect(mergedVisits(here, there)).toEqual([
+      { address: "/rooms/r1", at: 3 },
+      { address: "/rooms/r2", at: 2 },
+      { address: "/huddles", at: 0 },
+    ]);
+    const full = Array.from({ length: HISTORY_KEPT }, (_, i) => ({ address: `/rooms/r${i}`, at: 100 - i }));
+    expect(mergedVisits(full, [{ address: "/huddles", at: 50 }])).toEqual(full);
+  });
+
   it("keeps each person's apart, in this browser, which every tab adds to", () => {
     const { result } = renderHook(() => usePageHistory("u1"));
     expect(result.current).toEqual([]);
@@ -79,6 +98,26 @@ describe("History's list", () => {
     expect(renderHook(() => usePageHistory("u3")).result.current).toEqual([]);
     localStorage.setItem("ember:history:u4", JSON.stringify([{ address: "/rooms/r1", at: 1 }, { address: "https://example.com/", at: 2 }, { address: "/huddles" }, "/rooms/r2"]));
     expect(renderHook(() => usePageHistory("u4")).result.current).toEqual([{ address: "/rooms/r1", at: 1 }]);
+  });
+
+  it("keeps this tab's visits that another tab's list lacks, from both recording one at once", () => {
+    const { result } = renderHook(() => usePageHistory("u8"));
+    act(() => recordVisit("u8", "/rooms/r1", 1000));
+    act(() => recordVisit("u8", "/rooms/r2", 2000));
+    // The other tab had r1 alone when it recorded Huddles, before hearing of r2.
+    act(() => recordedInAnotherTab("u8", [{ address: "/huddles", at: 2500 }, { address: "/rooms/r1", at: 1000 }]));
+    expect(result.current.map(({ address }) => address)).toEqual(["/huddles", "/rooms/r2", "/rooms/r1"]);
+    // This tab's next visit stores them all.
+    act(() => recordVisit("u8", "/rooms/r3", 3000));
+    expect(JSON.parse(localStorage.getItem("ember:history:u8")!)).toEqual(result.current);
+    expect(result.current.map(({ address }) => address)).toEqual(["/rooms/r3", "/huddles", "/rooms/r2", "/rooms/r1"]);
+
+    // A list another tab removes is gone.
+    act(() => {
+      localStorage.removeItem("ember:history:u8");
+      window.dispatchEvent(new StorageEvent("storage", { key: "ember:history:u8", newValue: null }));
+    });
+    expect(result.current).toEqual([]);
   });
 
   it("goes on listing what this tab shows once storage is full", () => {

@@ -126,7 +126,7 @@ describe("History", () => {
     const shown = showClock();
     act(() => {
       localStorage.setItem("ember:history:u1", JSON.stringify([{ address: "/huddles", at: NOW.getTime() - MINUTE }, { address: "/rooms/design", at: NOW.getTime() - 2 * MINUTE }]));
-      window.dispatchEvent(new StorageEvent("storage", { key: "ember:history:u1" }));
+      window.dispatchEvent(new StorageEvent("storage", { key: "ember:history:u1", newValue: localStorage.getItem("ember:history:u1") }));
     });
     const { listed } = await opened(shown);
     expect(listed.map(([label]) => label)).toEqual(["Huddles", "Design"]);

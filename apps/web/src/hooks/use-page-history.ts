@@ -44,6 +44,15 @@ export function withVisit(visits: readonly Visit[], address: string, at: number)
   return [{ address, at }, ...visits.filter((visit) => visit.address !== address)].slice(0, HISTORY_KEPT);
 }
 
+/** `visits` and `others` as one list, each page once at its latest visit, newest first, keeping the newest `HISTORY_KEPT`. */
+export function mergedVisits(visits: readonly Visit[], others: readonly Visit[]): Visit[] {
+  const latest = new Map<string, number>();
+  for (const { address, at } of [...visits, ...others]) latest.set(address, Math.max(at, latest.get(address) ?? at));
+  return Array.from(latest, ([address, at]) => ({ address, at }))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, HISTORY_KEPT);
+}
+
 const isVisit = (value: unknown): value is Visit =>
   typeof value === "object" &&
   value !== null &&
@@ -51,19 +60,28 @@ const isVisit = (value: unknown): value is Visit =>
   (value as Visit).address.startsWith("/") &&
   Number.isFinite((value as Visit).at);
 
+/** The visits in `value`, as a tab stored them, leaving out what isn't one. */
+function visitsIn(value: string | null): readonly Visit[] {
+  try {
+    const visits: unknown = JSON.parse(value ?? "[]");
+    return Array.isArray(visits) ? visits.filter(isVisit).slice(0, HISTORY_KEPT) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** The visits kept under `key`, or null when storage is refused, as in some private windows. */
 function stored(key: string): readonly Visit[] | null {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
-    return Array.isArray(value) ? value.filter(isVisit).slice(0, HISTORY_KEPT) : [];
-  } catch (error) {
-    return error instanceof SyntaxError ? [] : null;
+    return visitsIn(localStorage.getItem(key));
+  } catch {
+    return null;
   }
 }
 
 const listeners = new Set<() => void>();
-// The lists last read or recorded, by key, while History listens for what other tabs record. They hold
-// what storage can't: everything where it's refused, and what this tab showed after it filled up.
+// The lists last read or recorded, by key, with what other tabs store merged in while History listens.
+// They hold what storage can't: everything where it's refused, and what this tab showed after it filled up.
 const lists = new Map<string, readonly Visit[]>();
 
 function visitsOf(key: string): readonly Visit[] {
@@ -77,7 +95,14 @@ const tell = () => listeners.forEach((listener) => listener());
 function heard(event: StorageEvent) {
   // A null key is storage cleared.
   if (event.key === null) lists.clear();
-  else if (!lists.delete(event.key)) return;
+  else {
+    const held = lists.get(event.key);
+    if (held === undefined) return;
+    // Another tab stored its list. It lacks this tab's latest visits where both recorded one before
+    // hearing of the other's, so they're kept too, and stored with this tab's next visit.
+    if (event.newValue === null) lists.delete(event.key);
+    else lists.set(event.key, mergedVisits(visitsIn(event.newValue), held));
+  }
   tell();
 }
 
