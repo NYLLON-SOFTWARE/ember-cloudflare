@@ -2344,28 +2344,32 @@ export const MESSAGE_PUSHES = pushesOfMessage(`((memberships.involvement = 'ever
       AND (memberships.user_id IN (SELECT value FROM json_each(?7)) OR memberships.user_id IN (SELECT value FROM json_each(?8)))))`);
 
 /**
- * Where a new message that notifies everyone in its room, as @channel does, is pushed (`pushesOfMessage`):
- * to those at @mentions or all messages, as a mention of each of them would be.
+ * Where a new message that notifies everyone in its room, as @channel does, and @everyone in an open
+ * room, where everyone is, is pushed (`pushesOfMessage`): to those at @mentions or all messages, as a
+ * mention of each of them would be.
  */
 export const ROOM_MENTION_PUSHES = pushesOfMessage(`memberships.involvement IN ('everything', 'mentions')`);
 
 /**
  * The statement that finds where the new message of `event`, in room `roomId`, is pushed, with the people
  * a JSON list `seeing` names viewing it: `ROOM_MENTION_PUSHES` for one that notifies everyone in the room,
- * and `MESSAGE_PUSHES` for any other, which takes those @here notifies, `activeIds`, as mentioned.
+ * with @channel or @everyone, and `MESSAGE_PUSHES` for any other, which takes those @here notifies,
+ * `activeIds`, as mentioned.
  */
 function messagePushesOf(roomId: RoomId, { seq, userId, threadOnly, message }: RoomEvent & { message: PushedMessage }, seeing: string, guests: boolean, activeIds: UserId[]): Statement {
   const shared = [roomId, userId, seeing, seq, guests ? 1 : 0] as const;
-  if (message.notifies === "channel") return statement(ROOM_MENTION_PUSHES, ...shared);
+  if (message.notifies === "channel" || message.notifies === "everyone") return statement(ROOM_MENTION_PUSHES, ...shared);
   const mentioned = message.notifies === "here" ? [...new Set([...message.mentionIds, ...activeIds])] : message.mentionIds;
   return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentioned), JSON.stringify(message.followerIds ?? []));
 }
 
 /**
  * Whether a message by ?2 in room ?1 can notify the room with a special mention: it's a room, not a DM, and
- * ?2 isn't an AI agent, a bot without a token, as @ember and the agents administrators make are.
+ * ?2 isn't an AI agent, a bot without a token, as @ember and the agents administrators make are. And
+ * whether it can with @everyone too: the room is open, so everyone is in it, and ?2 isn't a guest, as
+ * Slack's guests can't use it.
  */
-const NOTIFIES_ROOM = `SELECT 1 FROM rooms, users
+const NOTIFIES_ROOM = `SELECT rooms.kind = 'open' AND users.guest = 0 AS everyone FROM rooms, users
   WHERE rooms.id = ?1 AND rooms.kind <> 'direct' AND users.id = ?2 AND NOT (users.role = ${BOT} AND users.bot_token IS NULL)`;
 
 /**
@@ -5180,9 +5184,10 @@ export class WorkspaceStore {
    * come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`, it answers each
    * new message's pushes too, found just after its marks, so that a push's badge counts them and none of
    * the events after it, and to guests only if `guests` says they can stay signed in, a message that
-   * notifies the room going to everyone in it for @channel, as a mention of each of them, and to those of
-   * `activeIds` in it for @here. It answers the bots' webhooks each new message is delivered to, but for a
-   * bot's reply to one, which reaches the room as any message does but goes to no webhook.
+   * notifies the room going to everyone in it for @channel and @everyone, as a mention of each of them,
+   * and to those of `activeIds` in it for @here. It answers the bots' webhooks each new message is
+   * delivered to, but for a bot's reply to one, which reaches the room as any message does but goes to
+   * no webhook.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false, activeIds: UserId[] = []): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
@@ -5236,11 +5241,14 @@ export class WorkspaceStore {
   }
 
   /**
-   * The special mentions that notify room `roomId` when `userId` makes them: all of them in a room that
-   * isn't a DM, from anyone but an AI agent, and none otherwise.
+   * The special mentions that notify room `roomId` when `userId` makes them: @here and @channel in a
+   * room that isn't a DM, from anyone but an AI agent, and @everyone too in an open room, from anyone
+   * but a guest; none otherwise.
    */
   async notifyingMentions(roomId: RoomId, userId: UserId): Promise<SpecialMention[]> {
-    return (await this.db.all(NOTIFIES_ROOM, roomId, userId)).length > 0 ? [...SPECIAL_MENTIONS] : [];
+    const [room] = await this.db.all<{ everyone: number }>(NOTIFIES_ROOM, roomId, userId);
+    if (!room) return [];
+    return room.everyone === 1 ? [...SPECIAL_MENTIONS] : ["here", "channel"];
   }
 
   /** The kind of room `roomId`, a DM's too, or null when there's no such room. */

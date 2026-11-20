@@ -1718,9 +1718,10 @@ export interface Boost {
 
 /**
  * Slack's special mentions, which notify a room rather than name someone: @here, everyone in it who's
- * active, and @channel, everyone in it, whether they're active or away.
+ * active, @channel, everyone in it, whether they're active or away, and @everyone, everyone in the
+ * workspace, which only an open room, where everyone is, takes.
  */
-export type SpecialMention = "here" | "channel";
+export type SpecialMention = "here" | "channel" | "everyone";
 
 export interface Message {
   id: string;
@@ -1741,10 +1742,10 @@ export interface Message {
    */
   mentions: User[];
   /**
-   * Whom its special mention notified as it came, the widest it makes: everyone in the room for
-   * @channel, everyone active in it for @here. Only a message sent to a room that isn't a DM notifies,
-   * and not a reply in a thread. An edit can narrow it or take it away, but never widen it, since an
-   * edit notifies nobody.
+   * Whom its special mention notified as it came, the widest it makes: everyone in the workspace for
+   * @everyone, in an open room, everyone in the room for @channel, everyone active in it for @here. Only
+   * a message sent to a room that isn't a DM notifies, and not a reply in a thread. An edit can narrow
+   * it or take it away, but never widen it, since an edit notifies nobody.
    */
   notifies?: SpecialMention;
   createdAt: string;

@@ -2,7 +2,9 @@ import { SPECIAL_MENTIONS, type SpecialMention } from "@ember/richtext";
 
 // Whom a message's special mentions notify: its widest, as Slack notifies each person once, whatever a
 // message mentions. They're listed narrowest first, each reaching everyone a narrower one does, so
-// @channel, everyone in the room, is wider than @here, those in it who are active.
+// @channel, everyone in the room, is wider than @here, those in it who are active, and @everyone,
+// everyone in the workspace, is wider than @channel, as an open room, the only one it notifies, holds
+// everyone.
 
 /** The widest of `mentions`, or nothing for none. */
 export const widestOf = (mentions: readonly SpecialMention[]): SpecialMention | undefined => SPECIAL_MENTIONS.findLast((mention) => mentions.includes(mention));

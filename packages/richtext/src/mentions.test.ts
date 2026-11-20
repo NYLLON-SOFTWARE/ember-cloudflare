@@ -46,8 +46,8 @@ describe("How mentions look", () => {
   });
 
   it("lists the special mentions a body's attachments make apart from its users, nested ones included", () => {
-    const body = `<p>${special("channel")}${mention(2)}${special("channel")}${contentAttachment(special("here"))}${special("everyone!")}</p>`;
-    expect(mentionsIn(parseHtml, body)).toEqual({ userIds: [id(2)], specialMentions: ["channel", "here"] });
+    const body = `<p>${special("channel")}${mention(2)}${special("channel")}${contentAttachment(special("here"))}${special("everyone!")}${special("everyone")}</p>`;
+    expect(mentionsIn(parseHtml, body)).toEqual({ userIds: [id(2)], specialMentions: ["channel", "here", "everyone"] });
     expect(userIdsIn(parseHtml, body)).toEqual([id(2)]);
     expect(mentionsIn(parseHtml, "<p>@here</p>")).toEqual({ userIds: [], specialMentions: [] });
   });
@@ -128,13 +128,16 @@ describe("@-mention people", () => {
 `);
   });
 
-  it("offers @here and @channel as Slack's prompt does, by name and what they do, with the mention picking one writes", () => {
+  it("offers @here, @channel and @everyone as Slack's prompt does, by name and what they do, with the mention picking one writes", () => {
     expect(specialMentionContent("channel")).toBe('<span class="mention mention--special" sgid="channel">@channel</span>');
     expect(specialMentionPromptItem("here")).toBe(`<lexxy-prompt-item search="here" sgid="here">
   <template type="menu"><span class="autocomplete__item"><span class="autocompletable__at" aria-hidden="true"></span><span class="autocompletable__name">@here</span> <span class="autocompletable__description">Notify everyone active in this room</span></span></template>
   <template type="editor">${specialMentionContent("here")}</template>
 </lexxy-prompt-item>
 `);
+    expect(specialMentionPromptItem("everyone")).toContain(
+      '<span class="autocompletable__name">@everyone</span> <span class="autocompletable__description">Notify everyone in the workspace</span>',
+    );
   });
 
   it("badges an agent after its name in the prompt, but not in the mention picking it writes", () => {

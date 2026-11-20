@@ -103,7 +103,7 @@ describe("@-mention people", () => {
   });
 });
 
-describe("@here and @channel", () => {
+describe("@here, @channel and @everyone", () => {
   it("offers a room's own composer @here and @channel after the people, but first when they're named in full, as Slack's prompt does", async () => {
     const ada = await signIn("Ada Lovelace");
     const grace = await signIn("Grace Hopper");
@@ -121,7 +121,22 @@ describe("@here and @channel", () => {
     expect(await (await prompt(ada, `${inRoom}&filter=channel`)).text()).toBe(specialMentionPromptItem("channel"));
   });
 
-  it("offers neither in a DM, nor without a room, nor unless asked for them, as a thread's composer and the editor don't", async () => {
+  it("offers @everyone in an open room, where everyone is, to anyone but a guest, as Slack's guests can't use it", async () => {
+    const ada = await signIn("Ada Lovelace");
+    const grace = await signIn("Grace Hopper");
+    await workspaceSql("UPDATE users SET guest = 0 WHERE id = ?", ada.user.id);
+    const open = await createRoom("Everyone", { as: ada });
+    const closed = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+
+    expect(await offered(ada, `?room_id=${open.id}&special_mentions=1`)).toEqual(["Ada Lovelace", "Grace Hopper", "here", "channel", "everyone"]);
+    expect(await offered(ada, `?room_id=${open.id}&special_mentions=1&filter=Ev`)).toEqual(["everyone"]);
+    expect(await offered(ada, `?room_id=${open.id}&special_mentions=1&filter=everyone`)).toEqual(["everyone"]);
+    expect(await (await prompt(ada, `?room_id=${open.id}&special_mentions=1&filter=everyone`)).text()).toBe(specialMentionPromptItem("everyone"));
+    expect(await offered(ada, `?room_id=${closed.id}&special_mentions=1`)).toEqual(["Ada Lovelace", "Grace Hopper", "here", "channel"]);
+    expect(await offered(grace, `?room_id=${open.id}&special_mentions=1`)).toEqual(["Ada Lovelace", "Grace Hopper", "here", "channel"]);
+  });
+
+  it("offers none in a DM, nor without a room, nor unless asked for them, as a thread's composer and the editor don't", async () => {
     const ada = await signIn("Ada Lovelace");
     const grace = await signIn("Grace Hopper");
     const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });

@@ -218,14 +218,15 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
   white-space: nowrap;
 }
 
-/* A special mention, @here or @channel, which has no avatar: only its name, in semibold. */
+/* A special mention, @here, @channel or @everyone, which has no avatar: only its name, in semibold. */
 .mention.mention--special {
   padding-inline-start: 0 !important;
 }
 
 /*
- * Iconoir's at sign where the prompt lists a person's avatar, for @here and @channel, as the @mentions bell
- * shows it: painted in the text color through Iconoir's file, which is kept in forced colors.
+ * Iconoir's at sign where the prompt lists a person's avatar, for @here, @channel and @everyone, as the
+ * @mentions bell shows it: painted in the text color through Iconoir's file, which is kept in forced
+ * colors.
  */
 .autocompletable__at {
   --iconoir: url("../icons/iconoir/at-sign.svg");

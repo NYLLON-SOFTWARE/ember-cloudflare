@@ -614,7 +614,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                   placeholder={placeholder}
                   rows={2}
                   initialValue={draft}
-                  // A room's composer offers @here and @channel too, which notify nobody from a thread or a DM.
+                  // A room's composer offers @here, @channel and, in an open room, @everyone too, which notify
+                  // nobody from a thread or a DM.
                   mentionsFrom={mentionPromptSrc(roomId, threadId === undefined && !direct)}
                   // Under the text on touch screens are the keyboard and the home indicator.
                   mentionsAbove={mentionsAbove || hasTouchKeyboard()}

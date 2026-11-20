@@ -289,8 +289,8 @@ describe("Who gets a push", () => {
   });
 });
 
-describe("Who @channel and @here push", () => {
-  it("pushes a message that notifies the room with @channel to everyone in it at @mentions or all messages, as a mention of each of them would be", async () => {
+describe("Who @channel, @here and @everyone push", () => {
+  it("pushes a message that notifies the room with @channel, or an open room with @everyone, to everyone in it at @mentions or all messages, as a mention of each of them would be", async () => {
     const room = await freshRoom("Designers");
     const [ada, grace, lin, hopper, joan, kay, max, nina] = await people("Ada", "Grace", "Lin", "Hopper", "Joan", "Kay", "Max", "Nina");
     for (const [session, label] of [[ada, "ada"], [grace, "grace"], [lin, "lin"], [hopper, "hopper"], [joan, "joan"], [kay, "kay"], [max, "max"], [nina, "nina"]] as const) {
@@ -303,6 +303,7 @@ describe("Who @channel and @here push", () => {
     await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", nina.user.id);
 
     expect(labelsOf(await pushesFor(room, [notifying("channel", ada, "Standup @channel")], [joan]))).toEqual(["lin", "grace"]);
+    expect(labelsOf(await pushesFor(room, [notifying("everyone", ada, "Lunch @everyone")], [joan]))).toEqual(["lin", "grace"]);
     expect(labelsOf(await pushesFor(room, [message(ada, "Standup")], [joan]))).toEqual(["lin"]);
   });
 

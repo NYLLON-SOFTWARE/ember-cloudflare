@@ -152,7 +152,7 @@ describe("Rich text, safely", () => {
     ]);
   });
 
-  it("shows @here and @channel as the special mentions they are", () => {
+  it("shows @here, @channel and @everyone as the special mentions they are", () => {
     expect(display(`<p><action-text-attachment ${MENTION} sgid="here"></action-text-attachment> and <action-text-attachment ${MENTION} sgid="channel"></action-text-attachment></p>`)).toEqual([
       {
         kind: "element",
@@ -160,6 +160,9 @@ describe("Rich text, safely", () => {
         attrs: {},
         children: [{ kind: "special-mention", mention: "here" }, { kind: "text", value: " and " }, { kind: "special-mention", mention: "channel" }],
       },
+    ]);
+    expect(display(`<p><action-text-attachment ${MENTION} sgid="everyone"></action-text-attachment></p>`)).toEqual([
+      { kind: "element", name: "p", attrs: {}, children: [{ kind: "special-mention", mention: "everyone" }] },
     ]);
   });
 

@@ -1,9 +1,9 @@
 import type { BotAnswer, BotSettings, Message, NewWorkspace, RoomId, SpecialMention } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, connect, cookieOf, direct, freshDeploy, freshRoom, post, roomSql, shown, signIn, workspaceSql, workspaceStub, type Session, type Socket } from "./support";
+import { api, connect, cookieOf, createRoom, direct, freshDeploy, freshRoom, post, roomSql, shown, signIn, workspaceSql, workspaceStub, type Session, type Socket } from "./support";
 
-// Slack's special mentions, @here and @channel, which name no one but notify a room: whom a message
+// Slack's special mentions, @here, @channel and @everyone, which name no one but notify a room: whom a message
 // making one notifies, and how edits change that. pushes.test.ts checks whom each pushes, and
 // mentions.test.ts how the @ prompt offers them.
 
@@ -98,19 +98,40 @@ describe("Notify a room", () => {
     expect(await notifiedIn(general)).toEqual(["here", null, null]);
   });
 
-  it("lets anyone notify a room with either, but not a DM, nor an AI agent, which is a bot without a key", async () => {
+  it("lets anyone notify a room with @here and @channel, and an open room with @everyone too, but not a DM, nor an AI agent, which is a bot without a key", async () => {
     const [ada, grace, agent, bot] = [await signIn("Ada"), await signIn("Grace"), await signIn("Agent"), await signIn("Bot")];
+    await workspaceSql("UPDATE users SET guest = 0 WHERE id IN (?, ?, ?)", ada.user.id, agent.user.id, bot.user.id);
     await workspaceSql("UPDATE users SET role = 2 WHERE id IN (?, ?)", agent.user.id, bot.user.id);
     await workspaceSql("UPDATE users SET bot_token = 'its-key' WHERE id = ?", bot.user.id);
-    const room = await freshRoom("Leads");
+    const open = await freshRoom("Everyone");
+    const closed = (await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id, agent.user.id, bot.user.id], as: ada })).id;
     const dm = await direct(ada, grace);
     const workspace = workspaceStub();
 
-    expect(await workspace.notifyingMentions(room, ada.user.id)).toEqual(["here", "channel"]);
-    expect(await workspace.notifyingMentions(room, bot.user.id)).toEqual(["here", "channel"]);
-    expect(await workspace.notifyingMentions(room, agent.user.id)).toEqual([]);
+    expect(await workspace.notifyingMentions(open, ada.user.id)).toEqual(["here", "channel", "everyone"]);
+    expect(await workspace.notifyingMentions(open, bot.user.id)).toEqual(["here", "channel", "everyone"]);
+    expect(await workspace.notifyingMentions(closed, ada.user.id)).toEqual(["here", "channel"]);
+    expect(await workspace.notifyingMentions(closed, bot.user.id)).toEqual(["here", "channel"]);
+    // Someone signed in with just a name is a guest, who can't use @everyone, as Slack's guests can't.
+    expect(await workspace.notifyingMentions(open, grace.user.id)).toEqual(["here", "channel"]);
+    for (const room of [open, closed]) expect(await workspace.notifyingMentions(room, agent.user.id)).toEqual([]);
     expect(await workspace.notifyingMentions(dm.id, ada.user.id)).toEqual([]);
     expect(await workspace.notifyingMentions("0000000000000000", ada.user.id)).toEqual([]);
+  });
+
+  it("notifies everyone with @everyone in an open room, but in a closed room or from a guest only as widely as the message's other special mentions do", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    await workspaceSql("UPDATE users SET guest = 0 WHERE id = ?", ada.user.id);
+    const open = await freshRoom("Everyone");
+    const closed = (await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada })).id;
+    const [adaInOpen, graceInOpen, adaInClosed] = [await connect(open, ada), await connect(open, grace), await connect(closed, ada)];
+
+    expect(await post(adaInOpen, `<p>${special("everyone")} ${special("here")} Lunch is here</p>`)).toMatchObject({ notifies: "everyone", plainText: "@everyone @here Lunch is here" });
+    expect(await post(graceInOpen, `<p>${special("everyone")} ${special("here")} Lunch</p>`)).toMatchObject({ notifies: "here", plainText: "@everyone @here Lunch" });
+    expect((await post(graceInOpen, `<p>${special("everyone")} Lunch</p>`)).notifies).toBeUndefined();
+    expect(await post(adaInClosed, `<p>${special("everyone")} ${special("channel")} Lunch</p>`)).toMatchObject({ notifies: "channel", plainText: "@everyone @channel Lunch" });
+    expect((await post(adaInClosed, `<p>${special("everyone")} Lunch</p>`)).notifies).toBeUndefined();
+    expect(await notifiedIn(open)).toEqual(["everyone", "here", null]);
   });
 });
 
@@ -120,14 +141,20 @@ describe("Edit a message that notifies a room", () => {
     const ada = await connect(room, "Ada");
     const sent = await post(ada, `<p>${special("channel")} ${special("here")} Standup</p>`);
 
-    const steps = [`<p>${special("here")} Standup</p>`, `<p>${special("channel")} Standup</p>`, "<p>Standup</p>", `<p>${special("channel")} Standup</p>`];
+    const steps = [
+      `<p>${special("everyone")} ${special("channel")} Standup</p>`,
+      `<p>${special("here")} Standup</p>`,
+      `<p>${special("channel")} Standup</p>`,
+      "<p>Standup</p>",
+      `<p>${special("channel")} Standup</p>`,
+    ];
     let message = sent;
     const notified = [];
     for (const body of steps) {
       message = await edit(ada, message, body);
       notified.push(message.notifies);
     }
-    expect(notified).toEqual(["here", "here", undefined, undefined]);
+    expect(notified).toEqual(["channel", "here", "here", undefined, undefined]);
     expect(await notifiedIn(room)).toEqual([null]);
   });
 
