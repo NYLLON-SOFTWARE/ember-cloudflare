@@ -777,7 +777,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
+    <Rail
+      me={me}
+      workspaceName={workspaceName}
+      current={RAIL_PAGES[route.page]}
+      activity={activity}
+      newRelease={newRelease}
+      openReports={openReports}
+      onNewDirect={openNewDirect}
+      searchInDrawer={settings !== null}
+    />
   );
   const sidebar = (
     <Sidebar

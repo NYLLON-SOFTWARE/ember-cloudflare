@@ -62,7 +62,8 @@ function stored(key: string): readonly Visit[] | null {
 }
 
 const listeners = new Set<() => void>();
-// The lists last read or recorded, by key, which are all there is while storage is refused.
+// The lists last read or recorded, by key, while History listens for what other tabs record. They hold
+// what storage can't: everything where it's refused, and what this tab showed after it filled up.
 const lists = new Map<string, readonly Visit[]>();
 
 function visitsOf(key: string): readonly Visit[] {
@@ -85,19 +86,22 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) window.removeEventListener("storage", heard);
+    if (listeners.size > 0) return;
+    window.removeEventListener("storage", heard);
+    // Unheard, other tabs' visits would be missed, so the lists are read from storage again next time.
+    lists.clear();
   };
 }
 
 /** Lists `address` first in `userId`'s History, shown `at`, over what any tab has listed since. */
 export function recordVisit(userId: UserId, address: string, at = Date.now()): void {
   const key = keyOf(userId);
-  const visits = withVisit(stored(key) ?? visitsOf(key), address, at);
+  const visits = withVisit(visitsOf(key), address, at);
   lists.set(key, visits);
   try {
     localStorage.setItem(key, JSON.stringify(visits));
   } catch {
-    // Storage can be refused, and then History lists what this tab showed.
+    // Storage can be refused, or full, and then History goes on with what this tab showed.
   }
   tell();
 }

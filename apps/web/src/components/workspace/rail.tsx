@@ -93,6 +93,11 @@ interface Props {
   openReports?: number;
   /** Opens New direct message, which DMs does in place, from the link that opened it. */
   onNewDirect: (opener: HTMLElement) => void;
+  /**
+   * Whether the drawer's rail has Search, as on community settings, where the drawer holds the rail
+   * alone, without the conversations or the search field atop them.
+   */
+  searchInDrawer?: boolean;
 }
 
 /**
@@ -100,9 +105,10 @@ interface Props {
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of, or while reports are open, which Membership counts.
  * Search and the arrows that go back and forward are the top bar's, over it (top-bar.tsx), but for
- * Search on a phone in landscape, which has no top bar.
+ * Search where nothing else has it: on a phone in landscape, which has no top bar, and in the drawer
+ * when it holds the rail alone.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect, searchInDrawer = false }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
@@ -131,15 +137,16 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
       {/* Never marked, since its address opens New direct message over the last room visited. */}
       <RailLink slot="dms" label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
-      {/* Opens the search box in place, for everything, on a phone in landscape alone, which has neither
-          the top bar's search field nor the drawer's, and too little height for either. */}
+      {/* Opens the search box in place, for everything, where nothing else does: on a phone in landscape,
+          which has neither the top bar's search field nor the drawer's, and too little height for either,
+          and in the drawer, at 900px and below, when it has no search field. */}
       <RailLink
         slot="search"
         label="Search"
         href={SEARCHES_PATH}
         current={marked === "search"}
         onClick={opensSearch(openSearch)}
-        className="hidden md:no-top-bar:flex"
+        className={cn("hidden md:no-top-bar:flex", searchInDrawer && "max-md:flex")}
       />
       <hr className="my-1 w-8 border-t" />
       <RailLink

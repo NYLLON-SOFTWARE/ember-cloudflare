@@ -81,6 +81,26 @@ describe("History's list", () => {
     expect(renderHook(() => usePageHistory("u4")).result.current).toEqual([{ address: "/rooms/r1", at: 1 }]);
   });
 
+  it("goes on listing what this tab shows once storage is full", () => {
+    const { result } = renderHook(() => usePageHistory("u6"));
+    act(() => recordVisit("u6", "/rooms/r1", 1000));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Full", "QuotaExceededError");
+    });
+    act(() => recordVisit("u6", "/rooms/r2", 2000));
+    act(() => recordVisit("u6", "/rooms/r3", 3000));
+    expect(result.current.map(({ address }) => address)).toEqual(["/rooms/r3", "/rooms/r2", "/rooms/r1"]);
+    expect(JSON.parse(localStorage.getItem("ember:history:u6")!)).toEqual([{ address: "/rooms/r1", at: 1000 }]);
+  });
+
+  it("reads storage again after nothing here listened, while other tabs may have listed more", () => {
+    const shown = renderHook(() => usePageHistory("u7"));
+    act(() => recordVisit("u7", "/rooms/r1", 1000));
+    shown.unmount();
+    localStorage.setItem("ember:history:u7", JSON.stringify([{ address: "/huddles", at: 2000 }, { address: "/rooms/r1", at: 1000 }]));
+    expect(renderHook(() => usePageHistory("u7")).result.current.map(({ address }) => address)).toEqual(["/huddles", "/rooms/r1"]);
+  });
+
   it("lists what this tab showed where storage is refused", () => {
     refuseStorage();
     const { result } = renderHook(() => usePageHistory("u5"));

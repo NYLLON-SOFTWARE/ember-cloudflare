@@ -137,9 +137,16 @@ describe("Rail", () => {
 });
 
 describe("Search box", () => {
-  it("has Search on a phone in landscape alone, which has no top bar and no drawer to search from", () => {
+  it("has Search on a phone in landscape, which has no top bar and no drawer to search from, leaving it to the drawer's search field", () => {
     render(railAt("home"));
-    expect(screen.getByRole("link", { name: "Search" })).toHaveClass("hidden", "md:no-top-bar:flex");
+    const search = screen.getByRole("link", { name: "Search" });
+    expect(search).toHaveClass("hidden", "md:no-top-bar:flex");
+    expect(search).not.toHaveClass("max-md:flex");
+  });
+
+  it("has Search in the drawer too where the drawer holds the rail alone, with no search field", () => {
+    render(<Rail me={ada} workspaceName="Analytical Engines" current="workspace" activity={activityOff} newRelease={null} onNewDirect={() => {}} searchInDrawer />);
+    expect(screen.getByRole("link", { name: "Search" })).toHaveClass("hidden", "md:no-top-bar:flex", "max-md:flex");
   });
 
   it("opens the search box in place from Search, which a click with a modifier key leaves to the browser, marked while the search page shows", async () => {

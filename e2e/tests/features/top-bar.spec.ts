@@ -98,6 +98,8 @@ test.describe("Search field", () => {
     const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
     const field = drawer.getByRole("button", { name: /^Search / });
     await expect(field).toBeVisible();
+    // The drawer's rail leaves Search to the field.
+    await expect(drawer.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Search", includeHidden: true })).toBeHidden();
     expect((await field.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await field.click();
     await expect(drawer).toBeHidden();

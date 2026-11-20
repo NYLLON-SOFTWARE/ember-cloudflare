@@ -1044,6 +1044,15 @@ describe("Rail", () => {
     await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
     expect(railCurrent()).toEqual(["Workspace"]);
   });
+
+  it("has Search in the drawer on community settings' pages, where it holds the rail alone, without the conversations' search field", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const search = () => within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("link", { name: "Search" });
+    expect(search()).not.toHaveClass("max-md:flex");
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    expect(search()).toHaveClass("max-md:flex");
+  });
 });
 
 describe("New releases", () => {
