@@ -1,5 +1,5 @@
 import type { RoomId, User, UserId } from "@ember/protocol";
-import { ALL_HUDDLE_SOUNDS, type HuddlePerson, type HuddleSounds, type HuddleSticker } from "@ember/protocol/huddles";
+import { ALL_HUDDLE_SOUNDS, DEFAULT_HUDDLE_VIDEO, type CameraSizeName, type HuddlePerson, type HuddleSounds, type HuddleSticker, type HuddleVideoQuality } from "@ember/protocol/huddles";
 import type { HuddleDevice } from "./huddle-devices";
 import { NO_REACTIONS, type ShownReactions } from "./huddle-reactions";
 
@@ -49,8 +49,8 @@ export interface HuddleControls {
   setOpen(open: boolean): void;
   /** Shows the huddle's thread beside the people in it, in the huddle opened, or closes it. */
   setThread(shown: boolean): void;
-  /** Says whether the huddle, opened, shows people in tiles small enough for the smaller of the sizes a camera is sent in, which is then the one it's sent. */
-  setSmall(small: boolean): void;
+  /** Says which of the sizes a camera is sent in the huddle, opened, shows people's tiles as well as a larger would, which is then the one it's sent of each. */
+  setCameraSize(size: CameraSizeName): void;
   /** Speaks through the microphone `deviceId`, plays through that speaker, or shows that camera, from now. */
   setDevice(kind: HuddleDevice, deviceId: string): void;
   /** Shows, in place of the camera that's on, the one that faces the other way, or the next the browser lists. */
@@ -136,6 +136,19 @@ export function hearSounds(sounds: HuddleSounds): void {
   for (const listener of heardListeners) listener();
 }
 
+// The quality cameras and screens go out at is the workspace's, which an administrator chooses whether
+// or not the tab is in a huddle, so it's kept apart from the huddle as well, for each camera the tab
+// turns on, and each screen it shares, to go out at.
+let video: HuddleVideoQuality = DEFAULT_HUDDLE_VIDEO;
+
+/** The quality a camera turned on now goes out at, and a screen shared now: HD, until the page says what the workspace's is. */
+export const videoQuality = () => video;
+
+/** Has the huddle the tab is in, and the next it joins, send the cameras turned on and the screens shared from now at `quality`. The page calls this. */
+export function sendVideoAt(quality: HuddleVideoQuality): void {
+  video = quality;
+}
+
 /** The huddle the tab is in, or null. */
 export const joinedHuddle = () => joined;
 
@@ -164,8 +177,8 @@ export const openHuddle = (open: boolean) => controls?.setOpen(open);
 /** Shows the thread of the tab's huddle beside the people in it, in the huddle opened, or closes it, if it's in one. */
 export const showHuddleThread = (shown: boolean) => controls?.setThread(shown);
 
-/** Has the tab's huddle be sent the others' cameras in the smaller of their sizes, as while it shows them in small tiles, or in the larger again, if it's in one. */
-export const takeCamerasSmall = (small: boolean) => controls?.setSmall(small);
+/** Has the tab's huddle be sent the others' cameras in the size `size`, which its tiles show as well as a larger would, if it's in one. */
+export const takeCamerasIn = (size: CameraSizeName) => controls?.setCameraSize(size);
 
 /**
  * Has the tab's huddle speak through another microphone, play through another speaker, or show another

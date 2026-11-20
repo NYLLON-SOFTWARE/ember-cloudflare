@@ -492,6 +492,7 @@ const accountOf = (
     navigationIcons,
     huddleCameras,
     huddleScreens,
+    huddleVideo,
     updatedAt,
     storedLogo,
   }: JoinableAccount,
@@ -516,6 +517,7 @@ const accountOf = (
   huddles,
   huddleCameras,
   huddleScreens,
+  huddleVideo,
 });
 
 /** The parts of the account that Ember AI's settings are made of. */
@@ -1559,7 +1561,7 @@ export class Workspace extends DurableObject<Env> {
    */
   async changeAccount(
     credentials: Credentials,
-    { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords }: AccountChanges,
+    { name, tagline, settings, huddleVideo, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords }: AccountChanges,
     host: string,
   ): Promise<Account | AccountRefusal | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
@@ -1577,6 +1579,7 @@ export class Workspace extends DurableObject<Env> {
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
         ...(huddleCameras !== undefined && huddleCameras !== account.huddleCameras && { huddleCameras }),
         ...(huddleScreens !== undefined && huddleScreens !== account.huddleScreens && { huddleScreens }),
+        ...(huddleVideo !== undefined && huddleVideo !== account.huddleVideo && { huddleVideo }),
         ...(moving && { customDomain }),
         ...(!sameDomains(otherAddresses, account.otherAddresses) && { otherAddresses }),
         ...(joinLink !== undefined && joinLink !== account.joinLink && { joinLink }),

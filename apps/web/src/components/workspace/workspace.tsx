@@ -6,7 +6,7 @@ import { Xmark } from "@/components/icons/iconoir";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { useAccount, useCamerasAllowed, useScreensAllowed } from "@/hooks/use-account";
+import { useAccount, useCamerasAllowed, useHuddleVideo, useScreensAllowed } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
 import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
@@ -19,7 +19,7 @@ import { agentsToAsk } from "@/lib/agents";
 import { answerHuddleInvitation, ApiError, changeBlock, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
 import { hasHuddles } from "@/lib/huddle-people";
-import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
+import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, sendVideoAt, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
 import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
 import { lastRoomVisited } from "@/lib/last-room";
@@ -411,6 +411,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   useEffect(() => hearSounds(soundsHeard), [soundsHeard]);
   // An invitation's ring is one of them, which waits for the server's list to say they hear it.
   const ringless = inAHuddle || !answered || !soundsHeard.ring;
+  // The cameras turned on and the screens shared in this tab's huddles go out at the workspace's video
+  // quality as it is then, which an administrator changes for everyone.
+  const huddleVideo = useHuddleVideo();
+  useEffect(() => sendVideoAt(huddleVideo), [huddleVideo]);
 
   const flash = useFlash();
   const mounted = useMounted();

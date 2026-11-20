@@ -26,6 +26,7 @@ const EMBER: Account = {
   huddles: false,
   huddleCameras: true,
   huddleScreens: true,
+  huddleVideo: "hd",
 };
 
 /** How a new workspace sends email: with the binding wrangler.jsonc declares, from no address yet. */

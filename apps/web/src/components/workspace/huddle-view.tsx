@@ -2,13 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import type { Me, Room, User, UserId } from "@ember/protocol";
 import type { HuddlePerson } from "@ember/protocol/huddles";
 import { Collapse, Headset, MicrophoneMute, NavArrowDown } from "@/components/icons/iconoir";
+import { useHuddleVideo } from "@/hooks/use-account";
 import { useNameOf } from "@/hooks/use-directory";
 import { useIsSpeaking } from "@/hooks/use-huddle";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { useMediaQuery, usePixelRatio } from "@/hooks/use-media-query";
 import { facesAway } from "@/lib/huddle-devices";
 import { STICKERS } from "@/lib/huddle-stickers";
-import { OPEN_HUDDLE, openHuddle, showHuddleSticker, showHuddleThread, takeCamerasSmall, type JoinedHuddle } from "@/lib/huddle-store";
-import { SCREEN_SHAPE, showsCamerasSmall, stageLayout, TILE_GAP, tilesLayout } from "@/lib/huddle-tiles";
+import { OPEN_HUDDLE, openHuddle, showHuddleSticker, showHuddleThread, takeCamerasIn, type JoinedHuddle } from "@/lib/huddle-store";
+import { cameraSizeFor, SCREEN_SHAPE, stageLayout, TILE_GAP, tilesLayout } from "@/lib/huddle-tiles";
 import { cn } from "@/lib/utils";
 import { HuddleInviteDialog } from "./huddle-invite-dialog";
 import { HuddlePicture } from "./huddle-picture";
@@ -270,13 +271,16 @@ export function HuddleView({ huddle, room, me, onFailed }: Props) {
   const [shaped, setShaped] = useState<Shaped | null>(null);
   const shape = shaped && shaped.userId === staged?.id ? shaped.shape : SCREEN_SHAPE;
   const tileCount = count + (huddle.screen ? 1 : 0) + Math.max(0, sharing.length - 1);
-  const stage = staged && stagedScreen ? { user: staged, stream: stagedScreen, ...stageLayout(tileCount, shape, space.width, space.height) } : null;
-  const { columns, width, square } = stage?.tiles ?? tilesLayout(tileCount, space.width, space.height);
-  // The huddle is sent each camera in the size its tiles show, once it has tiles and knows what size they are, as is the next this tab joins from here.
-  const [sized, small] = [tileCount > 0 && space.width > 0, showsCamerasSmall({ width, square })];
+  // Tiles are as large as the workspace's video quality sends a camera's picture to show.
+  const quality = useHuddleVideo();
+  const stage = staged && stagedScreen ? { user: staged, stream: stagedScreen, ...stageLayout(tileCount, shape, space.width, space.height, quality) } : null;
+  const { columns, width, square } = stage?.tiles ?? tilesLayout(tileCount, space.width, space.height, quality);
+  // The huddle is sent each camera in the size its tiles show on this screen, once it has tiles and knows what size they are, as is the next this tab joins from here.
+  const pixelRatio = usePixelRatio();
+  const [sized, cameraSize] = [tileCount > 0 && space.width > 0, cameraSizeFor({ width, square }, pixelRatio)];
   useEffect(() => {
-    if (sized) takeCamerasSmall(small);
-  }, [sized, small, huddle.roomId]);
+    if (sized) takeCamerasIn(cameraSize);
+  }, [sized, cameraSize, huddle.roomId]);
   // It covers the page whatever had the focus there, so it takes it as it opens.
   const section = useRef<HTMLElement>(null);
   useEffect(() => section.current?.focus(), []);
