@@ -33,7 +33,7 @@ So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,
-`deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms`, `search_keys`, `search_readers` and the
+`deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms`, `search_keys`, `search_readers`, `search_rekeys` and the
 FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in
@@ -140,12 +140,28 @@ Objects, D1 or speed call for something else.
   for each word plainly and under the keys of the rooms it looks in, and its searcher's own. Porter
   stems a word under a key as it does the word alone, as keys are written in digits and consonants,
   but for words of one or two letters. The index keeps an open room's words plainly, as before, and a
-  room's it hasn't heard about too: nothing tells it about a room yet, so no copy of Ember needs this
-  release's code to read its index until the next one, which does. Meanwhile the Workspace queues each
-  room whose kind changes in `pending_readers` (migration 0080), for that release to tell the index
-  of. That release also has the index ask who can read each room it holds messages of and hasn't heard
-  about, so the index misses no room whose kind changed while a copy ran this release, before the next
-  or after going back to it.
+  room's it hasn't heard about too. The release before this one reads words kept either way, and keeps
+  a room's under its keys once it has them, so a copy that goes back to it reads the index this one
+  leaves. The Workspace queues each room whose kind changes in `pending_readers` (migration 0080) and
+  its alarm tells the index of them, 100 rooms a call, settling a room only at the version it told, so
+  a room queued again meanwhile is told of again. The index asks the Workspace who can read each room
+  it holds messages of and hasn't heard about (`search_rooms.heard`, search migration 0006, which
+  every room it held before starts without): at once as such a room sends it messages, without the
+  room waiting for the answer, 100 rooms a call, and the rest with its walk, below, as after an update
+  or a copy coming back to this release. An answer about a room it has been told of since it asked
+  changes nothing, as it may be from before the change. So the index misses no room whose kind changed
+  while a copy ran the release before, whether it came from the one before that or went back to it
+  from this one.
+- **The index keeps a room's earlier messages under its keys a few at a time.** Hearing that a room's
+  words go under keys, the index keeps its messages of the last hour under them at once, up to 200,
+  and leaves the rest to a walk: 125 an hour, or 3,000 a day, the newest of any room's first. Each
+  writes about three rows, half what taking a new message does, so the walk spends about a tenth of
+  the 100,000 rows Workers Free lets a day write, which running out of stops Ember until midnight UTC.
+  A run first asks about up to 40 of the rooms the index hasn't heard about, each taking three of its
+  125, as hearing about a room writes about nine rows, so asking about every room a copy held before
+  keeps to the same tenth. `search_rekeys` notes each room with messages left and one more than the
+  number of its newest, so a run goes on where the last stopped, and the index's storage keeps when
+  the next run is due. Until the walk reaches a message, a search finds it as before, plainly.
 - **Search filters are conditions on the index's own rows.** Slack narrows a search with modifiers
   such as `in:`, `from:` and `has:link`, which Campfire has none of. The index keeps what they narrow
   by beside each message (search migration 0003): who wrote it, the thread it's in, whether it has a

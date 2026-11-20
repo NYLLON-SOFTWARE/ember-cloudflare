@@ -64,6 +64,7 @@ const SEARCH_TABLES = [
   "search_mentions",
   "search_messages",
   "search_readers",
+  "search_rekeys",
   "search_rooms",
 ];
 

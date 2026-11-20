@@ -160,6 +160,8 @@ import { AddressLimit, FixedWindowLimit } from "./rate-limit";
 import { urlOf } from "./request-url";
 import { OPEN_ROOMS_ONLY, sessionTag } from "./revocations";
 import type { HuddleChange, RoomEvent } from "./room-log";
+import { searchIndex } from "./search-index";
+import type { RoomReaders } from "./search-words";
 import { appConnector } from "./apps/connector";
 import { ACCESS_TTL_SECONDS, CODE_TTL_MS, provesChallenge, REFRESH_TTL_MS } from "./outside/oauth";
 import { OutsideStore, type NewOutsideConnection, type OutsideClient, type OutsideTokens, type StoredOutsideConnection } from "./outside/store";
@@ -343,6 +345,9 @@ const WAITING_PROBES = 20;
  * Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
+
+/** How many rooms whose kind changed an alarm run tells the search index who can read, in one call. */
+const READERS_PER_RUN = 100;
 /**
  * How long a change waits for the rooms to close the sockets it queued before it answers. The alarm sees
  * to a room that takes longer.
@@ -5480,6 +5485,8 @@ export class Workspace extends DurableObject<Env> {
         queued = saved.removedIds.length > 0 || saved.madePrivate;
       } finally {
         if (queued) await this.revocationsQueued(now);
+        // The database may have queued telling the search index who can read it, though its answer was lost.
+        if (changes.kind) await this.wakeAt(now);
       }
       this.tell(saved.removedIds, { type: "room.gone", roomId });
       this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
@@ -5900,6 +5907,7 @@ export class Workspace extends DurableObject<Env> {
     const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
+    await this.deliverReaders();
     await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
     await this.checkMemberships();
     await this.checkSsoAccounts();
@@ -6185,6 +6193,31 @@ export class Workspace extends DurableObject<Env> {
     });
     await this.store.settleReindexes(delivered, failed, Date.now());
     return due.length;
+  }
+
+  /**
+   * Tells the search index who can read the rooms due to have it hear again, as their kind changed, up to
+   * `READERS_PER_RUN` in one call, and forgets each once it has, unless it was queued again meanwhile.
+   * When the index can't be reached, they're tried again later, as a reindex is.
+   */
+  private async deliverReaders(): Promise<void> {
+    const due = await this.store.dueReaders(Date.now(), READERS_PER_RUN);
+    if (due.length === 0) return;
+    try {
+      await searchIndex(this.env).setReadersOf(due.map(({ roomId, readers }) => ({ roomId, readers })));
+    } catch (error) {
+      console.error("Could not tell the search index who can read rooms; trying again later", error);
+      return this.store.settleReaders([], due, Date.now());
+    }
+    await this.store.settleReaders(due, [], Date.now());
+  }
+
+  /**
+   * Who can read each of the rooms `roomIds` names, as the search index asks of the rooms it holds
+   * messages of but hasn't heard about: null for a room there's no longer.
+   */
+  async roomReaders(roomIds: RoomId[]): Promise<RoomReaders[]> {
+    return this.store.roomReaders(roomIds);
   }
 
   /**
