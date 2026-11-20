@@ -225,7 +225,8 @@ Objects, D1 or speed call for something else.
   it into the paragraph Lexxy sends for typed text, in SQL, and set `edited_at` from `updated_at`
   for the messages already edited.
 - **A message keeps whom it notified.** Slack's @here, @channel and @everyone mention no one: each is
-  an attachment whose sgid is its name, which no user id can be. As a message is written its room asks
+  an attachment whose sgid is its name, which no user id can be, as a bot's Slack payload makes one
+  of its text's `<!here>`, `<!channel>` or `<!everyone>`. As a message is written its room asks
   the Workspace whether it may notify the room, which only a message sent to a room's timeline does,
   not one in a DM, a reply in a thread, a bot's reply or an AI's answer, and never one from an AI
   agent, and whether it may with @everyone, which only an open room takes, from anyone but a guest.

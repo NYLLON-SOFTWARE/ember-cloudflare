@@ -1,4 +1,4 @@
-import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomId, type SpecialMention } from "@ember/protocol";
+import { MAX_PUSH_SUBSCRIPTIONS, type BotAnswer, type Involvement, type NewWorkspace, type RoomId, type SpecialMention } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -500,6 +500,23 @@ describe("Who gets a push", () => {
       await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
       expect(pushed[0]!.endpoint).toMatch(/\/grace$/);
       expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ title: "Designers", options: { body: "Ada: Standup in 5 @channel" } });
+    });
+
+    it("pushes a bot's <!channel>, sent to its Slack-compatible webhook, to everyone in the room at @mentions, as a person's @channel", async () => {
+      const pushed = pushServices();
+      const ada = await setUp();
+      const added = await api("/api/account/bots", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name: "Build Bot" }) });
+      const { bot } = (await added.json()) as BotAnswer;
+      const [{ id: general }] = (await workspaceSql("SELECT id FROM rooms WHERE name = 'general'")) as [{ id: RoomId }];
+      const grace = await signIn("Grace");
+      const browser = await pushBrowser();
+      await subscribe(grace, "grace", browser);
+
+      const sent = await api(`/rooms/${general}/${bot.key}/slack`, { method: "POST", body: JSON.stringify({ text: "<!channel> Deploy finished" }), headers: { "Content-Type": "application/json" } });
+      expect(sent.status, await sent.clone().text()).toBe(200);
+      await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
+      expect(pushed[0]!.endpoint).toMatch(/\/grace$/);
+      expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ title: "general", options: { body: "Build Bot: @channel Deploy finished" } });
     });
 
     it("pushes a message that notifies a big room to everyone in it, sending 40 pushes itself and handing the rest to the Workspace, 40 a call, as an invocation can make only 50 requests on Workers Free", async () => {

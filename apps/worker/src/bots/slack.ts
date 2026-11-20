@@ -64,9 +64,11 @@ export function payloadOf(json: string | null): SlackPayload | null {
 /**
  * The message `payload` posts, as Slack shows it: a card of its blocks in place of its text, which Slack shows
  * beside them only in notifications, or its text when they show nothing here, with a card for each of its
- * attachments; or why it posts nothing. With `acting`, its cards keep their buttons that act.
+ * attachments; or why it posts nothing. With `acting`, its cards keep their buttons that act. With
+ * `notifying`, as for a bot's own message, its text's `<!here>`, `<!channel>` and `<!everyone>` are the
+ * special mentions that can notify the room, as in Slack; its cards' never are, nor anything else's.
  */
-export function slackMessage(payload: SlackPayload, acting = false): SlackMessage | SlackError {
+export function slackMessage(payload: SlackPayload, acting = false, notifying = false): SlackMessage | SlackError {
   const statuspage = statuspageCard(payload);
   if (statuspage) return JSON.stringify(statuspage).length > MAX_MESSAGE_HTML_LENGTH ? "msg_too_long" : { markup: "", cards: [statuspage] };
   const attachments = listOf(payload.attachments);
@@ -75,7 +77,7 @@ export function slackMessage(payload: SlackPayload, acting = false): SlackMessag
   if (markdownLength([...listOf(payload.blocks), ...attachmentBlocks]) > MAX_MARKDOWN_LENGTH) return "msg_too_long";
   const blocks = blocksCard(listOf(payload.blocks), acting);
   const formatting: Formatting = payload.mrkdwn === false ? "plain" : "mrkdwn";
-  const markup = blocks ? "" : mrkdwnHtml(stringOf(payload.text), formatting);
+  const markup = blocks ? "" : mrkdwnHtml(stringOf(payload.text), formatting, notifying);
   const cards = [...(blocks ? [blocks] : []), ...attachments.flatMap((attachment) => attachmentCard(attachment, acting) ?? [])];
   if (!shows(markup) && cards.length === 0) return "no_text";
   const tooLong = markup.length > MAX_MESSAGE_HTML_LENGTH || JSON.stringify(cards).length > MAX_MESSAGE_HTML_LENGTH;
