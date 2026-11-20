@@ -2,7 +2,16 @@
 // rails_autolink linked them, as a tree of the elements and attributes a message can show, which the web
 // app builds the page from rather than from markup.
 
-import { ATTACHMENT_TAG, isTwitterAvatar, MENTION_CONTENT_TYPE, MISSING_ATTACHABLE, OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode } from "./attachments";
+import {
+  ATTACHMENT_TAG,
+  isTwitterAvatar,
+  MENTION_CONTENT_TYPE,
+  MISSING_ATTACHABLE,
+  OPENGRAPH_EMBED_CONTENT_TYPE,
+  opengraphEmbedFromNode,
+  specialMentionOf,
+  type SpecialMention,
+} from "./attachments";
 import { autoLink } from "./autolink";
 import { sanitizeContentAttribute } from "./content";
 import { BODY, type HtmlParser } from "./markup";
@@ -13,8 +22,8 @@ import { AUTO_LINK, scrub, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
 import { append, createElement, createFragment, createText, getAttr, isHtmlElement, type Element, type Fragment, type Node } from "./tree";
 
-/** A message as it shows: text, the elements it's formatted with, the people it mentions, and its link previews. */
-export type DisplayNode = DisplayText | DisplayElement | DisplayMention | DisplayPreview;
+/** A message as it shows: text, the elements it's formatted with, the people it mentions, its special mentions, and its link previews. */
+export type DisplayNode = DisplayText | DisplayElement | DisplayMention | DisplaySpecialMention | DisplayPreview;
 
 export interface DisplayText {
   kind: "text";
@@ -33,6 +42,12 @@ export interface DisplayElement {
 export interface DisplayMention {
   kind: "mention";
   userId: string;
+}
+
+/** One of Slack's special mentions, @here or @channel. */
+export interface DisplaySpecialMention {
+  kind: "special-mention";
+  mention: SpecialMention;
 }
 
 /**
@@ -93,10 +108,7 @@ function linked(parse: HtmlParser, html: string, host: string, parsed?: Fragment
     if (node.kind === "text") return [{ kind: "text", value: node.value }];
     // Elements nothing allows can't come out of linking, but would go as `scrub` takes them out
     if (node.kind === "comment" || !isHtmlElement(node)) return [];
-    if (isMention(node)) {
-      const userId = userIdFromSgid(getAttr(node, "sgid") ?? "");
-      return [userId === undefined ? { kind: "text", value: MISSING_ATTACHABLE } : { kind: "mention", userId }];
-    }
+    if (isMention(node)) return [displayedMention(getAttr(node, "sgid") ?? "")];
     if (isPreview(node)) return [displayedPreview(parse, node, host)];
     const children = node.children.flatMap(displayed);
     if (!DISPLAYED.tags.has(node.name)) return children;
@@ -105,6 +117,14 @@ function linked(parse: HtmlParser, html: string, host: string, parsed?: Fragment
   };
   const autoLinked = autoLink(parse, html);
   return (parsed !== undefined && autoLinked === html ? parsed : parse(autoLinked, BODY)).children.flatMap(displayed);
+}
+
+/** A mention by its sgid: of the user it names, or the special mention it makes, or ☒ for neither. */
+function displayedMention(sgid: string): DisplayNode {
+  const special = specialMentionOf(sgid);
+  if (special) return { kind: "special-mention", mention: special };
+  const userId = userIdFromSgid(sgid);
+  return userId === undefined ? { kind: "text", value: MISSING_ATTACHABLE } : { kind: "mention", userId };
 }
 
 /**
@@ -129,8 +149,9 @@ function displayedPreview(parse: HtmlParser, attachment: Element, host: string):
 }
 
 /**
- * The markup of what a message shows, with each mention as the text `mention` gives for it and
- * without its previews, as Reply quotes a message (reply_controller.js).
+ * The markup of what a message shows, with each mention as the text `mention` gives for it, each
+ * special mention as its plain text, and without its previews, as Reply quotes a message
+ * (reply_controller.js).
  */
 export function displayMarkup(nodes: DisplayNode[], mention: (node: DisplayMention) => string): string {
   return toHtml(createFragment(nodes.flatMap((node) => treeOf(node, mention))), { escapeAttributeBrackets: true });
@@ -139,6 +160,7 @@ export function displayMarkup(nodes: DisplayNode[], mention: (node: DisplayMenti
 function treeOf(node: DisplayNode, mention: (node: DisplayMention) => string): Node[] {
   if (node.kind === "text") return [createText(node.value)];
   if (node.kind === "mention") return [createText(mention(node))];
+  if (node.kind === "special-mention") return [createText(`@${node.mention}`)];
   if (node.kind === "preview") return [];
   const element = createElement(node.name, Object.entries(node.attrs).map(([name, value]) => ({ name, value })));
   for (const child of node.children) for (const tree of treeOf(child, mention)) append(element, tree);

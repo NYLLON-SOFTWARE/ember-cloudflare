@@ -52,6 +52,31 @@ export async function sendPushes(env: Env, pushes: Array<MessagePush | Invitatio
 }
 
 /**
+ * `pushes` split into lists of at most `size` deliveries, in order, a push whose deliveries are split
+ * going in each list with its own share of them.
+ */
+export function pushesInChunks<T extends MessagePush | InvitationPush>(pushes: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  let chunk: T[] = [];
+  let count = 0;
+  for (const push of pushes) {
+    for (let start = 0; start < push.deliveries.length; ) {
+      const deliveries = push.deliveries.slice(start, start + size - count);
+      chunk.push({ ...push, deliveries });
+      start += deliveries.length;
+      count += deliveries.length;
+      if (count === size) {
+        chunks.push(chunk);
+        chunk = [];
+        count = 0;
+      }
+    }
+  }
+  if (chunk.length > 0) chunks.push(chunk);
+  return chunks;
+}
+
+/**
  * Sends a test push to a subscription at once, and throws if Web Push is off or the push fails, leaving
  * a subscription whose push service says it's gone. An endpoint that's no longer at a permitted push
  * service is skipped, as if it were sent.

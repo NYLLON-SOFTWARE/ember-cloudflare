@@ -19,6 +19,18 @@ export interface MentionUser {
 /** Finds the user a mention's `sgid` names, or nothing when it names no one. */
 export type ResolveMention = (sgid: string) => MentionUser | undefined;
 
+/**
+ * Slack's special mentions, which name no one but notify a whole room, narrowest first: @here, everyone
+ * in it who's active, and @channel, everyone in it. A mention's sgid is the special mention's name, which
+ * no user id can be.
+ */
+export const SPECIAL_MENTIONS = ["here", "channel"] as const;
+
+export type SpecialMention = (typeof SPECIAL_MENTIONS)[number];
+
+/** The special mention an sgid makes, if it makes one. */
+export const specialMentionOf = (sgid: string): SpecialMention | undefined => SPECIAL_MENTIONS.find((mention) => mention === sgid);
+
 /** A link preview's details, as `ActionText::Attachment::OpengraphEmbed` reads them. */
 export interface OpengraphEmbed {
   /** Where its title links. */
@@ -32,6 +44,7 @@ export interface OpengraphEmbed {
 
 export type Attachable =
   | { kind: "mention"; user: MentionUser }
+  | { kind: "special-mention"; mention: SpecialMention }
   | { kind: "opengraph-embed"; embed: OpengraphEmbed }
   /** `ActionText::Attachables::ContentAttachment` */
   | { kind: "content"; content: string }
@@ -53,7 +66,8 @@ const VIDEO_CONTENT_TYPE = /^video(\/.+|$)/m;
 
 /**
  * Campfire's `ActionText::Attachment.from_node` (lib/rails_ext/action_text_attachables.rb): a link
- * preview, else a mentioned user, else Action Text's own attachables as Lexxy extends them. `host` is
+ * preview, else a mentioned user or, as Campfire has none, a special mention, else Action Text's own
+ * attachables as Lexxy extends them. `host` is
  * the one the page is served from, which a preview's addresses mustn't name; plain text doesn't depend
  * on it. Throws `RenderError` where Ruby raises reading a preview's address.
  */
@@ -67,6 +81,8 @@ function attachableFromNode(parse: HtmlParser, element: Element, resolve: Resolv
   const sgid = getAttr(element, "sgid");
   const user = sgid === undefined ? undefined : resolve(sgid);
   if (user) return { kind: "mention", user };
+  const special = sgid === undefined ? undefined : specialMentionOf(sgid);
+  if (special) return { kind: "special-mention", mention: special };
   const content = getAttr(element, "content");
   if (content !== undefined && contentType?.includes("html") && !isBlank(content)) return { kind: "content", content };
   const url = getAttr(element, "url");
@@ -182,6 +198,8 @@ export function attachmentPlainText({ attachable, caption }: Attachment): string
   switch (attachable.kind) {
     case "mention":
       return `@${attachable.user.name}`;
+    case "special-mention":
+      return `@${attachable.mention}`;
     case "opengraph-embed":
       return "";
     case "content":

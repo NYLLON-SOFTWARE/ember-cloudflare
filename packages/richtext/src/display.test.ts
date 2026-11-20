@@ -23,6 +23,7 @@ function markupOf(nodes: DisplayNode[]): string {
     .map((node) => {
       if (node.kind === "text") return toHtml(parseHtml(node.value.replace(/[&<> ]/g, (c) => `&#${c.charCodeAt(0)};`)));
       if (node.kind === "mention") return `<action-text-attachment ${MENTION} sgid="${mentionSgid(node.userId)}"></action-text-attachment>`;
+      if (node.kind === "special-mention") return `<action-text-attachment ${MENTION} sgid="${node.mention}"></action-text-attachment>`;
       if (node.kind === "preview") return `<action-text-attachment ${PREVIEW}></action-text-attachment>`;
       const attrs = Object.entries(node.attrs).map(([name, value]) => ` ${name}="${value.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"`);
       const inner = markupOf(node.children);
@@ -151,6 +152,17 @@ describe("Rich text, safely", () => {
     ]);
   });
 
+  it("shows @here and @channel as the special mentions they are", () => {
+    expect(display(`<p><action-text-attachment ${MENTION} sgid="here"></action-text-attachment> and <action-text-attachment ${MENTION} sgid="channel"></action-text-attachment></p>`)).toEqual([
+      {
+        kind: "element",
+        name: "p",
+        attrs: {},
+        children: [{ kind: "special-mention", mention: "here" }, { kind: "text", value: " and " }, { kind: "special-mention", mention: "channel" }],
+      },
+    ]);
+  });
+
   it("can't show markup past the parser's limits", () => {
     expect(() => display("<b>".repeat(MAX_TREE_DEPTH + 1))).toThrow(ParseLimitError);
   });
@@ -182,6 +194,11 @@ describe("Reply with a quote", () => {
     expect(displayMarkup(nodes, ({ userId }) => `<${userId}>`)).toBe(
       '<p>Hi &lt;0123456789abcdef&gt; &amp; <a href="/x?a=1&amp;b=&lt;">"you"</a> at&nbsp;<a href="https://example.com">https://example.com</a><br>bye</p><hr>',
     );
+  });
+
+  it("writes a special mention as its name, after an @", () => {
+    const nodes = display(`<p>Hi <action-text-attachment ${MENTION} sgid="channel"></action-text-attachment></p>`);
+    expect(displayMarkup(nodes, () => "Ada")).toBe("<p>Hi @channel</p>");
   });
 
   it("writes every corpus body as it shows", { timeout: 30_000 }, () => {
