@@ -138,9 +138,11 @@ function quoted(nodes: DisplayNode[]): DisplayNode[] {
   return link && !hasText(nodes) ? [{ kind: "text", value: link }] : nodes;
 }
 
-/** Whether there's text outside link previews, where a mention is the name it shows. */
+/** Whether there's text outside link previews, where a mention is the name it shows, and a special mention its own. */
 const hasText = (nodes: DisplayNode[]): boolean =>
-  nodes.some((node) => node.kind === "mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)));
+  nodes.some(
+    (node) => node.kind === "mention" || node.kind === "special-mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)),
+  );
 
 /** The first link in a link preview, as `.og-embed a` finds it, by where it goes. */
 function firstPreviewLink(nodes: DisplayNode[]): string | undefined {

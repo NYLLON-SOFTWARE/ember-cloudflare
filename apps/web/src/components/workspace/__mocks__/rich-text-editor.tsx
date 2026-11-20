@@ -44,10 +44,25 @@ const attachmentMarkup = ({ contentType, html }: Attachment) =>
  * changes and keys as the editor does, and of addresses pasted in it, below which it shows what's
  * added, each with Lexxy's Remove button. Formatting changes only the formatting it tells of, and a
  * link only the text, which it marks `data-linked` with the address. It lists nobody for an @, and is
- * marked `data-mentions-above` where the list is to show above the text. The browser tests in e2e/
+ * marked `data-mentions-from` with where the list would ask for them and `data-mentions-above` where
+ * the list is to show above the text. The browser tests in e2e/
  * write in Lexxy itself.
  */
-export default function RichTextEditor({ label, placeholder, rows, initialValue, mentionsAbove, autoFocus, onChange, onFormatChange, onKeyDown, onLinkPasted, onReady, ref }: ComponentProps<typeof Editor>) {
+export default function RichTextEditor({
+  label,
+  placeholder,
+  rows,
+  initialValue,
+  mentionsFrom,
+  mentionsAbove,
+  autoFocus,
+  onChange,
+  onFormatChange,
+  onKeyDown,
+  onLinkPasted,
+  onReady,
+  ref,
+}: ComponentProps<typeof Editor>) {
   const box = useRef<HTMLTextAreaElement>(null);
   // Read as soon as they change, as Lexxy's are, and shown once React renders them.
   const attachments = useRef<Attachment[]>([]);
@@ -153,6 +168,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
         aria-label={label}
         placeholder={placeholder}
         rows={rows}
+        data-mentions-from={mentionsFrom}
         data-mentions-above={mentionsAbove || undefined}
         defaultValue={initialValue && writtenBody(initialValue).plainText}
         onChange={() => onChange?.()}
