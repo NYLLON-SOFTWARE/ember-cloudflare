@@ -191,7 +191,7 @@ export function MessageList({
   const firstNew = newSince === null ? -1 : items.findIndex(({ message, ephemeral }) => !ephemeral && message.createdAt >= newSince && message.creator.id !== me.id);
   // A page that doesn't reach back before `newSince` may have older new messages before it that aren't loaded yet,
   // whoever wrote its first one.
-  const newLineAt = firstNew === -1 || (state.hasMore && items[0]!.message.createdAt >= newSince!) ? null : items[firstNew]!.message;
+  const newLineAt = firstNew === -1 || (state.hasMore && state.messages[0]!.createdAt >= newSince!) ? null : items[firstNew]!.message;
 
   const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
 
@@ -246,7 +246,7 @@ export function MessageList({
     focused.current = state.focus;
     if (moved && state.focus) go(state.focus.messageId);
     else settle();
-  }, [state.messages, state.focus, drawnAll]);
+  }, [state.messages, state.ephemeral, state.focus, drawnAll]);
 
   // A page that showed its newest messages first draws the rest above them once they're on screen, or before the
   // view is painted where they don't fill it with room to spare, so that nothing shows above them meanwhile.

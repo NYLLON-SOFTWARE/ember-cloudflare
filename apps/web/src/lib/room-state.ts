@@ -64,7 +64,7 @@ export interface RoomState {
   messages: Array<Message | PendingMessage>;
   /**
    * The messages only this page's person sees, as the card of a call that waits on them, as they came,
-   * until the room lets the page in again, which sends again those still waiting.
+   * until the room lets the page in again, which brings again those still waiting.
    */
   ephemeral: EphemeralMessage[];
   present: User[];
@@ -91,7 +91,10 @@ export interface RoomState {
   loadingPage: boolean;
   /** Where the timeline goes next, or null until the room has said what it holds. */
   focus: Focus | null;
-  /** How many times messages have come from the room, other than this page's own: the timeline shows Jump to newest message when one comes out of view. */
+  /**
+   * How many times messages have come from the room, other than this page's own, those only its person sees
+   * included: the timeline shows Jump to newest message when one comes out of view.
+   */
   arrivals: number;
   notice: string | null;
   /**
@@ -145,11 +148,14 @@ export type RoomAction =
    */
   | { type: "given-back"; clientMessageId: string; taken: boolean };
 
+/** No messages only this page's person sees, as one list, so that a timeline without any keeps it as the room lets it in again. */
+const NO_EPHEMERAL: EphemeralMessage[] = [];
+
 export const initialRoomState: RoomState = {
   status: "connecting",
   offline: false,
   messages: [],
-  ephemeral: [],
+  ephemeral: NO_EPHEMERAL,
   present: [],
   typing: {},
   hasMore: false,
@@ -304,22 +310,26 @@ export function typed(typing: RoomState["typing"], { user, typing: started, doin
   return started ? { ...typing, [user.id]: { user, at: now, ...(doing !== undefined && { doing }) } } : withoutTyping(typing, user.id);
 }
 
-/** The messages only this page's person sees with `message` among them, new, or in the place of the one with its id. */
-export const withEphemeral = (ephemeral: EphemeralMessage[], message: EphemeralMessage) =>
-  ephemeral.some((m) => m.id === message.id) ? ephemeral.map((m) => (m.id === message.id ? message : m)) : [...ephemeral, message];
+/**
+ * The timeline with `message`, which only this page's person sees, in the place of the one with its id, or
+ * else new, which counts as an arrival, as a message from the room does.
+ */
+export function withEphemeral(state: RoomState, message: EphemeralMessage): RoomState {
+  if (!state.ephemeral.some((m) => m.id === message.id)) return { ...state, ephemeral: [...state.ephemeral, message], arrivals: state.arrivals + 1 };
+  return { ...state, ephemeral: state.ephemeral.map((m) => (m.id === message.id ? message : m)) };
+}
 
 /**
- * The timeline as the room lets a connection in with a welcome, `page` in its place, and `present` there.
- * Unconfirmed messages stay across a reconnect, and everything else comes fresh from the room: the old
- * socket may have closed after the room stored one, so those it sent stay as sending while useRoom asks
- * the room about them.
+ * The timeline as the room lets a connection in with a welcome, `page` in its place, `present` there, and
+ * `ephemeral` for this page's person alone. Unconfirmed messages stay across a reconnect, and everything
+ * else comes fresh from the room: the old socket may have closed after the room stored one, so those it
+ * sent stay as sending while useRoom asks the room about them.
  */
-export function welcomed(state: RoomState, page: TimelinePage, present: User[]): RoomState {
+export function welcomed(state: RoomState, page: TimelinePage, present: User[], ephemeral = NO_EPHEMERAL): RoomState {
   return {
     ...state,
     ...showing(state, page),
-    // The room sends again, after it, those that still wait.
-    ephemeral: [],
+    ephemeral,
     status: "open",
     present,
     // A history request on the old socket will never be answered.
@@ -334,18 +344,18 @@ export function welcomed(state: RoomState, page: TimelinePage, present: User[]):
 }
 
 /**
- * The timeline as the room lets a connection in again with what `changed` while it was away, and `present`
- * there. The pages already loaded stay, older ones included, where a welcome would replace them.
+ * The timeline as the room lets a connection in again with what `changed` while it was away, `present`
+ * there, and `ephemeral`, as with a welcome. The pages already loaded stay, older ones included, where a
+ * welcome would replace them.
  */
-export function resumed(state: RoomState, changed: Changes, present: User[]): RoomState {
+export function resumed(state: RoomState, changed: Changes, present: User[], ephemeral = NO_EPHEMERAL): RoomState {
   const { messages, came } = caughtUp(state, changed);
   return cut(
     {
       ...state,
       status: "open",
       messages,
-      // As after a welcome.
-      ephemeral: [],
+      ephemeral,
       present,
       // A history request on the old socket will never be answered.
       loadingOlder: false,
@@ -441,9 +451,9 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
 function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomState {
   switch (frame.type) {
     case "welcome":
-      return welcomed(state, frame, frame.present);
+      return welcomed(state, frame, frame.present, frame.ephemeral);
     case "resumed":
-      return resumed(state, frame, frame.present);
+      return resumed(state, frame, frame.present, frame.ephemeral);
     case "message.created":
       return received(state, frame.message);
     case "message.updated":
@@ -452,7 +462,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       return { ...state, messages: state.messages.filter((m) => m.id !== frame.messageId) };
     // One about a question asked in a thread is the thread's to show (`threadReducer`).
     case "message.ephemeral":
-      return frame.message.parentId === undefined ? { ...state, ephemeral: withEphemeral(state.ephemeral, frame.message) } : state;
+      return frame.message.parentId === undefined ? withEphemeral(state, frame.message) : state;
     case "boost.created":
       return {
         ...state,

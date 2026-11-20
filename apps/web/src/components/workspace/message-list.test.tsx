@@ -470,6 +470,13 @@ describe("New line", () => {
     expect(newLineOver()).toBe("First new");
   });
 
+  it("draws none over the first message loaded when older new ones may not be loaded yet, though a card only the reader sees came before it", () => {
+    const card: EphemeralMessage = { id: "e1", roomId: "general", creator: { id: "ember", name: "Ember" }, body: "", plainText: "Ember wants to use Tracker", cards: [], createdAt: "2026-10-12T09:50:00.000Z" };
+    render(list({ messages: timeline.slice(3), hasMore: true, ephemeral: [card] }, vi.fn(), null, { newSince: "2026-10-12T10:00:00.000Z" }));
+    expect(screen.getByRole("log").querySelector<HTMLElement>("[data-row]")?.dataset.row).toBe("ephemeral:e1");
+    expect(newLine()).not.toBeInTheDocument();
+  });
+
   it("draws none when the first message loaded is the reader's own, sent since, and older ones may not be loaded yet", () => {
     const { rerender } = render(list({ messages: timeline.slice(2), hasMore: true }, vi.fn(), null, { newSince: "2026-10-12T09:45:00.000Z" }));
     expect(newLine()).not.toBeInTheDocument();

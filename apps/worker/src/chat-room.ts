@@ -460,11 +460,11 @@ export class ChatRoom extends DurableObject<Env> {
       this.ctx.acceptWebSocket(server, tags);
       server.serializeAttachment({ user, roomId, visible, protocol, heardAt: Date.now(), ...(apart && { apart }), ...(banned && { banned }) } satisfies Attachment);
 
-      this.send(server, { ...opening, you: user, present: this.present() });
-      // The cards of the calls asked for in the room's timeline that wait on them, which only they see,
-      // follow it, as it takes the place of any the tab showed. A thread's follow its `thread.opened`.
-      // A tab too old to know of them is told to reload.
-      if (protocol >= ROOM_PROTOCOL) for (const message of cards) if (message.parentId === undefined) this.send(server, { type: "message.ephemeral", message });
+      // With the cards of the calls asked in the room's timeline that wait on them, which only they see, in
+      // the place of any the tab showed. A thread's come with its `thread.opened`. A tab too old to know of
+      // them is told to reload.
+      const ephemeral = protocol < ROOM_PROTOCOL ? [] : cards.filter((message) => message.parentId === undefined);
+      this.send(server, { ...opening, you: user, present: this.present(), ...(ephemeral.length > 0 && { ephemeral }) });
       // A tab running an older app hears at once that it has to reload, rather than once it sends something.
       if (protocol < ROOM_PROTOCOL) this.send(server, { type: "error", message: OUTDATED });
       // Everyone else has the list from their own welcome, so they only hear who's new: nobody is, for
@@ -1190,10 +1190,9 @@ export class ChatRoom extends DurableObject<Env> {
         const attachment = ws.deserializeAttachment() as Attachment;
         ws.serializeAttachment({ ...attachment, thread: frame.parentId } satisfies Attachment);
         const [thread, cards] = await Promise.all([store.thread(frame.parentId, HISTORY_PAGE_SIZE), this.waitingCallsFor(store.roomId).cardsFor(user.id)]);
-        this.send(ws, { type: "thread.opened", parentId: frame.parentId, ...thread });
-        // The cards of the calls asked for in the thread that wait on them follow it, as those of the room's follow its welcome.
-        if (!isOutdated(ws)) for (const message of cards) if (message.parentId === frame.parentId) this.send(ws, { type: "message.ephemeral", message });
-        return;
+        // With the cards of the calls asked in the thread that wait on them, as a welcome brings the room's.
+        const ephemeral = isOutdated(ws) ? [] : cards.filter((message) => message.parentId === frame.parentId);
+        return this.send(ws, { type: "thread.opened", parentId: frame.parentId, ...thread, ...(ephemeral.length > 0 && { ephemeral }) });
       }
       case "thread.close": {
         const { thread, ...attachment } = ws.deserializeAttachment() as Attachment;

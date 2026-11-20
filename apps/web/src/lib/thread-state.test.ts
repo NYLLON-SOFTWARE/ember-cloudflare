@@ -261,14 +261,22 @@ describe("Messages only you see in a thread", () => {
     state = frame(state, { type: "message.ephemeral", message: card() });
     state = frame(state, { type: "message.ephemeral", message: card({ plainText: "Allowed by you." }) });
     expect(state.replies.ephemeral.map((m) => m.plainText)).toEqual(["Allowed by you."]);
+    // The new one came as a reply does, but not its change.
+    expect(state.replies.arrivals).toBe(1);
     for (const elsewhere of [card({ id: "e2", parentId: undefined }), card({ id: "e3", parentId: "m9" })]) expect(frame(state, { type: "message.ephemeral", message: elsewhere })).toBe(state);
   });
 
-  it("forgets them as it opens again, which those still waiting follow", () => {
-    let state = frame(opened(initialThreadState({ parentId: "m1" }), [reply("r1")]), { type: "message.ephemeral", message: card() });
+  it("opens with those still waiting, and opened again takes them in the place of those it showed", () => {
+    const first = frame(initialThreadState({ parentId: "m1" }), { type: "thread.opened", parentId: "m1", parent, messages: [reply("r1")], hasMore: false, ephemeral: [card()] });
+    expect(first.replies.ephemeral).toEqual([card()]);
+    let state = frame(first, { type: "message.ephemeral", message: card({ id: "e2" }) });
     // The room's own welcome is the room's: the thread opens again after it.
     state = frame(state, { type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 1 });
-    expect(state.replies.ephemeral).toHaveLength(1);
+    expect(state.replies.ephemeral).toHaveLength(2);
+    expect(frame(state, { type: "thread.opened", parentId: "m1", parent, messages: [reply("r1")], hasMore: false, ephemeral: [card({ id: "e2" })] }).replies.ephemeral).toEqual([card({ id: "e2" })]);
     expect(opened(state, [reply("r1")]).replies.ephemeral).toEqual([]);
+    // As when the replies it showed go back further than the newest page, which takes their place.
+    const paged = frame(state, { type: "thread.opened", parentId: "m1", parent, messages: [reply("r2")], hasMore: true, ephemeral: [card({ id: "e2" })] });
+    expect([paged.replies.ephemeral, paged.replies.messages.map((m) => m.id)]).toEqual([[card({ id: "e2" })], ["r2"]]);
   });
 });

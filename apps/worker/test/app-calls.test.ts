@@ -12,7 +12,7 @@ import { CALL_DECLINED } from "../src/assistant/tool-calls";
 import { slackMessage } from "../src/bots/slack";
 import type { Env } from "../src/env";
 import { seal } from "../src/sealed";
-import { api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, roomStub, shown, startDirect, workspaceSql, workspaceStub, type Client, type Session } from "./support";
+import { api, connect, cookieOf, createRoom, freshDeploy, post, reconnect, roomSql, roomStub, shown, startDirect, workspaceSql, workspaceStub, type Client, type Session } from "./support";
 
 // Calls of connected apps' tools: @ember or an agent calls one picked for it, the room asks first on a
 // card only whoever asked sees, and the call runs, and the answer goes on, once they allow it, or at once,
@@ -156,12 +156,9 @@ async function ask(client: Client, question = "open an issue for the login bug")
 async function fromEmber(client: Client): Promise<Posted> {
   for (;;) {
     const frame = await client.next("message.created", "message.ephemeral");
-    if (frame.message.creator.id === EMBER.id && (frame.type === "message.created" || firstOf(client, frame.message) === frame)) return frame.message;
+    if (frame.message.creator.id === EMBER.id && (frame.type === "message.created" || ephemeralIn(client).find(({ id }) => id === frame.message.id) === frame.message)) return frame.message;
   }
 }
-
-/** The frame that first showed `client` the card `message`, which only its person sees. */
-const firstOf = (client: Client, message: EphemeralMessage) => client.log.find((frame) => frame.type === "message.ephemeral" && frame.message.id === message.id);
 
 /** Clicks the button of `card` that answers its call with `decision`, as `client`, answering the click's id. */
 function click(client: Client, card: Pick<Message, "id">, decision: CallDecision): string {
@@ -178,8 +175,8 @@ async function changed(client: Client, card: Pick<Message, "id">): Promise<Poste
   }
 }
 
-/** The cards of calls `client` has heard of that only its person sees. */
-const ephemeralIn = (client: Client) => client.log.flatMap((frame) => (frame.type === "message.ephemeral" ? [frame.message] : []));
+/** The cards of calls `client` has heard of that only its person sees, as they came, with what opened the room or a thread too. */
+const ephemeralIn = (client: Pick<Client, "log">) => client.log.flatMap((frame) => (frame.type === "message.ephemeral" ? [frame.message] : "ephemeral" in frame ? (frame.ephemeral ?? []) : []));
 /** Whether `client` has heard of a message @ember posted in the room. */
 const heardFromEmber = (client: Client) => client.log.some((frame) => frame.type === "message.created" && frame.message.creator.id === EMBER.id);
 
@@ -265,10 +262,10 @@ describe("A call of a connected app's tool", () => {
 
     const card = await ask(graceThere);
     expect(card.plainText).toContain(callNote({ appName: "Tracker" }));
-    // A tab of hers that opens the room while it waits is shown it after its welcome, but for one too old
+    // A tab of hers that opens the room while it waits is shown it with its welcome, but for one too old
     // to know of it, which is told to reload, and nobody else hears of it.
     const graceAgain = await connect(general, grace);
-    expect((await graceAgain.next("message.ephemeral")).message).toEqual(card);
+    expect(graceAgain.welcome.ephemeral).toEqual([card]);
     const graceOutdated = await connect(general, grace, "outdated");
     await graceOutdated.next("error");
     expect(await roomSql(general, "SELECT count(*) AS posted FROM messages WHERE creator_id = ?", EMBER.id)).toEqual([{ posted: 0 }]);
@@ -287,10 +284,20 @@ describe("A call of a connected app's tool", () => {
     for (const tab of [graceThere, halThere, inGeneral, graceOutdated]) expect((await fromEmber(tab)).plainText).toBe("Done.");
     expect(calls()).toHaveLength(1);
     expect([ephemeralIn(halThere), ephemeralIn(inGeneral), ephemeralIn(graceOutdated)]).toEqual([[], [], []]);
-    // A tab opened once it's answered isn't shown it, as one of the room's answers after its welcome shows.
+    // A tab opened once it's answered isn't shown it, nor one opened again with what changed since, nor after.
     const graceLater = await connect(general, grace);
+    const graceBack = await reconnect(general, grace, graceAgain.welcome.seq);
+    expect(graceBack.opening.type).toBe("resumed");
     await post(graceLater, "<p>Thanks!</p>");
-    expect(ephemeralIn(graceLater)).toEqual([]);
+    expect([ephemeralIn(graceLater), ephemeralIn(graceBack)]).toEqual([[], []]);
+  });
+
+  it("comes again with what catches up a tab of theirs that opens the room again", async () => {
+    const { general, inGeneral, ada } = await setUp();
+    script = [CALL, { text: "Done." }];
+    const card = await ask(inGeneral);
+    const back = await reconnect(general, ada, inGeneral.welcome.seq);
+    expect(back.opening).toMatchObject({ type: "resumed", ephemeral: [card] });
   });
 
   it("asked for in a thread, is shown in it: after the thread opens, rather than the room's welcome", async () => {
@@ -305,11 +312,9 @@ describe("A call of a connected app's tool", () => {
 
     const again = await connect(general, ada);
     again.send({ type: "thread.open", parentId: parent.id });
-    await again.next("thread.opened");
-    expect((await again.next("message.ephemeral")).message).toEqual(card);
-    // Nothing of it followed the welcome, which came first.
-    expect(again.log.filter((frame) => frame.type === "message.ephemeral")).toHaveLength(1);
-    expect(again.log.findIndex((frame) => frame.type === "thread.opened")).toBeLessThan(again.log.findIndex((frame) => frame.type === "message.ephemeral"));
+    expect((await again.next("thread.opened")).ephemeral).toEqual([card]);
+    // The room's welcome didn't bring it.
+    expect(again.log.filter((frame) => frame.type === "welcome" || frame.type === "message.ephemeral")).toEqual([again.welcome]);
 
     click(again, card, "allow");
     expect(await fromEmber(again)).toMatchObject({ plainText: "I opened #12 for it.", parentId: parent.id });

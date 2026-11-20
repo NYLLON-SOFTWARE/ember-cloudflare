@@ -423,6 +423,9 @@ test.describe("Apps", () => {
     await expect(card).toContainText("It goes to Tracker with the token an administrator connected it with.");
     await expect(page.getByRole("article").filter({ has: card })).toContainText("Only visible to you");
     expect(mcp.calls).toEqual([]);
+    // A reload shows it again, as the room lets the page in with it while it waits.
+    await page.reload();
+    await expect(card).toContainText(`Title: ${title}`);
 
     // Allowed, it runs, with what the card showed, and the answer goes on with what the app answered.
     await card.getByRole("button", { name: "Allow once" }).click();
@@ -431,6 +434,10 @@ test.describe("Apps", () => {
     await expect(card.getByRole("button", { name: "Deny" })).toHaveCount(0);
     await expect(page.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
     expect(mcp.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
+    // Answered, it isn't brought again: a reload shows the answer alone.
+    await page.reload();
+    await expect(page.getByRole("article").filter({ hasText: FILED })).toBeVisible();
+    await expect(card).toHaveCount(0);
     // The model was given the tool under its app's name, and never the app's address or token.
     const said = JSON.stringify(gateway.asked.map(({ body }) => body));
     expect(said).toContain("Tracker__create_issue");

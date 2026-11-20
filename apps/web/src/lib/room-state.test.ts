@@ -707,6 +707,8 @@ describe("Messages only you see", () => {
       ["e2", "Ember wants to use Tracker"],
     ]);
     expect(ids(state)).toEqual(["m001", "m002"]);
+    // Each new one came as a message does, which a reader away from the end is offered the way to, but not a change.
+    expect(state.arrivals).toBe(2);
   });
 
   it("leaves one about a question asked in a thread to the thread", () => {
@@ -714,10 +716,15 @@ describe("Messages only you see", () => {
     expect(shownAlone(state, card({ parentId: "m001" }))).toBe(state);
   });
 
-  it("forgets them as the room lets the page in again, which sends again those still waiting", () => {
-    const state = shownAlone(opened(stored(1, 2)), card());
+  it("takes those the room lets the page in again with in their place, those still waiting", () => {
+    const state = shownAlone(shownAlone(opened(stored(1, 2)), card()), card({ id: "e2" }));
+    const waiting = [card({ id: "e2" })];
     const welcome: ServerFrame = { type: "welcome", you: ada, messages: stored(1, 2), present: [ada], hasMore: false, hasNewer: false, around: null, seq: 1 };
     expect(frame(state, { type: "frame", frame: welcome, now: 0 }).ephemeral).toEqual([]);
-    expect(frame(state, { type: "frame", frame: { type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 1 }, now: 0 }).ephemeral).toEqual([]);
+    expect(frame(state, { type: "frame", frame: { ...welcome, ephemeral: waiting }, now: 0 }).ephemeral).toEqual(waiting);
+    const resume: ServerFrame = { type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 1 };
+    expect(frame(state, { type: "frame", frame: resume, now: 0 }).ephemeral).toEqual([]);
+    const back = frame(state, { type: "frame", frame: { ...resume, ephemeral: waiting }, now: 0 });
+    expect([back.ephemeral, back.arrivals]).toEqual([waiting, state.arrivals]);
   });
 });
