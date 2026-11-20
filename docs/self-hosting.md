@@ -1761,7 +1761,7 @@ What a self-hoster should know, beyond keeping the setup password and link to th
   for each thousand of them, in tests on one machine. It never shows or counts those, and everyone can
   read an open room. The words of private rooms and DMs are kept apart by who can read them, so they
   change nothing of another's search, once the index has kept apart those it took before it knew who
-  could read their rooms: the last hour's at once, and the rest 3,000 a day, newest first.
+  could read their rooms: the last hour's at once, and the rest up to 3,000 a day, newest first.
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
   the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
   resetting a password, as above.

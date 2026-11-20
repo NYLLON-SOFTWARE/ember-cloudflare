@@ -146,20 +146,22 @@ Objects, D1 or speed call for something else.
   its alarm tells the index of them, 100 rooms a call, settling a room only at the version it told, so
   a room queued again meanwhile is told of again. The index asks the Workspace who can read each room
   it holds messages of and hasn't heard about (`search_rooms.heard`, search migration 0006, which
-  every room it held before starts without): as such a room sends it messages, at once and without the
-  room waiting for the answer, and from its alarm as it starts, as after an update or a copy coming
-  back to this release, 100 rooms a call and ten calls a run. An answer about a room it has been told
-  of since it asked changes nothing, as it may be from before the change. So the index misses no room
-  whose kind changed while a copy ran the release before, whether it came from the one before that or
-  went back to it from this one.
+  every room it held before starts without): at once as such a room sends it messages, without the
+  room waiting for the answer, 100 rooms a call, and the rest with its walk, below, as after an update
+  or a copy coming back to this release. An answer about a room it has been told of since it asked
+  changes nothing, as it may be from before the change. So the index misses no room whose kind changed
+  while a copy ran the release before, whether it came from the one before that or went back to it
+  from this one.
 - **The index keeps a room's earlier messages under its keys a few at a time.** Hearing that a room's
   words go under keys, the index keeps its messages of the last hour under them at once, up to 200,
   and leaves the rest to a walk: 125 an hour, or 3,000 a day, the newest of any room's first. Each
-  writes three rows, half what taking a new message does, so the walk spends under a tenth of the
-  100,000 rows Workers Free lets a day write, which running out of stops Ember until midnight UTC.
-  `search_rekeys` notes each room with messages left and one more than the number of its newest, so a
-  run goes on where the last stopped, and the index's storage keeps when the next run is due. Until
-  the walk reaches a message, a search finds it as before, plainly.
+  writes about three rows, half what taking a new message does, so the walk spends about a tenth of
+  the 100,000 rows Workers Free lets a day write, which running out of stops Ember until midnight UTC.
+  A run first asks about up to 40 of the rooms the index hasn't heard about, each taking three of its
+  125, as hearing about a room writes about nine rows, so asking about every room a copy held before
+  keeps to the same tenth. `search_rekeys` notes each room with messages left and one more than the
+  number of its newest, so a run goes on where the last stopped, and the index's storage keeps when
+  the next run is due. Until the walk reaches a message, a search finds it as before, plainly.
 - **Search filters are conditions on the index's own rows.** Slack narrows a search with modifiers
   such as `in:`, `from:` and `has:link`, which Campfire has none of. The index keeps what they narrow
   by beside each message (search migration 0003): who wrote it, the thread it's in, whether it has a

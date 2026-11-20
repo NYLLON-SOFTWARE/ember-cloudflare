@@ -88,20 +88,31 @@ const MOST_REKEYED_AT_ONCE = 200;
 
 /**
  * How many messages taken before their rooms' words were kept under keys the index keeps under them a
- * run, and how long it waits between runs: 3,000 a day, each writing three rows, half what taking a new
- * message writes, so under a tenth of the 100,000 rows Workers Free lets a day write, which running out
- * of stops Ember until midnight UTC.
+ * run, and how long it waits between runs: 3,000 a day, each writing about three rows, half what taking
+ * a new message writes, so about a tenth of the 100,000 rows Workers Free lets a day write, which running
+ * out of stops Ember until midnight UTC.
  */
 const REKEYED_PER_RUN = 125;
 const REKEY_RUNS_EVERY_MS = 60 * 60 * 1000;
 
+/**
+ * How many of the rooms the index holds messages of but hasn't heard about, as those it held before this
+ * release, the walk asks about a run, and how many of the run's messages hearing about one takes: it
+ * writes about nine rows, as keeping three messages under keys does.
+ */
+const ROOMS_HEARD_PER_RUN = 40;
+const REKEYS_A_ROOM_HEARD = 3;
+
 /** Where the index keeps when the walk's next run is due, in milliseconds since the epoch, while it has one. */
 const REKEY_DUE = "rekeyDue";
 
-/** How many rooms it asks the Workspace about in a call, how many calls a run makes at most, and how long it waits when one fails. */
+/** How many rooms that send it messages it asks the Workspace about a call, how many calls it makes before it leaves the rest to its alarm, and how long it waits when one fails. */
 const ROOMS_PER_ASK = 100;
 const ASKS_PER_RUN = 10;
 const ASK_AGAIN_MS = 60 * 1000;
+
+/** A room the index holds messages of but hasn't heard about, and its place in its log, `FORGOTTEN` once it's deleted. */
+type UnheardRoom = { room_id: RoomId; seq: number };
 
 /** A statement's SQL and the values it binds, in order. */
 export interface SearchStatement {
@@ -325,15 +336,20 @@ const byTime = (a: IndexedMessage, b: IndexedMessage) => firstNumber(a.createdAt
  */
 export class SearchIndex extends DurableObject<Env> {
   private readonly sql: SqlStorage;
-  /** The Workspace being asked who can read rooms, while it is (`hearUnheard`). */
+  /** The rooms that have sent the index messages before it heard who can read them, which it asks about at once (`hearNow`). */
+  private readonly sending = new Set<RoomId>();
+  /** The Workspace being asked who can read rooms, while it is (`hearSending`, `hearSome`). */
   private asking: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     migrate(ctx.storage, "search");
     this.sql = ctx.storage.sql;
-    // A copy that updates, or comes back to this release, holds rooms it hasn't heard about.
-    void ctx.blockConcurrencyWhile(() => this.wakeForNext());
+    // A copy that updates, or comes back to this release, holds rooms it hasn't heard about, which its walk asks about.
+    void ctx.blockConcurrencyWhile(async () => {
+      if (this.unheard() && ctx.storage.kv.get(REKEY_DUE) === undefined) ctx.storage.kv.put(REKEY_DUE, Date.now());
+      await this.wakeForNext();
+    });
   }
 
   /**
@@ -369,7 +385,7 @@ export class SearchIndex extends DurableObject<Env> {
       this.sql.exec(`INSERT INTO search_rooms (room_id, seq) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq`, roomId, seq);
       return !taken?.heard;
     });
-    if (unheard) this.hearNow();
+    if (unheard) this.hearNow(roomId);
   }
 
   /**
@@ -489,10 +505,14 @@ export class SearchIndex extends DurableObject<Env> {
         const [first, second] = this.sql.exec<{ room_id: RoomId; before: number }>(`SELECT room_id, before FROM search_rekeys ORDER BY before DESC LIMIT 2`).toArray();
         if (!first) return false;
         const keys = this.keysOf(first.room_id);
-        // An edit since may have kept the walk's newest under keys already.
+        // An edit since may have kept the walk's newest under keys already, and so another room's go first.
         const newest = keys.length === 0 ? null : this.newestPlain(first.room_id, first.before);
         if (newest === null) {
           this.sql.exec(`DELETE FROM search_rekeys WHERE room_id = ?`, first.room_id);
+          continue;
+        }
+        if (second && newest + 1 < second.before) {
+          this.sql.exec(`UPDATE search_rekeys SET before = ? WHERE room_id = ?`, newest + 1, first.room_id);
           continue;
         }
         const rekeyed = this.rekey(first.room_id, keys, newest + 1, Math.min(second?.before ?? 0, newest), left);
@@ -506,13 +526,14 @@ export class SearchIndex extends DurableObject<Env> {
   }
 
   /**
-   * Asks about the rooms the index hasn't heard about at once, as a room it hasn't heard about sends it
-   * messages, rather than once its alarm goes off, and without the room waiting for the answer, then sets
-   * the alarm for what that leaves. Asking already, it asks about this room too before it's done.
+   * Asks who can read room `roomId`, which has sent the index messages before it heard, at once rather
+   * than once its alarm goes off, and without the room waiting for the answer, then sets the alarm for
+   * what that leaves. Asking already, it asks about this room too before it's done.
    */
-  private hearNow(): void {
+  private hearNow(roomId: RoomId): void {
+    this.sending.add(roomId);
     if (this.asking) return;
-    void this.hearUnheard()
+    void this.hearSending()
       .then(
         () => this.wakeForNext(),
         (error) => {
@@ -523,66 +544,108 @@ export class SearchIndex extends DurableObject<Env> {
       .catch((error) => console.error("Could not set the search index's alarm", error));
   }
 
-  /** Asks about the rooms the index hasn't heard about (`askAboutUnheard`), unless it's asking already, and answers once it has. */
-  private hearUnheard(): Promise<void> {
-    this.asking ??= this.askAboutUnheard().finally(() => {
+  /** Asks about the rooms that have sent the index messages before it heard (`askAboutSending`), unless it's asking already, and answers once it has. */
+  private hearSending(): Promise<void> {
+    this.asking ??= this.askAboutSending().finally(() => {
       this.asking = null;
     });
     return this.asking;
   }
 
   /**
-   * Asks the Workspace who can read the rooms the index holds messages of but hasn't heard about,
-   * `ROOMS_PER_ASK` at a time, up to `ASKS_PER_RUN` times, and hears each as it answers, but for one it
-   * has been told of since it asked, as the room's kind changed, which the answer may be from before. A
-   * deleted room needs no asking.
+   * Asks the Workspace who can read the rooms that have sent the index messages before it heard,
+   * `ROOMS_PER_ASK` at a time, up to `ASKS_PER_RUN` times, those that send it more as it asks among
+   * them, and forgets each once it has.
    */
-  private async askAboutUnheard(): Promise<void> {
-    for (let asks = 0; asks < ASKS_PER_RUN; asks++) {
-      const unheard = this.sql.exec<{ room_id: RoomId; seq: number }>(`SELECT room_id, seq FROM search_rooms WHERE heard = 0 LIMIT ?`, ROOMS_PER_ASK).toArray();
-      if (unheard.length === 0) return;
-      const deleted = unheard.filter(({ seq }) => seq === FORGOTTEN).map(({ room_id }) => room_id);
-      const asked = unheard.filter(({ seq }) => seq !== FORGOTTEN).map(({ room_id }) => room_id);
-      const answers = asked.length === 0 ? [] : await workspace(this.env).roomReaders(asked);
-      this.ctx.storage.transactionSync(() => {
-        this.sql.exec(`UPDATE search_rooms SET heard = 1 WHERE room_id IN (SELECT value FROM json_each(?))`, JSON.stringify(deleted));
-        for (const { roomId, readers } of answers) {
-          const [room] = this.sql.exec<{ heard: number }>(`SELECT heard FROM search_rooms WHERE room_id = ?`, roomId).toArray();
-          if (room?.heard !== 0) continue;
-          if (readers === null) this.sql.exec(`UPDATE search_rooms SET heard = 1 WHERE room_id = ?`, roomId);
-          else this.hear(roomId, readers);
-        }
-      });
+  private async askAboutSending(): Promise<void> {
+    for (let asks = 0; asks < ASKS_PER_RUN && this.sending.size > 0; asks++) {
+      const roomIds = [...this.sending].slice(0, ROOMS_PER_ASK);
+      await this.askAbout(this.sql.exec<UnheardRoom>(`SELECT room_id, seq FROM search_rooms WHERE heard = 0 AND room_id IN (SELECT value FROM json_each(?))`, JSON.stringify(roomIds)).toArray());
+      for (const roomId of roomIds) this.sending.delete(roomId);
     }
   }
 
   /**
-   * Asks about the rooms the index hasn't heard about, then takes the walk a run further, if that's due,
-   * and sets the alarm for what's next.
+   * Asks the Workspace who can read up to `limit` of the rooms the index holds messages of but hasn't
+   * heard about, and answers how many it asked about. Its alarm asks once it's done asking about the
+   * rooms that have sent it messages (`hearSending`), so it's the one question then, and a room that
+   * sends it messages meanwhile waits for it.
+   */
+  private async hearSome(limit: number): Promise<number> {
+    const rooms = this.sql.exec<UnheardRoom>(`SELECT room_id, seq FROM search_rooms WHERE heard = 0 LIMIT ?`, limit).toArray();
+    if (rooms.length === 0) return 0;
+    this.asking = this.askAbout(rooms).finally(() => {
+      this.asking = null;
+    });
+    await this.asking;
+    return rooms.length;
+  }
+
+  /**
+   * Asks the Workspace who can read the rooms `rooms` lists, but for deleted ones, which need no asking,
+   * and hears each as it answers, but for one it has been told of since it asked, as the room's kind
+   * changed, which the answer may be from before.
+   */
+  private async askAbout(rooms: UnheardRoom[]): Promise<void> {
+    const deleted = rooms.filter(({ seq }) => seq === FORGOTTEN).map(({ room_id }) => room_id);
+    const asked = rooms.filter(({ seq }) => seq !== FORGOTTEN).map(({ room_id }) => room_id);
+    const answers = asked.length === 0 ? [] : await workspace(this.env).roomReaders(asked);
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec(`UPDATE search_rooms SET heard = 1 WHERE room_id IN (SELECT value FROM json_each(?))`, JSON.stringify(deleted));
+      for (const { roomId, readers } of answers) {
+        const [room] = this.sql.exec<{ heard: number }>(`SELECT heard FROM search_rooms WHERE room_id = ?`, roomId).toArray();
+        if (room?.heard !== 0) continue;
+        if (readers === null) this.sql.exec(`UPDATE search_rooms SET heard = 1 WHERE room_id = ?`, roomId);
+        else this.hear(roomId, readers);
+      }
+    });
+  }
+
+  /** Whether the index holds messages of a room it hasn't heard about. */
+  private unheard(): boolean {
+    return this.sql.exec(`SELECT 1 FROM search_rooms WHERE heard = 0 LIMIT 1`).toArray().length > 0;
+  }
+
+  /**
+   * Asks about the rooms that have sent the index messages before it heard who can read them, then takes
+   * the walk a run further, if that's due, and sets the alarm for what's next.
    */
   override async alarm(): Promise<void> {
     let askAt = Date.now();
     try {
-      await this.hearUnheard();
+      await this.hearSending();
     } catch (error) {
       console.error("Could not ask the Workspace who can read rooms; trying again later", error);
       askAt = Date.now() + ASK_AGAIN_MS;
     }
     const due = this.ctx.storage.kv.get<number>(REKEY_DUE);
-    if (due !== undefined && due <= Date.now()) {
-      if (this.walk(REKEYED_PER_RUN)) this.ctx.storage.kv.put(REKEY_DUE, Date.now() + REKEY_RUNS_EVERY_MS);
-      else this.ctx.storage.kv.delete(REKEY_DUE);
-    }
+    if (due !== undefined && due <= Date.now()) await this.walkOn();
     await this.wakeForNext(askAt);
   }
 
   /**
-   * Sets the alarm for what the index has next to do, unless it's set sooner: ask about the rooms it
-   * hasn't heard about, at `askAt`, and take the walk further, when that's due.
+   * Takes the walk a run further: asks about some of the rooms the index hasn't heard about, each taking
+   * `REKEYS_A_ROOM_HEARD` of the run's messages, keeps the rest of them under keys, and puts the next run
+   * off an hour while either has further to go.
+   */
+  private async walkOn(): Promise<void> {
+    let heard = 0;
+    try {
+      heard = await this.hearSome(ROOMS_HEARD_PER_RUN);
+    } catch (error) {
+      console.error("Could not ask the Workspace who can read rooms; trying again later", error);
+    }
+    const further = this.walk(REKEYED_PER_RUN - heard * REKEYS_A_ROOM_HEARD);
+    if (further || this.unheard()) this.ctx.storage.kv.put(REKEY_DUE, Date.now() + REKEY_RUNS_EVERY_MS);
+    else this.ctx.storage.kv.delete(REKEY_DUE);
+  }
+
+  /**
+   * Sets the alarm for what the index has next to do, unless it's set sooner: ask about the rooms that
+   * have sent it messages before it heard, at `askAt`, and take the walk further, when that's due.
    */
   private async wakeForNext(askAt = Date.now()): Promise<void> {
-    const unheard = this.sql.exec(`SELECT 1 FROM search_rooms WHERE heard = 0 LIMIT 1`).toArray().length > 0;
-    const next = Math.min(unheard ? askAt : Infinity, this.ctx.storage.kv.get<number>(REKEY_DUE) ?? Infinity);
+    const next = Math.min(this.sending.size > 0 ? askAt : Infinity, this.ctx.storage.kv.get<number>(REKEY_DUE) ?? Infinity);
     if (next !== Infinity) await this.wake(next);
   }
 

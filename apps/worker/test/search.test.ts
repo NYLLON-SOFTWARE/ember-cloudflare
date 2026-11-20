@@ -1165,6 +1165,8 @@ describe("Hearing who can read each room", () => {
         },
       };
       object.env = { ...original, WORKSPACE: { getByName: () => workspace } as unknown as Env["WORKSPACE"] };
+      // Its walk asks about the room, as it does once a copy updates.
+      object.ctx.storage.kv.put("rekeyDue", Date.now());
       try {
         await instance.alarm();
       } finally {
@@ -1184,6 +1186,7 @@ describe("Hearing who can read each room", () => {
         const object = instance as unknown as Index;
         const original = object.env;
         object.env = { ...original, WORKSPACE: { getByName: () => ({ roomReaders }) } as unknown as Env["WORKSPACE"] };
+        object.ctx.storage.kv.put("rekeyDue", Date.now());
         try {
           await instance.alarm();
           return object.ctx.storage.getAlarm();
@@ -1206,6 +1209,62 @@ describe("Hearing who can read each room", () => {
     expect(await searchSql("SELECT room_id FROM search_readers")).toEqual([]);
   });
 
+  it("asks about the rooms it held before 40 a run, each taking three of the run's 125 messages, as hearing about one writes as many rows", async () => {
+    const index = searchIndexStub();
+    const old = (Date.now() - 2 * 86_400_000) * 1024;
+    const rooms = Array.from({ length: 50 }, (_, at) => `closed${String(at).padStart(2, "0")}`);
+    const asked: RoomId[][] = [];
+    const runs = await runInDurableObject(index, async (instance: SearchIndex) => {
+      const object = instance as unknown as Index;
+      // A message of each, which the index took two days ago, before it asked about rooms, kept plainly.
+      for (const [at, room] of rooms.entries()) {
+        object.sql.exec("INSERT INTO search_messages (id, message_id, room_id, message) VALUES (?, ?, ?, '{}')", old + at, room, room);
+        object.sql.exec("INSERT INTO search_index (rowid, body) VALUES (?, 'quokka')", old + at);
+        object.sql.exec("INSERT INTO search_rooms (room_id, seq) VALUES (?, 1)", room);
+      }
+      const original = object.env;
+      const members = { roomReaders: async (roomIds: RoomId[]) => (asked.push(roomIds), roomIds.map((roomId) => ({ roomId, readers: "members" as const }))) };
+      object.env = { ...original, WORKSPACE: { getByName: () => members } as unknown as Env["WORKSPACE"] };
+      const keyed = () => object.sql.exec<{ message_id: string }>("SELECT message_id FROM search_messages WHERE keyed = 1 ORDER BY id").toArray().map(({ message_id }) => message_id);
+      try {
+        const runs = [];
+        for (let run = 0; run < 2; run++) {
+          object.ctx.storage.kv.put("rekeyDue", Date.now());
+          await instance.alarm();
+          runs.push({ asked: asked.at(-1)!.length, keyed: keyed(), due: object.ctx.storage.kv.get<number>("rekeyDue") });
+        }
+        return runs;
+      } finally {
+        object.env = original;
+      }
+    });
+    expect(asked.flat()).toEqual(rooms);
+    expect(runs[0]).toEqual({ asked: 40, keyed: rooms.slice(35, 40), due: expect.any(Number) });
+    expect(runs[0]!.due).toBeGreaterThan(Date.now() + 59 * 60_000);
+    expect(runs[1]).toEqual({ asked: 10, keyed: rooms, due: undefined });
+  });
+
+  it("keeps the newest earlier message of any room under keys first when an edit has kept a room's newest under them already", async () => {
+    const index = searchIndexStub();
+    const day = 86_400_000 * 1024;
+    const now = Date.now() * 1024;
+    await index.apply("a", 1, [numbered("a", now - 3 * day), numbered("a", now - day)], []);
+    await index.apply("b", 1, [numbered("b", now - 2 * day)], []);
+    await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([]));
+    const walked = await runInDurableObject(index, async (instance: SearchIndex) => {
+      const object = instance as unknown as Index & { walk(limit: number): boolean };
+      await instance.setReadersOf([
+        { roomId: "a", readers: "members" },
+        { roomId: "b", readers: "members" },
+      ]);
+      // An edit of a's newest keeps it under keys, so b's is the newest left.
+      instance.apply("a", 2, [numbered("a", now - day, "quokka wombat")], []);
+      object.walk(1);
+      return object.sql.exec<{ message_id: string }>("SELECT message_id FROM search_messages WHERE keyed = 1 ORDER BY id").toArray().map(({ message_id }) => message_id);
+    });
+    expect(walked).toEqual([`b-${now - 2 * day}`, `a-${now - day}`]);
+  });
+
   it("asks again a minute on when it can't reach the Workspace as a room it hasn't heard about sends it messages", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const index = searchIndexStub();
@@ -1218,14 +1277,23 @@ describe("Hearing who can read each room", () => {
       await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(expect.stringContaining("trying again later"), expect.any(Error)));
       const alarm = await runInDurableObject(index, (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.getAlarm());
       expect(alarm).toBeGreaterThan(Date.now() + 50_000);
+      // Its alarm asking again, and failing, puts the next try off a minute too.
+      const again = await runInDurableObject(index, async (instance: SearchIndex) => {
+        await instance.alarm();
+        return (instance as unknown as Index).ctx.storage.getAlarm();
+      });
+      expect(errors).toHaveBeenCalledTimes(2);
+      expect(again).toBeGreaterThan(Date.now() + 50_000);
     } finally {
       await swap(() => original!);
     }
     expect(await searchSql("SELECT heard FROM search_rooms")).toEqual([{ heard: 0 }]);
   });
 
-  it("asks one question at a time, about every room it hasn't heard about by then", async () => {
+  it("asks one question at a time, about every room that has sent it messages by then, and leaves the rest to its walk", async () => {
     const index = searchIndexStub();
+    // A room it held before it asked about rooms, which sends it nothing.
+    await searchSql("INSERT INTO search_rooms (room_id, seq) VALUES ('quiet', 1)");
     const asked: RoomId[][] = [];
     const slow = {
       roomReaders: async (roomIds: RoomId[]) => {
@@ -1244,7 +1312,7 @@ describe("Hearing who can read each room", () => {
       for (const room of ["a", "b", "c"]) await index.apply(room, 1, [numbered(room, Date.now() * 1024)], []);
       // Its alarm, going off as it asks, waits for the answer rather than asking again.
       await runInDurableObject(index, (instance: SearchIndex) => instance.alarm());
-      await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([]));
+      await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([{ room_id: "quiet" }]));
     } finally {
       await runInDurableObject(index, (instance: SearchIndex) => void ((instance as unknown as Index).env = original!));
     }
