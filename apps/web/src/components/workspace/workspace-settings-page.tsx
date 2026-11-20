@@ -77,6 +77,9 @@ const RESTRICTIONS: { setting: Restriction; label: string }[] = [
   { setting: "restrictEveryoneMention", label: "Must be admin to use @everyone" },
 ];
 
+/** What General's switch for the composer's question before a room-wide mention says, as Slack's warning. */
+const WARN_BEFORE_NOTIFYING = "Warn before notifying a room of six or more";
+
 interface Props {
   me: Me;
   /** Where Go Back goes: the last room visited. */
@@ -172,8 +175,10 @@ export function WorkspaceSettingsPage({
   const [pickedLogo, setPickedLogo] = useState<string | null>(null);
   const [savingLogo, setSavingLogo] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  // Where the Hide translation buttons switch was moved to, until Save changes saves it with the name.
+  // Where the Hide translation buttons and Warn before notifying switches were moved to, until Save
+  // changes saves them with the name.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
+  const [warning, setWarning] = useState<boolean | null>(null);
   // Where each of Room order and permissions' switches was moved to, while that's saved.
   const [restricting, setRestricting] = useState<Partial<Record<Restriction, boolean>>>({});
   // Set up email, while it's open, with what to go on to once it closes with Ember able to send email.
@@ -269,20 +274,23 @@ export function WorkspaceSettingsPage({
     );
   }, [ssoOn, ssoUnknown, mounted, onFailed]);
 
-  // The name, the tagline and, if it was moved, the translation buttons' switch, sent together.
+  // The name, the tagline and whichever of the switches below them were moved, sent together.
   const save = (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     const answered = askForAccount();
     const sent = { name, tagline };
     const hideTranslationButtons = hidingTranslations;
-    changeAccount({ ...sent, ...(hideTranslationButtons !== null && { settings: { hideTranslationButtons } }) }).then(
+    const warnBeforeNotifying = warning;
+    const moved = { ...(hideTranslationButtons !== null && { hideTranslationButtons }), ...(warnBeforeNotifying !== null && { warnBeforeNotifying }) };
+    changeAccount({ ...sent, ...(Object.keys(moved).length > 0 && { settings: moved }) }).then(
       (account) => {
         answered(account);
         if (!mounted.current) return;
         setSaving(false);
-        // Unless it's been moved again since.
+        // Unless they've been moved again since.
         setHidingTranslations((hiding) => (hiding === hideTranslationButtons ? null : hiding));
+        setWarning((warn) => (warn === warnBeforeNotifying ? null : warn));
         setSettings((settings) => settings && { ...settings, account });
         // Each shows as it's kept, the tagline with no space at its ends, unless it's been typed over since.
         setTypedName((typed) => (typed === sent.name ? null : typed));
@@ -522,19 +530,35 @@ export function WorkspaceSettingsPage({
                     Shown under the community name in the sidebar, up to {MAX_TAGLINE_LENGTH} characters. Leave it empty for none.
                   </p>
                 </Field>
-                <div id="localization-settings" className="mt-1 flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
-                  <div className="min-w-0 flex-1 text-start">
-                    <div>Hide translation buttons</div>
-                    <p id="localization-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
-                      Hide language help throughout the app for everyone.
-                    </p>
+                <div className="mt-1 flex flex-col gap-3">
+                  <div id="localization-settings" className="flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
+                    <div className="min-w-0 flex-1 text-start">
+                      <div>Hide translation buttons</div>
+                      <p id="localization-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
+                        Hide language help throughout the app for everyone.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={hidingTranslations ?? account.hideTranslationButtons}
+                      onCheckedChange={setHidingTranslations}
+                      aria-label="Hide translation buttons"
+                      aria-describedby="localization-description"
+                    />
                   </div>
-                  <Switch
-                    checked={hidingTranslations ?? account.hideTranslationButtons}
-                    onCheckedChange={setHidingTranslations}
-                    aria-label="Hide translation buttons"
-                    aria-describedby="localization-description"
-                  />
+                  <div id="mention-warning-settings" className="flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
+                    <div className="min-w-0 flex-1 text-start">
+                      <div>{WARN_BEFORE_NOTIFYING}</div>
+                      <p id="mention-warning-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
+                        Ask people to confirm before @channel, @here or @everyone notifies a room of six or more.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={warning ?? account.warnBeforeNotifying}
+                      onCheckedChange={setWarning}
+                      aria-label={WARN_BEFORE_NOTIFYING}
+                      aria-describedby="mention-warning-description"
+                    />
+                  </div>
                 </div>
                 {/* On a page of community settings, as wide as it needs, but at least 126px, at the form's end. */}
                 <SubmitButton disabled={saving} className="w-auto min-w-[126px] self-end">

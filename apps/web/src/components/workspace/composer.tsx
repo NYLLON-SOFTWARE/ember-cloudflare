@@ -13,6 +13,7 @@ import { AttachMenu } from "./attach-menu";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { EmojiButton } from "./emoji-button";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
+import { useNotifyConfirm } from "./notify-confirm";
 import { ShortcutTooltip } from "./shortcut-tooltip";
 import { SnippetDialog } from "./snippet-dialog";
 
@@ -400,7 +401,8 @@ export interface ComposerHandle {
  * people to mention. Files picked, pasted or dropped, and snippets, wait above the card to go with the
  * next message. What's written is kept as a draft until it's sent. A thread's has Also send to the room
  * before Send. A message the room won't take for what it says, as one with a word Blocked words keeps
- * out, comes back to be changed, saying why above the card.
+ * out, comes back to be changed, saying why above the card. One whose @channel, @here or @everyone would
+ * notify a room of six or more asks first, as Slack's does.
  */
 export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, mentionsAbove = false, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
@@ -436,6 +438,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   // Why the room wouldn't take what's written here, which went back to be changed, until something's sent.
   const [refusal, setRefusal] = useState<{ key: string; why: string } | null>(null);
   const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct ? "" : "#"}${roomName}`;
+  // Only a message to a room's timeline notifies it, so only its composer asks first.
+  const notifyConfirm = useNotifyConfirm(roomId, roomName, !direct && threadId === undefined, () => editor.current?.focus());
 
   const keep = (body: string | null) => {
     if (keepDraft(key, body)) kept.current = body;
@@ -508,7 +512,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   // written unless it's blank, and focuses the editor, on touch screens too. Before the editor shows, as
   // its code loads, only the files go. Also send to the room is unticked once anything's gone, as Slack
   // unticks it.
-  const submit = () => {
+  const send = () => {
     if (disabled) return;
     setRefusal(null);
     if (picked.files.length > 0) {
@@ -531,6 +535,22 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
       setAlsoSend(false);
     }
     written.focus();
+  };
+
+  // This render's send, for a message that waits on its room's counts or its writer's say, so that the
+  // files picked by then go with it.
+  const sendNow = useRef(send);
+  useLayoutEffect(() => {
+    sendNow.current = send;
+  });
+
+  // What's written that would notify a room of six or more waits, with the files picked, until its
+  // writer says to send it.
+  const submit = () => {
+    if (disabled) return;
+    const written = editor.current;
+    if (written && !written.isBlank()) notifyConfirm.confirm(() => editor.current?.value() ?? "", () => sendNow.current());
+    else send();
   };
 
   const keyDown = (event: KeyboardEvent) => {
@@ -738,6 +758,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
       {/* Outside the form, so what's typed in them is kept from the composer's own handlers. */}
       <LinkDialog formatting={formatting} />
       <SnippetDialog open={writingSnippet} onOpenChange={setWritingSnippet} onCreate={(file) => picked.add([file])} onClosed={() => editor.current?.focus()} />
+      {notifyConfirm.dialog}
     </footer>
   );
 }

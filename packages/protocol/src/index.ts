@@ -477,6 +477,20 @@ export interface ChangedBlocks {
   direct: { roomId: RoomId; involvement: Involvement } | null;
 }
 
+/**
+ * What `GET /api/rooms/<id>/notified` answers, for the composer to ask before a message notifies a room
+ * of six or more, as Slack asks.
+ */
+export interface NotifiedCounts {
+  /** The people in the room, you too, but bots. */
+  members: number;
+  /**
+   * How many of them each special mention you may use there would notify, you aside: @here's are those
+   * active now. A mention that wouldn't notify the room from you isn't there, nor any in a DM.
+   */
+  mentions: Partial<Record<SpecialMention, number>>;
+}
+
 /** What `GET /api/rooms/<id>/settings` answers for a room's settings page. DMs have none. */
 export interface RoomSettings {
   room: SharedRoom;
@@ -588,6 +602,12 @@ export interface Account {
   restrictChannelMentions: boolean;
   /** The same for @everyone, as "Must be admin to use @everyone" says. Off until one turns it on. */
   restrictEveryoneMention: boolean;
+  /**
+   * Whether a message whose @channel, @here or @everyone would notify a room of six or more people asks
+   * its sender first, as "Warn before notifying a room of six or more" says, as Slack asks. On until an
+   * administrator turns it off.
+   */
+  warnBeforeNotifying: boolean;
   /**
    * The address of the workspace's logo, which changes whenever the account does, or null while there's
    * none, when pages show Ember's flame.
@@ -952,6 +972,7 @@ export interface AccountSettings {
   restrictRoomCreation?: boolean;
   restrictChannelMentions?: boolean;
   restrictEveryoneMention?: boolean;
+  warnBeforeNotifying?: boolean;
   huddleCameras?: boolean;
   huddleScreens?: boolean;
   joinLink?: boolean;
@@ -2530,6 +2551,7 @@ const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   restrictRoomCreation: "Must be admin to create new rooms",
   restrictChannelMentions: "Must be admin to use @channel and @here",
   restrictEveryoneMention: "Must be admin to use @everyone",
+  warnBeforeNotifying: "Warn before notifying a room of six or more",
   huddleCameras: "Cameras",
   huddleScreens: "Screen sharing",
   joinLink: "Join link",

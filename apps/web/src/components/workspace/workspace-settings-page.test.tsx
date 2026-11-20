@@ -70,7 +70,7 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
@@ -208,6 +208,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
           restrictChannelMentions: changed?.restrictChannelMentions ?? account.restrictChannelMentions,
           restrictEveryoneMention: changed?.restrictEveryoneMention ?? account.restrictEveryoneMention,
+          warnBeforeNotifying: changed?.warnBeforeNotifying ?? account.warnBeforeNotifying,
           huddleCameras: changed?.huddleCameras ?? account.huddleCameras,
           huddleScreens: changed?.huddleScreens ?? account.huddleScreens,
           huddleVideo,
@@ -1072,6 +1073,31 @@ describe("Workspace logo", () => {
 
     act(() => workspaceSays(asMember.account));
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", "/logos/app-icon.png");
+  });
+});
+
+describe("Warn before notifying a room of six or more", () => {
+  it("lets an administrator turn off the composer's question before @channel, @here or @everyone notifies a big room, and on again, saved with whatever else moved by Save changes", async () => {
+    const { onAccountChanged, user } = showPage();
+    const warn = await screen.findByRole("switch", { name: "Warn before notifying a room of six or more" });
+    expect(warn).toBeChecked();
+    expect(warn).toHaveAccessibleDescription("Ask people to confirm before @channel, @here or @everyone notifies a room of six or more.");
+
+    await user.click(warn);
+    await user.click(screen.getByRole("switch", { name: "Hide translation buttons" }));
+    expect(saved()).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, hideTranslationButtons: false, warnBeforeNotifying: false }));
+    expect(warn).not.toBeChecked();
+
+    await user.click(warn);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, hideTranslationButtons: false }));
+    expect(saved()).toEqual([
+      { name: "Analytical Engines", tagline: "", settings: { hideTranslationButtons: false, warnBeforeNotifying: false } },
+      { name: "Analytical Engines", tagline: "", settings: { warnBeforeNotifying: true } },
+    ]);
+    expect(warn).toBeChecked();
   });
 });
 

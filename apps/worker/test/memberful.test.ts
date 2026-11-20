@@ -276,6 +276,7 @@ const account = (memberful: Partial<Pick<Account, "memberfulJoin" | "memberfulSi
   restrictRoomCreation: false,
   restrictChannelMentions: false,
   restrictEveryoneMention: false,
+  warnBeforeNotifying: true,
   logo: null,
   customDomain: null,
   joinLink: true,

@@ -14,6 +14,7 @@ const EMBER: Account = {
   restrictRoomCreation: false,
   restrictChannelMentions: false,
   restrictEveryoneMention: false,
+  warnBeforeNotifying: true,
   logo: null,
   customDomain: null,
   joinLink: true,
