@@ -44,7 +44,7 @@ export interface DisplayMention {
   userId: string;
 }
 
-/** One of Slack's special mentions, @here or @channel. */
+/** One of Slack's special mentions, @here, @channel or @everyone. */
 export interface DisplaySpecialMention {
   kind: "special-mention";
   mention: SpecialMention;

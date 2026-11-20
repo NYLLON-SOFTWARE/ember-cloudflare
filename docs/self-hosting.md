@@ -714,9 +714,10 @@ on again. A pair from Campfire's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` work
 A new message is pushed from its room's Durable Object as the room tells the Workspace of it, to the
 subscriptions of the members who aren't viewing the room and want to hear of it: each person keeps
 one for each browser they turned notifications on in, which saves it again each time Ember opens
-there, and only the 10 saved most recently. A message that notifies the room, as @channel does, is
-pushed to everyone in it who hears its @mentions or more, as a mention of each of them would be, and
-one with @here to those of them whose Ember is in use, as Slack's are. Push services may contact
+there, and only the 10 saved most recently. A message that notifies the room, as @channel does, and
+@everyone in an open room, where everyone is, is pushed to everyone in it who hears its @mentions or
+more, as a mention of each of them would be, and one with @here to those of them whose Ember is in use,
+as Slack's are. Push services may contact
 whoever `VAPID_SUBJECT` names, a `mailto:` or `https:` address, about your pushes; without it they see
 this project's address. Each push is an outgoing request, of which the Workers Free plan allows 50 an
 invocation, so the room sends 40 of the pushes for a message, or for a run of messages sent together,

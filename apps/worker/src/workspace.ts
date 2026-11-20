@@ -5772,7 +5772,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The special mentions that notify room `roomId` when `userId` makes them, for the room to say whom a
-   * message notifies: @here and @channel in a room that isn't a DM, from anyone but an AI agent.
+   * message notifies: @here and @channel in a room that isn't a DM, from anyone but an AI agent, and
+   * @everyone too in an open room, from anyone but a guest.
    */
   async notifyingMentions(roomId: RoomId, userId: UserId): Promise<SpecialMention[]> {
     return this.store.notifyingMentions(roomId, userId);

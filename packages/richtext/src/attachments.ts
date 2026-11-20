@@ -21,10 +21,11 @@ export type ResolveMention = (sgid: string) => MentionUser | undefined;
 
 /**
  * Slack's special mentions, which name no one but notify a whole room, narrowest first: @here, everyone
- * in it who's active, and @channel, everyone in it. A mention's sgid is the special mention's name, which
- * no user id can be.
+ * in it who's active, @channel, everyone in it, and @everyone, everyone in the workspace, which only an
+ * open room, where everyone is, takes. A mention's sgid is the special mention's name, which no user id
+ * can be.
  */
-export const SPECIAL_MENTIONS = ["here", "channel"] as const;
+export const SPECIAL_MENTIONS = ["here", "channel", "everyone"] as const;
 
 export type SpecialMention = (typeof SPECIAL_MENTIONS)[number];
 

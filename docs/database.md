@@ -224,11 +224,12 @@ Objects, D1 or speed call for something else.
   when a message's text last changed. Room migration 0012 turned the plain-text bodies from before
   it into the paragraph Lexxy sends for typed text, in SQL, and set `edited_at` from `updated_at`
   for the messages already edited.
-- **A message keeps whom it notified.** Slack's @here and @channel mention no one: each is an
-  attachment whose sgid is its name, which no user id can be. As a message is written its room asks
+- **A message keeps whom it notified.** Slack's @here, @channel and @everyone mention no one: each is
+  an attachment whose sgid is its name, which no user id can be. As a message is written its room asks
   the Workspace whether it may notify the room, which only a message sent to a room's timeline does,
   not one in a DM, a reply in a thread, a bot's reply or an AI's answer, and never one from an AI
-  agent. `messages.notifies` (room migration 0082) keeps the widest it made, `here` or `channel`,
+  agent, and whether it may with @everyone, which only an open room takes, from anyone but a guest.
+  `messages.notifies` (room migration 0082) keeps the widest it made, `here`, `channel` or `everyone`,
   or null for none, and an edit can only narrow it, since an edit notifies nobody. The room's log
   reads it with the message's text, and history sends it, which highlights the message as one that
   mentions everyone.
@@ -636,15 +637,16 @@ Objects, D1 or speed call for something else.
   deleted since has none, and isn't pushed. The Workspace finds a message's recipients and badges in
   one query, in the batch that applies the room's events, just after the message's unread marks,
   through the memberships' key, the subscriptions' index led by the person and, for the badge,
-  `index_memberships_on_user_id_and_room_id`. A message that notifies the room with @channel is
-  pushed by a second query of that shape, which reaches everyone who hears the room's @mentions or
-  more, and one with @here by the same query as any message, with the people whose Ember is in use,
-  as the Workspace's presence has them, added to those it mentions. So pushes add no round trip to
-  either object. An invitation into a huddle is pushed by one more statement of that shape, in the
-  call by which its room has the Workspace invite people: it reads the memberships of the people
-  invited by their key, however many the room has, and their subscriptions and badges as a message's
-  does. Nothing is stored of who has Ember in view, which decides who is pushed one: each workspace
-  socket keeps whether its tab is shown in its attachment, as a room's socket does.
+  `index_memberships_on_user_id_and_room_id`. A message that notifies the room with @channel, or
+  with @everyone in an open room, where everyone is, is pushed by a second query of that shape,
+  which reaches everyone who hears the room's @mentions or more, and one with @here by the same
+  query as any message, with the people whose Ember is in use, as the Workspace's presence has them,
+  added to those it mentions. So pushes add no round trip to either object. An invitation into a
+  huddle is pushed by one more statement of that shape, in the call by which its room has the
+  Workspace invite people: it reads the memberships of the people invited by their key, however many
+  the room has, and their subscriptions and badges as a message's does. Nothing is stored of who has
+  Ember in view, which decides who is pushed one: each workspace socket keeps whether its tab is
+  shown in its attachment, as a room's socket does.
 - **A bot is found by its id, so its token needs no index.** Campfire keeps a bot's token in
   `users.bot_token` under a unique index, and finds the bot a key names by its id and token together
   (`User.authenticate_bot`). Ours keeps the token in the same column (workspace migration 0027)

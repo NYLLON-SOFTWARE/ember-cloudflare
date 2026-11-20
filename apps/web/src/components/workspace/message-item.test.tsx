@@ -1550,7 +1550,7 @@ describe("Highlight mentions of you", () => {
     expect(highlight(show(message({ creator: grace, plainText: "Thanks @Ada", mentions })).article)).toBeNull();
   });
 
-  it.each(["here", "channel"] as const)("highlights a message that notified the room with @%s, as Slack does for everyone it notified", (notifies) => {
+  it.each(["here", "channel", "everyone"] as const)("highlights a message that notified the room with @%s, as Slack does for everyone it notified", (notifies) => {
     expect(highlight(show(message({ creator: grace, plainText: `Standup @${notifies}`, notifies })).article)).not.toBeNull();
     // As a message whose @here, written in a thread or a DM, notified nobody isn't.
     expect(highlight(show(message({ creator: grace, plainText: `Standup @${notifies}` })).article)).toBeNull();

@@ -1200,8 +1200,8 @@ export async function clearSearches(): Promise<void> {
 
 /**
  * Where a room's @ prompt asks for the people it offers, and with `specialMentions` the special mentions
- * too, @here and @channel, which only a room's own composer offers: Lexxy adds what's typed after the @
- * as `filter`, and the answer is its prompt items.
+ * too, @here, @channel and, in an open room, @everyone, which only a room's own composer offers: Lexxy
+ * adds what's typed after the @ as `filter`, and the answer is its prompt items.
  */
 export const mentionPromptSrc = (roomId: RoomId, specialMentions = false) =>
   `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}${specialMentions ? "&special_mentions=1" : ""}`;

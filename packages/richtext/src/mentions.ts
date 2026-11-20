@@ -52,6 +52,7 @@ export function specialMentionContent(mention: SpecialMention): string {
 export const SPECIAL_MENTION_DESCRIPTIONS: Record<SpecialMention, string> = {
   here: "Notify everyone active in this room",
   channel: "Notify everyone in this room",
+  everyone: "Notify everyone in the workspace",
 };
 
 /**
