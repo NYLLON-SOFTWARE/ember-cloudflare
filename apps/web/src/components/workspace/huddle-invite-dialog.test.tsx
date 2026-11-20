@@ -49,6 +49,8 @@ const settingsWith = (members: User[], others: User[] = []): RoomSettings => ({
   canAdminister: false,
   canChangeHuddles: false,
   people: [...members.map((person) => ({ ...person, member: true })), ...others.map((person) => ({ ...person, member: false }))],
+  section: null,
+  sections: [],
 });
 /** Answers a room's settings with `settings`, or refuses them. */
 const serve = (settings: RoomSettings | { status: number }) =>

@@ -7,10 +7,11 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { IconPicker } from "./icon-picker";
 import { ListRow, ListSeparator } from "./list-row";
+import { SectionField, type SectionFieldProps } from "./section-field";
 import { AvatarLink } from "./user-avatar";
 
-// The room forms, which New room and a room's settings share: the room's name and icon, who it's for,
-// and Save. A room's settings have whether huddles are allowed in it too, where huddles are on.
+// The room forms, which New room and a room's settings share: the room's name, icon and sidebar section,
+// who it's for, and Save. A room's settings have whether huddles are allowed in it too, where huddles are on.
 
 /** How many people a form lists before it gets a filter. */
 const FILTER_ABOVE = 20;
@@ -31,6 +32,11 @@ interface Props<Person extends User> {
   /** The room's icon, or null for `#`, which only whoever can change the room sees, to pick another. */
   icon: RoomIconName | null;
   onIconChange: (icon: RoomIconName | null) => void;
+  /**
+   * The room's sidebar section, which only whoever can change the room sees, to pick another, while
+   * there are sections to pick or they can make one.
+   */
+  section?: Omit<SectionFieldProps, "disabled">;
   /** The Everyone row, on for a room open to everyone, with a switch if `onFlip` is given; null for none. */
   everyone: { on: boolean; onFlip?: () => void } | null;
   /** The people listed, by name, in groups a line divides, such as a private room's members and everyone else. */
@@ -49,7 +55,7 @@ interface Props<Person extends User> {
   ref?: Ref<HTMLFormElement>;
 }
 
-export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, everyone, groups, mark, huddles, saving, onSave, ref }: Props<Person>) {
+export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, section, everyone, groups, mark, huddles, saving, onSave, ref }: Props<Person>) {
   const save = (event: FormEvent) => {
     event.preventDefault();
     onSave();
@@ -75,6 +81,8 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
       )}
 
       {canAdminister && <IconPicker icon={icon} onChange={onIconChange} disabled={saving} />}
+
+      {canAdminister && section && (section.sections.length > 0 || section.canMake) && <SectionField {...section} disabled={saving} />}
 
       {/* Saving sends who the switches showed when Save was pressed, so they wait until it's done. */}
       <fieldset disabled={saving} className="my-4 min-w-0 rounded-[10px] border bg-surface px-[1ch]">

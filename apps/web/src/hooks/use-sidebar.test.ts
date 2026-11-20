@@ -925,6 +925,37 @@ describe("Shared room order", () => {
     expect(sidebarRequests()).toHaveLength(3);
   });
 
+  it("puts a room the workspace socket brings in its section at once, loading the rooms again a while after for a section the list hasn't", async () => {
+    const engineering = { id: "s1", name: "Engineering" };
+    server.change({ ...unstarred([design, general]), sections: [{ ...engineering, roomIds: [design.id] }] });
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+    const room = { id: general.id, name: "general", kind: "open" as const, icon: null };
+
+    socket().receive({ type: "room.saved", room, section: engineering });
+    expect(result.current.list?.sections).toEqual([{ ...engineering, roomIds: [design.id, general.id] }]);
+    socket().receive({ type: "room.saved", room: { ...design, name: "Design" } });
+    expect(result.current.list?.sections).toEqual([{ ...engineering, roomIds: [design.id, general.id] }]);
+    socket().receive({ type: "room.saved", room, section: null });
+    expect(result.current.list?.sections).toEqual([{ ...engineering, roomIds: [design.id] }]);
+    await wait(RELOAD_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+
+    // A section the list hasn't, made since, which it shows after the others until it loads again.
+    const sales = { id: "s2", name: "Sales" };
+    socket().receive({ type: "room.saved", room, section: sales });
+    expect(result.current.list?.sections).toEqual([
+      { ...engineering, roomIds: [design.id] },
+      { ...sales, roomIds: [general.id] },
+    ]);
+    await wait(RELOAD_SPREAD_MS / 2);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+  });
+
   it("spreads the tabs' loads over a few seconds at random", async () => {
     await showSidebar();
     socket().connect();

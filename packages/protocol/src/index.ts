@@ -353,6 +353,36 @@ export interface Blocks {
   version: number;
 }
 
+/** A sidebar section's id: one of the Workspace's sortable ids, as a room's is. */
+export type SectionId = string;
+
+/**
+ * A sidebar section: a name that rooms are listed under in everyone's sidebar, after the rooms in none,
+ * as the project's owner asked (2026-11-19). Administrators make, rename, order and delete sections,
+ * and whoever can change a room puts it in one in its settings.
+ */
+export interface Section {
+  id: SectionId;
+  name: string;
+}
+
+/** A section in someone's sidebar, with which of their rooms are in it, in no particular order. */
+export interface SidebarSection extends Section {
+  roomIds: RoomId[];
+}
+
+/** A section as a room's settings and New room offer it, with how many of your rooms are in it. */
+export interface SectionOption extends Section {
+  rooms: number;
+}
+
+/**
+ * A room's section as New room and a room's settings send it: a section's id, null for none, or the
+ * name of a section to make, last, which only an administrator can, unless one has that name already,
+ * in which case the room goes in that one.
+ */
+export type SectionChoice = SectionId | null | { name: string };
+
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
  * they've starred, the invitation, when they're an administrator in its room who hasn't dismissed the
@@ -369,6 +399,13 @@ export interface Sidebar {
    * rooms someone isn't in never reach them.
    */
   sharedOrder: RoomId[];
+  /**
+   * The sections, in order, each with the rooms in `rooms` that are in it, which the sidebar lists under
+   * its name, after the rooms in none: for an administrator, every section, and for anyone else, the
+   * ones with a room of theirs. Left out while there are none. `rooms.reordered` frames say when to load
+   * them again.
+   */
+  sections?: SidebarSection[];
   invitation: Invitation | null;
   /** The huddle going on in each of `rooms` that has one, by the room's id. `room.huddle` frames keep it current. */
   huddles: Record<RoomId, LiveHuddle>;
@@ -388,18 +425,22 @@ export interface Sidebar {
 
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
- * Without an icon, it has the default `#`.
+ * Without an icon, it has the default `#`, and without a section, it's in none.
  */
-export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type NewRoom = { name: string; icon?: RoomIconChoice; section?: SectionChoice } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
   member: boolean;
 }
 
-/** What `GET /api/rooms/new` answers for the New room forms: everyone active who can be put in a room, by name (`RoomSettings.people`). */
+/**
+ * What `GET /api/rooms/new` answers for the New room forms: everyone active who can be put in a room, by
+ * name (`RoomSettings.people`), and the sections, in order, to put it in one.
+ */
 export interface NewRoomForm {
   people: User[];
+  sections: SectionOption[];
 }
 
 /**
@@ -442,14 +483,40 @@ export interface RoomSettings {
   canChangeHuddles: boolean;
   /** Everyone active who can be put in a room, by name: all but the AI agents only administrators' direct messages reach. */
   people: RoomPerson[];
+  /** The room's sidebar section, or null for none. */
+  section: Section | null;
+  /** For whoever can change the room, every section, in order, to put it in one; for anyone else, none. */
+  sections: SectionOption[];
 }
 
 /**
  * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, whether
- * huddles are allowed in it, which is an administrator's to change, and who it's for, everyone or just
- * the people `memberIds` names, which takes anyone else out of it.
+ * huddles are allowed in it, which is an administrator's to change, its sidebar section, and who it's
+ * for, everyone or just the people `memberIds` names, which takes anyone else out of it.
  */
-export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean; section?: SectionChoice } & (
+  | { kind?: "open" }
+  | { kind: "closed"; memberIds: UserId[] }
+);
+
+/**
+ * What Rooms and permissions' Save order sends to `PUT /api/account/room_order`: the rooms in the
+ * administrator's sidebar in the order they're to come in for everyone, and, from a tab that shows
+ * sections, the sections in order, each with which of those rooms are in it, the rest being in none.
+ */
+export interface RoomLayout {
+  roomIds: RoomId[];
+  sections?: Array<{ id: SectionId; roomIds: RoomId[] }>;
+}
+
+/**
+ * What saving it answers: the rooms of the administrator's that the shared order ranks, in its order,
+ * and every section, as their sidebar has them.
+ */
+export interface SavedRoomLayout {
+  sharedOrder: RoomId[];
+  sections: SidebarSection[];
+}
 
 /**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
@@ -1891,10 +1958,13 @@ export type WorkspaceServerFrame =
   | { type: "user.gone"; userId: UserId }
   /**
    * A room of theirs as it is now, sent to everyone in it when it's made, renamed, given another icon,
-   * opened to everyone or made private, and to whoever a change puts in it, and to everyone in a DM
-   * when it's started. A room they have keeps its mark, and one new to them starts read.
+   * opened to everyone or made private, or put in another section, and to whoever a change puts in it,
+   * and to everyone in a DM when it's started. A room they have keeps its mark, and one new to them
+   * starts read. A room shared by name comes with its sidebar section while it's in one, which a sidebar
+   * that hasn't that section yet adds after its others, and loads again soon, to put it in its place,
+   * and with null once a change takes it out of one.
    */
-  | { type: "room.saved"; room: Room }
+  | { type: "room.saved"; room: Room; section?: Section | null }
   /** A room that's no longer theirs: deleted, or they've been taken out of it. Nobody else hears of it. */
   | { type: "room.gone"; roomId: RoomId }
   /**
@@ -1939,9 +2009,10 @@ export type WorkspaceServerFrame =
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
   | { type: "invitation.dismissed" }
   /**
-   * An administrator saved the shared room order, so the sidebar loads again. It names no rooms, since
-   * some aren't everyone's. Sent to everyone, and to the people a room the order ranks takes in, whose
-   * sidebars' order left it out.
+   * An administrator saved the shared room order, or made, renamed or deleted a section, so the sidebar
+   * loads again. It names no rooms, since some aren't everyone's. Sent to everyone, to the people a room
+   * the order ranks takes in, whose sidebars' order left it out, and to the people in a room that moves
+   * to another section, or is made in one.
    */
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
@@ -2084,6 +2155,10 @@ export const MAX_LISTED_USERS = 1_000;
 export const MAX_FAVORITES = 4_096;
 /** How many rooms the shared order can rank. */
 export const MAX_SHARED_ORDER = 4_096;
+/** How many sections the sidebar can have: more than a sidebar can show to any use. */
+export const MAX_SECTIONS = 100;
+/** Keeps a section's name to what fits on one line at the head of its rooms, as a room's name is kept. */
+export const MAX_SECTION_NAME_LENGTH = 100;
 /** The profile's Bio field's `maxlength`, as in Campfire's users/profiles/show.html.erb, which the server keeps too. */
 export const MAX_BIO_LENGTH = 200;
 /**
@@ -2305,6 +2380,30 @@ function iconChoice(value: unknown): RoomIconChoice | null | undefined {
   return value === "" || isRoomIcon(value) ? value : null;
 }
 
+/** Whether `value` could name a section: one of the Workspace's sortable ids, which could name a room too. */
+export const isSectionId = (value: unknown): value is SectionId => typeof value === "string" && isRoomId(value);
+
+/** Why a section's name is refused. */
+export const SECTION_NAME_REFUSED = `Section name must be 1 to ${MAX_SECTION_NAME_LENGTH} characters`;
+
+/**
+ * A room's section as New room and its settings send it, or why it's refused: left out, it's left out
+ * here too, which keeps the section a room has.
+ */
+function sectionChoice(value: unknown): { section?: SectionChoice } | string {
+  if (value === undefined) return {};
+  if (value === null || isSectionId(value)) return { section: value };
+  if (!isJsonObject(value)) return "Section must be a section's id, null for none, or a new section's name";
+  const name = text(value.name, MAX_SECTION_NAME_LENGTH);
+  return name ? { section: { name } } : SECTION_NAME_REFUSED;
+}
+
+/** Parses an untrusted section's name, as New section and a section's Rename send it. Returns why it's refused instead of the name. */
+export function parseSectionName(data: unknown): Pick<Section, "name"> | string {
+  const name = isJsonObject(data) ? text(data.name, MAX_SECTION_NAME_LENGTH) : null;
+  return name ? { name } : SECTION_NAME_REFUSED;
+}
+
 /** Parses an untrusted request to create a room. Returns why it's refused instead of the room. */
 export function parseNewRoom(data: unknown): NewRoom | string {
   if (typeof data !== "object" || data === null) return "Expected a JSON object";
@@ -2314,9 +2413,11 @@ export function parseNewRoom(data: unknown): NewRoom | string {
   if (!name) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  if (r.kind === "open") return { kind: r.kind, name, icon };
+  const section = sectionChoice(r.section);
+  if (typeof section === "string") return section;
+  if (r.kind === "open") return { kind: r.kind, name, icon, ...section };
   const memberIds = r.memberIds ?? [];
-  return userIds(memberIds) ? { kind: r.kind, name, icon, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return userIds(memberIds) ? { kind: r.kind, name, icon, ...section, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /**
@@ -2332,7 +2433,9 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (icon === null) return ICON_REFUSED;
   const { huddles } = r;
   if (huddles !== undefined && typeof huddles !== "boolean") return "Huddles must be true or false";
-  const changes = { name, icon, huddles };
+  const section = sectionChoice(r.section);
+  if (typeof section === "string") return section;
+  const changes = { name, icon, huddles, ...section };
   if (r.kind === undefined) return changes;
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
@@ -2383,6 +2486,36 @@ export const parseFavoriteOrder = (data: unknown) => parseRoomOrder(data, MAX_FA
 
 /** Parses an untrusted shared room order. Returns why it's refused instead of the rooms. */
 export const parseSharedOrder = (data: unknown) => parseRoomOrder(data, MAX_SHARED_ORDER);
+
+/** Why a layout's sections are refused. */
+const SECTIONS_REFUSED = `sections must be at most ${MAX_SECTIONS} sections, each named once by its id, with rooms from roomIds, none in two`;
+
+/**
+ * Parses an untrusted room layout, as Rooms and permissions' Save order sends it: the shared order,
+ * and maybe the sections, each room in one at most, and only rooms the order lists. Returns why it's
+ * refused instead of the layout.
+ */
+export function parseRoomLayout(data: unknown): RoomLayout | string {
+  const roomIds = parseSharedOrder(data);
+  if (typeof roomIds === "string") return roomIds;
+  const { sections } = data as Record<string, unknown>;
+  if (sections === undefined) return { roomIds };
+  if (!Array.isArray(sections) || sections.length > MAX_SECTIONS) return SECTIONS_REFUSED;
+  const listed = new Set(roomIds);
+  const placed = new Set<RoomId>();
+  const named = new Set<SectionId>();
+  const parsed: NonNullable<RoomLayout["sections"]> = [];
+  for (const section of sections as unknown[]) {
+    if (!isJsonObject(section) || !isSectionId(section.id) || named.has(section.id) || !Array.isArray(section.roomIds)) return SECTIONS_REFUSED;
+    named.add(section.id);
+    for (const roomId of section.roomIds as unknown[]) {
+      if (typeof roomId !== "string" || !listed.has(roomId) || placed.has(roomId)) return SECTIONS_REFUSED;
+      placed.add(roomId);
+    }
+    parsed.push({ id: section.id, roomIds: section.roomIds as RoomId[] });
+  }
+  return { roomIds, sections: parsed };
+}
 
 /** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port, from 1 and without leading zeros. */
 const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::([1-9][0-9]{0,4}))?$/;

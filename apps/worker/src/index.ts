@@ -29,6 +29,8 @@ import {
   isPasswordTooLong,
   isReservedName,
   isRoomId,
+  isSectionId,
+  MAX_SECTIONS,
   notTakingDirects,
   OPEN_WITH_MEMBERFUL,
   parseAccountChanges,
@@ -38,7 +40,7 @@ import {
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
-  parseSharedOrder,
+  parseRoomLayout,
   parseNewDirect,
   parseNewRoom,
   parseProfileChanges,
@@ -46,6 +48,7 @@ import {
   parseRoleChange,
   parseSendingDomainCheck,
   parseRoomChanges,
+  parseSectionName,
   parseTurnstileKeysChange,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
@@ -77,6 +80,9 @@ import {
   type ReleaseCheck,
   type RoomId,
   type RoomSettings,
+  type SavedRoomLayout,
+  type Section,
+  type SectionId,
   type SendingDomainCheck,
   type SentTestEmail,
   type Sidebar,
@@ -214,7 +220,17 @@ import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-
 import { platformOf } from "./user-agent";
 import { versionOf } from "./version";
 import type { SsoProvider } from "./sso-provider";
-import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, signInNeededWith, workspace, type OnlyWay, type SignInElsewhere, type YourProfile } from "./workspace";
+import {
+  ACCOUNT_BEFORE_SETUP,
+  CREDENTIALS_HEADER,
+  signInNeededWith,
+  workspace,
+  type Credentials,
+  type OnlyWay,
+  type SectionRefusal,
+  type SignInElsewhere,
+  type YourProfile,
+} from "./workspace";
 
 export { AppConnector } from "./apps/connector";
 export { OutsideAi } from "./outside/endpoint";
@@ -1190,7 +1206,78 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
   const created = await workspace(env).createRoom(credentials, room);
   if (!created) return problem(401, "Not signed in");
   if (created === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
-  return created === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json({ room: created }, { status: 201 });
+  if (created === "forbidden") return problem(403, ROOM_CREATION_FORBIDDEN);
+  return typeof created === "string" ? sectionRefused(created) : json({ room: created }, { status: 201 });
+}
+
+/** What someone hears when they can't make, rename or delete sections. */
+const SECTIONS_FORBIDDEN = "Only administrators can make, rename and delete sections";
+const SECTION_NOT_FOUND = "Section not found";
+const SECTION_NAME_TAKEN = "There's a section with that name already";
+const TOO_MANY_SECTIONS = `There can be at most ${MAX_SECTIONS} sections`;
+
+/** What New room and a room's settings hear when the section they choose for it is refused. */
+function sectionRefused(refusal: SectionRefusal): Response {
+  switch (refusal) {
+    case "no such section":
+      return problem(422, SECTION_NOT_FOUND);
+    case "new sections administrators only":
+      return problem(403, SECTIONS_FORBIDDEN);
+    case "too many sections":
+      return problem(422, TOO_MANY_SECTIONS);
+    case "blocked words":
+      return problem(422, BLOCKED_WORDS_REFUSED);
+  }
+}
+
+/**
+ * The answer to a section's name that doesn't parse: 422, or 403 for anyone but an administrator, who
+ * hears so before the name is checked.
+ */
+async function sectionNameRefused(env: Env, credentials: Credentials, refusal: string): Promise<Response> {
+  const administrator = await workspace(env).canAdminister(credentials);
+  if (administrator === null) return problem(401, "Not signed in");
+  return administrator ? problem(422, refusal) : problem(403, SECTIONS_FORBIDDEN);
+}
+
+/** Makes a section, after the others, as New section in Rooms and permissions does, answering 201 with it. */
+async function makeSection(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const named = parseSectionName(await jsonBodyOf(request));
+  if (typeof named === "string") return sectionNameRefused(env, credentials, named);
+  const section = await workspace(env).makeSection(credentials, named.name);
+  if (!section) return problem(401, "Not signed in");
+  if (section === "forbidden") return problem(403, SECTIONS_FORBIDDEN);
+  if (section === "taken") return problem(409, SECTION_NAME_TAKEN);
+  if (section === "too many sections") return problem(422, TOO_MANY_SECTIONS);
+  if (section === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
+  return json({ section } satisfies { section: Section }, { status: 201 });
+}
+
+/** Renames a section, as its Rename in Rooms and permissions does, answering it. */
+async function renameSection(request: Request, env: Env, id: SectionId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const named = parseSectionName(await jsonBodyOf(request));
+  if (typeof named === "string") return sectionNameRefused(env, credentials, named);
+  const section = await workspace(env).renameSection(credentials, id, named.name);
+  if (!section) return problem(401, "Not signed in");
+  if (section === "forbidden") return problem(403, SECTIONS_FORBIDDEN);
+  if (section === "not found") return problem(404, SECTION_NOT_FOUND);
+  if (section === "taken") return problem(409, SECTION_NAME_TAKEN);
+  if (section === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
+  return json({ section } satisfies { section: Section });
+}
+
+/** Deletes a section, as its Delete in Rooms and permissions does, leaving its rooms in none, answering 204. */
+async function deleteSection(request: Request, env: Env, id: SectionId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const deleted = credentials && (await workspace(env).deleteSection(credentials, id));
+  if (!deleted) return problem(401, "Not signed in");
+  if (deleted === "forbidden") return problem(403, SECTIONS_FORBIDDEN);
+  if (deleted === "not found") return problem(404, SECTION_NOT_FOUND);
+  return new Response(null, { status: 204 });
 }
 
 /**
@@ -1241,6 +1328,7 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
   if (room === "administrators only") return problem(403, "Only administrators can turn huddles on or off in a room");
   if (room === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
+  if (typeof room === "string") return sectionRefused(room);
   return typeof changes === "string" ? problem(422, changes) : json({ room });
 }
 
@@ -1326,23 +1414,23 @@ const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for e
 
 /**
  * Puts the rooms in the signed-in administrator's sidebar in the shared order, as saving it on workspace
- * settings does, answering the rooms they're in that it ranks: 400 for a list it can't read, and 403 for
- * anyone but an administrator, or a list naming a room outside their sidebar. An empty list clears the
- * order.
+ * settings does, and the sections in order, with their rooms, when it sends them, answering the rooms
+ * they're in that the order ranks and every section: 400 for a layout it can't read, and 403 for anyone
+ * but an administrator, or a list naming a room outside their sidebar. An empty list clears the order.
  */
 async function setSharedOrder(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const roomIds = parseSharedOrder(await jsonBodyOf(request));
+  const layout = parseRoomLayout(await jsonBodyOf(request));
   // Someone who isn't an administrator hears so before the list is checked.
-  if (typeof roomIds === "string") {
+  if (typeof layout === "string") {
     const administrator = await workspace(env).canAdminister(credentials);
     if (administrator === null) return problem(401, "Not signed in");
-    return administrator ? problem(400, roomIds) : problem(403, SHARED_ORDER_FORBIDDEN);
+    return administrator ? problem(400, layout) : problem(403, SHARED_ORDER_FORBIDDEN);
   }
-  const sharedOrder = await workspace(env).setSharedOrder(credentials, roomIds);
-  if (!sharedOrder) return problem(401, "Not signed in");
-  return sharedOrder === "forbidden" ? problem(403, SHARED_ORDER_FORBIDDEN) : json({ sharedOrder } satisfies { sharedOrder: RoomId[] });
+  const saved = await workspace(env).setSharedOrder(credentials, layout);
+  if (!saved) return problem(401, "Not signed in");
+  return saved === "forbidden" ? problem(403, SHARED_ORDER_FORBIDDEN) : json(saved satisfies SavedRoomLayout);
 }
 
 /** A tab's workspace socket, which the Workspace lets in itself, as the session the request's cookie names. */
@@ -1456,6 +1544,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return () => changeCustomStyles(request, env);
   if (pathname === "/api/account/room_order" && request.method === "PUT") return () => setSharedOrder(request, env);
+  if (pathname === "/api/account/sections" && request.method === "POST") return () => makeSection(request, env);
+  // A section's id never needs percent-encoding either, so an encoded segment names none.
+  const section = pathname.match(/^\/api\/account\/sections\/([^/]+)$/);
+  if (section && request.method === "PATCH") return () => (isSectionId(section[1]!) ? renameSection(request, env, section[1]!) : problem(404, SECTION_NOT_FOUND));
+  if (section && request.method === "DELETE") return () => (isSectionId(section[1]!) ? deleteSection(request, env, section[1]!) : problem(404, SECTION_NOT_FOUND));
   // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
   const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
   if (person && request.method === "PATCH") return () => changeRole(request, env, person[1]!);
