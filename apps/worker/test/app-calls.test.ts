@@ -1,14 +1,15 @@
 import { ASSISTANT_ID, type Card, type Me, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
 import type { AgentAnswer, NewAgent } from "@ember/protocol/agents";
-import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type CallDecision, type ToolPick } from "@ember/protocol/apps";
+import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type AppId, type CallDecision, type ToolPick } from "@ember/protocol/apps";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fromApp, toolCallOf, toolCard, toolCards } from "../src/apps/cards";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
-import { CALL_NOT_ALLOWED_NOW, CALL_OUTCOMES, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW } from "../src/apps/tools";
+import { CALL_NOT_ALLOWED_NOW, CALL_OUTCOMES, callCard, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW } from "../src/apps/tools";
 import { CALL_WAITS_MS } from "../src/apps/waiting-calls";
 import { CALL_DECLINED } from "../src/assistant/tool-calls";
+import { slackMessage } from "../src/bots/slack";
 import type { Env } from "../src/env";
 import { seal } from "../src/sealed";
 import { api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, roomStub, shown, startDirect, workspaceSql, workspaceStub, type Client, type Session } from "./support";
@@ -185,7 +186,7 @@ describe("A call of a connected app's tool", () => {
 
     const card = await ask(inGeneral);
     expect(card.plainText).toBe(
-      ["Ember wants to use Tracker", 'create_issue, with:\n{\n  "title": "Login fails"\n}', "Ada Lovelace or an administrator can allow this call. It goes to Tracker with the token an administrator connected it with.", "Allow once · Deny"].join("\n"),
+      ["Ember wants to use Tracker", "create_issue, with:\nTitle: Login fails", "Ada Lovelace or an administrator can allow this call. It goes to Tracker with the token an administrator connected it with.", "Allow once · Deny"].join("\n"),
     );
     expect(buttonsOf(card.cards)).toEqual([
       { text: "Allow once", action: { id: CALL_ACTIONS.allow, blockId: "ember.call" }, style: "primary" },
@@ -210,7 +211,9 @@ describe("A call of a connected app's tool", () => {
     const clickId = click(inGeneral, card, "allow");
     const allowed = await changed(inGeneral, card);
     expect(buttonsOf(allowed.cards)).toEqual([]);
-    expect(allowed.plainText).toBe(["Ember wants to use Tracker", 'create_issue, with:\n{\n  "title": "Login fails"\n}', CALL_OUTCOMES.allow(ada.user.name)].join("\n"));
+    expect(allowed.plainText).toBe(["Ember wants to use Tracker", "create_issue, with:\nTitle: Login fails", CALL_OUTCOMES.allow(ada.user.name)].join("\n"));
+    // Answered, the card isn't marked edited, as nobody edited it.
+    expect(allowed.editedAt).toBeNull();
     expect(await inGeneral.next("card.clicked")).toEqual({ type: "card.clicked", clickId });
 
     const answer = await fromEmber(inGeneral);
@@ -233,7 +236,7 @@ describe("A call of a connected app's tool", () => {
     expect((await changed(inGeneral, first)).plainText).toContain(CALL_OUTCOMES.deny(ada.user.name));
     // The second call of the same turn asks on a card of its own, the model not asked meanwhile.
     const second = await fromEmber(inGeneral);
-    expect(second.plainText).toContain('"title": "Logout fails"');
+    expect(second.plainText).toContain("Title: Logout fails");
     expect(asked).toHaveLength(1);
     expect(calls()).toEqual([]);
     expect(await waiting(general)).toEqual([{ message_id: second.id }]);
@@ -386,7 +389,7 @@ describe("A call of a connected app's tool", () => {
     script = [{ calls: [{ name: "Tracker__create_issue", input: { title: ":tada: Login &amp; logout <b>fail</b>" } }] }, { text: "Opened." }];
 
     const card = await ask(inGeneral);
-    expect(card.plainText).toContain('"title": ":tada: Login &amp; logout <b>fail</b>"');
+    expect(card.plainText).toContain("Title: :tada: Login &amp; logout <b>fail</b>");
     expect(card.body).not.toContain("🎉");
     click(inGeneral, card, "allow");
     expect((await fromEmber(inGeneral)).plainText).toBe("Opened.");
@@ -537,7 +540,7 @@ describe("A call of a connected app's tool", () => {
     const card = await ask(inGeneral);
     expect(asked).toHaveLength(2);
     expect((asked[1]!.messages.at(-1)!.content as Array<{ content: string; is_error?: boolean }>).map(({ content, is_error }) => [content, is_error])).toEqual([[TOO_LONG_TO_SHOW, true]]);
-    expect(card.plainText).toContain(`"title": "${longest}"`);
+    expect(card.plainText).toContain(`Title:\n\n“${longest}”`);
     expect(await waiting(general)).toEqual([{ message_id: card.id }]);
     expect(calls()).toEqual([]);
   });
@@ -547,6 +550,41 @@ describe("A call of a connected app's tool", () => {
     await pick(ada, []);
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
     expect(asked[0]!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+  });
+});
+
+describe("A call's card", () => {
+  const ISSUE_WRITE = { as: "GitHub__issue_write", appId: "app_github" as AppId, appName: "GitHub", name: "issue_write", fingerprint: "fingerprint" };
+  /** The markup of the card of a call of `issue_write` with `input` that shows what it's called with: the tool, then each rich text block. */
+  const shownWith = (input: Record<string, unknown>) => {
+    const shown = slackMessage(callCard("Bugs", "Kevin Rose", ISSUE_WRITE, input));
+    if (typeof shown === "string") throw new Error(shown);
+    return shown.cards[0]!.parts.flatMap((part) => (part.kind === "section" || part.kind === "text" ? [part.html ?? ""] : []));
+  };
+
+  it("shows each field by its label, short ones a line each, then longer text quoted with its line breaks, and no JSON", () => {
+    const body = "## What happened\nExport does nothing.\n\n## Steps to reproduce\n1. Open a room in Safari\n2. Click Export";
+    expect(shownWith({ method: "create", owner: "NYLLON-SOFTWARE", repo: "ember-cloudflare", title: "Export does nothing in Safari", body })).toEqual([
+      "<p>issue_write, with:</p>",
+      "<p><strong>Method:</strong> create<br><strong>Owner:</strong> NYLLON-SOFTWARE<br><strong>Repo:</strong> ember-cloudflare<br><strong>Title:</strong> Export does nothing in Safari</p>",
+      "<p><strong>Body:</strong></p><blockquote><p>## What happened<br>Export does nothing.<br><br>## Steps to reproduce<br>1. Open a room in Safari<br>2. Click Export</p></blockquote>",
+    ]);
+  });
+
+  it("labels fields in words, and shows numbers, true and false, nothing, and short lists on their lines, and other lists and objects as JSON", () => {
+    expect(shownWith({ issue_number: 42, perPage: 10, locked: false, milestone: null, state_reason: "", labels: ["bug", "safari"], assignees: [], fields: [{ id: 7, value: "P1" }], tags: ["needs triage, maybe"] })).toEqual([
+      "<p>issue_write, with:</p>",
+      "<p><strong>Issue number:</strong> 42<br><strong>Per page:</strong> 10<br><strong>Locked:</strong> false<br><strong>Milestone:</strong> <em>none</em><br><strong>State reason:</strong> <em>empty</em><br><strong>Labels:</strong> bug, safari<br><strong>Assignees:</strong> <em>none</em></p>",
+      '<p><strong>Fields:</strong></p><pre>[\n  {\n    "id": 7,\n    "value": "P1"\n  }\n]</pre><p><strong>Tags:</strong></p><pre>[\n  "needs triage, maybe"\n]</pre>',
+    ]);
+  });
+
+  it("shows text as it's written, so that a link, a mention or an emoji's name in it doesn't become one", () => {
+    expect(shownWith({ title: "<https://example.com|GitHub> <@U123> :tada: *bold*" })).toEqual(["<p>issue_write, with:</p>", "<p><strong>Title:</strong> &lt;https://example.com|GitHub&gt; &lt;@U123&gt; :tada: *bold*</p>"]);
+  });
+
+  it("says when it's called with nothing", () => {
+    expect(shownWith({})).toEqual(["<p>issue_write, with nothing</p>"]);
   });
 });
 

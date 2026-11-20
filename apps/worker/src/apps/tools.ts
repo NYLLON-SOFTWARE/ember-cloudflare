@@ -238,8 +238,11 @@ export const MAX_SHOWN_INPUT_LENGTH = 3_000;
 /** What a model is told of a call with more than a card shows. */
 export const TOO_LONG_TO_SHOW = `Not run: what you called it with is longer than the ${MAX_SHOWN_INPUT_LENGTH.toLocaleString("en-US")} characters, as JSON, that the call's card in the room can show. Call it with less.`;
 
-/** What a tool is called with as its card shows it: nothing for no fields, or else indented JSON. */
-const written = (input: Record<string, unknown>) => (Object.keys(input).length === 0 ? "" : JSON.stringify(input, null, 2));
+/** What a tool is called with as JSON, as its length is counted against what a card shows. */
+const written = (input: Record<string, unknown>) => JSON.stringify(input, null, 2);
+
+/** The most characters a value can have to show on its field's line, as one line, rather than under it. */
+const MAX_LINE_VALUE_LENGTH = 60;
 
 /** What a call's card says once it's answered, or once it waited too long. */
 export const CALL_OUTCOMES = {
@@ -251,12 +254,59 @@ export const CALL_OUTCOMES = {
 /** Text shown as it's written: a name like `:tada:` in what a tool is called with is shown as it goes to the app, not as an emoji. */
 const plainText = (text: string) => ({ type: "plain_text", text, emoji: false });
 
-/** The blocks every card of a call starts with: its `header`, the tool and what it's called with, in plain text, as the app and the model wrote them, and a `note` under them. */
+/** Rich text's text, shown as it's written, as a link, a mention or an emoji's name in it doesn't become one, in `style`. */
+const richText = (text: string, style?: { bold?: true; italic?: true }) => ({ type: "text", text, ...(style && { style }) });
+
+/** A field of what a tool is called with by name, as its card labels it: `issue_number` and `perPage` as "Issue number" and "Per page". */
+export function labelOf(field: string): string {
+  const words = field
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s_-]+/)
+    .filter((word) => word !== "")
+    .map((word, index) => (index > 0 && /^[A-Z][a-z]/.test(word) ? word.toLowerCase() : word));
+  if (words.length === 0) return field;
+  return [words[0]!.charAt(0).toUpperCase() + words[0]!.slice(1), ...words.slice(1)].join(" ");
+}
+
+const isOneShortLine = (text: string) => text.length <= MAX_LINE_VALUE_LENGTH && !/[\r\n]/.test(text);
+
+/**
+ * How a card shows a value of what a tool is called with: on its field's line, if it's a short line of text, a
+ * number, true or false, nothing, or a short list of those; or else under it, text as a quote, with its line
+ * breaks, and anything else as the JSON it goes as.
+ */
+function shownValue(value: unknown): { line: Record<string, unknown> } | { under: Record<string, unknown> } {
+  if (value === null || (Array.isArray(value) && value.length === 0)) return { line: richText("none", { italic: true }) };
+  if (value === "") return { line: richText("empty", { italic: true }) };
+  if (typeof value === "number" || typeof value === "boolean") return { line: richText(String(value)) };
+  if (typeof value === "string") return isOneShortLine(value) ? { line: richText(value) } : { under: { type: "rich_text_quote", elements: [richText(value)] } };
+  // A list on one line, where nothing in it could be read as two.
+  const listed = Array.isArray(value) && value.every((item) => typeof item === "number" || (typeof item === "string" && item.trim() !== "" && !item.includes(","))) ? value.join(", ") : null;
+  if (listed !== null && isOneShortLine(listed)) return { line: richText(listed) };
+  return { under: { type: "rich_text_preformatted", elements: [richText(JSON.stringify(value, null, 2))] } };
+}
+
+/**
+ * What a tool is called with, as rich text blocks: each field by its label, the short ones a line each, then
+ * the rest, each under its label, every value as the model wrote it, so that nobody allows what they can't see.
+ */
+function inputBlocks(input: Record<string, unknown>): Record<string, unknown>[] {
+  const fields = Object.entries(input).map(([field, value]) => ({ label: richText(`${labelOf(field)}:`, { bold: true }), shown: shownValue(value) }));
+  const lines = fields.flatMap(({ label, shown }) => ("line" in shown ? [[label, richText(" "), shown.line]] : []));
+  const under = fields.flatMap(({ label, shown }) => ("under" in shown ? [{ type: "rich_text_section", elements: [label] }, shown.under] : []));
+  return [
+    ...(lines.length > 0 ? [{ type: "rich_text", elements: [{ type: "rich_text_section", elements: lines.flatMap((line, index) => (index === 0 ? line : [richText("\n"), ...line])) }] }] : []),
+    ...(under.length > 0 ? [{ type: "rich_text", elements: under }] : []),
+  ];
+}
+
+/** The blocks every card of a call starts with: its `header`, the tool and what it's called with, as the app and the model wrote them, and a `note` under them. */
 function callBlocks(header: string, { name }: GivenTool, input: Record<string, unknown>, note: string): Record<string, unknown>[] {
-  const shown = written(input);
+  const nothing = Object.keys(input).length === 0;
   return [
     { type: "header", text: plainText(header) },
-    { type: "section", text: plainText(shown === "" ? `${name}, with nothing` : `${name}, with:\n${shown}`) },
+    { type: "section", text: plainText(nothing ? `${name}, with nothing` : `${name}, with:`) },
+    ...inputBlocks(input),
     { type: "context", elements: [plainText(note)] },
   ];
 }

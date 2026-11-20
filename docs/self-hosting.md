@@ -1140,7 +1140,9 @@ nothing said there goes to an app unless someone in it allows it.
   search their room, are given an agent's picked tools beside that search, each named for its app and
   described in the app's own words, marked as the app's; Workers AI's models aren't given them. It never has an app's address or token: it names a tool
   and what to call it with, and Ember posts a card in the room, where the answer would go, saying
-  which agent wants to use which app, the tool, and everything it would be called with, as JSON.
+  which agent wants to use which app, the tool, and everything it would be called with, exactly as
+  it would go: each field by name, a short value on its line, longer text quoted under it with its
+  line breaks, and only nested data, such as a list of objects, as JSON.
   **Allow once** runs that call and no other, and **Deny** tells the model it wasn't allowed; either
   is for whoever asked the agent or an administrator, and the card then says who answered. The answer
   goes on from there, and waits again at the next call, up to 20 calls an answer, all within the

@@ -1291,6 +1291,18 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * Gives the card `message` the text and cards `body` once it's answered, as `edit` does, but without
+   * marking it edited: a call's card once it's answered or has waited too long, or what a click on a
+   * card comes to in its place.
+   */
+  private async answerCard(store: MessageStore, message: Message, body: StoredBody, now: string): Promise<void> {
+    if (body.html === message.body && JSON.stringify(body.cards) === JSON.stringify(message.cards)) return;
+    const { message: answered, seq } = await store.answerCard(message, body, now);
+    this.broadcast({ type: "message.updated", message: answered, seq });
+    this.couriersFor(store.roomId).index.deliver();
+  }
+
+  /**
    * Gives `message` the text `body`, its own with the preview of its link below it, which its sender's tab
    * had once the message had gone, telling everyone in the room, as Slack shows a link's preview a moment
    * after its message, and sending the search index its log. It isn't marked edited.
@@ -1700,7 +1712,7 @@ export class ChatRoom extends DurableObject<Env> {
       if (!replacing) return this.postBeside(store, access.bot, current, shown);
       const body = await this.prepareWithCards(shown.markup, shown.cards);
       if (typeof body === "string") return body;
-      await this.edit(store, current, body, new Date().toISOString());
+      await this.answerCard(store, current, body, new Date().toISOString());
       return null;
     });
   }
@@ -1734,7 +1746,7 @@ export class ChatRoom extends DurableObject<Env> {
       if (!posted) return this.deleteMessage(store, current).then(() => null);
       const body = await this.prepareWithCards(posted.markup, posted.cards);
       if (typeof body === "string") return body;
-      await this.edit(store, current, body, new Date().toISOString());
+      await this.answerCard(store, current, body, new Date().toISOString());
       return null;
     });
   }
@@ -2070,7 +2082,7 @@ export class ChatRoom extends DurableObject<Env> {
       if (typeof card === "string") return card;
       const body = await this.prepareWithCards(card.markup, card.cards);
       if (typeof body === "string") return body;
-      await this.edit(store, current, body, new Date().toISOString());
+      await this.answerCard(store, current, body, new Date().toISOString());
       return null;
     });
   }
