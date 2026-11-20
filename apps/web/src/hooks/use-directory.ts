@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useReducer, useState, useSyncExternalStore } from "react";
 import type { DirectoryUser, User, UserId } from "@ember/protocol";
 import { fetchDirectory, type DirectoryCopy } from "@/lib/api";
+import { pausedUntilOf } from "@/lib/notifications-pause";
 import { NOT_HEARD, type ActiveStore } from "@/lib/presence";
 import { oneAtATime } from "./use-sidebar";
 
@@ -31,6 +32,29 @@ export function usePresenceOf(): (user: User) => Presence | null {
   const active = useSyncExternalStore(store.watch, store.current);
   const people = useContext(PeopleContext);
   return useCallback((user: User) => (active === null || people.get(user.id)?.role === "bot" ? null : active.has(user.id) ? "active" : "away"), [active, people]);
+}
+
+/**
+ * When the pause of `userId`'s notifications ends, as the people directory lists them, or null while
+ * they haven't paused them, or nobody's asked about (`usePauseEnd`).
+ */
+export function usePausedUntil(userId: UserId | undefined): string | null {
+  return usePauseEnd(useContext(PeopleContext).get(userId ?? ""));
+}
+
+/**
+ * When the pause of `person`'s notifications ends, or null while they haven't paused them, or for
+ * nobody: the component asking renders again as it ends.
+ */
+export function usePauseEnd(person: DirectoryUser | undefined): string | null {
+  const until = pausedUntilOf(person);
+  const [, ended] = useReducer((times: number) => times + 1, 0);
+  useEffect(() => {
+    if (until === null) return;
+    const timer = setTimeout(ended, Date.parse(until) - Date.now());
+    return () => clearTimeout(timer);
+  }, [until]);
+  return until;
 }
 
 /**

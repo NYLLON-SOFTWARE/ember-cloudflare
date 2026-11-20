@@ -3454,6 +3454,40 @@ describe("Huddles", () => {
       expect(invitation()).toBeInTheDocument();
     });
 
+    describe("while this person's notifications are paused", () => {
+      /** Ada as the people directory lists her, paused until `pausedUntil` if it's given. */
+      const listedAda = (pausedUntil?: string): DirectoryUser => ({ id: ada.id, name: ada.name, bio: null, role: "member", status: "active", avatarUrl: `/users/${ada.id}/avatar`, ...(pausedUntil && { pausedUntil }) });
+      /** The workspace on general's page, with Ada's DM with Grace among her rooms, once it lists Ada's notifications paused until `until`. */
+      async function pausedUntil(until: string) {
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => Response.json({ users: [listedAda(until)] }) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        expect(await screen.findByRole("button", { name: /^Notifications paused until/ })).toBeInTheDocument();
+      }
+
+      it("shows without its ring, and rings once they resume them, in any of their tabs", async () => {
+        await pausedUntil(new Date(Date.now() + 60 * 60_000).toISOString());
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        await workspaceSends({ type: "user.updated", user: listedAda() });
+        expect(ringForHuddle).toHaveBeenCalledTimes(1);
+        expect(invitation()).toBeInTheDocument();
+      });
+
+      it("rings once the pause ends, while the invitation still shows", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+        const ends = Date.now() + INVITATION_RINGS_MS / 2;
+        await pausedUntil(new Date(ends).toISOString());
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        act(() => void vi.advanceTimersByTime(ends - Date.now() - 1));
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        act(() => void vi.advanceTimersByTime(1));
+        expect(ringForHuddle).toHaveBeenCalledTimes(1);
+        expect(invitation()).toBeInTheDocument();
+      });
+    });
+
     it("rings only once this person's rooms have come, which say whether they hear the ring", async () => {
       let answer!: (response: Response) => void;
       serveRooms(undefined, { "GET /api/sidebar": () => new Promise<Response>((resolve) => (answer = resolve)) });

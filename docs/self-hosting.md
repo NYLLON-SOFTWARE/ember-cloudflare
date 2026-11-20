@@ -728,6 +728,12 @@ An invitation into a huddle is pushed too, from the huddle's room, to the subscr
 people it reaches who have Ember in view nowhere, as [Huddles](#huddles) describes. Its pushes go
 the same way, 40 from the room and the rest through the Workspace.
 
+Anyone can pause their notifications, as Slack's Pause notifications does, from the bell with a line
+through it at the foot of the rail or on their profile: for 30 minutes, an hour, two hours, or until
+9 the next morning in their browser's time zone. Until then nothing is pushed to any of their
+browsers, an invitation into a huddle shows without its ring, and a half-moon on their picture tells
+everyone else. What came meanwhile stays unread, and nothing is pushed of it once the pause ends.
+
 ### Files
 
 The files people upload go to an R2 bucket, bound as `FILES` in `wrangler.jsonc` and
@@ -1459,7 +1465,8 @@ moved, with their account, as Slack keeps its preferences, so it holds wherever 
 and their other tabs and devices go by it at once. So does the huddle they're in: the music stops
 as it's turned off, and turned on while they're alone, starts five seconds later. With the ring off
 an invitation still shows, without a sound, and still reaches them as a push notification where it
-would have.
+would have. While they've paused their notifications it shows without a sound too, and isn't pushed,
+as [Push notifications](#push-notifications) says.
 
 Ctrl+Alt+Shift+H (⌘⌥⇧H on a Mac) leaves the huddle you're in, or opens the preview for the room
 you're looking at, and Ctrl+Shift+Space (⌘⇧Space) mutes and unmutes. The arrow beside the headphones
