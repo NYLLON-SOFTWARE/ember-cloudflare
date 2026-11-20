@@ -2,10 +2,12 @@ import { SEARCH_LIMIT, type RoomId, type SearchSort, type UserId } from "@ember/
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import { migrate } from "./migrations";
+import { keyedText, matchOf, plainText, unkeyed, type Readers } from "./search-words";
 
-// The search index (search-migrations/): every message's plain text in one FTS5 table, what search
-// results show of it and what search filters narrow a search by, which rooms keep up to date from their
-// logs of the messages written, edited and deleted, and of their boosts (room-log.ts).
+// The search index (search-migrations/): every message's plain text in one FTS5 table, an open room's as
+// it is and the rest's words under keys (search-words.ts), what search results show of it and what
+// search filters narrow a search by, which rooms keep up to date from their logs of the messages written,
+// edited and deleted, and of their boosts (room-log.ts).
 
 /** What search filters narrow a search by, of a message (store.ts `searchFactsOf`). */
 export interface SearchFacts {
@@ -32,10 +34,12 @@ export interface IndexedMessage extends SearchFacts {
 
 /** What a search asks the index for: messages with its words that meet its filters, a page at a time. */
 export interface IndexSearch {
-  /** The FTS5 query of its words (`searchTerms`), or "" for a search of filters alone. */
-  terms: string;
+  /** Its words (`searchWords`), every one of which a message has to have, or none for a search of filters alone. */
+  words: string[];
   /** The rooms whose messages it can find. */
   roomIds: RoomId[];
+  /** Whose search it is: someone in its rooms, whose key finds their DMs' words. */
+  searcherId: UserId;
   /** Only messages this person wrote. */
   creatorId?: UserId;
   /** Only messages that include this person: that mention them, are in the rooms `directIds` lists, their DMs, or are in threads they've written in. */
@@ -126,22 +130,31 @@ const FOUND = `search_messages.id AS number, search_messages.message_id AS messa
 
 /**
  * The statement a search runs to find a page of messages and one more, which says there's another page,
- * newest or oldest first, past the number it starts after, if any. It's the one statement whatever the
- * rooms it doesn't look in hold: were another to run when their messages left the page short, the time
- * a search took would tell the searcher what's written in rooms they can't read. A search of filters
- * alone reads nothing of those rooms, but one with words still passes over their matches, so the time it
- * takes grows with how many of their messages have its words (`wordsStatement`).
+ * newest or oldest first, past the number it starts after, if any, finding its words plainly or under one
+ * of `keys`. It's the one statement whatever the rooms it doesn't look in hold: were another to run when
+ * their messages left the page short, the time a search took would tell the searcher what's written in
+ * rooms they can't read. A search of filters alone reads nothing of those rooms, but one with words still
+ * passes over their matches kept plainly, so the time it takes grows with how many of those have its
+ * words (`wordsStatement`).
  */
-export function searchStatement(search: IndexSearch): SearchStatement {
-  return search.terms === "" ? filtersStatement(search) : wordsStatement(search);
+export function searchStatement(search: IndexSearch, keys: number[]): SearchStatement {
+  const words = wordsSearched(search);
+  return words.length === 0 ? filtersStatement(search) : wordsStatement(search, matchOf(words, keys));
 }
 
 /**
- * A search with words walks the messages that have them in order, with nothing to sort, and keeps the
- * ones in its rooms that meet its filters. The index of words doesn't tell rooms apart, so it passes over
- * the matches in other rooms on its way, each a row's read.
+ * The words `search` has, split again at spaces and NULs, which a caller could leave in one: SQLite would
+ * end a query at a NUL.
  */
-function wordsStatement(search: IndexSearch): SearchStatement {
+const wordsSearched = ({ words }: IndexSearch) => words.flatMap((word) => word.split(/[\s\0]+/u)).filter((word) => word !== "");
+
+/**
+ * A search with words walks the messages that match `match`, its FTS5 query, in order, with nothing to
+ * sort, and keeps the ones in its rooms that meet its filters. The words of open rooms are kept plainly,
+ * in lists that don't tell rooms apart, so it passes over the matches in other rooms on its way, each a
+ * row's read, as it does those in rooms whose words were kept plainly before they were kept under keys.
+ */
+function wordsStatement(search: IndexSearch, match: string): SearchStatement {
   const { met, values } = allOf([["search_messages.room_id IN (SELECT value FROM json_each(?))", JSON.stringify(search.roomIds)], ...filtersOf(search)]);
   const { direction, past } = ORDERS[search.sort];
   const startingAfter = search.after === null ? "" : ` AND search_index.rowid ${past} ?`;
@@ -149,7 +162,7 @@ function wordsStatement(search: IndexSearch): SearchStatement {
     // A CROSS JOIN is read in the order written, so SQLite can't start from someone's messages instead, which it would have to sort.
     sql: `SELECT ${FOUND} FROM search_index CROSS JOIN search_messages ON search_messages.id = search_index.rowid
       WHERE ${met} AND search_index MATCH ?${startingAfter} ORDER BY search_index.rowid ${direction} LIMIT ${SEARCH_LIMIT + 1}`,
-    values: [...values, search.terms, ...(search.after === null ? [] : [search.after])],
+    values: [...values, match, ...(search.after === null ? [] : [search.after])],
   };
 }
 
@@ -225,12 +238,36 @@ function* betweenMarks(marked: string): Generator<string> {
 /** The words `marked` has between marks, as its text has them, once each however they're cased. */
 function wordsMarked(marked: string | null): string[] {
   const words = new Map<string, string>();
-  for (const word of betweenMarks(marked ?? "")) {
-    if (words.size === MOST_WORDS) break;
-    if (!words.has(word.toLowerCase())) words.set(word.toLowerCase(), word);
+  for (const match of betweenMarks(marked ?? "")) {
+    for (const word of unkeyed(match)) {
+      if (words.size === MOST_WORDS) return [...words.values()];
+      if (!words.has(word.toLowerCase())) words.set(word.toLowerCase(), word);
+    }
   }
   return [...words.values()];
 }
+
+/**
+ * The keys room ?1's messages keep their words under (search-migrations/0005_search_readers.sql): its own,
+ * for its members, or those of the people it lists, in order. None for a room everyone can read.
+ */
+const KEYS_OF_ROOM = `SELECT search_keys.key FROM search_readers JOIN search_keys ON search_keys.room_id = search_readers.room_id
+    WHERE search_readers.room_id = ?1 AND search_readers.people IS NULL
+  UNION ALL
+  SELECT search_keys.key FROM search_readers, json_each(search_readers.people) AS people JOIN search_keys ON search_keys.user_id = people.value
+    WHERE search_readers.room_id = ?1
+  ORDER BY 1`;
+
+/**
+ * The keys of the words a search in the rooms the JSON array ?1 lists can find, in order: each room's
+ * that has one, whoever can read it now, as its words may still be kept under it, and searcher ?2's, when
+ * one of the rooms keeps its words under its people's.
+ */
+const KEYS_FOR_SEARCH = `SELECT key FROM search_keys WHERE room_id IN (SELECT value FROM json_each(?1))
+  UNION
+  SELECT key FROM search_keys
+    WHERE user_id = ?2 AND EXISTS (SELECT 1 FROM search_readers WHERE room_id IN (SELECT value FROM json_each(?1)) AND people IS NOT NULL)
+  ORDER BY 1`;
 
 /**
  * The largest number given yet to a message of each millisecond the JSON array ?1 lists as its first
@@ -275,6 +312,7 @@ export class SearchIndex extends DurableObject<Env> {
       const known = new Map(indexed.toArray().map((row) => [row.message_id, row.id]));
       const added = this.numbered(messages.filter(({ id }) => !known.has(id)));
       const replaced = JSON.stringify([...known.keys(), ...deletedIds]);
+      const keys = this.keysOf(roomId);
       this.sql.exec(`DELETE FROM search_index WHERE rowid IN (SELECT id FROM search_messages WHERE message_id IN (SELECT value FROM json_each(?)))`, replaced);
       this.sql.exec(`DELETE FROM search_mentions WHERE id IN (SELECT id FROM search_messages WHERE message_id IN (SELECT value FROM json_each(?)))`, replaced);
       this.sql.exec(`DELETE FROM search_messages WHERE message_id IN (SELECT value FROM json_each(?))`, JSON.stringify(deletedIds));
@@ -282,10 +320,10 @@ export class SearchIndex extends DurableObject<Env> {
       for (const { id, text, message, creatorId, threadId, hasLink, hasFile, mentionIds } of messages) {
         const number = known.get(id) ?? added.get(id);
         if (number === undefined) continue;
-        const facts = [creatorId, threadId, hasLink ? 1 : 0, hasFile ? 1 : 0];
-        if (known.has(id)) this.sql.exec(`UPDATE search_messages SET message = ?, creator_id = ?, thread_id = ?, has_link = ?, has_file = ? WHERE id = ?`, message, ...facts, number);
-        else this.sql.exec(`INSERT INTO search_messages (id, message_id, room_id, message, creator_id, thread_id, has_link, has_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, number, id, roomId, message, ...facts);
-        this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, text);
+        const facts = [creatorId, threadId, hasLink ? 1 : 0, hasFile ? 1 : 0, keys.length > 0 ? 1 : 0];
+        if (known.has(id)) this.sql.exec(`UPDATE search_messages SET message = ?, creator_id = ?, thread_id = ?, has_link = ?, has_file = ?, keyed = ? WHERE id = ?`, message, ...facts, number);
+        else this.sql.exec(`INSERT INTO search_messages (id, message_id, room_id, message, creator_id, thread_id, has_link, has_file, keyed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, number, id, roomId, message, ...facts);
+        this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keys.length > 0 ? keyedText(text, keys) : plainText(text));
         this.sql.exec(`INSERT OR IGNORE INTO search_mentions (id, user_id) SELECT ?, value FROM json_each(?)`, number, JSON.stringify(mentionIds));
       }
       this.sql.exec(`INSERT INTO search_rooms (room_id, seq) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq`, roomId, seq);
@@ -321,6 +359,37 @@ export class SearchIndex extends DurableObject<Env> {
   }
 
   /**
+   * Keeps the words of room `roomId`'s messages from now on as who can read them, `readers`, says: plainly
+   * for everyone, under the room's key for its members, or under each person's. A key, once given, stays
+   * the room's or the person's. The messages it has already keep their words as they are.
+   */
+  setReaders(roomId: RoomId, readers: Readers): void {
+    this.ctx.storage.transactionSync(() => {
+      if (readers === "everyone") {
+        this.sql.exec(`DELETE FROM search_readers WHERE room_id = ?`, roomId);
+        return;
+      }
+      const people = readers === "members" ? null : JSON.stringify([...new Set(readers)]);
+      this.sql.exec(`INSERT INTO search_readers (room_id, people) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET people = excluded.people`, roomId, people);
+      if (people === null) this.sql.exec(`INSERT INTO search_keys (room_id) VALUES (?) ON CONFLICT DO NOTHING`, roomId);
+      else this.sql.exec(`INSERT INTO search_keys (user_id) SELECT value FROM json_each(?) WHERE true ON CONFLICT DO NOTHING`, people);
+    });
+  }
+
+  /** The keys room `roomId`'s messages keep their words under, in order, or none when they keep them plainly. */
+  private keysOf(roomId: RoomId): number[] {
+    return this.sql.exec<{ key: number }>(KEYS_OF_ROOM, roomId).toArray().map(({ key }) => key);
+  }
+
+  /**
+   * The keys of the words `search` can find: those of its rooms' that have a key, and its searcher's,
+   * which their DMs of one or two people keep their words under, when it looks in one of those.
+   */
+  private keysFor({ roomIds, searcherId }: IndexSearch): number[] {
+    return this.sql.exec<{ key: number }>(KEYS_FOR_SEARCH, JSON.stringify(roomIds), searcherId).toArray().map(({ key }) => key);
+  }
+
+  /**
    * Forgets up to `limit` of room `roomId`'s messages, as deleting the room has it do a batch at a time,
    * so that no call holds up the other rooms' for long, and answers whether any are left. The first keeps
    * any call the room made before from putting them back.
@@ -328,6 +397,7 @@ export class SearchIndex extends DurableObject<Env> {
   forget(roomId: RoomId, limit: number): boolean {
     return this.ctx.storage.transactionSync(() => {
       this.sql.exec(`INSERT INTO search_rooms (room_id, seq) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq`, roomId, FORGOTTEN);
+      this.sql.exec(`DELETE FROM search_readers WHERE room_id = ?`, roomId);
       const ids = this.sql.exec<{ id: number }>(`SELECT id FROM search_messages WHERE room_id = ? LIMIT ?`, roomId, limit + 1).toArray();
       const forgotten = JSON.stringify(ids.slice(0, limit).map(({ id }) => id));
       this.sql.exec(`DELETE FROM search_index WHERE rowid IN (SELECT value FROM json_each(?))`, forgotten);
@@ -343,11 +413,13 @@ export class SearchIndex extends DurableObject<Env> {
    * page holds when there's another.
    */
   search(search: IndexSearch): SearchPage {
-    const { sql, values } = searchStatement(search);
+    const words = wordsSearched(search);
+    const match = words.length === 0 ? null : matchOf(words, this.keysFor(search));
+    const { sql, values } = match === null ? filtersStatement(search) : wordsStatement(search, match);
     const hits = this.sql.exec<Pick<SearchHit, "number" | "messageId" | "roomId">>(sql, ...values).toArray();
     const page = hits.slice(0, SEARCH_LIMIT);
     const numbers = JSON.stringify(page.map(({ number }) => number));
-    const shown = search.terms === "" ? this.sql.exec<PageRow>(PAGE, numbers) : this.sql.exec<PageRow>(MARKED_PAGE, search.terms, numbers);
+    const shown = match === null ? this.sql.exec<PageRow>(PAGE, numbers) : this.sql.exec<PageRow>(MARKED_PAGE, match, numbers);
     const rows = new Map(shown.toArray().map((row) => [row.number, row]));
     return {
       hits: page.map((hit) => ({ ...hit, message: rows.get(hit.number)?.message ?? null, words: wordsMarked(rows.get(hit.number)?.marked ?? null) })),

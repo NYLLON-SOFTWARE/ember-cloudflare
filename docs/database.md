@@ -33,7 +33,7 @@ So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`,
-`deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms` and the
+`deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms`, `search_keys`, `search_readers` and the
 FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in
@@ -132,6 +132,16 @@ Objects, D1 or speed call for something else.
   where reading all 1,000 matches took 1.2 ms; for someone in one of the 50, passing over the
   matches in the other 49 on the way to a page of theirs takes about 3 ms, where reading the 1,000
   and then their room's matches took about 12. A word in one message takes 0.03 ms.
+- **The index can keep a room's words under a key.** Search migration 0005 gives a room that not
+  everyone can read a key, a private room or a DM of three people or more its own and a DM of one or
+  two people each of its people's, and the index keeps each word of its messages with the key in
+  front of it, between two characters for private use (`search-words.ts`), so FTS5's list of the
+  messages with a word kept under a key lists only that room's, or that person's DMs'. A search looks
+  for each word plainly and under the keys of the rooms it looks in, and its searcher's own. Porter
+  stems a word under a key as it does the word alone, as keys are written in digits and consonants,
+  but for words of one or two letters. The index keeps an open room's words plainly, as before, and a
+  room's it hasn't heard about too: nothing tells it about a room yet, so no copy of Ember needs this
+  release's code to read its index until the next one, which does.
 - **Search filters are conditions on the index's own rows.** Slack narrows a search with modifiers
   such as `in:`, `from:` and `has:link`, which Campfire has none of. The index keeps what they narrow
   by beside each message (search migration 0003): who wrote it, the thread it's in, whether it has a

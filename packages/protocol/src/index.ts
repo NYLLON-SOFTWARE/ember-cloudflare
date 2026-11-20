@@ -190,7 +190,7 @@ export {
   searchOfQuery,
   searchPath,
   searchQuery,
-  searchTerms,
+  searchWords,
   type Search,
   type SearchFilters,
   type SearchFlag,

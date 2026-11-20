@@ -1873,7 +1873,7 @@ export class ChatRoom extends DurableObject<Env> {
     const appTools = given.map((tool) =>
       this.sayingWhile(bot, message, usingApp(tool), appTool(this.env, bot.id, tool, askedBy, { described: tool, allows: this.allowsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) })),
     );
-    const tools = takesTools ? [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, read)), ...appTools] : [];
+    const tools = takesTools ? [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, author.id, read)), ...appTools] : [];
     const asked = loggedIn({ ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools }, access);
     const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs));
@@ -1897,7 +1897,7 @@ export class ChatRoom extends DurableObject<Env> {
     const appTools = call.tools.map((tool) =>
       this.sayingWhile(bot, message, usingApp(tool), appTool(this.env, bot.id, tool, asked, { allows: this.allowsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) })),
     );
-    const tools = [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, read)), ...appTools];
+    const tools = [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, call.asker.id, read)), ...appTools];
     const paused = { ...call.paused, question: loggedIn(call.paused.question, access) };
     const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, paused, allowed, waitFor(paused.question)), this.peopleWhoWrote(conversation)]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools);
