@@ -3235,6 +3235,17 @@ describe("Sidebar sections in Rooms and permissions", () => {
       fireEvent.pointerUp(window);
       expect(rows()).toEqual(["random", "§ Engineering", "general", "Design", "§ Sales"]);
     });
+
+    it("drops a room where it's dragged without undoing what others changed meanwhile", async () => {
+      await showSections();
+      layOutRows();
+      pressGrip("Design");
+      dragTo(2 * 52 + 30);
+      // Someone puts random in Sales from its settings as Design is dragged.
+      act(() => sidebarSays(adasRooms, [], [{ ...engineering, roomIds: ["general"] }, { ...sales, roomIds: ["random"] }]));
+      fireEvent.pointerUp(window);
+      expect(rows()).toEqual(["§ Engineering", "general", "Design", "§ Sales", "random"]);
+    });
   });
 
   it("renames a section in its dialog, saying why a name is refused", async () => {

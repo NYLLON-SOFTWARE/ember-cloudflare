@@ -82,6 +82,28 @@ export function withSectionMoved(rows: string[], draft: string[], heading: strin
   return [...loose, ...headings.flatMap((row) => [row, ...roomsUnder.get(row)!])];
 }
 
+/**
+ * `rows` with room `roomId` where `draft` has put it: in the section whose heading is above it there, or
+ * in none, after the last row above it there that's in that section now, or else first in it. The drag
+ * that made `draft` began with the rows as they were then, so every other row stays as it is now, in
+ * whatever section others have put it in since, and a room dropped in a section deleted since is in none.
+ */
+export function withRoomMoved(rows: string[], draft: string[], roomId: RoomId): string[] {
+  const others = rows.filter((row) => row !== roomId);
+  const headingOver = new Map<string, string | null>();
+  let under: string | null = null;
+  for (const row of others) {
+    if (sectionOfHeading(row) === null) headingOver.set(row, under);
+    else under = row;
+  }
+  const above = draft.slice(0, draft.indexOf(roomId));
+  const heading = above.findLast((row) => sectionOfHeading(row) !== null);
+  const into = heading !== undefined && others.includes(heading) ? heading : null;
+  const after = above.findLast((row) => row === into || headingOver.get(row) === into);
+  const place = after === undefined ? 0 : others.indexOf(after) + 1;
+  return [...others.slice(0, place), roomId, ...others.slice(place)];
+}
+
 /** `rows` without the rooms under heading `heading`, which a heading dragged folds away as it goes. */
 function folded(rows: string[], heading: string): string[] {
   const start = rows.indexOf(heading) + 1;
@@ -193,10 +215,11 @@ export function useSharedOrder({ rooms, sharedOrder, sections, onSaved, onSessio
     },
     onMove: (moved, row) => {
       setDraggingHeading(false);
-      if (sectionOfHeading(row) === null) return stage(moved);
-      // Deleted while its heading was dragged, a section has nowhere to go.
-      if (rows.includes(row)) stage(withSectionMoved(rows, moved, row));
-      else setStatus({ message: "Section move canceled. It was deleted.", error: false });
+      const room = sectionOfHeading(row) === null;
+      // Others change rooms and sections while a row's dragged, so the drop moves only that row, among the
+      // rows as they are now. One deleted meanwhile has nowhere to go.
+      if (!rows.includes(row)) return setStatus({ message: room ? "Room move canceled." : "Section move canceled. It was deleted.", error: false });
+      stage(room ? withRoomMoved(rows, moved, row) : withSectionMoved(rows, moved, row));
     },
     onCancel: () => {
       setDraggingHeading(false);
