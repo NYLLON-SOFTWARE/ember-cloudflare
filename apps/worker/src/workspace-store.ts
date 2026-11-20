@@ -78,6 +78,7 @@ import type { StoredPicture } from "./files/pictures";
 import { INVITATION_TTL_SECONDS, invitationPayload, messagePayload, type PushPayload } from "./push/payload";
 import { ADDRESS_TAG_PREFIX, EVERYONE, OPEN_ROOMS_ONLY, SESSION_TAG_PREFIX, taggedAddress, type Revocation } from "./revocations";
 import type { HuddleChange, RoomEvent } from "./room-log";
+import { readersOf, type RoomReaders } from "./search-words";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -2090,6 +2091,30 @@ const GRANT_WELCOMES = `INSERT INTO memberships (room_id, user_id, involvement, 
  */
 const QUEUE_READERS_OF_KIND = `INSERT INTO pending_readers (room_id, due_at) SELECT id, 0 FROM rooms WHERE id = ?1 AND kind <> ?2
   ON CONFLICT (room_id) DO UPDATE SET version = version + 1, attempts = 0, due_at = 0`;
+
+/** Each room the JSON array ?1 lists, with its kind and DM key, or none for a room there's no longer. */
+const ROOMS_READERS = `SELECT asked.value AS roomId, rooms.kind, rooms.direct_key AS directKey FROM json_each(?1) AS asked LEFT JOIN rooms ON rooms.id = asked.value`;
+
+/**
+ * Up to ?2 of the rooms due by ?1 to have the search index hear who can read them again, those due
+ * longest first, each with the version it's queued at, its kind and its DM key.
+ */
+const DUE_READERS = `SELECT pending_readers.room_id AS roomId, pending_readers.version, rooms.kind, rooms.direct_key AS directKey
+  FROM pending_readers LEFT JOIN rooms ON rooms.id = pending_readers.room_id
+  WHERE pending_readers.due_at <= ?1 ORDER BY pending_readers.due_at, pending_readers.room_id LIMIT ?2`;
+
+/** A room, with its kind and DM key, as the Workspace keeps them, or none for a room there's no longer. */
+interface ReadersRow {
+  roomId: RoomId;
+  kind: RoomKind | null;
+  directKey: string | null;
+}
+
+/** Who can read the room `row` is of, as the search index keeps its words, or null for a room there's no longer. */
+const readersOfRow = ({ roomId, kind, directKey }: ReadersRow): RoomReaders => ({
+  roomId,
+  readers: kind === null ? null : readersOf(kind, directKey === null ? null : (JSON.parse(directKey) as UserId[])),
+});
 
 /** The DM a key names, when it was last active, who it welcomes, and who's in it, by id. */
 const DIRECT_WITH_KEY = `SELECT rooms.id AS room_id, ${ACTIVE_AT}, ${START}, users.id, users.name
@@ -4643,6 +4668,41 @@ export class WorkspaceStore {
     ]);
   }
 
+  /** Who can read each of the rooms `roomIds` names, as the search index keeps their words. */
+  async roomReaders(roomIds: RoomId[]): Promise<RoomReaders[]> {
+    return (await this.db.all<ReadersRow>(ROOMS_READERS, JSON.stringify(roomIds))).map(readersOfRow);
+  }
+
+  /**
+   * Up to `limit` of the rooms due by `now` to have the search index hear who can read them again, as
+   * their kind changed, those due longest first, with who can read each now and the version it's queued at.
+   */
+  async dueReaders(now: number, limit: number): Promise<Array<RoomReaders & { version: number }>> {
+    const rows = await this.db.all<ReadersRow & { version: number }>(DUE_READERS, now, limit);
+    return rows.map((row) => ({ ...readersOfRow(row), version: row.version }));
+  }
+
+  /**
+   * Forgets the rooms `delivered` names, and puts off the ones `failed` names, each for twice as long as
+   * the time before, up to the longest wait, as a reindex's, but for a room queued again since, at a
+   * version they don't name, which is due again at once.
+   */
+  async settleReaders(delivered: Array<{ roomId: RoomId; version: number }>, failed: Array<{ roomId: RoomId; version: number }>, now: number): Promise<void> {
+    const queued = (rooms: Array<{ roomId: RoomId; version: number }>) => JSON.stringify(rooms.map(({ roomId, version }) => [roomId, version]));
+    const named = `(room_id, version) IN (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?))`;
+    await this.db.batch([
+      statement(`DELETE FROM pending_readers WHERE ${named}`, queued(delivered)),
+      statement(
+        `UPDATE pending_readers SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE ${named}`,
+        now,
+        LONGEST_RETRY_MS,
+        FIRST_RETRY_MS,
+        RETRY_DOUBLINGS,
+        queued(failed),
+      ),
+    ]);
+  }
+
   /**
    * Queues checking the membership of the account at the Memberful site `issuer` with `subject`, due at
    * `now`, as a webhook about it came then, if it's linked to a member whose membership counts, and makes
@@ -4704,24 +4764,26 @@ export class WorkspaceStore {
   }
 
   /**
-   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or refresh is due, if
-   * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
+   * When the outbox's next revocation, purge, reindex, change of who can read a room, picture deletion,
+   * membership check or refresh is due, if any is waiting, leaving out the purges waiting on their rooms'
+   * revocations, which are due no sooner.
    */
   async nextDeliveryDue(): Promise<number | null> {
     const [row] = await this.db.all<{
       revocation: number | null;
       purge: number | null;
       reindex: number | null;
+      readers: number | null;
       picture: number | null;
       membership: number | null;
       catchUp: number | null;
       refresh: number | null;
     }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
-        (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
+        (SELECT min(due_at) FROM pending_readers) AS readers, (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
         (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (SELECT min(refresh_due_at) FROM identities) AS refresh`,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.refresh].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.readers, row?.picture, row?.membership, row?.catchUp, row?.refresh].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 

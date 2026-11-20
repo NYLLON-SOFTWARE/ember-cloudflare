@@ -21,7 +21,7 @@ import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { MIGRATIONS } from "../src/migrations";
 import { searchStatement, type IndexedMessage, type IndexSearch, type SearchFacts, type SearchIndex } from "../src/search-index";
-import { wordsOf } from "../src/search-words";
+import { wordsOf, type Readers, type RoomReaders } from "../src/search-words";
 import type { Workspace } from "../src/workspace";
 import {
   api,
@@ -41,6 +41,7 @@ import {
   signIn,
   standInForRooms,
   upload,
+  withWorkspaceEnv,
   workspaceSql,
   workspaceStub,
   type Session,
@@ -103,6 +104,13 @@ async function reply(client: Socket, parent: Pick<Message, "id">, body: string):
 
 /** What the index is asked for a search of `words` in `roomIds`, as someone in them, newest first, from the start, and anything else `search` says. */
 const indexSearch = (words: string[], roomIds: RoomId[], search: Partial<IndexSearch> = {}): IndexSearch => ({ words, roomIds, searcherId: "searcher", sort: "newest", after: null, ...search });
+
+/** The ids of the messages the index finds for a search of `words` in `roomIds` as `searcherId`, newest first. */
+const idsFound = async (words: string[], roomIds: RoomId[], searcherId = "searcher") =>
+  (await searchIndexStub().search(indexSearch(words, roomIds, { searcherId }))).hits.map(({ messageId }) => messageId);
+
+/** The numbers of the messages that have `word` plainly, as the open rooms' list of it holds them. */
+const plainly = async (word: string) => ((await searchSql("SELECT rowid FROM search_index WHERE search_index MATCH ?", `"${word}"`)) as Array<{ rowid: number }>).map(({ rowid }) => rowid);
 
 /** A message as a room sends it to the index, written by nobody in particular, with no thread, link, file or mention. */
 const indexed = (message: Omit<IndexedMessage, keyof SearchFacts> & Partial<SearchFacts>): IndexedMessage => ({
@@ -736,16 +744,12 @@ describe("Search messages", () => {
 });
 
 describe("Words kept by who can read them", () => {
+  /** Tells the index who can read room `roomId`, as the Workspace does as its kind changes. */
+  const setReaders = (roomId: RoomId, readers: Readers) => searchIndexStub().setReadersOf([{ roomId, readers }]);
+
   /** A message as a room sends it to the index, `second` seconds into a minute. */
   const at = (second: number, id: string, text: string): IndexedMessage =>
     indexed({ id, createdAt: new Date(Date.UTC(2026, 10, 19, 10, 0, second)).toISOString(), text, message: JSON.stringify({ text }) });
-
-  /** The ids of the messages the index finds for a search of `words` in `roomIds` as `searcherId`, newest first. */
-  const idsFound = async (words: string[], roomIds: RoomId[], searcherId = "searcher") =>
-    (await searchIndexStub().search(indexSearch(words, roomIds, { searcherId }))).hits.map(({ messageId }) => messageId);
-
-  /** The numbers of the messages that have `word` plainly, as the open rooms' list of it holds them. */
-  const plainly = async (word: string) => ((await searchSql("SELECT rowid FROM search_index WHERE search_index MATCH ?", `"${word}"`)) as Array<{ rowid: number }>).map(({ rowid }) => rowid);
 
   /** Every word the index keeps of message `messageId`, as FTS5 has it once it's stemmed. */
   async function wordsKeptOf(messageId: string): Promise<string[]> {
@@ -763,7 +767,7 @@ describe("Words kept by who can read them", () => {
 
   it("keeps a private room's words under its key, which only a search in the room finds them by", async () => {
     const index = searchIndexStub();
-    await index.setReaders("closed", "members");
+    await setReaders("closed", "members");
     await index.apply("open", 1, [at(0, "in-open", "a quokka in the open")], []);
     await index.apply("closed", 1, [at(1, "in-closed", "a quokka behind doors")], []);
 
@@ -782,9 +786,9 @@ describe("Words kept by who can read them", () => {
 
   it("keeps a DM's words under each of its people's keys, so one key finds all of someone's DMs", async () => {
     const index = searchIndexStub();
-    await index.setReaders("ada-grace", ["ada", "grace"]);
-    await index.setReaders("ada-alone", ["ada"]);
-    await index.setReaders("grace-hopper", ["grace", "hopper"]);
+    await setReaders("ada-grace", ["ada", "grace"]);
+    await setReaders("ada-alone", ["ada"]);
+    await setReaders("grace-hopper", ["grace", "hopper"]);
     await index.apply("ada-grace", 1, [at(0, "ada-grace", "quokka for two")], []);
     await index.apply("ada-alone", 1, [at(1, "ada-alone", "quokka note to self")], []);
     await index.apply("grace-hopper", 1, [at(2, "grace-hopper", "quokka, privately")], []);
@@ -801,8 +805,8 @@ describe("Words kept by who can read them", () => {
 
   it("answers the words each match matched as its text has them, stemmed, without their keys", async () => {
     const index = searchIndexStub();
-    await index.setReaders("closed", "members");
-    await index.setReaders("ada-grace", ["ada", "grace"]);
+    await setReaders("closed", "members");
+    await setReaders("ada-grace", ["ada", "grace"]);
     const text = "Deploying the deploys, then DEPLOYED: deploy_bot's deploy, at the cafe\u0301";
     await index.apply("open", 1, [at(0, "in-open", text)], []);
     await index.apply("closed", 1, [at(1, "in-closed", text)], []);
@@ -825,7 +829,7 @@ describe("Words kept by who can read them", () => {
 
   it("finds the same messages by words kept under a key as by plain ones, of three letters or more", async () => {
     const index = searchIndexStub();
-    await index.setReaders("closed", "members");
+    await setReaders("closed", "members");
     const texts = [
       "Deploying the deploys, then DEPLOYED: deploy",
       "Our generalization generalizes generally",
@@ -854,7 +858,7 @@ describe("Words kept by who can read them", () => {
 
   it("keeps no part of a private room's words plainly, even where FTS5 ends a word that JavaScript doesn't", async () => {
     const index = searchIndexStub();
-    await index.setReaders("closed", "members");
+    await setReaders("closed", "members");
     // U+19B0 is a vowel sign of New Tai Lue's, and U+1CF2 a Vedic sign, which Unicode now calls letters.
     const texts = ["xᦰyonder", "xᳲyonder", "xyonder", "x1yonder", "x\u0301yonder", "x🏽yonder", "x‍yonder", "x_yonder"];
     await index.apply("closed", 1, texts.map((text, second) => at(second, `closed-${second}`, text)), []);
@@ -872,7 +876,7 @@ describe("Words kept by who can read them", () => {
 
   it("keeps no part of a private room's words plainly, whatever characters they have", async () => {
     const index = searchIndexStub();
-    await index.setReaders("closed", "members");
+    await setReaders("closed", "members");
     // Each character the index keeps in a word, between an x and its code point in hex, which shows in any
     // part of the word kept plainly.
     const words: string[] = [];
@@ -893,7 +897,7 @@ describe("Words kept by who can read them", () => {
 
   it("keeps a message's words plainly whatever keys its text writes out, which no key finds", async () => {
     const index = searchIndexStub();
-    await index.setReaders("closed", "members");
+    await setReaders("closed", "members");
     await index.apply("closed", 1, [at(0, "in-closed", "quokka")], []);
     // The closed room's key is 1, and a key is put between U+E000 and U+E001.
     await index.apply("open", 1, [at(1, "in-open", "1quokka 1wallaby")], []);
@@ -903,46 +907,50 @@ describe("Words kept by who can read them", () => {
     expect(await plainly("wallaby")).toHaveLength(1);
   });
 
-  it("keeps what it took before it heard who can read a room as it took it, and finds that and what it takes after", async () => {
+  it("keeps the last hour's messages it took before it heard who can read a room under its keys at once, and finds those and what it takes after", async () => {
     const index = searchIndexStub();
-    await index.apply("closed", 1, [at(0, "before", "quokka before")], []);
-    await index.setReaders("closed", "members");
-    await index.apply("closed", 2, [at(1, "after", "quokka after")], []);
+    const minutesAgo = (minutes: number, id: string, text: string) =>
+      indexed({ id, createdAt: new Date(Date.now() - minutes * 60_000).toISOString(), text, message: JSON.stringify({ text }) });
+    await index.apply("closed", 1, [minutesAgo(50, "before", "quokka before")], []);
+    await setReaders("closed", "members");
+    await index.apply("closed", 2, [minutesAgo(1, "after", "quokka after")], []);
     expect(await idsFound(["quokka"], ["closed"])).toEqual(["after", "before"]);
     expect(await searchSql("SELECT message_id, keyed FROM search_messages ORDER BY id")).toEqual([
-      { message_id: "before", keyed: 0 },
+      { message_id: "before", keyed: 1 },
       { message_id: "after", keyed: 1 },
     ]);
+    expect(await plainly("quokka")).toEqual([]);
+    expect(await searchSql("SELECT room_id FROM search_rekeys")).toEqual([]);
 
     // An edit takes the message's words as the room keeps them now.
-    await index.apply("closed", 3, [at(0, "before", "quokka edited")], []);
+    await index.apply("closed", 3, [minutesAgo(50, "before", "wallaby edited")], []);
     expect(await idsFound(["edited"], ["closed"])).toEqual(["before"]);
-    expect(await plainly("quokka")).toEqual([]);
+    expect(await plainly("wallaby")).toEqual([]);
   });
 
   it("still finds a room's words under its key once everyone can read it, and keeps its new ones plainly", async () => {
     const index = searchIndexStub();
-    await index.setReaders("opened", "members");
+    await setReaders("opened", "members");
     await index.apply("opened", 1, [at(0, "private", "quokka in private")], []);
-    await index.setReaders("opened", "everyone");
+    await setReaders("opened", "everyone");
     await index.apply("opened", 2, [at(1, "public", "quokka in public")], []);
     expect(await idsFound(["quokka"], ["opened"])).toEqual(["public", "private"]);
     expect(await plainly("quokka")).toHaveLength(1);
     expect(await searchSql("SELECT count(*) AS n FROM search_readers")).toEqual([{ n: 0 }]);
     // Private again, it keeps its key.
-    await index.setReaders("opened", "members");
+    await setReaders("opened", "members");
     expect(await searchSql("SELECT key FROM search_keys WHERE room_id = 'opened'")).toEqual([{ key: 1 }]);
   });
 
   it("forgets who could read a deleted room, and keeps its key from anyone else", async () => {
     const index = searchIndexStub();
-    await index.setReaders("doomed", "members");
-    await index.setReaders("ada-grace", ["ada", "grace"]);
+    await setReaders("doomed", "members");
+    await setReaders("ada-grace", ["ada", "grace"]);
     await index.apply("doomed", 1, [at(0, "doomed", "quokka")], []);
     expect(await index.forget("doomed", 10)).toBe(false);
     await index.forget("ada-grace", 10);
     expect(await searchSql("SELECT room_id FROM search_readers")).toEqual([]);
-    await index.setReaders("another", "members");
+    await setReaders("another", "members");
     expect(await searchSql("SELECT key, room_id, user_id FROM search_keys ORDER BY key")).toEqual([
       { key: 1, room_id: "doomed", user_id: null },
       { key: 2, room_id: null, user_id: "ada" },
@@ -956,7 +964,7 @@ describe("Words kept by who can read them", () => {
     const first = Date.UTC(2026, 10, 19) * 1024;
     /** Puts `count` messages with the word quokka in room `room` of the index, numbered from `from`, a millisecond apart. */
     const fill = async (room: RoomId, readers: "members" | UserId[], count: number, from: number) => {
-      await index.setReaders(room, readers);
+      await setReaders(room, readers);
       for (let start = 0; start < count; start += 100) {
         const batch = Array.from({ length: Math.min(100, count - start) }, (_, at) => {
           const number = from + (start + at) * 1024;
@@ -1007,46 +1015,475 @@ describe("Words kept by who can read them", () => {
   });
 });
 
+describe("Hearing who can read each room", () => {
+  /** The index's object, its SQL and storage as it sees them. */
+  type Index = { sql: SqlStorage; ctx: DurableObjectState; env: Env };
+  /** A message of room `room` numbered `number`, its time in milliseconds times 1,024, as the index numbers them. */
+  const numbered = (room: RoomId, number: number, text = "quokka") =>
+    indexed({ id: `${room}-${number}`, createdAt: new Date(number / 1024).toISOString(), text, message: "{}" });
+  /** The ids of the messages whose words the index keeps under keys, by number. */
+  const keyedIds = async () => ((await searchSql("SELECT message_id FROM search_messages WHERE keyed = 1 ORDER BY id")) as Array<{ message_id: string }>).map(({ message_id }) => message_id);
+  /** When the index's walk is next due, if it has one. */
+  const walkDue = () => runInDurableObject(searchIndexStub(), (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.kv.get<number>("rekeyDue"));
+
+  it("keeps a room's last hour under its keys as soon as it hears who can read it, up to 200 messages, and leaves the rest to its walk", async () => {
+    const index = searchIndexStub();
+    const first = (Date.now() - 250_000) * 1024;
+    await index.apply("closed", 1, Array.from({ length: 250 }, (_, at) => numbered("closed", first + at * 1_024_000)), []);
+    const heard = await runInDurableObject(index, async (instance: SearchIndex) => {
+      await instance.setReadersOf([{ roomId: "closed", readers: "members" }]);
+      const { sql } = instance as unknown as Index;
+      return { keyed: sql.exec("SELECT id FROM search_messages WHERE keyed = 1").toArray().length, walks: sql.exec("SELECT room_id, before FROM search_rekeys").toArray() };
+    });
+    expect(heard).toEqual({ keyed: 200, walks: [{ room_id: "closed", before: first + 49 * 1_024_000 + 1 }] });
+
+    // Its alarm, going off on its own, takes the walk.
+    await vi.waitFor(async () => expect(await keyedIds()).toHaveLength(250));
+    expect(await searchSql("SELECT room_id FROM search_rekeys")).toEqual([]);
+    expect(await walkDue()).toBeUndefined();
+    expect(await idsFound(["quokka"], ["closed"])).toHaveLength(SEARCH_LIMIT);
+  });
+
+  it("keeps earlier messages under keys 125 a run, a run an hour, the newest of any room's first", async () => {
+    const index = searchIndexStub();
+    const day = 86_400_000 * 1024;
+    const now = Date.now() * 1024;
+    const many = (room: RoomId, from: number, count: number) => Array.from({ length: count }, (_, at) => numbered(room, from + at * 1024));
+    const [a1, a3, b2] = [many("a", now - day, 60), many("a", now - 3 * day, 60), many("b", now - 2 * day, 60)];
+    await index.apply("a", 1, [...a3, { ...a3[0]!, id: "wombat", createdAt: new Date((now - 4 * day) / 1024).toISOString(), text: "wombat" }, ...a1], []);
+    await index.apply("b", 1, b2, []);
+    await runInDurableObject(index, (instance: SearchIndex) =>
+      instance.setReadersOf([
+        { roomId: "a", readers: "members" },
+        { roomId: "b", readers: "members" },
+      ]),
+    );
+    const ids = (messages: IndexedMessage[]) => messages.map(({ id }) => id);
+    await vi.waitFor(async () => expect(await keyedIds()).toHaveLength(125));
+    expect(await keyedIds()).toEqual([...ids(a3.slice(55)), ...ids(b2), ...ids(a1)]);
+    // What it keeps plainly yet it finds as before.
+    expect(await idsFound(["wombat"], ["a"])).toEqual(["wombat"]);
+    expect(await plainly("wombat")).toHaveLength(1);
+    const due = await walkDue();
+    expect(due).toBeGreaterThan(Date.now() + 59 * 60_000);
+    expect(await runInDurableObject(index, (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.getAlarm())).toBe(due);
+
+    // Its alarm going off sooner, as when it asks about a room, takes the walk no further.
+    await runInDurableObject(index, (instance: SearchIndex) => instance.alarm());
+    expect(await keyedIds()).toHaveLength(125);
+
+    // An hour on, the next run takes the rest.
+    await runInDurableObject(index, (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.kv.put("rekeyDue", Date.now()));
+    await runInDurableObject(index, (instance: SearchIndex) => instance.alarm());
+    expect(await keyedIds()).toHaveLength(181);
+    expect(await searchSql("SELECT room_id FROM search_rekeys")).toEqual([]);
+    expect(await walkDue()).toBeUndefined();
+    expect(await idsFound(["wombat"], ["a"])).toEqual(["wombat"]);
+    expect(await plainly("wombat")).toEqual([]);
+  });
+
+  it("asks the Workspace who can read each room it takes messages of, and keeps their words so", async () => {
+    const [ada, grace, hopper] = [await signIn("Ada"), await signIn("Grace"), await signIn("Hopper")];
+    const rooms = [
+      await createRoom("Lobby", { as: ada }),
+      await createRoom("Plans", { as: ada, closedTo: [ada.user.id, grace.user.id] }),
+      await direct(ada, grace),
+      await direct(ada),
+      await direct(ada, grace, hopper),
+    ];
+    const posted: Message[] = [];
+    for (const room of rooms) {
+      const client = await connect(room.id, ada);
+      posted.push(await post(client, "quokka"));
+      await caughtUp(room.id);
+    }
+    await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([]));
+    const [lobby, plans, pair, self, group] = rooms.map(({ id }) => id);
+    const readers = (await searchSql("SELECT room_id, people FROM search_readers")) as Array<{ room_id: RoomId; people: string | null }>;
+    const readersOfRoom = new Map(readers.map(({ room_id, people }) => [room_id, people === null ? "members" : (JSON.parse(people) as UserId[]).toSorted()]));
+    expect([lobby, plans, pair, self, group].map((room) => readersOfRoom.get(room!))).toEqual([
+      undefined,
+      "members",
+      [ada.user.id, grace.user.id].toSorted(),
+      [ada.user.id],
+      "members",
+    ]);
+    const kept = (await searchSql("SELECT message_id, keyed FROM search_messages")) as Array<{ message_id: string; keyed: number }>;
+    const keyedOf = new Map(kept.map(({ message_id, keyed }) => [message_id, keyed]));
+    expect(posted.map(({ id }) => keyedOf.get(id))).toEqual([0, 1, 1, 1, 1]);
+    expect(await plainly("quokka")).toHaveLength(1);
+    const ids = (...messages: Message[]) => messages.map(({ id }) => id).toSorted();
+    expect((await found(ada, "quokka")).toSorted()).toEqual(ids(...posted));
+    expect((await found(grace, "quokka")).toSorted()).toEqual(ids(posted[0]!, posted[1]!, posted[2]!, posted[4]!));
+    expect((await found(hopper, "quokka")).toSorted()).toEqual(ids(posted[0]!, posted[4]!));
+  });
+
+  it("asks about each room it holds messages of but hasn't heard about as it starts, as when a copy updates", async () => {
+    const ada = await signIn("Ada");
+    const plans = await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+    const lobby = await createRoom("Lobby", { as: ada });
+    // Messages the index took before it asked about rooms, kept plainly, a minute ago and two days ago.
+    const recent = (Date.now() - 60_000) * 1024;
+    const old = (Date.now() - 2 * 86_400_000) * 1024;
+    for (const [number, room] of [[recent, plans.id], [old, plans.id], [recent + 1, lobby.id]] as const) {
+      await searchSql("INSERT INTO search_messages (id, message_id, room_id, message) VALUES (?, ?, ?, '{}')", number, `${room}-${number}`, room);
+      await searchSql("INSERT INTO search_index (rowid, body) VALUES (?, 'quokka')", number);
+    }
+    for (const room of [plans.id, lobby.id]) await searchSql("INSERT INTO search_rooms (room_id, seq) VALUES (?, 1)", room);
+    await evictDurableObject(searchIndexStub());
+    await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([]));
+    expect(await searchSql("SELECT room_id, people FROM search_readers")).toEqual([{ room_id: plans.id, people: null }]);
+    await vi.waitFor(async () => expect(await keyedIds()).toEqual([`${plans.id}-${old}`, `${plans.id}-${recent}`]));
+    expect(await plainly("quokka")).toEqual([recent + 1]);
+  });
+
+  it("asks about a room it holds messages of but hasn't heard about as the room sends it more, and keeps the earlier ones under keys after", async () => {
+    const ada = await signIn("Ada");
+    const plans = await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+    // A message the index took two days ago, before it asked about rooms, kept plainly.
+    const old = (Date.now() - 2 * 86_400_000) * 1024;
+    await searchSql("INSERT INTO search_messages (id, message_id, room_id, message) VALUES (?, 'old', ?, '{}')", old, plans.id);
+    await searchSql("INSERT INTO search_index (rowid, body) VALUES (?, 'quokka')", old);
+    await searchSql("INSERT INTO search_rooms (room_id, seq) VALUES (?, 0)", plans.id);
+    const message = await post(await connect(plans.id, ada), "quokka");
+    await caughtUp(plans.id);
+    await vi.waitFor(async () => expect(await keyedIds()).toEqual(["old", message.id]));
+    expect(await plainly("quokka")).toEqual([]);
+    expect(await idsFound(["quokka"], [plans.id])).toEqual([message.id, "old"]);
+  });
+
+  it("goes by what the Workspace tells it as a room's kind changes over an answer to what it asked before", async () => {
+    await searchSql("INSERT INTO search_rooms (room_id, seq) VALUES ('changing', 1)");
+    await runInDurableObject(searchIndexStub(), async (instance: SearchIndex) => {
+      const object = instance as unknown as Index;
+      const original = object.env;
+      // The room is made private while the index waits for the Workspace's answer, from before.
+      const workspace = {
+        roomReaders: async (roomIds: RoomId[]) => {
+          await instance.setReadersOf([{ roomId: "changing", readers: "members" }]);
+          return roomIds.map((roomId) => ({ roomId, readers: "everyone" }));
+        },
+      };
+      object.env = { ...original, WORKSPACE: { getByName: () => workspace } as unknown as Env["WORKSPACE"] };
+      // Its walk asks about the room, as it does once a copy updates.
+      object.ctx.storage.kv.put("rekeyDue", Date.now());
+      try {
+        await instance.alarm();
+      } finally {
+        object.env = original;
+      }
+    });
+    expect(await searchSql("SELECT room_id, people FROM search_readers")).toEqual([{ room_id: "changing", people: null }]);
+    expect(await searchSql("SELECT heard FROM search_rooms WHERE room_id = 'changing'")).toEqual([{ heard: 1 }]);
+  });
+
+  it("asks nothing about a deleted room, or one the Workspace no longer has, and tries again later when it can't be reached", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await searchSql("INSERT INTO search_rooms (room_id, seq) VALUES ('deleted', ?), ('gone', 1)", Number.MAX_SAFE_INTEGER);
+    const asked: RoomId[][] = [];
+    const run = (roomReaders: (roomIds: RoomId[]) => Promise<RoomReaders[]>) =>
+      runInDurableObject(searchIndexStub(), async (instance: SearchIndex) => {
+        const object = instance as unknown as Index;
+        const original = object.env;
+        object.env = { ...original, WORKSPACE: { getByName: () => ({ roomReaders }) } as unknown as Env["WORKSPACE"] };
+        object.ctx.storage.kv.put("rekeyDue", Date.now());
+        try {
+          await instance.alarm();
+          return object.ctx.storage.getAlarm();
+        } finally {
+          object.env = original;
+        }
+      });
+    const tryingAgain = await run(() => Promise.reject(new Error("The Workspace is unreachable")));
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("trying again later"), expect.any(Error));
+    expect(tryingAgain).toBeGreaterThan(Date.now() + 50_000);
+    await run(async (roomIds) => {
+      asked.push(roomIds);
+      return roomIds.map((roomId) => ({ roomId, readers: null }));
+    });
+    expect(asked).toEqual([["gone"]]);
+    expect(await searchSql("SELECT room_id, heard FROM search_rooms ORDER BY room_id")).toEqual([
+      { room_id: "deleted", heard: 1 },
+      { room_id: "gone", heard: 1 },
+    ]);
+    expect(await searchSql("SELECT room_id FROM search_readers")).toEqual([]);
+  });
+
+  it("asks about the rooms it held before 40 a run, each taking three of the run's 125 messages, as hearing about one writes as many rows", async () => {
+    const index = searchIndexStub();
+    const old = (Date.now() - 2 * 86_400_000) * 1024;
+    const rooms = Array.from({ length: 50 }, (_, at) => `closed${String(at).padStart(2, "0")}`);
+    const asked: RoomId[][] = [];
+    const runs = await runInDurableObject(index, async (instance: SearchIndex) => {
+      const object = instance as unknown as Index;
+      // A message of each, which the index took two days ago, before it asked about rooms, kept plainly.
+      for (const [at, room] of rooms.entries()) {
+        object.sql.exec("INSERT INTO search_messages (id, message_id, room_id, message) VALUES (?, ?, ?, '{}')", old + at, room, room);
+        object.sql.exec("INSERT INTO search_index (rowid, body) VALUES (?, 'quokka')", old + at);
+        object.sql.exec("INSERT INTO search_rooms (room_id, seq) VALUES (?, 1)", room);
+      }
+      const original = object.env;
+      const members = { roomReaders: async (roomIds: RoomId[]) => (asked.push(roomIds), roomIds.map((roomId) => ({ roomId, readers: "members" as const }))) };
+      object.env = { ...original, WORKSPACE: { getByName: () => members } as unknown as Env["WORKSPACE"] };
+      const keyed = () => object.sql.exec<{ message_id: string }>("SELECT message_id FROM search_messages WHERE keyed = 1 ORDER BY id").toArray().map(({ message_id }) => message_id);
+      try {
+        const runs = [];
+        for (let run = 0; run < 2; run++) {
+          object.ctx.storage.kv.put("rekeyDue", Date.now());
+          await instance.alarm();
+          runs.push({ asked: asked.at(-1)!.length, keyed: keyed(), due: object.ctx.storage.kv.get<number>("rekeyDue") });
+        }
+        return runs;
+      } finally {
+        object.env = original;
+      }
+    });
+    expect(asked.flat()).toEqual(rooms);
+    expect(runs[0]).toEqual({ asked: 40, keyed: rooms.slice(35, 40), due: expect.any(Number) });
+    expect(runs[0]!.due).toBeGreaterThan(Date.now() + 59 * 60_000);
+    expect(runs[1]).toEqual({ asked: 10, keyed: rooms, due: undefined });
+  });
+
+  it("keeps the newest earlier message of any room under keys first when an edit has kept a room's newest under them already", async () => {
+    const index = searchIndexStub();
+    const day = 86_400_000 * 1024;
+    const now = Date.now() * 1024;
+    await index.apply("a", 1, [numbered("a", now - 3 * day), numbered("a", now - day)], []);
+    await index.apply("b", 1, [numbered("b", now - 2 * day)], []);
+    await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([]));
+    const walked = await runInDurableObject(index, async (instance: SearchIndex) => {
+      const object = instance as unknown as Index & { walk(limit: number): boolean };
+      await instance.setReadersOf([
+        { roomId: "a", readers: "members" },
+        { roomId: "b", readers: "members" },
+      ]);
+      // An edit of a's newest keeps it under keys, so b's is the newest left.
+      instance.apply("a", 2, [numbered("a", now - day, "quokka wombat")], []);
+      object.walk(1);
+      return object.sql.exec<{ message_id: string }>("SELECT message_id FROM search_messages WHERE keyed = 1 ORDER BY id").toArray().map(({ message_id }) => message_id);
+    });
+    expect(walked).toEqual([`b-${now - 2 * day}`, `a-${now - day}`]);
+  });
+
+  it("asks again a minute on, rather than as more messages come, when it can't reach the Workspace as a room it hasn't heard about sends it messages", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const index = searchIndexStub();
+    const swap = (env: (original: Env) => Env) => runInDurableObject(index, (instance: SearchIndex) => void ((instance as unknown as Index).env = env((instance as unknown as Index).env)));
+    let original: Env | undefined;
+    let reachable = false;
+    const asked: RoomId[][] = [];
+    const workspace = {
+      roomReaders: async (roomIds: RoomId[]) => {
+        asked.push(roomIds.toSorted());
+        if (!reachable) throw new Error("The Workspace is unreachable");
+        return roomIds.map((roomId) => ({ roomId, readers: "members" as const }));
+      },
+    };
+    const unheard = () => searchSql("SELECT room_id FROM search_rooms WHERE heard = 0 ORDER BY room_id");
+    await swap((env) => ((original = env), { ...env, WORKSPACE: { getByName: () => workspace } as unknown as Env["WORKSPACE"] }));
+    try {
+      await index.apply("closed", 1, [numbered("closed", Date.now() * 1024)], []);
+      await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(expect.stringContaining("trying again later"), expect.any(Error)));
+      const alarm = await runInDurableObject(index, (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.getAlarm());
+      expect(alarm).toBeGreaterThan(Date.now() + 50_000);
+      // More messages meanwhile, from it and another room it hasn't heard about, wait for that.
+      await index.apply("closed", 2, [numbered("closed", Date.now() * 1024 + 1)], []);
+      await index.apply("other", 1, [numbered("other", Date.now() * 1024 + 2)], []);
+      expect(asked).toEqual([["closed"]]);
+      // Its alarm asking again, and failing, puts the next try off a minute too.
+      const again = await runInDurableObject(index, async (instance: SearchIndex) => {
+        await instance.alarm();
+        return (instance as unknown as Index).ctx.storage.getAlarm();
+      });
+      expect(asked).toEqual([["closed"], ["closed", "other"]]);
+      expect(errors).toHaveBeenCalledTimes(2);
+      expect(again).toBeGreaterThan(Date.now() + 50_000);
+      expect(await unheard()).toEqual([{ room_id: "closed" }, { room_id: "other" }]);
+
+      // Once it's answered, it asks about the next such room at once again.
+      reachable = true;
+      await runInDurableObject(index, (instance: SearchIndex) => instance.alarm());
+      expect(await unheard()).toEqual([]);
+      await index.apply("later", 1, [numbered("later", Date.now() * 1024 + 3)], []);
+      expect(asked.at(-1)).toEqual(["later"]);
+      await vi.waitFor(async () => expect(await unheard()).toEqual([]));
+    } finally {
+      await swap(() => original!);
+    }
+  });
+
+  it("asks one question at a time, about every room that has sent it messages by then, and leaves the rest to its walk", async () => {
+    const index = searchIndexStub();
+    // A room it held before it asked about rooms, which sends it nothing.
+    await searchSql("INSERT INTO search_rooms (room_id, seq) VALUES ('quiet', 1)");
+    const asked: RoomId[][] = [];
+    const slow = {
+      roomReaders: async (roomIds: RoomId[]) => {
+        asked.push(roomIds.toSorted());
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return roomIds.map((roomId) => ({ roomId, readers: "everyone" }));
+      },
+    };
+    let original: Env | undefined;
+    await runInDurableObject(index, (instance: SearchIndex) => {
+      const object = instance as unknown as Index;
+      original = object.env;
+      object.env = { ...original, WORKSPACE: { getByName: () => slow } as unknown as Env["WORKSPACE"] };
+    });
+    try {
+      for (const room of ["a", "b", "c"]) await index.apply(room, 1, [numbered(room, Date.now() * 1024)], []);
+      // Its alarm, going off as it asks, waits for the answer rather than asking again.
+      await runInDurableObject(index, (instance: SearchIndex) => instance.alarm());
+      await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([{ room_id: "quiet" }]));
+    } finally {
+      await runInDurableObject(index, (instance: SearchIndex) => void ((instance as unknown as Index).env = original!));
+    }
+    expect(asked).toEqual([["a"], ["b", "c"]]);
+  });
+
+  it("forgets a deleted room's walk", async () => {
+    const index = searchIndexStub();
+    await index.apply("doomed", 1, [numbered("doomed", (Date.now() - 86_400_000) * 1024)], []);
+    const walks = await runInDurableObject(index, async (instance: SearchIndex) => {
+      const { sql } = instance as unknown as Index;
+      await instance.setReadersOf([{ roomId: "doomed", readers: "members" }]);
+      const before = sql.exec("SELECT room_id FROM search_rekeys").toArray();
+      instance.forget("doomed", 10);
+      return { before, after: sql.exec("SELECT room_id FROM search_rekeys").toArray() };
+    });
+    expect(walks).toEqual({ before: [{ room_id: "doomed" }], after: [] });
+    // Told of it after, it notes nothing of it.
+    await index.setReadersOf([{ roomId: "doomed", readers: "members" }]);
+    expect(await searchSql("SELECT room_id FROM search_readers")).toEqual([]);
+    expect(await searchSql("SELECT room_id FROM search_rekeys")).toEqual([]);
+  });
+});
+
 describe("Rooms the search index is due to hear who can read again", () => {
   /** The rooms queued to tell the index who can read them, with how many times each was queued again. */
   const queued = () => workspaceSql("SELECT room_id, version FROM pending_readers ORDER BY room_id");
   /** Changes room `roomId` as `session` does in its settings. */
   const change = (roomId: RoomId, session: Session, changes: object) =>
     api(`/api/rooms/${roomId}`, { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify(changes) });
+  /** A search index that answers the Workspace as `index` does. */
+  const indexLike = (index: Pick<SearchIndex, "setReadersOf">) => ({ SEARCH_INDEX: { getByName: () => index } as unknown as Env["SEARCH_INDEX"] });
+  /**
+   * Runs `run` while the Workspace can't reach the index, as while it's restarting, so that what it queues
+   * stays queued, and answers what it logged meanwhile.
+   */
+  async function unreached(run: () => Promise<void>) {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await withWorkspaceEnv(indexLike({ setReadersOf: () => Promise.reject(new Error("The search index is unreachable")) }), run);
+    return errors;
+  }
 
   it("queues no room or DM as it's made", async () => {
-    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
-    await createRoom("Lobby", { as: ada });
-    await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
-    await direct(ada, grace);
-    await direct(ada);
-    expect(await queued()).toEqual([]);
+    await unreached(async () => {
+      const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+      await createRoom("Lobby", { as: ada });
+      await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+      await direct(ada, grace);
+      await direct(ada);
+      expect(await queued()).toEqual([]);
+    });
   });
 
   it("queues a room again each time its kind changes, and not for a change that leaves its kind", async () => {
-    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
-    const room = await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
-    expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id, grace.user.id] })).status).toBe(200);
-    expect((await change(room.id, ada, { name: "Roadmap" })).status).toBe(200);
-    expect(await queued()).toEqual([]);
-    expect((await change(room.id, ada, { kind: "open" })).status).toBe(200);
-    expect(await queued()).toEqual([{ room_id: room.id, version: 0 }]);
-    expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
-    expect(await queued()).toEqual([{ room_id: room.id, version: 1 }]);
+    await unreached(async () => {
+      const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+      const room = await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+      expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id, grace.user.id] })).status).toBe(200);
+      expect((await change(room.id, ada, { name: "Roadmap" })).status).toBe(200);
+      expect(await queued()).toEqual([]);
+      expect((await change(room.id, ada, { kind: "open" })).status).toBe(200);
+      expect(await queued()).toEqual([{ room_id: room.id, version: 0 }]);
+      expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+      expect(await queued()).toEqual([{ room_id: room.id, version: 1 }]);
 
-    const opened = await createRoom("Lobby", { as: ada });
-    expect((await change(opened.id, ada, { kind: "open" })).status).toBe(200);
-    expect(await queued()).toEqual([{ room_id: room.id, version: 1 }]);
-    expect((await change(opened.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
-    expect(await queued()).toEqual([room.id, opened.id].sort().map((id) => ({ room_id: id, version: id === room.id ? 1 : 0 })));
+      const opened = await createRoom("Lobby", { as: ada });
+      expect((await change(opened.id, ada, { kind: "open" })).status).toBe(200);
+      expect(await queued()).toEqual([{ room_id: room.id, version: 1 }]);
+      expect((await change(opened.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+      expect(await queued()).toEqual([room.id, opened.id].sort().map((id) => ({ room_id: id, version: id === room.id ? 1 : 0 })));
+    });
   });
 
   it("forgets a deleted room's", async () => {
+    await unreached(async () => {
+      const ada = await signIn("Ada");
+      const [kept, deleted] = [await createRoom("Plans", { as: ada }), await createRoom("Roadmap", { as: ada })];
+      for (const room of [kept, deleted]) expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+      expect((await api(`/api/rooms/${deleted.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
+      expect(await queued()).toEqual([{ room_id: kept.id, version: 0 }]);
+    });
+  });
+
+  it("tells the index who can read a room each time its kind changes, and its words are kept so", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Plans", { as: ada });
+    const message = await post(await connect(room.id, ada), "quokka");
+    await caughtUp(room.id);
+    await vi.waitFor(async () => expect(await searchSql("SELECT heard FROM search_rooms WHERE room_id = ?", room.id)).toEqual([{ heard: 1 }]));
+    expect(await plainly("quokka")).toHaveLength(1);
+
+    expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+    await vi.waitFor(async () => expect(await queued()).toEqual([]));
+    expect(await searchSql("SELECT room_id, people FROM search_readers")).toEqual([{ room_id: room.id, people: null }]);
+    expect(await plainly("quokka")).toEqual([]);
+    expect(await found(ada, "quokka")).toEqual([message.id]);
+    expect(await found(grace, "quokka")).toEqual([]);
+
+    expect((await change(room.id, ada, { kind: "open" })).status).toBe(200);
+    await vi.waitFor(async () => expect(await queued()).toEqual([]));
+    expect(await searchSql("SELECT room_id FROM search_readers")).toEqual([]);
+    expect(await found(grace, "quokka")).toEqual([message.id]);
+  });
+
+  it("tells the index again later when it can't be reached", async () => {
     const ada = await signIn("Ada");
-    const [kept, deleted] = [await createRoom("Plans", { as: ada }), await createRoom("Roadmap", { as: ada })];
-    for (const room of [kept, deleted]) expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
-    expect((await api(`/api/rooms/${deleted.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
-    expect(await queued()).toEqual([{ room_id: kept.id, version: 0 }]);
+    const room = await createRoom("Plans", { as: ada });
+    const errors = await unreached(async () => {
+      expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
+      // Each try puts the next off a second at least, and twice as long each time.
+      await vi.waitFor(async () => expect(await workspaceSql("SELECT attempts > 0 AS tried, due_at > ? AS later FROM pending_readers", Date.now() + 500)).toEqual([{ tried: 1, later: 1 }]));
+    });
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("trying again later"), expect.any(Error));
+    await vi.waitFor(async () => expect(await queued()).toEqual([]), { timeout: 10_000 });
+    expect(await searchSql("SELECT room_id, people FROM search_readers")).toEqual([{ room_id: room.id, people: null }]);
+  });
+
+  it("tells the index again of a room whose kind changes again as the index hears of it", async () => {
+    const ada = await signIn("Ada");
+    const room = await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+    const told: RoomReaders[][] = [];
+    const index = {
+      setReadersOf: async (rooms: RoomReaders[]) => {
+        told.push(rooms);
+        // As the room's kind changing again queues it again.
+        if (told.length === 1) await workspaceSql("UPDATE pending_readers SET version = version + 1, due_at = 0 WHERE room_id = ?", room.id);
+      },
+    };
+    await withWorkspaceEnv(indexLike(index), async () => {
+      expect((await change(room.id, ada, { kind: "open" })).status).toBe(200);
+      await vi.waitFor(async () => expect(await queued()).toEqual([]));
+    });
+    expect(told).toEqual([[{ roomId: room.id, readers: "everyone" }], [{ roomId: room.id, readers: "everyone" }]]);
+  });
+
+  it("answers who can read each room the index asks about", async () => {
+    const [ada, grace, hopper] = [await signIn("Ada"), await signIn("Grace"), await signIn("Hopper")];
+    const lobby = await createRoom("Lobby", { as: ada });
+    const plans = await createRoom("Plans", { as: ada, closedTo: [ada.user.id] });
+    const [pair, self, group] = [await direct(ada, grace), await direct(ada), await direct(ada, grace, hopper)];
+    const answers = await workspaceStub().roomReaders([lobby.id, plans.id, pair.id, self.id, group.id, "nowhere"]);
+    expect(Object.fromEntries(answers.map(({ roomId, readers }) => [roomId, Array.isArray(readers) ? readers.toSorted() : readers]))).toEqual({
+      [lobby.id]: "everyone",
+      [plans.id]: "members",
+      [pair.id]: [ada.user.id, grace.user.id].toSorted(),
+      [self.id]: [ada.user.id],
+      [group.id]: "members",
+      nowhere: null,
+    });
   });
 });
 
