@@ -579,6 +579,10 @@ describe("A call's card", () => {
     ]);
   });
 
+  it("shows each carriage return in text as the line break it is, not as a space", () => {
+    expect(shownWith({ body: "First\rSecond\r\nThird" })).toEqual(["<p>issue_write, with:</p>", "<p><strong>Body:</strong></p><blockquote><p>First<br>Second<br>Third</p></blockquote>"]);
+  });
+
   it("shows text as it's written, so that a link, a mention or an emoji's name in it doesn't become one", () => {
     expect(shownWith({ title: "<https://example.com|GitHub> <@U123> :tada: *bold*" })).toEqual(["<p>issue_write, with:</p>", "<p><strong>Title:</strong> &lt;https://example.com|GitHub&gt; &lt;@U123&gt; :tada: *bold*</p>"]);
   });

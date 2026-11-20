@@ -270,6 +270,9 @@ export function labelOf(field: string): string {
 
 const isOneShortLine = (text: string) => text.length <= MAX_LINE_VALUE_LENGTH && !/[\r\n]/.test(text);
 
+/** `text` with each line break a line feed, as a quote shows it: a carriage return breaks the line where it goes, but a browser shows one as a space. */
+const withLineFeeds = (text: string) => text.replace(/\r\n?/g, "\n");
+
 /**
  * How a card shows a value of what a tool is called with: on its field's line, if it's a short line of text, a
  * number, true or false, nothing, or a short list of those; or else under it, text as a quote, with its line
@@ -279,7 +282,7 @@ function shownValue(value: unknown): { line: Record<string, unknown> } | { under
   if (value === null || (Array.isArray(value) && value.length === 0)) return { line: richText("none", { italic: true }) };
   if (value === "") return { line: richText("empty", { italic: true }) };
   if (typeof value === "number" || typeof value === "boolean") return { line: richText(String(value)) };
-  if (typeof value === "string") return isOneShortLine(value) ? { line: richText(value) } : { under: { type: "rich_text_quote", elements: [richText(value)] } };
+  if (typeof value === "string") return isOneShortLine(value) ? { line: richText(value) } : { under: { type: "rich_text_quote", elements: [richText(withLineFeeds(value))] } };
   // A list on one line, where nothing in it could be read as two.
   const listed = Array.isArray(value) && value.every((item) => typeof item === "number" || (typeof item === "string" && item.trim() !== "" && !item.includes(","))) ? value.join(", ") : null;
   if (listed !== null && isOneShortLine(listed)) return { line: richText(listed) };
