@@ -1902,6 +1902,44 @@ describe("Shared room order", () => {
     await roomHeading();
     await waitFor(() => expect(sidebarRooms()).toEqual(["random", "general", "Design"]));
   });
+
+  it("says nothing when the rooms don't load again after a save, whose answer has put its order in place", async () => {
+    let sidebar = () => Response.json(roomList(rooms));
+    serve({
+      "GET /api/sidebar": () => sidebar(),
+      "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
+      "PUT /api/account/room_order": () => Response.json({ sharedOrder: ["random", "general"], sections: [] }),
+    });
+    const { user } = showWorkspace("/account/edit#channel-settings");
+    const order = await screen.findByRole("list", { name: "Room order" });
+    sidebar = () => Response.json({ error: "Workspace unavailable" }, { status: 503 });
+    fireEvent.keyDown(within(order).getAllByRole("listitem")[1]!, { key: "ArrowUp", altKey: true });
+    await user.click(screen.getByRole("button", { name: "Save order" }));
+    expect(await screen.findByText("Room order saved for everyone.")).toBeInTheDocument();
+    await waitFor(() => expect(roomListRequests()).toBe(2));
+    expect(roomsIn(order)).toEqual(["random", "general"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("Sidebar sections", () => {
+  it("says why when the sidebar doesn't load again once a section is made, as workspace settings list its sections", async () => {
+    let sidebar = () => Response.json(roomList(rooms));
+    serve({
+      "GET /api/sidebar": () => sidebar(),
+      "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
+      "POST /api/account/sections": () => Response.json({ section: { id: "s1", name: "Engineering" } }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/account/edit#channel-settings");
+    await screen.findByRole("list", { name: "Room order" });
+    sidebar = () => Response.json({ error: "Workspace unavailable" }, { status: 503 });
+    await user.click(screen.getByRole("button", { name: "New section" }));
+    const dialog = screen.getByRole("dialog", { name: "New section" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Section name" }), "Engineering");
+    await user.click(within(dialog).getByRole("button", { name: "Create section" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Workspace unavailable");
+    expect(roomListRequests()).toBe(2);
+  });
 });
 
 describe("Stay signed in, per device", () => {
