@@ -537,12 +537,19 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     written.focus();
   };
 
+  // This render's send, for a message that waits on its room's counts or its writer's say, so that the
+  // files picked by then go with it.
+  const sendNow = useRef(send);
+  useLayoutEffect(() => {
+    sendNow.current = send;
+  });
+
   // What's written that would notify a room of six or more waits, with the files picked, until its
   // writer says to send it.
   const submit = () => {
     if (disabled) return;
     const written = editor.current;
-    if (written && !written.isBlank()) notifyConfirm.confirm(written.value(), send);
+    if (written && !written.isBlank()) notifyConfirm.confirm(() => editor.current?.value() ?? "", () => sendNow.current());
     else send();
   };
 

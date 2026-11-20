@@ -556,6 +556,42 @@ describe("Ask before notifying a room", () => {
     expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "agenda.txt" })], false);
     expect(onSend).toHaveBeenCalledOnce();
   });
+
+  it("asks of what's written as the room's counts come, written over while they were on their way, and sends that", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { onSend, input, user } = await showComposer();
+    await user.type(input, "@here Lunch?{Enter}");
+    await user.clear(input);
+    await user.type(input, "@channel Lunch?");
+    answer(Response.json(six));
+    const dialog = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    expect(dialog).toHaveAccessibleDescription("@channel notifies everyone in #general.");
+    await user.click(within(dialog).getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(`<p>${special("channel")} Lunch?</p>`, false);
+
+    // Without its mention by then, it goes without asking.
+    await user.type(input, "@channel Standup{Enter}");
+    await user.clear(input);
+    await user.type(input, "Standup");
+    answer(Response.json(six));
+    await waitFor(() => expect(onSend).toHaveBeenLastCalledWith("<p>Standup</p>", false));
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("sends the files picked as it goes, though some were picked or removed while the room's counts were on their way", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { onSendFiles, input, user } = await showComposer();
+    await user.upload(fileField(), [fileOf("agenda.txt"), fileOf("notes.txt")]);
+    await user.type(input, "@channel Agenda{Enter}");
+    await user.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+    await user.upload(fileField(), fileOf("slides.pdf"));
+    answer(Response.json(six));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Send" }));
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "agenda.txt" }), expect.objectContaining({ name: "slides.pdf" })], false);
+    expect(chips()).toEqual([]);
+  });
 });
 
 /** A file named `name` of `size` bytes, as the browser gives it, which says it's that size without holding them. */

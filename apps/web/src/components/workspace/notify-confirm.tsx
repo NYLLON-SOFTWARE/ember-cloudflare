@@ -45,7 +45,9 @@ const peopleCount = (people: number) => (people === 1 ? "1 person" : `${people.t
  * whether to send it, as Slack asks, unless the workspace has that off, or `asks` is false for a composer
  * whose messages notify nobody, as a thread's and a DM's. `confirm` sends what's written by `send` at
  * once when there's nothing to ask, as when the room's counts don't come, or once Send is pressed; Cancel
- * leaves it written. The composer shows `dialog`, which gives focus back by `onClosed` as it closes.
+ * leaves it written. The composer can still be written in as the counts come, so it's what `written`
+ * reads then that's asked about, and `send` sends what's picked by then. The composer shows `dialog`,
+ * which gives focus back by `onClosed` as it closes.
  */
 export function useNotifyConfirm(roomId: string, roomName: string, asks: boolean, onClosed: () => void) {
   const { warnBeforeNotifying } = useAccount();
@@ -55,19 +57,17 @@ export function useNotifyConfirm(roomId: string, roomName: string, asks: boolean
   const checking = useRef(false);
   const mounted = useMounted();
 
-  const confirm = (body: string, send: () => void) => {
+  const confirm = (written: () => string, send: () => void) => {
     if (checking.current) return;
-    if (!asks || !warnBeforeNotifying || mentionsIn(body).specialMentions.length === 0) return send();
+    if (!asks || !warnBeforeNotifying || mentionsIn(written()).specialMentions.length === 0) return send();
     checking.current = true;
     void fetchNotified(roomId)
-      .then(
-        (counts) => askingFor(body, counts),
-        () => null,
-      )
-      .then((notifying) => {
+      .catch(() => null)
+      .then((counts) => {
         checking.current = false;
         // Leaving the room meanwhile keeps the message as its draft.
         if (!mounted.current) return;
+        const notifying = counts && askingFor(written(), counts);
         if (notifying) setAsking({ ...notifying, send, open: true });
         else send();
       });
