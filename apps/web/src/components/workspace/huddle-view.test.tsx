@@ -1273,7 +1273,7 @@ describe("The thread of a huddle", () => {
     expect(thread()!.parentElement!.previousElementSibling).toBe(opened().querySelector(":scope > header"));
     expect(thread()!.parentElement!.nextElementSibling).toBe(opened().querySelector(":scope > footer"));
 
-    expect(FakeSocket.all.map(({ url }) => url)).toEqual(["ws://localhost:3000/api/rooms/direct-1/socket?visible=1&protocol=4&apart=1"]);
+    expect(FakeSocket.all.map(({ url }) => url)).toEqual(["ws://localhost:3000/api/rooms/direct-1/socket?visible=1&protocol=5&apart=1"]);
     FakeSocket.all[0]!.letIn();
     expect(FakeSocket.all[0]!.sent).toEqual([{ type: "thread.open", parentId: "h1" }]);
   });

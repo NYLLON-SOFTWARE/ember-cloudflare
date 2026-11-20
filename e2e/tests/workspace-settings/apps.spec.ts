@@ -413,19 +413,20 @@ test.describe("Apps", () => {
     await signInAsAdministrator(page);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
 
-    // Its model calls the tool, which waits on a card that says what it would be called with.
+    // Its model calls the tool, which waits on a card that says what it would be called with, which only the asker sees.
     const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
     await askEmber(page, `${FILE_QUESTION} ${title}`);
     const card = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title });
     await expect(card).toContainText("create_issue, with:");
     await expect(card).toContainText(`Title: ${title}`);
     await expect(card).not.toContainText("{");
-    await expect(card).toContainText("Ada Lovelace or an administrator can allow this call.");
+    await expect(card).toContainText("It goes to Tracker with the token an administrator connected it with.");
+    await expect(page.getByRole("article").filter({ has: card })).toContainText("Only visible to you");
     expect(mcp.calls).toEqual([]);
 
     // Allowed, it runs, with what the card showed, and the answer goes on with what the app answered.
     await card.getByRole("button", { name: "Allow once" }).click();
-    await expect(card).toContainText("Allowed by Ada Lovelace.");
+    await expect(card).toContainText("Allowed by you.");
     await expect(card.getByRole("button", { name: "Allow once" })).toHaveCount(0);
     await expect(card.getByRole("button", { name: "Deny" })).toHaveCount(0);
     await expect(page.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
@@ -441,7 +442,7 @@ test.describe("Apps", () => {
     await askEmber(page, `${FILE_QUESTION} ${other}`);
     const denied = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: other });
     await denied.getByRole("button", { name: "Deny" }).click();
-    await expect(denied).toContainText("Not allowed by Ada Lovelace.");
+    await expect(denied).toContainText("Not allowed by you.");
     await expect(page.getByRole("article").filter({ hasText: `${FILED} Not run: the person you're answering was asked to allow this call, and didn't.` })).toBeVisible();
     expect(mcp.calls).toHaveLength(1);
   });
@@ -620,12 +621,12 @@ test.describe("Apps", () => {
       await composer.pressSequentially(`${FILE_QUESTION} ${title}`);
       await composer.press("Enter");
       const call = grace.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title });
-      await expect(call).toContainText(`${name} can allow this call. It goes to Tracker as ${name}, with the sign-in they made to it themselves.`);
+      await expect(call).toContainText("It goes to Tracker as you, with the sign-in you made to it yourself.");
       expect(signsIn.calls).toEqual([]);
 
       // The service keeps one sign-in good at a time, and hers is the later, so the call it runs is the one made as her.
       await call.getByRole("button", { name: "Allow once" }).click();
-      await expect(call).toContainText(`Allowed by ${name}.`);
+      await expect(call).toContainText("Allowed by you.");
       await expect(grace.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
       expect(signsIn.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
 

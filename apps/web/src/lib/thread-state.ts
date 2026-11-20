@@ -1,5 +1,5 @@
 import type { Boost, Message, ServerFrame } from "@ember/protocol";
-import { initialRoomState, isPending, paged, resumed, roomReducer, typed, welcomed, type RoomAction, type RoomState } from "./room-state";
+import { initialRoomState, isPending, paged, resumed, roomReducer, typed, welcomed, withEphemeral, type RoomAction, type RoomState } from "./room-state";
 
 /**
  * A thread as its panel shows it: the message it's for, its parent, and its replies, a timeline of their
@@ -98,6 +98,9 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         : withReplies(roomReducer(state.replies, action));
     case "message.checked":
       return withReplies(roomReducer(state.replies, action));
+    // The room sends those of the thread's questions after `thread.opened`, which takes the place of those it showed.
+    case "message.ephemeral":
+      return frame.message.parentId === parentId ? withReplies({ ...state.replies, ephemeral: withEphemeral(state.replies.ephemeral, frame.message) }) : state;
     case "typing":
       return frame.threadId === parentId ? withReplies({ ...state.replies, typing: typed(state.replies.typing, frame, action.now) }) : state;
     case "error": {

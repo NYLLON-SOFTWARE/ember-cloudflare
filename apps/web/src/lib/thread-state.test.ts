@@ -1,4 +1,4 @@
-import type { Boost, Message, ServerFrame, User } from "@ember/protocol";
+import type { Boost, EphemeralMessage, Message, ServerFrame, User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { isPending, type PendingMessage } from "./room-state";
 import { initialThreadState, threadReducer, type ThreadState } from "./thread-state";
@@ -239,5 +239,36 @@ describe("Reply in a thread", () => {
   it("brings back a reaction the room wouldn't take away, as the room does", () => {
     const state = frame(opened(initialThreadState({ parentId: "m1" }), [reply("r1")]), { type: "error", message: "Not removed", failed: "boost.delete" });
     expect(state.replies.refusedUnboosts).toBe(1);
+  });
+});
+
+describe("Messages only you see in a thread", () => {
+  /** The card of a call that waits on Ada, which only she sees, about what she asked in m1's thread. */
+  const card = (overrides: Partial<EphemeralMessage> = {}): EphemeralMessage => ({
+    id: "e1",
+    roomId: "general",
+    creator: { id: "ember", name: "Ember" },
+    body: "",
+    plainText: "Ember wants to use Tracker",
+    cards: [],
+    createdAt: "2026-10-12T10:00:30.000Z",
+    parentId: "m1",
+    ...overrides,
+  });
+
+  it("shows those of its own questions among its replies, as they come and change, and leaves the room's and other threads' to them", () => {
+    let state = opened(initialThreadState({ parentId: "m1" }), [reply("r1")]);
+    state = frame(state, { type: "message.ephemeral", message: card() });
+    state = frame(state, { type: "message.ephemeral", message: card({ plainText: "Allowed by you." }) });
+    expect(state.replies.ephemeral.map((m) => m.plainText)).toEqual(["Allowed by you."]);
+    for (const elsewhere of [card({ id: "e2", parentId: undefined }), card({ id: "e3", parentId: "m9" })]) expect(frame(state, { type: "message.ephemeral", message: elsewhere })).toBe(state);
+  });
+
+  it("forgets them as it opens again, which those still waiting follow", () => {
+    let state = frame(opened(initialThreadState({ parentId: "m1" }), [reply("r1")]), { type: "message.ephemeral", message: card() });
+    // The room's own welcome is the room's: the thread opens again after it.
+    state = frame(state, { type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 1 });
+    expect(state.replies.ephemeral).toHaveLength(1);
+    expect(opened(state, [reply("r1")]).replies.ephemeral).toEqual([]);
   });
 });

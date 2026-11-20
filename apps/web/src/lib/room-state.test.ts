@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, type ClientFrame, type EphemeralMessage, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { timeline } from "./messages";
 import { initialRoomState, isPending, MAX_MESSAGES, roomReducer, type PendingMessage, type PendingUpload, type RoomState } from "./room-state";
@@ -680,5 +680,44 @@ describe("Threads", () => {
 
   it("says why something written didn't go, as the room says why it refused something", () => {
     expect(roomReducer(initialRoomState, { type: "warn", message: "Too long" }).notice).toBe("Too long");
+  });
+});
+
+describe("Messages only you see", () => {
+  const ember: User = { id: "ember", name: "Ember" };
+  /** The card of a call that waits on Ada, which only she sees. */
+  const card = (overrides: Partial<EphemeralMessage> = {}): EphemeralMessage => ({
+    id: "e1",
+    roomId: "general",
+    creator: ember,
+    body: "",
+    plainText: "Ember wants to use Tracker",
+    cards: [],
+    createdAt: "2026-10-12T10:00:30.000Z",
+    ...overrides,
+  });
+  const shownAlone = (state: RoomState, m: EphemeralMessage) => frame(state, { type: "frame", frame: { type: "message.ephemeral", message: m }, now: 0 });
+
+  it("shows each as it comes, apart from the room's messages, and changes one in its place, as its call is answered", () => {
+    let state = shownAlone(opened(stored(1, 2)), card());
+    state = shownAlone(state, card({ id: "e2" }));
+    state = shownAlone(state, card({ plainText: "Allowed by you." }));
+    expect(state.ephemeral.map((m) => [m.id, m.plainText])).toEqual([
+      ["e1", "Allowed by you."],
+      ["e2", "Ember wants to use Tracker"],
+    ]);
+    expect(ids(state)).toEqual(["m001", "m002"]);
+  });
+
+  it("leaves one about a question asked in a thread to the thread", () => {
+    const state = opened(stored(1, 2));
+    expect(shownAlone(state, card({ parentId: "m001" }))).toBe(state);
+  });
+
+  it("forgets them as the room lets the page in again, which sends again those still waiting", () => {
+    const state = shownAlone(opened(stored(1, 2)), card());
+    const welcome: ServerFrame = { type: "welcome", you: ada, messages: stored(1, 2), present: [ada], hasMore: false, hasNewer: false, around: null, seq: 1 };
+    expect(frame(state, { type: "frame", frame: welcome, now: 0 }).ephemeral).toEqual([]);
+    expect(frame(state, { type: "frame", frame: { type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 1 }, now: 0 }).ephemeral).toEqual([]);
   });
 });

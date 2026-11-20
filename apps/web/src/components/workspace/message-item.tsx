@@ -1,5 +1,5 @@
 import { memo, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
-import type { CardAction, Me, Message, User } from "@ember/protocol";
+import type { CardAction, EphemeralMessage, Me, Message, User } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { NavArrowRight } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
@@ -250,6 +250,35 @@ export function JoinedItem({ user, at }: { user: User; at: string }) {
           </time>
         </h3>
         <p className="text-[15px] leading-[22px] text-message-muted">joined {name}</p>
+      </div>
+    </article>
+  );
+}
+
+/** What a message only its reader sees says over it, as Slack says it over an app's ephemeral message. */
+export const ONLY_YOU = "Only visible to you";
+
+/**
+ * A message only the reader sees, as the card of a call that waits on them, as Slack shows an app's
+ * ephemeral message: saying so over its author and time, then its text and cards, whose buttons act. It's
+ * none of the room's messages, so it has no permalink, actions or reactions.
+ */
+export function EphemeralItem({ message, actions }: { message: EphemeralMessage; actions: MessageActions | null }) {
+  const created = new Date(message.createdAt);
+  const shown = useMemo(() => shownBody(message.body, message.plainText), [message.body, message.plainText]);
+  return (
+    <article className="relative grid grid-cols-[36px_minmax(0,1fr)] gap-x-2 px-5 pt-1 max-md:grid-cols-[30px_minmax(0,1fr)] max-md:gap-x-2.5 max-md:px-3">
+      <p className="col-start-2 text-[13px] leading-[18px] text-message-muted">{ONLY_YOU}</p>
+      <AvatarLink user={message.creator} square className="col-start-1 row-start-2 mt-2 size-9 max-md:size-[30px]" />
+      <div className="col-start-2 row-start-2 min-w-0 py-1">
+        <h3 className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5">
+          <Author user={message.creator} />
+          <time dateTime={message.createdAt} title={dateTimeLabel(created)} className="text-xs leading-[18px] whitespace-nowrap text-message-muted">
+            {timeLabel(created)}
+          </time>
+        </h3>
+        {message.body !== "" && shown && <MessageBody nodes={shown} mentions={[]} className="touch:pr-8" />}
+        <BotCards cards={message.cards} className="touch:pr-8" onAction={actions ? (action) => actions.click(message.id, action) : undefined} />
       </div>
     </article>
   );

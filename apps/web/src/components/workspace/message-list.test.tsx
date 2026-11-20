@@ -1,4 +1,4 @@
-import type { Invitation, Me, Message } from "@ember/protocol";
+import type { EphemeralMessage, Invitation, Me, Message } from "@ember/protocol";
 import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -396,6 +396,41 @@ describe("Day separators", () => {
     const days = screen.getAllByRole("heading", { level: 2 });
     expect(days.map((day) => day.textContent)).toEqual(["October 10, 2026", "October 11, 2026"]);
     expect(days[1]!.querySelector("time")).toHaveAttribute("title", "10/11/26, 9:00 AM");
+  });
+});
+
+describe("Messages only you see", () => {
+  const allow = { id: "ember.call.allow", blockId: "ember.call" };
+  /** The card of a call from @ember that waits on Ada, which only she sees. */
+  const card: EphemeralMessage = {
+    id: "e1",
+    roomId: "general",
+    creator: { id: "ember", name: "Ember" },
+    body: "",
+    plainText: "Ember wants to use Tracker",
+    cards: [{ source: "blocks", parts: [{ kind: "text", html: "<p>Ember wants to use Tracker</p>" }, { kind: "buttons", buttons: [{ text: "Allow once", action: allow, style: "primary" }] }] }],
+    createdAt: "2026-10-12T10:01:00.000Z",
+  };
+  const rows = () => [...screen.getByRole("log").querySelectorAll<HTMLElement>("[data-row]")].map((row) => row.dataset.row);
+
+  it("shows each after the messages that came before it, saying only you see it, with buttons that answer it", async () => {
+    render(list({ messages: [message("Asked"), message("Later", "2026-10-12T10:02:00.000Z")], ephemeral: [card] }));
+    expect(rows()).toEqual(["u1:Asked", "ephemeral:e1", "u1:Later"]);
+    const shown = within(screen.getByRole("log").querySelector<HTMLElement>('[data-row="ephemeral:e1"]')!);
+    expect(shown.getByText("Only visible to you")).toBeInTheDocument();
+    expect(shown.getByRole("heading", { level: 3 })).toHaveTextContent("Ember");
+    // The message after it shows whose it is again.
+    expect(screen.getAllByRole("heading", { level: 3, name: /Ada/ })).toHaveLength(2);
+    actions.click.mockResolvedValueOnce(true);
+    await userEvent.click(shown.getByRole("button", { name: "Allow once" }));
+    expect(actions.click).toHaveBeenCalledWith("e1", allow);
+  });
+
+  it("waits to show one while the timeline holds older messages than the newest, which it came among", () => {
+    const { rerender } = render(list({ messages: [message("Asked")], ephemeral: [card], hasNewer: true }));
+    expect(rows()).toEqual(["u1:Asked"]);
+    rerender(list({ messages: [message("Asked")], ephemeral: [card] }));
+    expect(rows()).toEqual(["u1:Asked", "ephemeral:e1"]);
   });
 });
 

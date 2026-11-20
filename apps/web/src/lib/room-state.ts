@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, parentTextOf, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, parentTextOf, type EphemeralMessage, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 
 /** `gone` is a room that isn't there for this person any more, deleted or no longer theirs, which nothing reconnects to. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
@@ -62,6 +62,11 @@ export interface RoomState {
   offline: boolean;
   /** The timeline's messages, oldest first, followed by those this page sent that the room hasn't confirmed. */
   messages: Array<Message | PendingMessage>;
+  /**
+   * The messages only this page's person sees, as the card of a call that waits on them, as they came,
+   * until the room lets the page in again, which sends again those still waiting.
+   */
+  ephemeral: EphemeralMessage[];
   present: User[];
   /** Who is typing, with when we last heard so stale entries can expire. */
   typing: Record<string, Typist & { at: number }>;
@@ -144,6 +149,7 @@ export const initialRoomState: RoomState = {
   status: "connecting",
   offline: false,
   messages: [],
+  ephemeral: [],
   present: [],
   typing: {},
   hasMore: false,
@@ -298,6 +304,10 @@ export function typed(typing: RoomState["typing"], { user, typing: started, doin
   return started ? { ...typing, [user.id]: { user, at: now, ...(doing !== undefined && { doing }) } } : withoutTyping(typing, user.id);
 }
 
+/** The messages only this page's person sees with `message` among them, new, or in the place of the one with its id. */
+export const withEphemeral = (ephemeral: EphemeralMessage[], message: EphemeralMessage) =>
+  ephemeral.some((m) => m.id === message.id) ? ephemeral.map((m) => (m.id === message.id ? message : m)) : [...ephemeral, message];
+
 /**
  * The timeline as the room lets a connection in with a welcome, `page` in its place, and `present` there.
  * Unconfirmed messages stay across a reconnect, and everything else comes fresh from the room: the old
@@ -308,6 +318,8 @@ export function welcomed(state: RoomState, page: TimelinePage, present: User[]):
   return {
     ...state,
     ...showing(state, page),
+    // The room sends again, after it, those that still wait.
+    ephemeral: [],
     status: "open",
     present,
     // A history request on the old socket will never be answered.
@@ -332,6 +344,8 @@ export function resumed(state: RoomState, changed: Changes, present: User[]): Ro
       ...state,
       status: "open",
       messages,
+      // As after a welcome.
+      ephemeral: [],
       present,
       // A history request on the old socket will never be answered.
       loadingOlder: false,
@@ -436,6 +450,9 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       return { ...state, messages: retold(replace(state.messages, frame.message.id, () => frame.message), [frame.message]) };
     case "message.deleted":
       return { ...state, messages: state.messages.filter((m) => m.id !== frame.messageId) };
+    // One about a question asked in a thread is the thread's to show (`threadReducer`).
+    case "message.ephemeral":
+      return frame.message.parentId === undefined ? { ...state, ephemeral: withEphemeral(state.ephemeral, frame.message) } : state;
     case "boost.created":
       return {
         ...state,

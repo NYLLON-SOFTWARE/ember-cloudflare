@@ -1,5 +1,6 @@
-import type { Message, UserId } from "@ember/protocol";
+import type { EphemeralMessage, Message, UserId } from "@ember/protocol";
 import { displayMarkup, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
+import { isPending } from "./room-state";
 
 /**
  * How far apart a person's messages can be, either way, and still group, as Campfire's
@@ -7,13 +8,15 @@ import { displayMarkup, type DisplayElement, type DisplayNode, type DisplayPrevi
  */
 const THREAD_WINDOW_MS = 5 * 60 * 1000;
 
-export interface TimelineItem {
-  message: Message;
+/** A message in the timeline: one of the room's, or, `ephemeral`, one only the reader sees, as the card of a call that waits on them. */
+type Entry = { message: Message; ephemeral?: never } | { message: EphemeralMessage; ephemeral: true };
+
+export type TimelineItem = Entry & {
   /** Whether the message is the first of its day in the reader's time zone, which a separator dates. */
   firstOfDay: boolean;
   /** Same author as the previous message, shortly after it: show it compactly. */
   threaded: boolean;
-}
+};
 
 // Times and dates as Campfire's local_time_controller.js writes them, in the reader's locale and time zone.
 // Days are told apart as message_formatter.js tells them, by a formatter's short dates rather than by `Date`,
@@ -68,31 +71,53 @@ export function huddleStartedLabel(date: Date, now = new Date()): string {
 export const sameDay = (a: string, b: string) => dayFormat.format(new Date(a)) === dayFormat.format(new Date(b));
 
 /** The day each message was written, as `dayFormat` writes it, kept with the message, since a timeline asks again on every render. */
-const days = new WeakMap<Message, string>();
-function dayOf(message: Message): string {
+const days = new WeakMap<Pick<Message, "createdAt">, string>();
+function dayOf(message: Pick<Message, "createdAt">): string {
   let day = days.get(message);
   if (day === undefined) days.set(message, (day = dayFormat.format(new Date(message.createdAt))));
   return day;
 }
 
 /**
- * The messages as message_formatter.js lays them out. A message is the first of its day when the one above it
- * is from another day. It's threaded, without its author's avatar and name, when the one above it is the
- * same person's from no more than five minutes before or after, even across midnight, when it has a separator
- * and still no header. A message deleted while its thread has replies shows neither its author nor its time,
- * so nothing threads under it, and it threads under nothing. The same goes for a huddle's message, which
- * shows the headphones and what it says of its huddle where its author would be.
+ * The messages with those only the reader sees, `ephemeral`, among them: each after the messages that came
+ * before it, and before any on its way to the room, whose time is the reader's clock's rather than the room's.
  */
-export function timeline(messages: Message[]): TimelineItem[] {
-  return messages.map((message, index) => {
-    const previous = messages[index - 1];
-    if (!previous) return { message, firstOfDay: true, threaded: false };
-    const [created, before] = [new Date(message.createdAt), new Date(previous.createdAt)];
+function among(messages: Message[], ephemeral: EphemeralMessage[]): Entry[] {
+  const entries: Entry[] = messages.map((message) => ({ message }));
+  for (const message of ephemeral) {
+    const after = entries.findIndex((entry) => !entry.ephemeral && (isPending(entry.message) || entry.message.createdAt > message.createdAt));
+    entries.splice(after === -1 ? entries.length : after, 0, { message, ephemeral: true });
+  }
+  return entries;
+}
+
+/** Whether `entry` shows its author, as its own heading, so that nothing threads under it, and it threads under nothing. */
+const standsApart = ({ message, ephemeral }: Entry) => ephemeral || message.deleted || message.huddle !== undefined;
+
+/**
+ * The messages as message_formatter.js lays them out, with those only the reader sees, `ephemeral`, among
+ * them by when they came. A message is the first of its day when the one above it is from another day.
+ * It's threaded, without its author's avatar and name, when the one above it is the same person's from no
+ * more than five minutes before or after, even across midnight, when it has a separator and still no
+ * header. A message deleted while its thread has replies shows neither its author nor its time, so nothing
+ * threads under it, and it threads under nothing. The same goes for a huddle's message, which shows the
+ * headphones and what it says of its huddle where its author would be, and for one only the reader sees,
+ * which says so under its author.
+ */
+export function timeline(messages: Message[], ephemeral: EphemeralMessage[] = []): TimelineItem[] {
+  const entries = among(messages, ephemeral);
+  return entries.map((entry, index) => {
+    const previous = entries[index - 1];
+    if (!previous) return { ...entry, firstOfDay: true, threaded: false };
+    const [{ message }, { message: before }] = [entry, previous];
     return {
-      message,
-      firstOfDay: dayOf(previous) !== dayOf(message),
+      ...entry,
+      firstOfDay: dayOf(before) !== dayOf(message),
       threaded:
-        !message.deleted && !previous.deleted && !message.huddle && !previous.huddle && previous.creator.id === message.creator.id && Math.abs(created.getTime() - before.getTime()) <= THREAD_WINDOW_MS,
+        !standsApart(entry) &&
+        !standsApart(previous) &&
+        before.creator.id === message.creator.id &&
+        Math.abs(new Date(message.createdAt).getTime() - new Date(before.createdAt).getTime()) <= THREAD_WINDOW_MS,
     };
   });
 }
