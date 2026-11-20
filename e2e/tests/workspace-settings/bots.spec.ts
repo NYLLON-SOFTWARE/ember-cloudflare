@@ -538,7 +538,7 @@ test.describe("Bots boost messages", () => {
 
     const boosted = await page.request.post(`${message}/boosts`, { data: "🎉", headers: FORM });
     expect(boosted.status()).toBe(201);
-    const boost = page.getByRole("article").filter({ hasText: text }).getByRole("img", { name: `${name} boosted 🎉` });
+    const boost = page.getByRole("article").filter({ hasText: text }).getByRole("button", { name: `🎉, 1 reaction: ${name}` });
     await expect(boost).toBeVisible();
 
     const { id } = (await boosted.json()) as { id: string };

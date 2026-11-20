@@ -20,7 +20,7 @@ async function newBoost(member: Member, text: string): Promise<Locator> {
 }
 
 test.describe("React to a message", () => {
-  test("adds a quick reaction from the bar for everyone to see, with the avatar of who added it", async ({ members }) => {
+  test("adds a quick reaction from the bar for everyone to see, naming who added it", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     const text = "Ship it?";
@@ -28,10 +28,8 @@ test.describe("React to a message", () => {
 
     await react(grace, text, "Thumbs up");
     await expect(reactions(ada, text).getByRole("listitem")).toHaveText(["👍"]);
-    await expect(reactions(ada, text).getByRole("img", { name: "Grace boosted 👍" })).toBeVisible();
-    // Only your own reactions do anything.
-    await expect(reactions(ada, text).getByRole("button")).toHaveCount(0);
-    await expect(reactions(grace, text).getByRole("button", { name: "👍" })).toBeVisible();
+    await expect(reactions(ada, text).getByRole("button", { name: "👍, 1 reaction: Grace", pressed: false })).toBeVisible();
+    await expect(reactions(grace, text).getByRole("button", { name: "👍, 1 reaction: you", pressed: true })).toBeVisible();
   });
 
   test("adds the other reactions from the tray", async ({ members }) => {
@@ -44,10 +42,10 @@ test.describe("React to a message", () => {
     const tray = grace.message(text).getByRole("group", { name: "More reactions" });
     await expect(tray.getByRole("button")).toHaveText(["💪Muscle", "❤️Red heart", "😂Face with tears of joy", "🎉Party popper", "🔥Fire", "New boost"]);
     await tray.getByRole("button", { name: "Party popper" }).click();
-    await expect(reactions(ada, text).getByRole("img", { name: "Grace boosted 🎉" })).toBeVisible();
+    await expect(reactions(ada, text).getByRole("button", { name: "🎉, 1 reaction: Grace" })).toBeVisible();
   });
 
-  test("lists each reaction on its own, oldest first, adding one you've added already only once", async ({ members }) => {
+  test("shows one chip a reaction, in the order each was first added, adding one you've added already only once", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     const text = "Agreed?";
@@ -56,16 +54,16 @@ test.describe("React to a message", () => {
     await expect(reactions(ada, text).getByRole("listitem")).toHaveCount(1);
     await react(ada, text, "Clapping");
 
-    const avatars = reactions(grace, text).getByRole("img");
-    await expect(avatars).toHaveCount(2);
-    await expect(avatars.nth(0)).toHaveAccessibleName("Grace boosted 👏");
-    await expect(avatars.nth(1)).toHaveAccessibleName("Ada boosted 👏");
+    const chips = reactions(grace, text).getByRole("button");
+    await expect(chips).toHaveCount(1);
+    await expect(chips.nth(0)).toHaveAccessibleName("👏, 2 reactions: you and Ada");
 
-    // A second 👏 from Ada does nothing, so the 👍 after it is the third reaction.
+    // A second 👏 from Ada does nothing, so the 👍 after it is the second chip.
     await react(ada, text, "Clapping");
     await react(ada, text, "Thumbs up");
-    await expect(avatars.nth(2)).toHaveAccessibleName("Ada boosted 👍");
-    await expect(avatars).toHaveCount(3);
+    await expect(chips).toHaveCount(2);
+    await expect(chips.nth(0)).toHaveAccessibleName("👏, 2 reactions: you and Ada");
+    await expect(chips.nth(1)).toHaveAccessibleName("👍, 1 reaction: Ada");
   });
 
   test("opens the bar with More reactions from Add a boost, and Escape hands focus back to it", async ({ members }) => {
@@ -137,7 +135,7 @@ test.describe("Custom reactions", () => {
 
     await submit.click();
     await expect(field).toHaveCount(0);
-    await expect(reactions(grace, text).getByRole("img", { name: "Ada boosted Lovely!" })).toBeVisible();
+    await expect(reactions(grace, text).getByRole("button", { name: "Lovely!, 1 reaction: Ada" })).toBeVisible();
     await expect(ada.message(text).getByRole("button", { name: "Message options" })).toBeFocused();
   });
 
@@ -180,42 +178,47 @@ test.describe("Custom reactions", () => {
     await grace.editor().press("ControlOrMeta+Enter");
     await react(grace, "Redacted!", "Clapping");
 
-    await expect(reactions(ada, "Redacted!").getByRole("img", { name: "Grace boosted 👏" })).toBeVisible();
+    await expect(reactions(ada, "Redacted!").getByRole("button", { name: "👏, 1 reaction: Grace" })).toBeVisible();
     await expect(ada.message("Redacted!").getByRole("textbox", { name: "Custom reaction" })).toHaveValue("Hey!");
   });
 });
 
-test.describe("Take back a reaction", () => {
+test.describe("Join or take back a reaction", () => {
+  test("adds someone else's reaction for you as you tap it, for everyone", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    const text = "Lunch?";
+    await ada.send(text);
+    await react(grace, text, "Thumbs up");
+
+    const theirs = reactions(ada, text).getByRole("button", { name: "👍, 1 reaction: Grace" });
+    await theirs.click();
+    await expect(reactions(ada, text).getByRole("button", { name: "👍, 2 reactions: Grace and you", pressed: true })).toBeVisible();
+    await expect(reactions(grace, text).getByRole("button", { name: "👍, 2 reactions: you and Ada" })).toBeVisible();
+  });
+
   // After Campfire's "deleting a boost" (boosting_messages_test.rb).
-  test("takes back your own reaction from Delete this boost, for everyone", async ({ members }) => {
+  test("takes back your own reaction as you tap it, for everyone", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     const text = "Hmm";
     await ada.send(text);
     await react(grace, text, "Waving hand");
-    await expect(reactions(ada, text).getByRole("img", { name: "Grace boosted 👋" })).toBeVisible();
+    await expect(reactions(ada, text).getByRole("button", { name: "👋, 1 reaction: Grace" })).toBeVisible();
 
-    const mine = reactions(grace, text).getByRole("button", { name: "👋" });
-    await expect(mine).toHaveAccessibleDescription("Press enter to delete this boost");
-    await mine.click();
-    const remove = reactions(grace, text).getByRole("button", { name: "Delete this boost" });
-    await expect(remove).toBeFocused();
-    await remove.click();
+    await reactions(grace, text).getByRole("button", { name: "👋, 1 reaction: you", pressed: true }).click();
     await expect(reactions(ada, text)).toHaveCount(0);
     await expect(reactions(grace, text)).toHaveCount(0);
   });
 
-  test("takes back your reaction from the keyboard, handing focus to Message options", async ({ members }) => {
+  test("takes back your reaction from the keyboard", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const text = "Keyboard only";
     await ada.send(text);
     await react(ada, text, "Thumbs up");
 
-    await reactions(ada, text).getByRole("button", { name: "👍" }).focus();
-    await ada.page.keyboard.press("Enter");
-    await expect(reactions(ada, text).getByRole("button", { name: "Delete this boost" })).toBeFocused();
+    await reactions(ada, text).getByRole("button", { name: "👍, 1 reaction: you" }).focus();
     await ada.page.keyboard.press("Enter");
     await expect(reactions(ada, text)).toHaveCount(0);
-    await expect(ada.message(text).getByRole("button", { name: "Message options" })).toBeFocused();
   });
 });
