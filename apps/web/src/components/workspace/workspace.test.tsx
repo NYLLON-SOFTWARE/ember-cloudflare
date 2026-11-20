@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { ASSISTANT_ID, CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Reminder, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings, AvailableAgent } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { ALL_HUDDLE_SOUNDS, CAMERAS_OFF, SCREENS_OFF, type HuddleSoundsChanged, type PastHuddle } from "@ember/protocol/huddles";
@@ -9,7 +9,7 @@ import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { SHIPPED_MODELS } from "@/hooks/use-offered-models";
 import { PushContext } from "@/hooks/use-push";
-import { navigate } from "@/hooks/use-route";
+import { guardLeaving, navigate } from "@/hooks/use-route";
 import { joinHuddle } from "@/lib/huddle";
 import { INVITATION_RINGS_MS } from "@/lib/huddle-invitations";
 import { ringForHuddle } from "@/lib/huddle-ring";
@@ -18,7 +18,7 @@ import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
-import { Workspace, loadPageAhead } from "./workspace";
+import { loadPageAhead, Workspace } from "./workspace";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 // A huddle's own tests join one. Here joining shows the tab as in the huddle, as a test has it.
@@ -80,6 +80,7 @@ const workspaceSettings: WorkspaceSettings = {
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
+    "GET /api/reminders": () => Response.json({ reminders: [] }),
     "GET /api/users": () => Response.json({ users: [] }),
     "GET /api/reports": () => Response.json({ open: [], handled: [] }),
     ...responses,
@@ -1325,7 +1326,7 @@ describe("Search box", () => {
 
 describe("Edit your profile", () => {
   it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null, fields: [] } }) });
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
     await user.click(screen.getByRole("link", { name: "Your profile" }));
@@ -1339,7 +1340,7 @@ describe("Edit your profile", () => {
   });
 
   it("logs out from your profile", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, apps: [], outsideAi: null, fields: [] } }) });
     const { onSignOut, user } = showWorkspace("/users/me/profile");
     await user.click(screen.getByRole("button", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
@@ -1351,7 +1352,7 @@ describe("Connect Memberful", () => {
 
   it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
     const memberful = { membersOnly: true, connected: { name: "Ada Lovelace", emailAddress: "ada@example.com" } };
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [], outsideAi: null } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful, apps: [], outsideAi: null, fields: [] } }) });
     const { unmount } = showWorkspace("/users/me/profile?memberful=connected#top");
     expect(await screen.findByRole("alert")).toHaveTextContent("Your Memberful account is connected.");
     expect(address()).toBe("/users/me/profile#top");
@@ -3452,5 +3453,68 @@ describe("Huddles", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
       expect(await pageHeading()).toBeInTheDocument();
     });
+  });
+});
+
+describe("Reminders", () => {
+  it("is done with a due reminder only once the page its Open goes to has been shown", async () => {
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: NOON };
+    const deletes = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/reminders/r1" && init?.method === "DELETE").length;
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [due] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    // A page holding unsaved changes, which holds the navigation Open asks for.
+    let proceed: (() => unknown) | null = null;
+    const unguard = guardLeaving((_path, go) => ((proceed = go), true));
+    try {
+      const { user, unmount } = showWorkspace("/");
+      const notice = await screen.findByRole("alert");
+      expect(notice).toHaveTextContent("Grace");
+      await user.click(within(notice).getByRole("button", { name: "Open" }));
+      // Held, nothing is dismissed: the person may yet keep editing.
+      expect(deletes()).toBe(0);
+      await act(async () => void (await proceed?.()));
+      expect(location.pathname).toBe("/rooms/general/@m1");
+      await waitFor(() => expect(deletes()).toBe(1));
+      unmount();
+    } finally {
+      unguard();
+    }
+  });
+
+  it("is done with a due reminder when it's done with", async () => {
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: NOON };
+    const deletes = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/reminders/r1" && init?.method === "DELETE").length;
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [due] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    const { user, unmount } = showWorkspace("/");
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("The deploy is at noon");
+    await user.click(within(notice).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(deletes()).toBe(1));
+    // Dismissed, the notice leaves the page at once.
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    unmount();
+  });
+
+  it("shows a notice the socket tells of coming due, though this clock still calls its time the future", async () => {
+    // A browser whose clock trails the Worker's has the reminder's time still to come, so only the
+    // telling finds it: nothing else would redraw the page when this clock caught up.
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: new Date(Date.now() + 60_000).toISOString() };
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    const { user, unmount } = showWorkspace("/");
+    await workspaceSends({ type: "reminder.due", reminder: due });
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("The deploy is at noon");
+    await user.click(within(notice).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    unmount();
   });
 });

@@ -1,7 +1,6 @@
 import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useMemo, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
@@ -12,6 +11,7 @@ import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { BLOCKED_MESSAGE, MessageItem, type ThreadPlace } from "./message-item";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -272,6 +272,7 @@ describe("Download and share files", () => {
   it("offers Download in place of Quote among a file message's actions", async () => {
     const { user } = show(fileMessage(), { me: grace });
     await user.click(optionsOn("Q3 report.pdf"));
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Download", "Copy link", "Remind me"]);
     expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Download", "Copy link", "Block Ada", "Report message"]);
     const download = within(actionBar()).getByRole("link", { name: "Download" });
     expect(download).toHaveAttribute("href", report.downloadUrl);
@@ -487,6 +488,7 @@ describe("Edit a message", () => {
   it("puts Edit last, as Slack does, and Delete in the editor", async () => {
     const { user } = show(message({ creator: grace }), { administrator: true });
     await user.click(optionsOn("Hello"));
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Remind me", "Edit"]);
     expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Block Grace", "Report message", "Edit"]);
   });
 
@@ -602,11 +604,24 @@ describe("Message action bar", () => {
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "true");
     expect(options).toHaveAttribute("aria-controls", actionBar().id);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Remind me"]);
     expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Block Ada", "Report message"]);
 
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+  });
+
+  it("opens Remind me from the bar with a finger, which only More actions opens with a mouse", async () => {
+    // The dialog asks what's waiting on the message as it opens.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ reminders: [] })));
+    const { user } = show(message());
+    const options = optionsOn("Hello");
+    await user.click(options);
+    await user.click(within(actionBar()).getByRole("button", { name: "Remind me" }));
+    // The bar closes and the dialog takes its place.
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("dialog", { name: "Remind me" })).toBeInTheDocument();
   });
 
   it("closes the actions after a reaction and hands focus to Message options", async () => {
@@ -813,6 +828,7 @@ describe("More actions on a message", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("More actions");
 
     await user.click(options);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…"]);
     expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Block Ada", "Report message"]);
     expect(within(moreActions()).getByRole("button", { name: "Quote" })).toHaveFocus();
     expect(options).toHaveClass("bg-hover");
@@ -831,18 +847,20 @@ describe("More actions on a message", () => {
     withMouse();
     const { article, user } = show(message());
     await openMoreActions(user, article);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Edit message", "Delete message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Edit message", "Delete message"]);
     expect(within(moreActions()).getByRole("button", { name: "Delete message" })).toHaveClass("text-negative");
     cleanup();
 
     const file = show(fileMessage(), { me: grace, administrator: true });
     await openMoreActions(file.user, file.article);
+    expect(items()).toEqual(["Copy link", "Remind me…", "Delete message"]);
     expect(items()).toEqual(["Copy link", "Block Ada", "Report message", "Delete message"]);
     cleanup();
 
     // A bot's cards can't be edited either, but their text can be quoted and copied.
     const cards = show(cardMessage(), { me: grace, administrator: true });
     await openMoreActions(cards.user, cards.article);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Delete message"]);
     expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Block Ada", "Report message", "Delete message"]);
   });
 

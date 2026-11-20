@@ -1,67 +1,5 @@
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  DELETED_PERSON_NAME,
-  MAX_FAVORITES,
-  MAX_OTHER_ADDRESSES,
-  MAX_PUSH_SUBSCRIPTIONS,
-  MAX_SHARED_ORDER,
-  NAVIGATION_SLOTS,
-  PASSWORD_RESET_CODE_TRIES,
-  RECENT_SEARCHES,
-  emailDomainOf,
-  isHost,
-  isRoomIcon,
-  mailboxOf,
-  mailboxText,
-  parseSearch,
-  type Account,
-  type Blocks,
-  type BotChanges,
-  type BotRoom,
-  type ChangedBlocks,
-  type CloseCode,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkKind,
-  type Favorites,
-  type Involvement,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type PersonRole,
-  type Profile,
-  type PushSubscriptionKeys,
-  type Role,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SharedRoom,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-} from "@ember/protocol";
-import {
-  ANSWER_LENGTHS,
-  DEFAULT_LEVELS,
-  MODEL_FORMATS,
-  modelName,
-  modelNameOf,
-  modelOf,
-  THINKING_LEVELS,
-  TOP_LEVELS,
-  WEB_TOOLS,
-  type AnswerLength,
-  type AnswerLevels,
-  type AssistantModel,
-  type ModelFormat,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_ID, ASSISTANT_NAME, DELETED_PERSON_NAME, emailDomainOf, isHost, isRoomIcon, mailboxOf, mailboxText, MAX_FAVORITES, MAX_OTHER_ADDRESSES, MAX_PUSH_SUBSCRIPTIONS, MAX_SHARED_ORDER, NAVIGATION_SLOTS, parseSearch, PASSWORD_RESET_CODE_TRIES, RECENT_SEARCHES, type Account, type Blocks, type BotChanges, type BotRoom, type ChangedBlocks, type CloseCode, type DirectRoom, type EmailInvitation, type EmailLinkKind, type Favorites, type Involvement, type NavigationIconChanges, type NavigationIcons, type PersonRole, type Profile, type PushSubscriptionKeys, type Role, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SharedRoom, type SidebarRoom, type User, type UserId, type UserStatus } from "@ember/protocol";
+import { ANSWER_LENGTHS, DEFAULT_LEVELS, MODEL_FORMATS, modelName, modelNameOf, modelOf, THINKING_LEVELS, TOP_LEVELS, WEB_TOOLS, type AnswerLength, type AnswerLevels, type AssistantModel, type ModelFormat, type ThinkingLevel, type WebTool, type YourAssistantChanges } from "@ember/protocol/assistant";
 import type { AgentAccess, AgentProfile, AgentRoom } from "@ember/protocol/agents";
 import type { AppId } from "@ember/protocol/apps";
 import { ALL_HUDDLE_SOUNDS, PAST_HUDDLES_LISTED, type HuddleSoundChanges, type HuddleSounds, type LiveHuddle, type PastHuddle } from "@ember/protocol/huddles";
@@ -3411,6 +3349,78 @@ const storedApp = (row: AppRow): StoredApp => ({
   signInClient: row.sign_in_client_id !== null && row.sign_in_client !== null ? { id: row.sign_in_client_id, sealed: row.sign_in_client } : null,
   scopeWanted: row.scope_wanted,
 });
+/** What a reminder's row keeps, named as the protocol's `Reminder` reads it. */
+const REMINDER_FIELDS = `id, room_id AS roomId, message_id AS messageId, parent_id AS parentId, creator_id AS creatorId, creator_name AS creatorName,
+  excerpt, remind_at AS remindAt`;
+
+/** A reminder as its row keeps it, with who asked for it. */
+export interface StoredReminderRow {
+  id: string;
+  roomId: RoomId;
+  messageId: string;
+  parentId: string | null;
+  creatorId: UserId;
+  creatorName: string;
+  excerpt: string;
+  /** When it comes back, as milliseconds are counted. */
+  remindAt: number;
+}
+
+/** A reminder that has come due and still has something to say or push, with who asked for it. */
+export interface DueReminder {
+  id: string;
+  userId: UserId;
+  /** Whether its tabs haven't heard it yet: the run that marks it told is the one that says it. */
+  untold: boolean;
+}
+
+/** A reminder to queue, as `queueReminder` takes it. */
+export interface StoredReminder extends StoredReminderRow {
+  userId: UserId;
+  /** When it was asked for, as milliseconds are counted. */
+  createdAt: number;
+}
+
+/** A reminder read for its delivery: its row, and what its pushes have reached so far. */
+export interface StoredReminderDelivery extends StoredReminderRow {
+  /** The subscriptions its pushes have reached, as the JSON list its row keeps, or null for none of them. */
+  delivered: string | null;
+}
+
+/** Asks a reminder of a message for someone, keeping the message as it reads then. */
+const QUEUE_REMINDER = `INSERT INTO reminders (id, user_id, room_id, message_id, parent_id, creator_id, creator_name, excerpt, remind_at, created_at)
+  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`;
+
+/** Someone's reminders, the one coming soonest first. */
+const REMINDERS_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE user_id = ? ORDER BY remind_at, id`;
+
+/** One of someone's reminders, theirs alone. */
+const REMINDER_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ? AND user_id = ?`;
+
+/** One reminder by its id, whoever asked for it, with what its pushes have reached, which a delivery reads again before it tells it. */
+const REMINDER_BY_ID = `SELECT ${REMINDER_FIELDS}, delivered FROM reminders WHERE id = ?`;
+
+/**
+ * How long a reminder's pushes wait to be tried again after a try has failed: five minutes, as long as
+ * the outbox ever puts a failed row off (`LONGEST_RETRY_MS`), so a push service that won't take them
+ * is asked no oftener than this whatever the runs come round. The tries keep the rhythm within the day
+ * past the reminder's time (`REMINDER_PUSH_GRACE_MS` in src/workspace.ts), which spends them.
+ */
+export const REMINDER_PUSH_RETRY_MS = 5 * 60 * 1000;
+
+/** The reminders that have come due and still have a notice to say or pushes to try, the oldest due first. A reminder whose pushes failed waits, since they did, for `REMINDER_PUSH_RETRY_MS`. */
+const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId, reminded_at IS NULL AS untold FROM reminders
+  WHERE remind_at <= ? AND (reminded_at IS NULL OR (pushed_at IS NULL AND COALESCE(push_tried_at, 0) <= ?))
+  ORDER BY remind_at, id LIMIT ?`;
+
+/** Whether someone is in a room, which a reminder of a message in it asks. */
+const IN_ROOM = `SELECT 1 FROM memberships WHERE user_id = ? AND room_id = ?`;
+
+/** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to, none of them a guest's while ?2 doesn't let guests stay signed in. */
+const PUSH_DELIVERIES_FOR_USER = `SELECT push_subscriptions.id AS "subscriptionId", endpoint, p256dh_key AS "p256dhKey", auth_key AS "authKey",
+    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
+  FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
+  WHERE push_subscriptions.user_id = ?1 AND (users.guest = 0 OR ?2 = 1) ORDER BY push_subscriptions.id`;
 
 /** How many sign-ins to apps can be under way at once: beginning another forgets the one begun longest ago. */
 const MAX_PENDING_APP_SIGN_INS = 20;
@@ -4541,25 +4551,23 @@ export class WorkspaceStore {
     );
   }
 
-  /**
-   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or refresh is due, if
-   * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
+    /**
+   * When the outbox's next revocation, purge, reindex, picture deletion, membership check, refresh or
+   * reminder is due, if any is waiting, leaving out the purges waiting on their rooms' revocations, which
+   * are due no sooner. A reminder whose pushes failed is due once the wait since they did has passed
+   * (`REMINDER_PUSH_RETRY_MS`); one never tried is due when its time is.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{
-      revocation: number | null;
-      purge: number | null;
-      reindex: number | null;
-      picture: number | null;
-      membership: number | null;
-      catchUp: number | null;
-      refresh: number | null;
-    }>(
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null; refresh: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (SELECT min(refresh_due_at) FROM identities) AS refresh`,
+        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp,
+        (SELECT min(CASE WHEN reminded_at IS NULL OR push_tried_at IS NULL THEN remind_at ELSE push_tried_at + ? END)
+          FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder,
+        (SELECT min(refresh_due_at) FROM identities) AS refresh`,
+      REMINDER_PUSH_RETRY_MS,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.refresh].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder, row?.refresh].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 
@@ -5858,5 +5866,72 @@ export class WorkspaceStore {
       statement(GRANT_ROOM_TO_ACTIVE_USERS, id, now, now),
       statement(`INSERT INTO pending_reindexes (room_id, due_at) VALUES (?, 0) ON CONFLICT DO NOTHING`, id),
     ]);
+  }
+
+  /** Asks a reminder of a message for someone, keeping what the message read then. */
+  async queueReminder(reminder: StoredReminder): Promise<void> {
+    await this.db.batch([statement(QUEUE_REMINDER, reminder.id, reminder.userId, reminder.roomId, reminder.messageId, reminder.parentId, reminder.creatorId, reminder.creatorName, reminder.excerpt, reminder.remindAt, reminder.createdAt)]);
+  }
+
+  /** Someone's reminders, the one coming soonest first. */
+  async remindersFor(userId: UserId): Promise<StoredReminderRow[]> {
+    return this.db.all<StoredReminderRow>(REMINDERS_FOR_USER, userId);
+  }
+
+  /** One of someone's reminders, theirs alone, or null for one that isn't. */
+  async reminderFor(userId: UserId, id: string): Promise<StoredReminderRow | null> {
+    const [row] = await this.db.all<StoredReminderRow>(REMINDER_FOR_USER, id, userId);
+    return row ?? null;
+  }
+
+  /** One reminder by its id, whoever asked for it, or null for one that isn't there any more. */
+  async reminder(id: string): Promise<StoredReminderDelivery | null> {
+    const [row] = await this.db.all<StoredReminderDelivery>(REMINDER_BY_ID, id);
+    return row ?? null;
+  }
+
+  /**
+   * The reminders that have come due and still have a notice to say or pushes to try, the oldest due
+   * first, with who asked for each and whether its tabs haven't heard it yet. A reminder whose pushes
+   * failed waits, since they did, for `REMINDER_PUSH_RETRY_MS`, so a run that comes round sooner tries
+   * nothing of it. The pushes whose day of tries is past (`pushesUntil`) are given up on first, in the
+   * same transaction, so the read asks after none of them.
+   */
+  async dueReminders(now: number, pushesUntil: number, limit: number): Promise<DueReminder[]> {
+    const results = await this.db.batch([
+      statement(`UPDATE reminders SET pushed_at = ? WHERE pushed_at IS NULL AND reminded_at IS NOT NULL AND remind_at <= ?`, now, pushesUntil),
+      statement(DUE_REMINDERS, now, now - REMINDER_PUSH_RETRY_MS, limit),
+    ]);
+    return (results[1] as Array<StoredReminderRow & { userId: UserId; untold: number }>).map(({ untold, ...reminder }) => ({ ...reminder, untold: untold === 1 }));
+  }
+
+  /** Says a reminder has been told, answering whether this run is the one that told it. */
+  async markReminderTold(id: string, now: number): Promise<boolean> {
+    return (await this.db.all(`UPDATE reminders SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL RETURNING id`, now, id)).length > 0;
+  }
+
+  /** Says a reminder's pushes have gone out, or are given up on, keeping which browsers they reached, and answers whether this run settled them. */
+  async markReminderPushed(id: string, now: number, reached: string): Promise<boolean> {
+    return (await this.db.all(`UPDATE reminders SET pushed_at = ?, delivered = ? WHERE id = ? AND pushed_at IS NULL RETURNING id`, now, reached, id)).length > 0;
+  }
+
+  /** Keeps when a reminder's pushes failed, and which browsers they reached, which puts trying the rest off for `REMINDER_PUSH_RETRY_MS`. */
+  async markReminderPushTried(id: string, now: number, reached: string): Promise<boolean> {
+    return (await this.db.all(`UPDATE reminders SET push_tried_at = ?, delivered = ? WHERE id = ? AND pushed_at IS NULL RETURNING id`, now, reached, id)).length > 0;
+  }
+
+  /** Takes one of someone's reminders away, answering whether there was one to take. */
+  async deleteReminder(userId: UserId, id: string): Promise<boolean> {
+    return (await this.db.all(`DELETE FROM reminders WHERE id = ? AND user_id = ? RETURNING id`, id, userId)).length > 0;
+  }
+
+  /** Whether someone is in a room. */
+  async inRoom(userId: UserId, roomId: RoomId): Promise<boolean> {
+    return (await this.db.all(IN_ROOM, userId, roomId)).length > 0;
+  }
+
+  /** The subscriptions someone's browsers have saved, or none of a guest's while guests can't stay signed in. */
+  async pushDeliveriesFor(userId: UserId, guests: boolean): Promise<PushDelivery[]> {
+    return this.db.all<PushDelivery>(PUSH_DELIVERIES_FOR_USER, userId, guests ? 1 : 0);
   }
 }

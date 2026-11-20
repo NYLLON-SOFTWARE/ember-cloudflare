@@ -1,124 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  ASSISTANT_ID,
-  ASSISTANT_NAME,
-  CANT_SEND_EMAIL,
-  MEMBERFUL_SIGN_IN_NEEDED,
-  CloseCode,
-  DELETED_PERSON_NAME,
-  domainOfEmailAddress,
-  EMAILS_PER_ADDRESS,
-  EMAIL_LINKS_PER_NETWORK,
-  emailSignUpLink,
-  INVITATION_DAYS,
-  invitationLink,
-  isReservedName,
-  isRoomId,
-  mailboxOf,
-  mailboxUnder,
-  NAVIGATION_SLOTS,
-  othersAfterMove,
-  parseWorkspaceClientFrame,
-  parseWorkspaceSocketParams,
-  PASSWORD_RESET_CODE_MINUTES,
-  PASSWORD_RESETS_PER_NETWORK,
-  sameName,
-  SIGN_UPS_PER_ADDRESS,
-  SIGN_UPS_PER_HOUR,
-  signsInElsewhereOnly,
-  signsUpOpenly,
-  signsUpWithEmailDomain,
-  usernameFrom,
-  withNavigationIcons,
-  type Account,
-  type AccountChanges,
-  type AccountSettings,
-  type AssistantSettings,
-  type Bot,
-  type BotChanges,
-  type BotSettings,
-  type ChangedBlocks,
-  type CustomStyles,
-  type DirectoryUser,
-  type DirectRoom,
-  type EmailInvitation,
-  type EmailLinkFor,
-  type EmailLinkKind,
-  type EmailSettings,
-  type Favorites,
-  type HuddlesSettings,
-  type LiveHuddle,
-  type Mailbox,
-  type Invited,
-  type Involvement,
-  type Me,
-  type NavigationIconChanges,
-  type NavigationIcons,
-  type NewBot,
-  type NewJoinCode,
-  type NewRoom,
-  type NewRoomForm,
-  type NewWorkspace,
-  type PersonRole,
-  type Profile,
-  type ProfileChanges,
-  type PushSubscriptionSave,
-  type ResentInvitation,
-  type Room,
-  type RoomChanges,
-  type RoomId,
-  type RoomKind,
-  type RoomSettings,
-  type Search,
-  type SentTestEmail,
-  type SharedRoom,
-  type Sidebar,
-  type SidebarRoom,
-  type User,
-  type UserId,
-  type UserStatus,
-  type WorkspaceServerFrame,
-  type WorkspaceSettings,
-  type SsoSettings,
-} from "@ember/protocol";
+import { ASSISTANT_ID, ASSISTANT_NAME, CANT_SEND_EMAIL, CloseCode, DELETED_PERSON_NAME, domainOfEmailAddress, EMAIL_LINKS_PER_NETWORK, EMAILS_PER_ADDRESS, emailSignUpLink, INVITATION_DAYS, invitationLink, isReservedName, isRoomId, mailboxOf, mailboxUnder, MEMBERFUL_SIGN_IN_NEEDED, NAVIGATION_SLOTS, othersAfterMove, parseWorkspaceClientFrame, parseWorkspaceSocketParams, PASSWORD_RESET_CODE_MINUTES, PASSWORD_RESETS_PER_NETWORK, sameName, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, signsInElsewhereOnly, signsUpOpenly, signsUpWithEmailDomain, usernameFrom, withNavigationIcons, type Account, type AccountChanges, type AccountSettings, type AssistantSettings, type Bot, type BotChanges, type BotSettings, type ChangedBlocks, type CustomStyles, type DirectoryUser, type DirectRoom, type EmailInvitation, type EmailLinkFor, type EmailLinkKind, type EmailSettings, type Favorites, type HuddlesSettings, type Invited, type Involvement, type LiveHuddle, type Mailbox, type Me, type NavigationIconChanges, type NavigationIcons, type NewBot, type NewJoinCode, type NewRoom, type NewRoomForm, type NewWorkspace, type PersonRole, type Profile, type ProfileChanges, type PushSubscriptionSave, type Reminder, type ResentInvitation, type Room, type RoomChanges, type RoomId, type RoomKind, type RoomSettings, type Search, type SentTestEmail, type SharedRoom, type Sidebar, type SidebarRoom, type SsoSettings, type User, type UserId, type UserStatus, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import { MAX_OUTSIDE_CONNECTIONS, outsideScopesOf, type OutsideAiSettings, type OutsideConnection, type OutsideScope } from "@ember/protocol/outside";
-import {
-  ASSISTANT_MODELS,
-  DEFAULT_LEVELS,
-  isWorkersAiModel,
-  MAX_ASSISTANT_MODELS,
-  modelName,
-  offeredModelOf,
-  searchFormatOf,
-  TOP_LEVELS,
-  webToolsOf,
-  withinMost,
-  type AnswerLevels,
-  type AssistantChanges,
-  type ModelFormat,
-  type OfferedModel,
-  type ThinkingLevel,
-  type WebTool,
-  type YourAssistant,
-  type YourAssistantChanges,
-} from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, DEFAULT_LEVELS, isWorkersAiModel, MAX_ASSISTANT_MODELS, modelName, offeredModelOf, searchFormatOf, TOP_LEVELS, webToolsOf, withinMost, type AnswerLevels, type AssistantChanges, type ModelFormat, type OfferedModel, type ThinkingLevel, type WebTool, type YourAssistant, type YourAssistantChanges } from "@ember/protocol/assistant";
 import { EMBER_DOES, MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type AvailableAgent, type NewAgent } from "@ember/protocol/agents";
-import {
-  isAtHost,
-  MAX_APP_SCOPE_LENGTH,
-  MAX_APPS,
-  type App,
-  type AppChanges,
-  type AppId,
-  type AppSummary,
-  type NewApp,
-  type OfferedApp,
-  type SetAsideTool,
-  type ToolPick,
-  type YourApp,
-  type YourAppSignedOut,
-} from "@ember/protocol/apps";
+import { isAtHost, MAX_APP_SCOPE_LENGTH, MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick, type YourApp, type YourAppSignedOut } from "@ember/protocol/apps";
 import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/blocked-words";
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
@@ -139,23 +25,12 @@ import type { RelayKey } from "./huddles/relay";
 import type { HuddleApp, RoomHuddles, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import {
-  deployedMemberfulOf,
-  memberfulApiOf,
-  memberfulWebhooksOf,
-  membershipsOf,
-  namelessMember,
-  openMemberfulSecrets,
-  sealMemberfulSecrets,
-  type MemberfulApi,
-  type MemberfulMember,
-  type MemberfulSetup,
-} from "./memberful-api";
+import { deployedMemberfulOf, memberfulApiOf, memberfulWebhooksOf, membershipsOf, namelessMember, openMemberfulSecrets, sealMemberfulSecrets, type MemberfulApi, type MemberfulMember, type MemberfulSetup } from "./memberful-api";
 import { discover, refreshTokens } from "./oidc";
 import { Presence } from "./presence";
 import { sendPushes } from "./push/delivery";
 import { webPush } from "./push/keys";
-import { reportPayload } from "./push/payload";
+import { reminderPayload, reportPayload } from "./push/payload";
 import { AddressLimit, FixedWindowLimit } from "./rate-limit";
 import { urlOf } from "./request-url";
 import { OPEN_ROOMS_ONLY, sessionTag } from "./revocations";
@@ -175,54 +50,7 @@ import { claimsOf, isAllowed, sameSignInRules, ssoProviderOf, ssoSettingsOf, tol
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
-import {
-  allowingHuddles,
-  NEW_ACCOUNT_LOOKS,
-  WorkspaceStore,
-  type AccountChange,
-  type AgentSetup,
-  type AvatarOwner,
-  type BotKey,
-  type Client,
-  type Connecting,
-  type AssistantPicks,
-  type DeletedAccount,
-  type DirectoryEntry,
-  type Disconnection,
-  type InvitationPush,
-  type JoinableAccount,
-  type LinkedAccount,
-  type LinkedPerson,
-  type LoggedOut,
-  type LoggedOutSessions,
-  type OtherWays,
-  type MovedModel,
-  type NewPerson,
-  type OwnAppSignIn,
-  type OwnProfileEntry,
-  type PendingRevocation,
-  type ProfileEntry,
-  type PushDelivery,
-  type RoomEventDeliveries,
-  type SavedAssistant,
-  type SavedModel,
-  type SavedRoomChange,
-  type SavedSso,
-  type SignInKept,
-  type SignInClient,
-  type StoredAgent,
-  type StoredApp,
-  type StoredAppRead,
-  type AgentToolPicks,
-  type ChangedPicks,
-  type StoredToolPick,
-  type StoredAgentSettings,
-  type StoredBot,
-  type StoredBotSettings,
-  type StoredPushSubscription,
-  type StoredSession,
-  type Welcome,
-} from "./workspace-store";
+import { allowingHuddles, NEW_ACCOUNT_LOOKS, WorkspaceStore, type AccountChange, type AgentSetup, type AgentToolPicks, type AssistantPicks, type AvatarOwner, type BotKey, type ChangedPicks, type Client, type Connecting, type DeletedAccount, type DirectoryEntry, type Disconnection, type InvitationPush, type JoinableAccount, type LinkedAccount, type LinkedPerson, type LoggedOut, type LoggedOutSessions, type MovedModel, type NewPerson, type OtherWays, type OwnAppSignIn, type OwnProfileEntry, type PendingRevocation, type ProfileEntry, type PushDelivery, type RoomEventDeliveries, type SavedAssistant, type SavedModel, type SavedRoomChange, type SavedSso, type SignInClient, type SignInKept, type StoredAgent, type StoredAgentSettings, type StoredApp, type StoredAppRead, type StoredBot, type StoredBotSettings, type StoredPushSubscription, type StoredReminder, type StoredReminderRow, type StoredSession, type StoredToolPick, type Welcome } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -337,10 +165,11 @@ const PROBE_WAIT_MS = 30 * 1000;
 /** How many probes the Workspace waits for at once, of the latest checks. */
 const WAITING_PROBES = 20;
 /**
- * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
- * first, then purges, then reindexes, and how many rooms a change calls before it answers
- * (`closeQueuedSockets`). Each room it calls may count as a subrequest, of which an invocation on the
- * Free plan can make 50, its queries included.
+ * How many requests of its outbox the Workspace delivers in one run of its alarm, at most, revocations
+ * first, then purges, then reindexes, then picture deletions, then the reminders due with what's left
+ * of it, their queries counted into it like their pushes, and how many rooms a change calls before it
+ * answers (`closeQueuedSockets`). Each room it calls, push it sends or query it asks may count as a
+ * subrequest, of which an invocation on the Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
 /**
@@ -348,8 +177,24 @@ const DELIVERIES_PER_RUN = 40;
  * to a room that takes longer.
  */
 const CLOSING_SOCKETS_MS = 2_000;
+/** How long the Workspace waits to ask again what the outbox is due, when the asking failed: a minute, since what's due stays due however long the answer takes. */
+const SCHEDULING_RETRY_MS = 60_000;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
+/** How soon from now someone may ask a reminder to come back, at the soonest. */
+export const REMINDER_SOONEST_MS = 15_000;
+/** How far from now someone may ask a reminder to come back, at the latest: a year out. */
+export const REMINDER_LATEST_MS = 365 * 24 * 60 * 60 * 1000;
+/** How many characters of a message's plain text a reminder keeps of it. */
+const REMINDER_EXCERPT_LENGTH = 280;
+/** How many reminders that have come due one run of the alarm tells, at most. */
+const REMINDERS_PER_RUN = 20;
+/**
+ * How long after its time a reminder's pushes are tried again on the runs after its telling, a day: a
+ * browser that was asleep or out of reach comes back within it, and past it the pushes that kept
+ * failing are given up on, since the notice has been sitting in the person's tabs all along.
+ */
+export const REMINDER_PUSH_GRACE_MS = 24 * 60 * 60 * 1000;
 /**
  * How many memberships the alarm checks in a run, at most, asking Memberful's admin API after them all in
  * one request, a query with an alias for each, so that a run's subrequests stay well within the Free plan's.
@@ -923,6 +768,20 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
+
+/** The reminder a row keeps, as the protocol has it: its message's author named, and the time as a date's text. */
+const reminderOf = ({ id, roomId, messageId, parentId, creatorId, creatorName, excerpt, remindAt }: StoredReminderRow): Reminder => ({
+  id,
+  roomId,
+  messageId,
+  ...(parentId !== null && { parentId }),
+  creator: { id: creatorId, name: creatorName },
+  excerpt,
+  remindAt: new Date(remindAt).toISOString(),
+});
+
+/** The subscriptions a reminder's pushes have reached, as the JSON list its row keeps. */
+const deliveredIn = (delivered: string | null): number[] => (delivered === null ? [] : (JSON.parse(delivered) as number[]));
 
 /** Whether someone or a bot named `name` takes @ember's name by being renamed `rename`, which they can't, unless it was theirs already (`isReservedName`). */
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
@@ -3684,6 +3543,127 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Asks, for the person `credentials` signs in, that the message `messageId` of room `roomId` come back
+   * to them at `remindAt`, in milliseconds, answering the reminder: "forbidden" when they aren't in the
+   * room, "gone" when the room has no such message, "too soon" or "too late" for a time that makes no
+   * sense, or null without a valid session. The reminder keeps the message's plain text as it reads now,
+   * so it comes back whatever happens to the message after, and every tab of theirs hears of it when it
+   * comes due.
+   */
+  async setReminder(credentials: Credentials, roomId: RoomId, messageId: string, remindAt: number): Promise<Reminder | "forbidden" | "gone" | "too soon" | "too late" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.inRoom(user.id, roomId))) return "forbidden";
+    const now = Date.now();
+    if (remindAt < now + REMINDER_SOONEST_MS) return "too soon";
+    if (remindAt > now + REMINDER_LATEST_MS) return "too late";
+    // The room keeps the message, and answers as it does to search: what it read then, its author named
+    // as they were named. A message edited or deleted after this comes back as it read now.
+    const [message] = await this.env.CHAT_ROOM.getByName(roomId).messagesWithIds(roomId, [messageId]);
+    if (!message) return "gone";
+    const reminder: StoredReminder = {
+      id: sortableId(now),
+      userId: user.id,
+      roomId,
+      messageId,
+      parentId: message.parentId ?? null,
+      creatorId: message.creator.id,
+      creatorName: message.creator.name,
+      excerpt: message.plainText.slice(0, REMINDER_EXCERPT_LENGTH),
+      remindAt,
+      createdAt: now,
+    };
+    await this.store.queueReminder(reminder);
+    await this.wakeAt(remindAt);
+    return reminderOf(reminder);
+  }
+
+  /** The reminders the person `credentials` signs in hasn't dismissed yet, the one coming soonest first. */
+  async reminders(credentials: Credentials): Promise<Reminder[] | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return (await this.store.remindersFor(user.id)).map(reminderOf);
+  }
+
+  /**
+   * Dismisses the reminder `id` of the person `credentials` signs in, which is being done with one that
+   * has come due, or taking back one that hasn't, answering whether there was one to dismiss, or null
+   * without a valid session. Every tab of theirs hears it, so the notice leaves their other pages too.
+   */
+  async dismissReminder(credentials: Credentials, id: string): Promise<boolean | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const dismissed = await this.store.deleteReminder(user.id, id);
+    if (dismissed) this.tell([user.id], { type: "reminder.dismissed", id });
+    return dismissed;
+  }
+
+  /**
+   * Tells every tab of theirs each reminder that has come due and hasn't been told, reading what the
+   * message kept when they asked, and marks it told before saying it, so no run says a reminder twice:
+   * the notice is the telling. Its pushes go to their browsers the same run when they fit, and a run
+   * that doesn't get them out tries again on the runs after, for a day past the reminder's time
+   * (`REMINDER_PUSH_GRACE_MS`), until they've gone out or the day is past and they're given up on —
+   * the notice has reached their tabs all along. A try whose pushes fail is kept with the browsers it
+   * reached, which puts trying the rest off for a while (`REMINDER_PUSH_RETRY_MS`), and a browser a
+   * try has reached is sent no reminder twice: the tries after send only the rest. What the reminders
+   * spend, their queries as much as their pushes, since both are requests on D1, comes out of
+   * `requests`, and a reminder whose pushes don't fit leaves them, told or not, for the next run. Each
+   * is read again before it's told, since a push can wait long enough that the person dismisses the
+   * next reminder meanwhile. Answers how many it told.
+   */
+  private async deliverReminders(limit: number, requests: number): Promise<number> {
+    // The read of what's due and one reminder's own, at the least, before anything is worth asking.
+    if (requests < 2) return 0;
+    const now = Date.now();
+    const due = await this.store.dueReminders(now, now - REMINDER_PUSH_GRACE_MS, limit);
+    let left = requests - 1;
+    let told = 0;
+    for (const { id, userId, untold } of due) {
+      // A reminder is read again and has its subscriptions read, and one not yet told is marked told
+      // and settled: four requests before any push.
+      if (left < (untold ? 4 : 2)) break;
+      const reminder = await this.store.reminder(id);
+      left--;
+      if (reminder === null) continue;
+      const reached = deliveredIn(reminder.delivered);
+      const deliveries = (await this.store.pushDeliveriesFor(userId, guestSignIn(this.env))).filter(({ subscriptionId }) => !reached.includes(subscriptionId));
+      left--;
+      if (untold) {
+        // Marked told before it's said, so two runs can't both say it.
+        if (!(await this.store.markReminderTold(id, Date.now()))) continue;
+        left--;
+        this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
+        told++;
+      }
+      // Each push is asked after and sent, two requests, and settling the pushes — or keeping that
+      // they failed — takes one more.
+      if (deliveries.length * 2 + 1 > left) break;
+      const { gone, delivered, failed } =
+        deliveries.length > 0
+          ? await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id))
+          : { gone: [], delivered: [], failed: 0 };
+      left -= deliveries.length * 2;
+      if (gone.length > 0) {
+        await this.store.forgetPushSubscriptions(gone);
+        left--;
+      }
+      // A push that failed otherwise may still reach its browser, so the rest wait to be tried again,
+      // the browsers this try reached kept aside, unless their day past its time is spent and they're
+      // given up on.
+      const heard = JSON.stringify([...reached, ...delivered, ...gone]);
+      if (failed === 0 || reminder.remindAt <= now - REMINDER_PUSH_GRACE_MS) {
+        await this.store.markReminderPushed(id, Date.now(), heard);
+        left--;
+      } else {
+        await this.store.markReminderPushTried(id, Date.now(), heard);
+        left--;
+      }
+    }
+    return told;
+  }
+
+  /**
    * Gives the person `credentials` signs in level `involvement` in room `roomId`, answering it: "not
    * found" when they aren't in it, "invalid" for no level, having changed nothing, or null without a
    * valid session. Every tab of theirs hears it, which hides the room from their sidebars at
@@ -3798,7 +3778,7 @@ export class Workspace extends DurableObject<Env> {
    */
   private async pushReport(pushes: Parameters<typeof sendPushes>[1], reporterId: UserId): Promise<void> {
     try {
-      const gone = await sendPushes(this.env, pushes, (id) => this.reports.pushable(id, reporterId));
+      const { gone } = await sendPushes(this.env, pushes, (id) => this.reports.pushable(id, reporterId));
       if (gone.length > 0) await this.forgetPushSubscriptions(gone);
     } catch (error) {
       console.error("Could not push a report", error);
@@ -5893,18 +5873,33 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` rows, revocations first, then checks
-   * the memberships due, and sets the alarm for whatever is due next.
+   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` requests in all, revocations first,
+   * then purges, then reindexes, then picture deletions, then the reminders due with what's left, then
+   * checks the memberships due, and sets the alarm for whatever is due next, whether the deliveries
+   * before it went out or not: a delivery that fails, or a query the run can't get an answer to, leaves
+   * what it owes due for the next run, and the alarm is set all the same.
    */
   override async alarm(): Promise<void> {
-    const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
-    const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
-    const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
-    await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
-    await this.checkMemberships();
-    await this.checkSsoAccounts();
-    await this.scheduleDelivery();
+    try {
+      const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
+      const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
+      const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
+      const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
+      await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
+      await this.checkMemberships();
+      await this.checkSsoAccounts();
+    } catch (error) {
+      console.error("Could not deliver everything due; trying again later", error);
+    }
+    try {
+      const next = await this.store.nextDeliveryDue();
+      if (next !== null) await this.wakeAt(next);
+    } catch (error) {
+      console.error("Could not ask what's due next; waking again shortly", error);
+      await this.wakeAt(Date.now() + SCHEDULING_RETRY_MS);
+    }
   }
+
 
   /**
    * Asks the single sign-on provider again about the accounts linked at it that are due, as many as a run
@@ -6190,12 +6185,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Has R2 delete the pictures due now, up to `limit` of them, with their variants, in one call: the
    * avatars and logos people replaced or removed, and those nobody was given once their reservations ran out.
-   * When R2 fails, they're tried again later, as a revocation is.
+   * When R2 fails, they're tried again later, as a revocation is. Answers how many it read.
    */
-  private async deletePictures(limit: number): Promise<void> {
-    if (limit <= 0) return;
+  private async deletePictures(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
     const due = await this.store.duePictureDeletions(Date.now(), limit);
-    if (due.length === 0) return;
+    if (due.length === 0) return 0;
     try {
       if (!this.env.FILES) throw new Error("No R2 bucket is bound as FILES");
       await this.env.FILES.delete(due.flatMap(pictureObjects));
@@ -6204,6 +6199,7 @@ export class Workspace extends DurableObject<Env> {
       console.error("Could not delete pictures from R2; trying again later", error);
       await this.store.settlePictureDeletions([], due, Date.now());
     }
+    return due.length;
   }
 
   /**
@@ -6218,10 +6214,18 @@ export class Workspace extends DurableObject<Env> {
     await this.scheduleDelivery();
   }
 
-  /** Sets the alarm for the outbox's next delivery due, if any is waiting. */
+  /**
+   * Sets the alarm for the outbox's next delivery due, if any is waiting, or, when the asking failed,
+   * for a minute on: what's due stays due, and the run that asks again then finds it.
+   */
   private async scheduleDelivery(): Promise<void> {
-    const next = await this.store.nextDeliveryDue();
-    if (next !== null) await this.wakeAt(next);
+    try {
+      const next = await this.store.nextDeliveryDue();
+      if (next !== null) await this.wakeAt(next);
+    } catch (error) {
+      console.error("Could not ask what's due next; waking again shortly", error);
+      await this.wakeAt(Date.now() + SCHEDULING_RETRY_MS);
+    }
   }
 
   /**

@@ -1,21 +1,7 @@
-import {
-  useContext,
-  useEffect,
-  useEffectEvent,
-  useId,
-  useImperativeHandle,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-  type MouseEvent,
-  type ReactElement,
-  type Ref,
-  type RefObject,
-} from "react";
+import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactElement, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
+import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Timer, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -28,6 +14,7 @@ import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
 import { UNKNOWN_PERSON } from "./message-body";
+import { RemindDialog } from "./remind-dialog";
 
 /** With a mouse, the bar overlaps its message. */
 const OVERLAPPING = "(hover: hover) and (pointer: fine)";
@@ -112,6 +99,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  // Whether the Remind me dialog shows, which More actions' Remind me opens in the bar's place.
+  const [reminding, setReminding] = useState(false);
   const [rendered, setRendered] = useState(false);
   // Whether hovering opened the bar, which leaving then closes, unless Message options pinned it.
   const hoverOpened = useRef(false);
@@ -172,6 +161,12 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const edit = () => {
     close();
     onEdit();
+  };
+
+  // Remind me closes the bar too: the dialog it opens is modal, and takes focus as it comes.
+  const remind = () => {
+    close();
+    setReminding(true);
   };
 
   // New boost closes the bar too, and the form it opens takes focus.
@@ -402,6 +397,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
 
   return (
     <div ref={container} className="contents">
+      {/* Remind me's dialog, which More actions opens; a portal places it over the page. */}
+      {reminding && <RemindDialog message={message} onClose={() => setReminding(false)} />}
       {/* Every message has Message options, so only a mouse, which can show its tooltip, gets one. As the bar's
           last button, the tooltip says what it opens. */}
       {overlapping ? <ActionTooltip label={pinned ? "More actions" : "Message options"}>{options}</ActionTooltip> : options}
@@ -469,6 +466,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </ActionTooltip>
             )}
+            {/* Remind me joins the bar for fingers, which Message options never opens More actions for. */}
+            {!overlapping && (
+              <ActionTooltip label="Remind me">
+                <button type="button" aria-label="Remind me" className={ACTION} onClick={remind}>
+                  <Timer />
+                </button>
+              </ActionTooltip>
+            )}
             {!overlapping && block && <BlockButton message={message} blocked={block.blocked} onClick={changeBlock} />}
             {!overlapping && onReport && (
               <button type="button" aria-label="Report message" className={ACTION} onClick={report}>
@@ -528,6 +533,10 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             <button type="button" className={ITEM} onClick={(event) => void copyLink(event, message)}>
               <Copy />
               Copy link
+            </button>
+            <button type="button" className={ITEM} onClick={remind}>
+              <Timer />
+              Remind me…
             </button>
             {(block || onReport) && <hr className="my-1 border-message-border" />}
             {block && <BlockButton message={message} blocked={block.blocked} onClick={changeBlock} item />}

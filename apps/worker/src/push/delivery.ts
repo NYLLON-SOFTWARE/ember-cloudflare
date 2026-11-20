@@ -23,32 +23,46 @@ const DEADLINE_MS = 30_000;
 const encoder = new TextEncoder();
 
 /**
- * Sends `pushes`, as long as Web Push is on, and answers the subscriptions to forget: those whose push
- * service said they're gone (404 or 410), and those whose keys no push can be encrypted for. Any other
- * failure is logged. An endpoint that's no longer at a permitted push service is skipped, and so is a
- * subscription `pushable` says may no longer have pushes, or can't say about, asked just before each is
- * sent: a push can wait its turn while its person is banned. A push service keeps an invitation's push
- * as long as the invitation says, and a message's for weeks. `send` stands in for `fetch` in tests.
+ * Sends each push `pushes` holds to its deliveries, one at a time as far as the push service allows, and
+ * answers those whose push service said they're gone (404 or 410), those whose keys no push can be
+ * encrypted for, and the count of any other failure. An endpoint that's no longer at a permitted push
+ * service is skipped, and so is a subscription `pushable` says may no longer have pushes, asked just
+ * before each is sent: a push can wait its turn while its person is banned. A check that can't be asked
+ * counts among the failures, which wait to be tried again rather than counting as sent. A push service
+ * keeps an invitation's push as long as the invitation says, and a message's for weeks. `send` stands in
+ * for `fetch` in tests.
  */
-export async function sendPushes(env: Env, pushes: Array<MessagePush | InvitationPush>, pushable: Pushable, send: typeof fetch = fetch): Promise<number[]> {
+export async function sendPushes(env: Env, pushes: Array<MessagePush | InvitationPush>, pushable: Pushable, send: typeof fetch = fetch): Promise<{ gone: number[]; delivered: number[]; failed: number }> {
   const push = await webPush(env);
-  if (!push.on) return [];
+  if (!push.on) return { gone: [], delivered: [], failed: 0 };
   const deliveries = pushes.flatMap((pushed) => {
     const ttl = "ttl" in pushed ? pushed.ttl : TTL_SECONDS;
     return pushed.deliveries.map((delivery) => ({ message: encodedPush(pushed.payload, delivery.badge), delivery, ttl }));
   });
   const gone: number[] = [];
+  const delivered: number[] = [];
+  let failed = 0;
   await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery, ttl }) => {
-    if (!(await mayPush(pushable, delivery.subscriptionId))) return;
+    const may = await mayPush(pushable, delivery.subscriptionId);
+    if (may === null) {
+      failed++;
+      return;
+    }
+    if (!may) return;
     try {
       await deliver(message, delivery, ttl, push.keys, subjectOf(env), send);
     } catch (error) {
       if (!(error instanceof PushFailure)) throw error;
       if (error.gone) gone.push(delivery.subscriptionId);
-      else console.error(`Error in WebPush::Pool.deliver: ${error.message}`);
+      else {
+        console.error(`Error in WebPush::Pool.deliver: ${error.message}`);
+        failed++;
+      }
+      return;
     }
+    delivered.push(delivery.subscriptionId);
   });
-  return gone;
+  return { gone, delivered, failed };
 }
 
 /**
@@ -68,15 +82,16 @@ const subjectOf = (env: Env) => env.VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJE
 export type Pushable = (subscriptionId: number) => Promise<boolean>;
 
 /**
- * Whether `pushable` says subscription `id` may still have pushes, which fails closed: no when it can't
- * say, logging why.
+ * Whether `pushable` says subscription `id` may still have pushes, which fails closed: `null` when it
+ * can't say, logging why — an ask that failed says nothing of the push, and whoever sent it counts it
+ * among its failures, to be tried again, rather than as sent or refused.
  */
-async function mayPush(pushable: Pushable, id: number): Promise<boolean> {
+async function mayPush(pushable: Pushable, id: number): Promise<boolean | null> {
   try {
     return await pushable(id);
   } catch (error) {
     console.warn(`push authorization failed for subscription ${id}: ${error}`);
-    return false;
+    return null;
   }
 }
 

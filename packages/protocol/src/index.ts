@@ -1,3 +1,5 @@
+
+
 // The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
@@ -142,6 +144,7 @@ export {
   NEW_DIRECT_PATH,
   pageAfterWelcome,
   PASSWORD_RESET_PATH,
+  messagePath,
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
   SEARCHES_PATH,
@@ -1858,6 +1861,29 @@ export type ServerFrame =
   | { type: "pong" };
 
 /**
+ * A reminder someone asked for on a message, which comes back to them at `remindAt`. What the message
+ * said is kept as it was when the reminder was set, so it comes back whatever has happened to the
+ * message or its room since, as Slack's keep their text.
+ */
+export interface Reminder {
+  id: string;
+  /** The room the message is in, which the person reminding was in when they set it. */
+  roomId: RoomId;
+  /** The message the reminder is about, which may be gone or edited by the time it comes. */
+  messageId: string;
+  /** The message's parent, for a reply: its reminder opens the thread at the reply. */
+  parentId?: string;
+  /** Who wrote the message, named as they were when the reminder was set. */
+  creator: User;
+  /** The start of the message's plain text, as it was when the reminder was set. */
+  excerpt: string;
+  /** When the reminder comes back, in the past once it's due. */
+  remindAt: string;
+}
+
+/**
+ * What a tab sends on its workspace socket (`/api/socket`): only pings, which the runtime answers
+ * without waking the Workspace.
  * What a tab sends on its workspace socket (`/api/socket`): pings, which the runtime answers without
  * waking the Workspace; whether its person is using it, once it's welcomed and as they stop using it or
  * come back to it (`presence.active`), which counts the tab in use from when it connects until it says
@@ -1946,6 +1972,14 @@ export type WorkspaceServerFrame =
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
   | { type: "account.updated"; account: Account }
+  /**
+   * A reminder of theirs has come due. Sent to every tab they have open at the moment it comes, and,
+   * when they weren't near Ember then, pushed to their browsers besides; a tab that opens later hears
+   * of it from `GET /api/reminders`, which lists what they haven't dismissed yet.
+   */
+  | { type: "reminder.due"; reminder: Reminder }
+  /** One of their reminders was dismissed, in this tab or another, and leaves every tab's corner. */
+  | { type: "reminder.dismissed"; id: string }
   /**
    * Who's active, with a tab open that they've used in the last ten minutes, as Slack counts it, and who's
    * away otherwise: first everyone active, as the tab first says whether it's in use, and then whoever has

@@ -1,164 +1,19 @@
-import {
-  AVATAR_PATH,
-  CloseCode,
-  CURRENT_PASSWORD_NEEDED,
-  CURRENT_PASSWORD_WRONG,
-  DELETION_NAME_NEEDED,
-  DELETION_PASSWORD_NEEDED,
-  EMAIL_DOMAIN_NEEDS_EMAIL,
-  EMAIL_SIGN_UP_PATH,
-  INVITATION_PATH,
-  LOGO_PATH,
-  LOGO_TOO_LARGE,
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MEMBERFUL_CALLBACK_PATH,
-  MEMBERFUL_CONNECTIONS_PATH,
-  MEMBERFUL_DISCONNECT_PASSWORD_NEEDED,
-  MEMBERFUL_DISCONNECT_WITHOUT_EMAIL,
-  MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD,
-  MEMBERFUL_NOT_CONNECTED,
-  MEMBERFUL_PASSWORD_NEEDED,
-  MEMBERFUL_SIGN_IN_PATH,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  MEMBERFUL_WEBHOOK_PATH,
-  NAME_RESERVED,
-  NO_EMAIL_DOMAINS,
-  ONLY_ADMINISTRATOR,
-  PASSWORD_RESET_PATH,
-  PASSWORD_WITH_MEMBERFUL,
-  isPasswordTooLong,
-  isReservedName,
-  isRoomId,
-  notTakingDirects,
-  OPEN_WITH_MEMBERFUL,
-  parseAccountChanges,
-  parseAccountDeletion,
-  parseCustomDomainCheck,
-  parseCustomStyles,
-  parseFavoriteOrder,
-  parseInvolvementChange,
-  parseMemberfulDisconnection,
-  parseSharedOrder,
-  parseNewDirect,
-  parseNewRoom,
-  parseProfileChanges,
-  parseResendApiKey,
-  parseRoleChange,
-  parseSendingDomainCheck,
-  parseRoomChanges,
-  parseTurnstileKeysChange,
-  PROFILE_PATH,
-  SIGN_IN_LIMITED,
-  SIGN_IN_REJECTED,
-  signOutEndpointOf,
-  signsInElsewhereOnly,
-  SIGN_UP_PATH,
-  TRANSFER_PATH,
-  TURNSTILE_CHECK_PATH,
-  USERNAME_TAKEN,
-  workspacePageOf,
-  type Account,
-  type Bootstrap,
-  type ChangedBlocks,
-  type ChangedPerson,
-  type CustomDomainCheck,
-  type CustomDomainLookup,
-  type CustomStyles,
-  type Directory,
-  type EmailSettings,
-  type Favorites,
-  type Involvement,
-  type MemberfulAccount,
-  type MemberfulStatus,
-  type NewJoinCode,
-  type NewRoomForm,
-  type PersonAnswer,
-  type ProfileAnswer,
-  type ReleaseCheck,
-  type RoomId,
-  type RoomSettings,
-  type SendingDomainCheck,
-  type SentTestEmail,
-  type Sidebar,
-  type StartedDirect,
-  type TurnstileSettings,
-  type UserId,
-  type WorkspaceSettings,
-} from "@ember/protocol";
+import { AVATAR_PATH, CloseCode, CURRENT_PASSWORD_NEEDED, CURRENT_PASSWORD_WRONG, DELETION_NAME_NEEDED, DELETION_PASSWORD_NEEDED, EMAIL_DOMAIN_NEEDS_EMAIL, EMAIL_SIGN_UP_PATH, INVITATION_PATH, isPasswordTooLong, isReservedName, isRoomId, KIND_SEGMENTS, LOGO_PATH, LOGO_TOO_LARGE, MAX_EMAIL_ADDRESS_LENGTH, MAX_ID_LENGTH, MEMBERFUL_CALLBACK_PATH, MEMBERFUL_CONNECTIONS_PATH, MEMBERFUL_DISCONNECT_PASSWORD_NEEDED, MEMBERFUL_DISCONNECT_WITHOUT_EMAIL, MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD, MEMBERFUL_NOT_CONNECTED, MEMBERFUL_PASSWORD_NEEDED, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PATH, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_PATH, NAME_RESERVED, NO_EMAIL_DOMAINS, notTakingDirects, ONLY_ADMINISTRATOR, OPEN_WITH_MEMBERFUL, parseAccountChanges, parseAccountDeletion, parseCustomDomainCheck, parseCustomStyles, parseFavoriteOrder, parseInvolvementChange, parseMemberfulDisconnection, parseNewDirect, parseNewRoom, parseProfileChanges, parseResendApiKey, parseRoleChange, parseRoomChanges, parseSendingDomainCheck, parseSharedOrder, parseTurnstileKeysChange, PASSWORD_RESET_PATH, PASSWORD_WITH_MEMBERFUL, PROFILE_PATH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, SIGN_UP_PATH, signOutEndpointOf, signsInElsewhereOnly, TRANSFER_PATH, TURNSTILE_CHECK_PATH, USERNAME_TAKEN, workspacePageOf, type Account, type Bootstrap, type ChangedBlocks, type ChangedPerson, type CustomDomainCheck, type CustomDomainLookup, type CustomStyles, type Directory, type EmailSettings, type Favorites, type Involvement, type MemberfulAccount, type MemberfulConnection, type MemberfulStatus, type NewJoinCode, type NewRoomForm, type PersonAnswer, type ProfileAnswer, type ReleaseCheck, type Reminder, type RoomId, type RoomSettings, type SendingDomainCheck, type SentTestEmail, type Sidebar, type StartedDirect, type TurnstileSettings, type UserId, type WorkspaceSettings } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSoundChanges, type HuddleSoundsChanged, type PastHuddles } from "@ember/protocol/huddles";
 import { OUTSIDE_AUTHORIZE_PATH } from "@ember/protocol/outside";
 import { parseNewReport, parseReportHandling, type HandledReports, type Reports } from "@ember/protocol/reports";
-import {
-  MEMBERFUL_WITH_SSO,
-  OPEN_WITH_SSO,
-  PASSWORD_WITH_SSO,
-  SSO_CALLBACK_PATH,
-  SSO_CONNECTIONS_PATH,
-  SSO_DISCONNECT_PASSWORD_NEEDED,
-  SSO_DISCONNECT_WITHOUT_EMAIL,
-  SSO_DISCONNECT_WITHOUT_PASSWORD,
-  SSO_LOGOUT_PATH,
-  SSO_NOT_CONNECTED,
-  SSO_PASSWORD_NEEDED,
-  SSO_SETTINGS_PATH,
-  SSO_SIGN_IN_PATH,
-  SSO_SIGN_IN_PROBLEMS,
-  SSO_WITH_MEMBERFUL,
-  type ElsewhereConnection,
-  type SsoStatus,
-} from "@ember/protocol/sso";
+import { MEMBERFUL_WITH_SSO, OPEN_WITH_SSO, PASSWORD_WITH_SSO, SSO_CALLBACK_PATH, SSO_CONNECTIONS_PATH, SSO_DISCONNECT_PASSWORD_NEEDED, SSO_DISCONNECT_WITHOUT_EMAIL, SSO_DISCONNECT_WITHOUT_PASSWORD, SSO_LOGOUT_PATH, SSO_NOT_CONNECTED, SSO_PASSWORD_NEEDED, SSO_SETTINGS_PATH, SSO_SIGN_IN_PATH, SSO_SIGN_IN_PROBLEMS, SSO_WITH_MEMBERFUL, type ElsewhereConnection, type SsoStatus } from "@ember/protocol/sso";
 import { mentionPromptItem } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
-import {
-  clientOf,
-  credentialsFor,
-  credentialsOf,
-  expiredSessionCookie,
-  isCrossSite,
-  isHttps,
-  isSameOriginUpgrade,
-  newSessionToken,
-  sessionCookie,
-  sessionToken,
-  signOut,
-  tokenDigest,
-} from "./auth";
+import { clientOf, credentialsFor, credentialsOf, expiredSessionCookie, isCrossSite, isHttps, isSameOriginUpgrade, newSessionToken, sessionCookie, sessionToken, signOut, tokenDigest } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import {
-  appPage,
-  beginAppSignIn,
-  beginNewAppSignIn,
-  beginOwnAppSignIn,
-  changeApp,
-  clientDocument,
-  connectApp,
-  disconnectApp,
-  finishAppSignIn,
-  listApps,
-  pickAgentTools,
-  readAppTools,
-  showAgentTools,
-  showApp,
-  signOutOfApp,
-} from "./apps/api";
+import { appPage, beginAppSignIn, beginNewAppSignIn, beginOwnAppSignIn, changeApp, clientDocument, connectApp, disconnectApp, finishAppSignIn, listApps, pickAgentTools, readAppTools, showAgentTools, showApp, signOutOfApp } from "./apps/api";
 import { answerOutsideAsk, changeOutsideAi, describeOutsideAsk, disconnectOutside, isOutsideRegistration, outsideAction, outsideConnectPage } from "./outside/api";
 import { CLIENT_DOCUMENT_PATH } from "./apps/oauth";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, listAvailableAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
-import {
-  addAssistantModel,
-  changeAssistantAvatar,
-  changeAssistantSettings,
-  changeWebSearch,
-  changeYourAssistant,
-  deployedAccountIdOf,
-  forgetAssistant,
-  listOfferedModels,
-  removeAssistantAvatar,
-  removeAssistantModel,
-  saveAssistant,
-} from "./assistant/settings";
+import { addAssistantModel, changeAssistantAvatar, changeAssistantSettings, changeWebSearch, changeYourAssistant, deployedAccountIdOf, forgetAssistant, listOfferedModels, removeAssistantAvatar, removeAssistantModel, saveAssistant } from "./assistant/settings";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
@@ -181,16 +36,7 @@ import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./i
 import { askForEmailLink, emailSignUpPage, invitationPage, join, joinCodeOf, joinPage, joinWithEmailLink, signUp, signUpPage } from "./join";
 import { checkResendApiKey } from "./mail";
 import { manifest, manifestFormatOf } from "./manifest";
-import {
-  finishMemberfulSignIn,
-  memberfulConnectionFor,
-  memberfulRefusal,
-  memberfulSiteFor,
-  memberfulWebhook,
-  saveMemberfulKeys,
-  startMemberfulSignIn,
-  withDeployedMemberful,
-} from "./memberful";
+import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulSiteFor, memberfulWebhook, saveMemberfulKeys, startMemberfulSignIn, withDeployedMemberful } from "./memberful";
 import { deployedMemberfulOf } from "./memberful-api";
 import { anyOtherPage, formAnswer } from "./pages";
 import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
@@ -1320,6 +1166,56 @@ async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   return json({ favorites } satisfies { favorites: Favorites });
 }
 
+/** The reminders the signed-in person hasn't dismissed yet, the one coming soonest first. */
+async function remindersOf(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const reminders = credentials && (await workspace(env).reminders(credentials));
+  if (!reminders) return problem(401, "Not signed in");
+  return json({ reminders } satisfies { reminders: Reminder[] });
+}
+
+/** What a reminder must be asked with, and what a body that asks otherwise is told. */
+function parseReminderAsk(body: unknown): { roomId: RoomId; messageId: string; remindAt: number } | string {
+  if (typeof body !== "object" || body === null) return "The reminder must be asked with an object";
+  const { roomId, messageId, remindAt } = body as Record<string, unknown>;
+  if (typeof roomId !== "string" || !isRoomId(roomId)) return "invalid room ID";
+  if (typeof messageId !== "string" || messageId === "" || messageId.length > MAX_ID_LENGTH) return "invalid message ID";
+  if (typeof remindAt !== "string" || !Number.isFinite(Date.parse(remindAt))) return "remindAt must be a date's text";
+  return { roomId, messageId, remindAt: Date.parse(remindAt) };
+}
+
+/**
+ * Asks that a message of a room the signed-in person is in come back to them when they choose,
+ * answering the reminder: 400 for what it can't read, 403 for a room they aren't in, 404 for a message
+ * the room has no more, and 422 for a time that makes no sense.
+ */
+async function setReminder(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const asked = parseReminderAsk(await jsonBodyOf(request));
+  if (typeof asked === "string") return problem(400, asked);
+  const reminded = await workspace(env).setReminder(credentials, asked.roomId, asked.messageId, asked.remindAt);
+  if (!reminded) return problem(401, "Not signed in");
+  if (reminded === "forbidden") return problem(403, "You aren't in that room");
+  if (reminded === "gone") return problem(404, "That message isn't there any more");
+  if (reminded === "too soon") return problem(422, "Choose a time a little later from now");
+  if (reminded === "too late") return problem(422, "Choose a time within a year from now");
+  return json({ reminder: reminded } satisfies { reminder: Reminder }, { status: 201 });
+}
+
+/**
+ * Takes the signed-in person's reminder `id` away, which is being done with one that has come due, or
+ * taking back one that hasn't: 404 for one that isn't theirs or isn't there.
+ */
+async function dismissReminder(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const dismissed = await workspace(env).dismissReminder(credentials, id);
+  if (dismissed === null) return problem(401, "Not signed in");
+  if (!dismissed) return problem(404, "No reminder of yours by that id");
+  return new Response(null, { status: 204 });
+}
+
 /** What someone hears when they can't put rooms in the shared order. */
 const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for everyone, and only the rooms in their sidebar";
 
@@ -1474,6 +1370,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/agents" && request.method === "GET") return () => listAvailableAgents(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
+  if (pathname === "/api/reminders" && request.method === "GET") return () => remindersOf(request, env);
+  if (pathname === "/api/reminders" && request.method === "POST") return () => setReminder(request, env);
+  // A reminder's id is a sortable id, which never needs percent-encoding, so an encoded segment names none.
+  const reminder = pathname.match(/^\/api\/reminders\/([^/]+)$/);
+  if (reminder && request.method === "DELETE") return () => dismissReminder(request, env, reminder[1]!);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me" && request.method === "DELETE") return () => deleteAccount(request, env);

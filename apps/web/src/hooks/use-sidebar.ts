@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type HuddleSounds, type Me, type RoomId, type User, type UserId, type WorkspaceClientFrame, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type HuddleSounds, type Me, type Reminder, type RoomId, type User, type UserId, type WorkspaceClientFrame, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import type { InvitationsChange } from "@/lib/huddle-invitations";
 import { activeStore, watchUse } from "@/lib/presence";
@@ -90,6 +90,10 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
+ * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
+ * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
+ * gone as it leaves the list. `reloadReminders` runs each time the socket connects too, so a reminder
+ * that came due while it was away is caught up.
  * socket says has changed, or says this person is no longer told of, as an AI agent kept to
  * administrators' direct messages is. `onAccountChanged` hears the workspace as the socket says it is,
  * each time it connects and whenever an administrator changes it. `onGone` hears of each room the
@@ -106,6 +110,9 @@ export function useSidebar(
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
+  onReminderDue: (reminder: Reminder) => void = () => {},
+  onReminderGone: (id: string) => void = () => {},
+  reloadReminders: () => void = () => {},
   onInvitation: (change: InvitationsChange) => void = () => {},
 ) {
   const [{ list, askAgain }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
@@ -225,6 +232,7 @@ export function useSidebar(
           tellVisibility();
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
+          reloadReminders();
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
@@ -279,6 +287,10 @@ export function useSidebar(
         case "account.updated":
           toldOf.account = true;
           return accountChanged(frame.account);
+        case "reminder.due":
+          return onReminderDue(frame.reminder);
+        case "reminder.dismissed":
+          return onReminderGone(frame.id);
         case "presence": {
           const first = unheard;
           unheard = false;

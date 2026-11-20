@@ -13,6 +13,7 @@ import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/ho
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
+import { DismissReminder, dueReminderOf, useReminders } from "@/hooks/use-reminders";
 import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/use-reporting";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { agentsToAsk } from "@/lib/agents";
@@ -29,10 +30,11 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { isQuietWelcome, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, threadPath, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
 import { HuddlesContext, joinsNoHuddle, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
+import { ReminderNotice } from "./reminder-notice";
 import { NewDirectDialog, startedWithout } from "./new-direct-dialog";
 import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
@@ -287,9 +289,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
+  // Reminders of theirs, which the workspace socket tells this tab about as each one comes due or is
+  // dismissed in another tab. Declared before the sidebar, whose socket hands it both.
+  const { reminders, announcedDue, cameDue, cameGone, dismiss: dismissReminder, load: reloadReminders } = useReminders();
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone, reloadReminders, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -1086,6 +1091,25 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
           {huddle && !huddle.open && (
             <RarePage show={({ HuddleBar }) => <HuddleBar huddle={huddle} room={huddleRoom} meId={me.id} />} loading={null} onFailed={failed} />
           )}
+          {/* The reminder that has come due, over whatever page it finds the person on, until they're done with it. */}
+          {(() => {
+            const dueReminder = dueReminderOf(reminders, announcedDue);
+            if (dueReminder === null) return null;
+            const reminderRoom = rooms?.find((candidate) => candidate.id === dueReminder.roomId);
+            const roomName = reminderRoom === undefined || reminderRoom.kind === "direct" ? null : (reminderRoom.name ?? null);
+            return (
+              <ReminderNotice
+                reminder={dueReminder}
+                roomName={roomName}
+                onOpen={() => {
+                  navigate(dueReminder.parentId === undefined ? messagePath(dueReminder.roomId, dueReminder.messageId) : threadPath(dueReminder.roomId, dueReminder.parentId, dueReminder.messageId));
+                  // The page may hold the person with unsaved changes, so it's done with only once they've gone there.
+                  afterNavigating(() => void dismissReminder(dueReminder.id).catch(failed));
+                }}
+                onDone={() => void dismissReminder(dueReminder.id).catch(failed)}
+              />
+            );
+          })()}
         </div>
       </DrawerOpen>
     </Sheet>
@@ -1098,7 +1122,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             <OpenSearchContext value={openSearch}>
               <HuddlesContext value={huddles}>
                 <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
+                  <ReportingContext value={openReport}>
+                    <DismissReminder value={dismissReminder}>{layout}</DismissReminder>
+                  </ReportingContext>
                 </BlockingContext>
               </HuddlesContext>
             </OpenSearchContext>
