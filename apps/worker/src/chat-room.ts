@@ -1153,7 +1153,9 @@ export class ChatRoom extends DurableObject<Env> {
       }
       case "boost.delete": {
         const boost = await store.findBoost(frame.boostId);
-        if (!boost || boost.booster.id !== user.id) return this.refuse(ws, "You can only remove your own reactions");
+        // One that's gone already was removed by a repeated click, as a reaction's chip sends on a double tap.
+        if (!boost) return;
+        if (boost.booster.id !== user.id) return this.refuse(ws, "You can only remove your own reactions");
         return this.removeBoost(store, boost);
       }
       case "typing.start":

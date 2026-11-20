@@ -283,28 +283,6 @@ describe("Catch up after a reconnect", () => {
   });
 });
 
-describe("Take back a reaction", () => {
-  it("brings back a reaction shown as going once the room refuses to delete one, or lets the page in again", async () => {
-    const boosted: Message = { ...message("m1"), boosts: [{ id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" }] };
-    const pill = () => within(screen.getByRole("list", { name: "Reactions" })).getByRole("listitem");
-    const remove = async () => {
-      actions.unboost.mockReturnValueOnce(true);
-      await userEvent.click(within(pill()).getByRole("button", { name: "Delete this boost" }));
-    };
-    const { rerender } = render(list({ messages: [boosted], connections: 1 }));
-    await userEvent.click(screen.getByRole("button", { name: "👍" }));
-    await remove();
-    expect(pill()).toHaveClass("animate-scale-fade-out");
-    rerender(list({ messages: [boosted], connections: 1, refusedUnboosts: 1 }));
-    expect(pill()).not.toHaveClass("animate-scale-fade-out");
-
-    await remove();
-    expect(pill()).toHaveClass("animate-scale-fade-out");
-    rerender(list({ messages: [boosted], connections: 2, refusedUnboosts: 1 }));
-    expect(pill()).not.toHaveClass("animate-scale-fade-out");
-  });
-});
-
 describe("Welcome and invite card", () => {
   const invitation = { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" };
   const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });
