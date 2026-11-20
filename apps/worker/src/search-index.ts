@@ -340,6 +340,8 @@ export class SearchIndex extends DurableObject<Env> {
   private readonly sending = new Set<RoomId>();
   /** The Workspace being asked who can read rooms, while it is (`hearSending`, `hearSome`). */
   private asking: Promise<void> | null = null;
+  /** When the index asks about the rooms that have sent it messages again, after a question about them failed, or 0. */
+  private askAgainAt = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -528,27 +530,36 @@ export class SearchIndex extends DurableObject<Env> {
   /**
    * Asks who can read room `roomId`, which has sent the index messages before it heard, at once rather
    * than once its alarm goes off, and without the room waiting for the answer, then sets the alarm for
-   * what that leaves. Asking already, it asks about this room too before it's done.
+   * what that leaves. Asking already, it asks about this room too before it's done, and waiting to ask
+   * again, it asks about it then.
    */
   private hearNow(roomId: RoomId): void {
     this.sending.add(roomId);
-    if (this.asking) return;
+    if (this.asking || Date.now() < this.askAgainAt) return;
     void this.hearSending()
-      .then(
-        () => this.wakeForNext(),
-        (error) => {
-          console.error("Could not ask the Workspace who can read rooms; trying again later", error);
-          return this.wakeForNext(Date.now() + ASK_AGAIN_MS);
-        },
-      )
+      .catch((error) => console.error("Could not ask the Workspace who can read rooms; trying again later", error))
+      .then(() => this.wakeForNext())
       .catch((error) => console.error("Could not set the search index's alarm", error));
   }
 
-  /** Asks about the rooms that have sent the index messages before it heard (`askAboutSending`), unless it's asking already, and answers once it has. */
+  /**
+   * Asks about the rooms that have sent the index messages before it heard (`askAboutSending`), unless
+   * it's asking already, and answers once it has. When the question fails, it asks again a minute on.
+   */
   private hearSending(): Promise<void> {
-    this.asking ??= this.askAboutSending().finally(() => {
-      this.asking = null;
-    });
+    this.asking ??= this.askAboutSending()
+      .then(
+        () => {
+          this.askAgainAt = 0;
+        },
+        (error: unknown) => {
+          this.askAgainAt = Date.now() + ASK_AGAIN_MS;
+          throw error;
+        },
+      )
+      .finally(() => {
+        this.asking = null;
+      });
     return this.asking;
   }
 
@@ -611,16 +622,14 @@ export class SearchIndex extends DurableObject<Env> {
    * the walk a run further, if that's due, and sets the alarm for what's next.
    */
   override async alarm(): Promise<void> {
-    let askAt = Date.now();
     try {
       await this.hearSending();
     } catch (error) {
       console.error("Could not ask the Workspace who can read rooms; trying again later", error);
-      askAt = Date.now() + ASK_AGAIN_MS;
     }
     const due = this.ctx.storage.kv.get<number>(REKEY_DUE);
     if (due !== undefined && due <= Date.now()) await this.walkOn();
-    await this.wakeForNext(askAt);
+    await this.wakeForNext();
   }
 
   /**
@@ -642,9 +651,11 @@ export class SearchIndex extends DurableObject<Env> {
 
   /**
    * Sets the alarm for what the index has next to do, unless it's set sooner: ask about the rooms that
-   * have sent it messages before it heard, at `askAt`, and take the walk further, when that's due.
+   * have sent it messages before it heard, now or when it asks again, and take the walk further, when
+   * that's due.
    */
-  private async wakeForNext(askAt = Date.now()): Promise<void> {
+  private async wakeForNext(): Promise<void> {
+    const askAt = Math.max(this.askAgainAt, Date.now());
     const next = Math.min(this.sending.size > 0 ? askAt : Infinity, this.ctx.storage.kv.get<number>(REKEY_DUE) ?? Infinity);
     if (next !== Infinity) await this.wake(next);
   }

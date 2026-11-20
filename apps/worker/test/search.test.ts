@@ -1265,29 +1265,51 @@ describe("Hearing who can read each room", () => {
     expect(walked).toEqual([`b-${now - 2 * day}`, `a-${now - day}`]);
   });
 
-  it("asks again a minute on when it can't reach the Workspace as a room it hasn't heard about sends it messages", async () => {
+  it("asks again a minute on, rather than as more messages come, when it can't reach the Workspace as a room it hasn't heard about sends it messages", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const index = searchIndexStub();
     const swap = (env: (original: Env) => Env) => runInDurableObject(index, (instance: SearchIndex) => void ((instance as unknown as Index).env = env((instance as unknown as Index).env)));
     let original: Env | undefined;
-    const unreachable = { roomReaders: () => Promise.reject(new Error("The Workspace is unreachable")) };
-    await swap((env) => ((original = env), { ...env, WORKSPACE: { getByName: () => unreachable } as unknown as Env["WORKSPACE"] }));
+    let reachable = false;
+    const asked: RoomId[][] = [];
+    const workspace = {
+      roomReaders: async (roomIds: RoomId[]) => {
+        asked.push(roomIds.toSorted());
+        if (!reachable) throw new Error("The Workspace is unreachable");
+        return roomIds.map((roomId) => ({ roomId, readers: "members" as const }));
+      },
+    };
+    const unheard = () => searchSql("SELECT room_id FROM search_rooms WHERE heard = 0 ORDER BY room_id");
+    await swap((env) => ((original = env), { ...env, WORKSPACE: { getByName: () => workspace } as unknown as Env["WORKSPACE"] }));
     try {
       await index.apply("closed", 1, [numbered("closed", Date.now() * 1024)], []);
       await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(expect.stringContaining("trying again later"), expect.any(Error)));
       const alarm = await runInDurableObject(index, (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.getAlarm());
       expect(alarm).toBeGreaterThan(Date.now() + 50_000);
+      // More messages meanwhile, from it and another room it hasn't heard about, wait for that.
+      await index.apply("closed", 2, [numbered("closed", Date.now() * 1024 + 1)], []);
+      await index.apply("other", 1, [numbered("other", Date.now() * 1024 + 2)], []);
+      expect(asked).toEqual([["closed"]]);
       // Its alarm asking again, and failing, puts the next try off a minute too.
       const again = await runInDurableObject(index, async (instance: SearchIndex) => {
         await instance.alarm();
         return (instance as unknown as Index).ctx.storage.getAlarm();
       });
+      expect(asked).toEqual([["closed"], ["closed", "other"]]);
       expect(errors).toHaveBeenCalledTimes(2);
       expect(again).toBeGreaterThan(Date.now() + 50_000);
+      expect(await unheard()).toEqual([{ room_id: "closed" }, { room_id: "other" }]);
+
+      // Once it's answered, it asks about the next such room at once again.
+      reachable = true;
+      await runInDurableObject(index, (instance: SearchIndex) => instance.alarm());
+      expect(await unheard()).toEqual([]);
+      await index.apply("later", 1, [numbered("later", Date.now() * 1024 + 3)], []);
+      expect(asked.at(-1)).toEqual(["later"]);
+      await vi.waitFor(async () => expect(await unheard()).toEqual([]));
     } finally {
       await swap(() => original!);
     }
-    expect(await searchSql("SELECT heard FROM search_rooms")).toEqual([{ heard: 0 }]);
   });
 
   it("asks one question at a time, about every room that has sent it messages by then, and leaves the rest to its walk", async () => {
