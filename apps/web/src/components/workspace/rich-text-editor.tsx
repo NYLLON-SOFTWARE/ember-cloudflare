@@ -95,9 +95,10 @@ type LexxyPrompt = HTMLElement & {
   readonly popoverElement?: HTMLElement | null;
   /**
    * Where it finds what it lists, while it's connected: for a prompt of `<lexxy-prompt-item>`s, such as the #
-   * prompt, the items it held as it connected, which Lexxy reads only then.
+   * prompt, the items it held as it connected, and for one that asks its `src`, as the @ prompt does, that
+   * address as it was then, which Lexxy reads only then.
    */
-  readonly source?: { inlinePromptItemElements?: Element[] } | null;
+  readonly source?: { inlinePromptItemElements?: Element[]; baseURL?: string } | null;
 };
 
 /**
@@ -107,6 +108,18 @@ type LexxyPrompt = HTMLElement & {
  */
 function mentionPrompt(src: string, above: boolean): LexxyPrompt {
   return lexxyPrompt({ trigger: "@", name: "mention", src, "remote-filtering": "true", "empty-results": "No matches" }, above);
+}
+
+/**
+ * Has the @ prompt ask `src` for the people it lists, above the text with `above`, from the next time it
+ * opens its list or narrows it. Lexxy reads where a prompt asks only as it connects, so once it has, it's
+ * given to what it asks with.
+ */
+function askFrom(prompt: LexxyPrompt, src: string, above: boolean) {
+  prompt.setAttribute("src", src);
+  if (prompt.source) prompt.source.baseURL = src;
+  if (above) prompt.setAttribute("vertical-direction", "top");
+  else prompt.removeAttribute("vertical-direction");
 }
 
 /**
@@ -127,8 +140,15 @@ function roomPrompt(above: boolean): LexxyPrompt {
  */
 function commandPrompt(commands: readonly SlashCommand[]): LexxyPrompt {
   const prompt = lexxyPrompt({ trigger: "/", name: "command", "only-at": "^", "insert-editable-text": "", "empty-results": "No matching commands" }, true);
-  prompt.append(...commands.map(commandItem));
+  offerCommands(prompt, commands);
   return prompt;
+}
+
+/** Has the / prompt list `commands` from the next time it opens its list or narrows it, as `offerRooms` has the # prompt list rooms. */
+function offerCommands(prompt: LexxyPrompt, commands: readonly SlashCommand[]) {
+  const items = commands.map(commandItem);
+  prompt.replaceChildren(...items);
+  if (prompt.source) prompt.source.inlinePromptItemElements = items;
 }
 
 /** A `<lexxy-prompt>` of `attributes`, whose list shows above the text, even where there's room below it, with `above`. */
@@ -548,7 +568,7 @@ interface Props {
   rows: number;
   /** What's written in it as it opens, as Lexxy's markup. */
   initialValue?: string;
-  /** Where its @ prompt asks for the people it offers (`mentionPromptSrc`). Without it, @ is just @. */
+  /** Where its @ prompt asks for the people it offers (`mentionPromptSrc`), which it follows as it changes. Without it, as it opens, @ is just @. */
   mentionsFrom?: string;
   /**
    * The rooms its # prompt offers, which it follows as they change: those whoever's writing is in, or null
@@ -557,7 +577,7 @@ interface Props {
   rooms?: Rooms | null;
   /** Whether the people @ lists, and the rooms # does, show above the text even where there's room below it; # reads it as it opens. */
   mentionsAbove?: boolean;
-  /** The commands a message can start with, which a / at its start lists. Without them, / is just /. */
+  /** The commands a message can start with, which a / at its start lists, following them as they change. Without them, as it opens, / is just /. */
   commands?: readonly SlashCommand[];
   /**
    * Whether it takes focus once it's ready, with the cursor after what's written. A function is asked
@@ -602,7 +622,9 @@ export default function RichTextEditor({
   const editor = useRef<LexxyEditor>(null);
   // Whether the editor's ready, from when Lexxy has read what it opens with until it goes.
   const initialized = useRef(false);
+  const mentionsPrompt = useRef<LexxyPrompt>(null);
   const roomsPrompt = useRef<LexxyPrompt>(null);
+  const commandsPrompt = useRef<LexxyPrompt>(null);
 
   useImperativeHandle(ref, () => ({
     value: () => editor.current?.value ?? "",
@@ -764,12 +786,24 @@ export default function RichTextEditor({
       },
       { capture: true },
     );
-    // Inside the editor, which finds it there as it connects, and the rooms it offers later.
+    // Inside the editor, which finds them there as it connects. They stay for as long as it does, and are
+    // told of what they offer as it changes, since Lexxy looks again a frame after a list closes, or once
+    // its fetch answers, and throws if the prompt has been taken out by then.
     const following: MutationObserver[] = [];
+    if (mentionsFrom) {
+      mentionsPrompt.current = mentionPrompt(mentionsFrom, mentionsAbove);
+      lexxy.append(mentionsPrompt.current);
+      following.push(lookAgainAsListShows(lexxy, mentionsPrompt.current));
+    }
     if (rooms !== undefined) {
       roomsPrompt.current = roomPrompt(mentionsAbove);
       lexxy.append(roomsPrompt.current);
       following.push(lookAgainAsListShows(lexxy, roomsPrompt.current), closeListOnNoMatch(lexxy, roomsPrompt.current));
+    }
+    if (commands?.length) {
+      commandsPrompt.current = commandPrompt(commands);
+      lexxy.append(commandsPrompt.current);
+      following.push(lookAgainAsListShows(lexxy, commandsPrompt.current, () => endsCommandName(commandNameWritten(lexxy))));
     }
     editor.current = lexxy;
     host.current!.append(lexxy);
@@ -780,22 +814,15 @@ export default function RichTextEditor({
       lexxy.remove();
       editor.current = null;
       initialized.current = false;
+      mentionsPrompt.current = null;
       roomsPrompt.current = null;
+      commandsPrompt.current = null;
     };
   }, []);
 
-  // The @ prompt offers the people `mentionsFrom` answers with now. Lexxy reads where a prompt asks as it
-  // connects, so asking elsewhere takes another prompt.
+  // /invite and /msg have @ offer everyone.
   useEffect(() => {
-    if (!mentionsFrom) return;
-    const lexxy = editor.current!;
-    const prompt = mentionPrompt(mentionsFrom, mentionsAbove);
-    lexxy.append(prompt);
-    const following = lookAgainAsListShows(lexxy, prompt);
-    return () => {
-      following.disconnect();
-      prompt.remove();
-    };
+    if (mentionsPrompt.current && mentionsFrom) askFrom(mentionsPrompt.current, mentionsFrom, mentionsAbove);
   }, [mentionsFrom, mentionsAbove]);
 
   useEffect(() => {
@@ -803,19 +830,10 @@ export default function RichTextEditor({
     if (rooms && initialized.current) showRoomsAsTheyAre(editor.current!, rooms);
   }, [rooms]);
 
-  // The / prompt lists the commands there are now. Lexxy reads a prompt's items as it connects, so other
-  // commands, as their names tell, take another prompt.
+  // The / prompt lists the commands there are now, as their names tell.
   const commandNames = commands?.map(({ name }) => name).join(" ") ?? "";
   useEffect(() => {
-    if (!commands?.length) return;
-    const lexxy = editor.current!;
-    const prompt = commandPrompt(commands);
-    lexxy.append(prompt);
-    const following = lookAgainAsListShows(lexxy, prompt, () => endsCommandName(commandNameWritten(lexxy)));
-    return () => {
-      following.disconnect();
-      prompt.remove();
-    };
+    if (commandsPrompt.current && commands?.length) offerCommands(commandsPrompt.current, commands);
   }, [commandNames]);
 
   // Lexxy copies its label and placeholder to its contenteditable only as it connects.

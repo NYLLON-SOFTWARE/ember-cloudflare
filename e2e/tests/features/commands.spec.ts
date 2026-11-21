@@ -222,6 +222,39 @@ test.describe("/ commands", () => {
     expect(await canSee(request, grace, leads.id)).toBe(false);
   });
 
+  test("has @ offer the room's people again once the /msg it was offering everyone for is taken away while its list shows", async ({ members }) => {
+    const ada = await members.signIn(unique("Ada"));
+    const thrown: Error[] = [];
+    ada.page.on("pageerror", (error) => thrown.push(error));
+    const asked = (everyone: boolean) =>
+      ada.page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return url.pathname === "/api/autocompletable/users" && url.searchParams.has("room_id") !== everyone;
+      });
+    const field = ada.composer();
+    await field.pressSequentially("/msg ");
+    await expect(usage(ada)).toBeVisible();
+    const everyone = asked(true);
+    await field.pressSequentially("@");
+    await everyone;
+    await expect(ada.page.getByRole("listbox")).toBeVisible();
+
+    // Selecting back from the @ leaves its list open, and deleting what's selected closes it as the command goes.
+    await field.press("Shift+Home");
+    await expect(ada.page.getByRole("listbox")).toBeVisible();
+    // As someone does who sees what's selected first, by when the page has told the editor of it.
+    await listSettled(ada);
+    await field.press("Backspace");
+    await expect(field).toHaveText("");
+    await expect(ada.page.getByRole("listbox")).toBeHidden();
+    await listSettled(ada);
+    const theRoom = asked(false);
+    await field.pressSequentially("@");
+    await theRoom;
+    await expect(ada.page.getByRole("listbox")).toBeVisible();
+    expect(thrown).toEqual([]);
+  });
+
   test("leaves a private room with /leave once you confirm, which then leaves your sidebar", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"), { serverRooms: true });
     const linus = await createSession(request, unique("Linus"));
