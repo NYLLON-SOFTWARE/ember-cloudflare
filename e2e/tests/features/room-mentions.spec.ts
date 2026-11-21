@@ -1,4 +1,4 @@
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Locator } from "@playwright/test";
 import { cookieHeader, type Session, type TestRoom } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 
@@ -10,6 +10,9 @@ const prompt = (member: Member) => member.page.getByRole("listbox");
 
 /** The rooms the # prompt lists, in order, each after its icon or a #. */
 const offered = (member: Member) => prompt(member).getByRole("option");
+
+/** The links in what message `message` says, past its author's avatar and its time. */
+const linksIn = (message: Locator) => message.locator(".message-content").getByRole("link");
 
 /**
  * Waits for the list to close and for Lexxy to listen for the next #, which it starts again a frame after
@@ -77,24 +80,28 @@ test.describe("#-mention rooms", () => {
     await ada.composer().press("Enter");
     const sent = ada.message("and");
     await expect(sent).toContainText(`#${name} and #general`);
-    await expect(sent.getByRole("link")).toHaveText([`#${name}`, "#general"]);
+    await expect(linksIn(sent)).toHaveText([`#${name}`, "#general"]);
   });
 
-  test("makes a heading of # and a space at a line's start, and leaves a # that starts no room's name as text, sent by the first Enter", async ({ members }) => {
+  test("leaves a # that starts no room's name as text, sent by the first Enter, and makes a heading of # and a space at a line's start", async ({ members }) => {
     const ada = await members.signIn("Ada");
+
+    await ada.composer().pressSequentially("We're ");
+    await ada.composer().pressSequentially("#");
+    await expect(offered(ada)).toHaveText(["#general", "#random"]);
+    await ada.composer().pressSequentially("1");
+    // The list closes once it finds no room, rather than taking the Enter that sends.
+    await listClosed(ada);
+    await ada.composer().pressSequentially(" today");
+    await ada.composer().press("Enter");
+    await expect(ada.message("We're #1 today")).toBeVisible();
+    await expect(ada.composer()).toHaveText("");
 
     await ada.composer().pressSequentially("# Big news");
     await expect(ada.composer().locator("h1")).toHaveText("Big news");
     await expect(prompt(ada)).toBeHidden();
-    await ada.composer().press("Shift+Enter");
-    await ada.composer().pressSequentially("We're #1");
-    // The list closes once nothing matches, rather than taking the Enter that sends.
-    await expect(prompt(ada)).toBeHidden();
-    await ada.composer().pressSequentially(" today");
     await ada.composer().press("Enter");
-    await expect(ada.message("We're #1 today")).toBeVisible();
-    await expect(ada.message("We're #1 today").locator("h1")).toHaveText("Big news");
-    await expect(ada.composer()).toHaveText("");
+    await expect(ada.message("Big news").locator("h1")).toHaveText("Big news");
   });
 
   test("shows a private room by name to those in it, and as a lock and private room to everyone else, renamed for all at once", async ({ members, request }) => {
@@ -112,16 +119,17 @@ test.describe("#-mention rooms", () => {
     await listClosed(grace);
     await grace.composer().press("Enter");
 
-    await expect(grace.message("Details in").getByRole("link", { name: `#${name}` })).toHaveAttribute("href", `/rooms/${plans.id}`);
+    await expect(linksIn(grace.message("Details in"))).toHaveAttribute("href", `/rooms/${plans.id}`);
+    await expect(linksIn(grace.message("Details in"))).toHaveText(`#${name}`);
     const seen = ada.message("Details in");
     await expect(seen).toHaveText(/Details in\s*private room/);
     await expect(seen).not.toContainText(name);
-    await expect(seen.getByRole("link")).toHaveCount(0);
+    await expect(linksIn(seen)).toHaveCount(0);
     await expect(seen.locator("svg.iconoir-lock")).toBeVisible();
 
     const renamed = unique("Launch");
     await changeRoom(request, grace.session, plans, { name: renamed });
-    await expect(grace.message("Details in").getByRole("link")).toHaveText(`#${renamed}`);
+    await expect(linksIn(grace.message("Details in"))).toHaveText(`#${renamed}`);
     await expect(seen).toHaveText(/Details in\s*private room/);
   });
 
@@ -142,9 +150,9 @@ test.describe("#-mention rooms", () => {
     await ada.page.getByRole("button", { name: "Save changes" }).click();
 
     await expect(ada.editor()).toBeHidden();
-    await expect(ada.message("Meet in").getByRole("link")).toHaveText(["#random", "#general"]);
+    await expect(linksIn(ada.message("Meet in"))).toHaveText(["#random", "#general"]);
     await ada.page.reload();
-    await expect(ada.message("Meet in").getByRole("link")).toHaveText(["#random", "#general"]);
+    await expect(linksIn(ada.message("Meet in"))).toHaveText(["#random", "#general"]);
   });
 });
 
@@ -160,6 +168,6 @@ test.describe("Keep drafts", () => {
     await ada.connected();
     await expect(ada.composer().getByText("#general", { exact: true })).toBeVisible();
     await ada.composer().press("Enter");
-    await expect(ada.message("See").getByRole("link")).toHaveText("#general");
+    await expect(linksIn(ada.message("See"))).toHaveText("#general");
   });
 });

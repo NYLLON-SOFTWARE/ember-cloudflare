@@ -95,7 +95,7 @@ type LexxyPrompt = HTMLElement & {
  * the window, or else above it, or always above it with `above`.
  */
 function mentionPrompt(src: string, above: boolean): LexxyPrompt {
-  return prompt({ trigger: "@", name: "mention", src, "remote-filtering": "true", "empty-results": "No matches" }, above);
+  return lexxyPrompt({ trigger: "@", name: "mention", src, "remote-filtering": "true", "empty-results": "No matches" }, above);
 }
 
 /**
@@ -105,10 +105,11 @@ function mentionPrompt(src: string, above: boolean): LexxyPrompt {
  * list opens where the @ prompt's does, and closes once it lists nothing (`closeListOnNoMatch`).
  */
 function roomPrompt(above: boolean): LexxyPrompt {
-  return prompt({ trigger: "#", name: "room", "supports-space-in-searches": "", "empty-results": "No matches" }, above);
+  return lexxyPrompt({ trigger: "#", name: "room", "supports-space-in-searches": "", "empty-results": "No matches" }, above);
 }
 
-function prompt(attributes: Record<string, string>, above: boolean): LexxyPrompt {
+/** A `<lexxy-prompt>` of `attributes`, whose list shows above the text, even where there's room below it, with `above`. */
+function lexxyPrompt(attributes: Record<string, string>, above: boolean): LexxyPrompt {
   const element = document.createElement("lexxy-prompt");
   for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
   if (above) element.setAttribute("vertical-direction", "top");
@@ -163,7 +164,10 @@ const LIST_SHOWN = "lexxy-prompt-menu--visible";
 /** The class Lexxy gives a prompt's list while it says it found nothing, its `empty-results`. */
 const LIST_EMPTY = "lexxy-prompt-menu--empty";
 
-/** Calls `heard` with each record of a change to the class or `data-anchored` of a list `lexxy`'s prompts add to it, which they do as each first opens one. */
+/**
+ * Calls `heard` with each record of a change to the class or `data-anchored` of a list `lexxy`'s prompts
+ * add to it, which each does as it first opens its list, and with the record of its adding.
+ */
 function followLists(lexxy: LexxyEditor, heard: (record: MutationRecord, list: Element) => void): MutationObserver {
   const observer = new MutationObserver((records) => {
     for (const record of records) {
@@ -179,18 +183,20 @@ function followLists(lexxy: LexxyEditor, heard: (record: MutationRecord, list: E
   return observer;
 }
 
-/** Marks the `lexxy:change` that has the @ prompt look again at what's typed, which changes nothing written. */
+/** Marks the `lexxy:change` that has a prompt look again at what's typed, which changes nothing written. */
 const LOOK_AGAIN = Symbol("look again");
 
 /**
- * Has `lexxy`'s @ prompt, `prompt`, list the people for what's typed after the @ as the list shows, when
- * that's changed since the prompt asked for the list. Lexxy (0.9.24, and still 1.0.1) hears what's typed
- * only once the list shows, so a quick "@ka" would list everyone until the next key. Lexxy reads what's
- * typed as it adds the list to the editor, and as it unpins the list (`data-anchored`) to open it again.
- * Until the list shows, the prompt hasn't said which list is its own, so what's typed is kept for each.
+ * Has `lexxy`'s prompt `prompt` list what it finds for what's typed after its trigger as the list shows,
+ * when that's changed since the prompt read it. Lexxy (0.9.24, and still 1.0.1) hears what's typed only
+ * once the list shows, a frame or a fetch after it reads what's typed, so a quick "@ka" would list
+ * everyone, and a quick "#ra" every room, until the next key. Lexxy reads what's typed as it adds the
+ * list to the editor, and as it unpins the list (`data-anchored`) to open it again. Until the list shows,
+ * the prompt hasn't said which list is its own, so what's typed is kept for each.
  */
 function lookAgainAsListShows(lexxy: LexxyEditor, prompt: LexxyPrompt): MutationObserver {
-  const typed = () => lexxy.contents.textBackUntil("@");
+  const trigger = prompt.getAttribute("trigger")!;
+  const typed = () => lexxy.contents.textBackUntil(trigger);
   const asked = new WeakMap<Element, string>();
   return followLists(lexxy, ({ type, attributeName, oldValue }, list) => {
     if (type === "childList" || (attributeName === "data-anchored" && !list.hasAttribute("data-anchored"))) {
@@ -580,7 +586,7 @@ export default function RichTextEditor({
     if (rooms !== undefined) {
       roomsPrompt.current = roomPrompt(mentionsAbove);
       lexxy.append(roomsPrompt.current);
-      following.push(closeListOnNoMatch(lexxy, roomsPrompt.current));
+      following.push(lookAgainAsListShows(lexxy, roomsPrompt.current), closeListOnNoMatch(lexxy, roomsPrompt.current));
     }
     editor.current = lexxy;
     host.current!.append(lexxy);
