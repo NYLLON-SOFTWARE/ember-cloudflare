@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef } from "react";
 import { MESSAGE_TOO_LONG, searchPath, startingInvolvement, type Involvement, type Me, type Room, type RoomId, type SharedRoom, type SidebarRoom, type User } from "@ember/protocol";
-import { writtenBody } from "@ember/richtext/dom";
+import { roomIdsIn, writtenBody } from "@ember/richtext/dom";
 import { useFlash } from "@/components/flash";
 import { useJoinsNoHuddle } from "@/components/workspace/huddle-button";
 import { OpenSearchContext } from "@/components/workspace/search-box";
@@ -10,7 +10,7 @@ import { roomName, toSentence } from "@/lib/directs";
 import { hasHuddles } from "@/lib/huddle-people";
 import { sendAway } from "@/lib/outbox";
 import type { RoomAnswer } from "@/lib/room-list";
-import { bodyAfter, commandsIn, isBlankBody, mentionAfter, personNamedIn, roomNamedIn, type CommandName, type CommandRunner, type SlashCommand, type Taken } from "@/lib/slash-commands";
+import { bodyAfter, commandsIn, isBlankBody, mentionAfter, personNamedIn, roomMentionAfter, roomNamedIn, type CommandName, type CommandRunner, type SlashCommand, type Taken } from "@/lib/slash-commands";
 import { useAccount } from "./use-account";
 import { PeopleContext, useNameOf } from "./use-directory";
 import { isTooLong, pendingMessage } from "./use-room";
@@ -95,8 +95,14 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
     }
   };
 
-  /** The room `argument` names after a #, or this one, where it names none; undefined where it names one that isn't this person's. */
-  const roomIn = (argument: string): Room | undefined => (argument === "" ? room : roomNamedIn(argument, shared)?.named);
+  /** This person's rooms that `markup` mentions, as the # list writes them. */
+  const roomsMentionedIn = (markup: string) => roomIdsIn(markup).flatMap((id) => shared.filter((r) => r.id === id));
+
+  /**
+   * The room `argument` names after a #, one `markup` mentions first, as two rooms can share a name, or this
+   * one, where it names none; undefined where it names one that isn't this person's.
+   */
+  const roomIn = (argument: string, markup: string): Room | undefined => (argument === "" ? room : roomNamedIn(argument, roomsMentionedIn(markup), shared)?.named);
 
   const runners: Record<Exclude<CommandName, "shrug" | "snippet">, CommandRunner> = {
     darkmode: async () => {
@@ -113,10 +119,10 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       navigate(huddlePath(room.id));
       return true;
     },
-    invite: async ({ typed, mentions }) => {
+    invite: async ({ typed, markup, mentions }) => {
       const { found, rest } = peopleIn(typed.argument, mentions);
       if (rest.startsWith("@")) return refuse("Pick whom to add from the list @ shows.");
-      const target = roomIn(rest);
+      const target = roomIn(rest, markup);
       if (!target) return refuse("Name a room you're in after the #.");
       if (target.kind === "direct") return refuse("Nobody can be added to a direct message.");
       if (target.kind === "open") {
@@ -189,8 +195,8 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       else flash("notice", `Sent to ${to.name}.`);
       return true;
     },
-    mute: async ({ typed }) => {
-      const target = roomIn(typed.argument);
+    mute: async ({ typed, markup }) => {
+      const target = roomIn(typed.argument, markup);
       if (!target) return refuse("Name a room you're in after the #.");
       const level = target.id === room.id ? involvement : (rooms.find((r) => r.id === target.id)?.involvement ?? startingInvolvement(target));
       const muted = level === "nothing" || level === "invisible";
@@ -247,7 +253,8 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
 
   /**
    * Whom or where /msg sends to: whom it mentions first thing, as the @ list writes them, or whom it names
-   * after an @ as typed, in a DM with them, started if they have none, or a room it names after a #.
+   * after an @ as typed, in a DM with them, started if they have none, or the room it mentions first thing,
+   * as the # list writes it, or names after a # as typed.
    */
   function recipientOf(length: number, argument: string, markup: string, mentions: User[]): Recipient | null {
     const mentioned = mentionAfter(markup, length);
@@ -264,8 +271,9 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
         },
       };
     }
-    const to = roomNamedIn(argument, shared)?.named;
-    return to ? { name: `#${to.name}`, taken: to.name.length + 1, roomId: async () => to.id, room: to } : null;
+    const mentionedRoom = roomMentionAfter(markup, length);
+    const to = mentionedRoom ? shared.find(({ id }) => id === mentionedRoom) : roomNamedIn(argument, [], shared)?.named;
+    return to ? { name: `#${to.name}`, taken: mentionedRoom ? "mention" : to.name.length + 1, roomId: async () => to.id, room: to } : null;
   }
 
   return {

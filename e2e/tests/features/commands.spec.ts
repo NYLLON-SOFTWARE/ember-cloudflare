@@ -240,7 +240,7 @@ test.describe("/ commands", () => {
     expect(await canSee(request, ada.session, leads.id)).toBe(false);
   });
 
-  test("sends /msg's message to whom it mentions, in a DM with them, or to a room it names", async ({ members, rooms }) => {
+  test("sends /msg's message to whom it mentions, in a DM with them, or to a room it names or mentions", async ({ members, rooms }) => {
     const tag = crypto.randomUUID().slice(0, 8);
     const grace = await members.signIn(`Grace ${tag}`);
     const ada = await members.signIn(unique("Ada"));
@@ -258,6 +258,19 @@ test.describe("/ commands", () => {
     // Not by reloading, which would take what the page has yet to send with it.
     await ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: rooms.random.name, exact: true }).click();
     await expect(ada.message("see the brief")).toBeVisible();
+
+    // A room picked from the # list, which the message goes to without the mention.
+    await ada.composer().pressSequentially("/msg ");
+    await expect(usage(ada)).toBeVisible();
+    await ada.composer().pressSequentially("#gen");
+    await expect(ada.page.getByRole("listbox").getByRole("option")).toHaveText(["#general"]);
+    await ada.composer().press("Enter");
+    await expect(ada.composer().getByText("#general", { exact: true })).toBeVisible();
+    await ada.composer().pressSequentially("see the plan");
+    await ada.composer().press("Enter");
+    await expect(flash(ada, "Sent to #general.")).toBeVisible();
+    await ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: rooms.general.name, exact: true }).click();
+    await expect(ada.message("see the plan").locator(".message-content")).toHaveText("see the plan");
   });
 
   test("searches for what follows /search, and opens the search box for /search alone", async ({ members }) => {

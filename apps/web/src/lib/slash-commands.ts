@@ -1,5 +1,5 @@
 import type { DirectoryUser, Room, RoomId, SharedRoom, User } from "@ember/protocol";
-import { MENTION_CONTENT_TYPE, writtenBody } from "@ember/richtext/dom";
+import { MENTION_CONTENT_TYPE, ROOM_MENTION_CONTENT_TYPE, writtenBody } from "@ember/richtext/dom";
 
 // The commands a message can start with, after a /: Slack's own, those Ember has the means for, under
 // Slack's names and in its words, with a room where Slack has a channel. Any message that starts with a
@@ -139,15 +139,18 @@ export function personNamedIn(argument: string, mentions: User[], people: Iterab
   return person ? { named: person, rest: after(typed, person.name.length) } : null;
 }
 
-/** The room `argument` starts by naming after a #, among `rooms`, the longest names first. Null when it names none. */
-export function roomNamedIn<R extends SharedRoom>(argument: string, rooms: R[]): Named<R> | null {
+/**
+ * The room `argument` starts by naming after a #: one of those the message mentions, as the # list writes
+ * them, or else one of `rooms`, by name, the longest names first. Null when it names none.
+ */
+export function roomNamedIn<R extends SharedRoom>(argument: string, mentioned: R[], rooms: R[]): Named<R> | null {
   if (!argument.startsWith("#")) return null;
   const typed = argument.slice(1);
-  const room = longestFirst(rooms).find(({ name }) => startsWithName(typed, name));
+  const room = longestFirst(mentioned).find(({ name }) => startsWithName(typed, name)) ?? longestFirst(rooms).find(({ name }) => startsWithName(typed, name));
   return room ? { named: room, rest: after(typed, room.name.length) } : null;
 }
 
-/** What's taken off the start of a message that starts with a command: so many characters of its text, or the mention it starts with. */
+/** What's taken off the start of a message that starts with a command: so many characters of its text, or the mention, of someone or a room, it starts with. */
 export type Taken = number | "mention";
 
 /**
@@ -160,7 +163,7 @@ export function bodyAfter(markup: string, ...taken: Taken[]): string {
   for (const take of taken) {
     if (take === "mention") {
       const first = firstContent(template.content);
-      if (isMention(first)) remove(template.content, first);
+      if (isMention(first) || isRoomMention(first)) remove(template.content, first);
       dropText(template.content, 0);
     } else dropText(template.content, take);
   }
@@ -169,10 +172,21 @@ export function bodyAfter(markup: string, ...taken: Taken[]): string {
 
 /** The id of whom the message `markup` mentions first thing after its first `length` characters, and the white space after them, or null. */
 export function mentionAfter(markup: string, length: number): string | null {
+  const first = firstAfter(markup, length);
+  return isMention(first) ? first.getAttribute("sgid") : null;
+}
+
+/** The id of the room the message `markup` mentions first thing after its first `length` characters, and the white space after them, or null. */
+export function roomMentionAfter(markup: string, length: number): string | null {
+  const first = firstAfter(markup, length);
+  return isRoomMention(first) ? first.getAttribute("sgid") : null;
+}
+
+/** What the message `markup` has first after its first `length` characters and the white space after them: text, a line break or an attachment. */
+function firstAfter(markup: string, length: number): Node | null {
   const template = parsed(markup);
   dropText(template.content, length);
-  const first = firstContent(template.content);
-  return isMention(first) ? first.getAttribute("sgid") : null;
+  return firstContent(template.content);
 }
 
 /** `markup` with ¯\_(ツ)_/¯ at the end of its last paragraph, after a space unless that's empty, or in a paragraph of its own after a list, quote or code. */
@@ -194,6 +208,8 @@ function parsed(markup: string): HTMLTemplateElement {
 }
 
 const isMention = (node: Node | null): node is Element => node instanceof Element && node.getAttribute("content-type") === MENTION_CONTENT_TYPE;
+
+const isRoomMention = (node: Node | null): node is Element => node instanceof Element && node.getAttribute("content-type") === ROOM_MENTION_CONTENT_TYPE;
 
 const isAttachment = (node: Node) => node instanceof Element && node.localName === "action-text-attachment";
 

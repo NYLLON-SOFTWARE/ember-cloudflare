@@ -1,7 +1,7 @@
 import type { DirectoryUser, Room, SharedRoom } from "@ember/protocol";
-import { mentionContent } from "@ember/richtext/dom";
+import { mentionContent, roomMentionContent } from "@ember/richtext/dom";
 import { describe, expect, it } from "vitest";
-import { bodyAfter, commandNamed, commandsIn, mentionAfter, personNamedIn, roomNamedIn, SHRUG, SLASH_COMMANDS, typedCommand, withShrug } from "./slash-commands";
+import { bodyAfter, commandNamed, commandsIn, mentionAfter, personNamedIn, roomMentionAfter, roomNamedIn, SHRUG, SLASH_COMMANDS, typedCommand, withShrug } from "./slash-commands";
 
 const person = (id: string, name: string): DirectoryUser => ({ id, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${id}/avatar` });
 const ada = person("ada0000000000001", "Ada");
@@ -17,6 +17,10 @@ const designReviews = room("r3", "design reviews", "closed");
 /** A mention of `person`, as the @ list writes it. */
 const mention = ({ id, name, avatarUrl }: DirectoryUser) =>
   `<action-text-attachment sgid="${id}" content="${mentionContent({ id, name, avatarUrl }).replaceAll("&", "&amp;").replaceAll('"', "&quot;")}" content-type="application/vnd.campfire.mention"></action-text-attachment>`;
+
+/** A mention of `mentioned`, as the # list writes it. */
+const roomMention = (mentioned: SharedRoom) =>
+  `<action-text-attachment sgid="${mentioned.id}" content="${roomMentionContent(mentioned).replaceAll("&", "&amp;").replaceAll('"', "&quot;")}" content-type="application/vnd.campfire.room"></action-text-attachment>`;
 
 describe("/ commands", () => {
   it("lists Slack's commands Ember can do, by name, each with what it takes and does", () => {
@@ -63,12 +67,16 @@ describe("/ commands", () => {
     expect(personNamedIn("@Ada L. hello", [{ id: adaLovelace.id, name: "Ada L." }], people)).toEqual({ named: { id: adaLovelace.id, name: "Ada L." }, rest: "hello" });
   });
 
-  it("finds the room a command names after a #, the longest name first, in any case", () => {
+  it("finds the room a command names after a #: one mentioned, or any by name, the longest name first, in any case", () => {
     const rooms = [general, design, designReviews];
-    expect(roomNamedIn("#design reviews today", rooms)).toEqual({ named: designReviews, rest: "today" });
-    expect(roomNamedIn("#Design today", rooms)).toEqual({ named: design, rest: "today" });
-    expect(roomNamedIn("#designs", rooms)).toBeNull();
-    expect(roomNamedIn("design", rooms)).toBeNull();
+    expect(roomNamedIn("#design reviews today", [], rooms)).toEqual({ named: designReviews, rest: "today" });
+    expect(roomNamedIn("#Design today", [], rooms)).toEqual({ named: design, rest: "today" });
+    expect(roomNamedIn("#designs", [], rooms)).toBeNull();
+    expect(roomNamedIn("design", [], rooms)).toBeNull();
+    // Mentioned, as the # list writes them, before any other room by name, of the same name or a longer one.
+    const otherDesign = room("r4", "design", "closed");
+    expect(roomNamedIn("#design today", [otherDesign], [...rooms, otherDesign])).toEqual({ named: otherDesign, rest: "today" });
+    expect(roomNamedIn("#design reviews today", [otherDesign], [...rooms, otherDesign])).toEqual({ named: otherDesign, rest: "reviews today" });
   });
 });
 
@@ -87,6 +95,15 @@ describe("What a command leaves of its message", () => {
     expect(mentionAfter("<p>/msg @Ada hi</p>", 4)).toBeNull();
     expect(bodyAfter("<p>/msg @Ada Lovelace hi</p>", 4, "@Ada Lovelace".length)).toBe("<p>hi</p>");
     expect(bodyAfter("<p>/msg #design</p><ul><li>one</li></ul>", 4, "#design".length)).toBe("<ul><li>one</li></ul>");
+  });
+
+  it("takes off the room mentioned that follows, as where the command's for", () => {
+    const markup = `<p>/msg ${roomMention(design)} see ${roomMention(general)}</p>`;
+    expect(roomMentionAfter(markup, 4)).toBe(design.id);
+    expect(mentionAfter(markup, 4)).toBeNull();
+    expect(roomMentionAfter(`<p>/msg ${mention(ada)} hi</p>`, 4)).toBeNull();
+    expect(bodyAfter(markup, 4, "mention")).toBe(`<p>see ${roomMention(general)}</p>`);
+    expect(bodyAfter(`<p>/msg ${roomMention(design)}</p>`, 4, "mention")).toBe("");
   });
 
   it("ends the last paragraph with ¯\\_(ツ)_/¯, after a space, or puts it in one of its own", () => {

@@ -1,5 +1,5 @@
 import { huddlePath, searchPath, type Account, type DirectoryUser, type DirectRoom, type Involvement, type Me, type Room, type RoomSettings, type SharedRoom, type SidebarRoom } from "@ember/protocol";
-import { bodyFromPlainText, mentionContent } from "@ember/richtext/dom";
+import { bodyFromPlainText, mentionContent, roomMentionContent } from "@ember/richtext/dom";
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,6 +61,10 @@ const account: Account = {
 const mention = ({ id, name, avatarUrl }: DirectoryUser) =>
   `<action-text-attachment sgid="${id}" content="${mentionContent({ id, name, avatarUrl }).replaceAll("&", "&amp;").replaceAll('"', "&quot;")}" content-type="application/vnd.campfire.mention"></action-text-attachment>`;
 
+/** A mention of `room`, as the # list writes it. */
+const roomMention = (room: SharedRoom) =>
+  `<action-text-attachment sgid="${room.id}" content="${roomMentionContent(room).replaceAll("&", "&amp;").replaceAll('"', "&quot;")}" content-type="application/vnd.campfire.room"></action-text-attachment>`;
+
 /** A command, written as `markup`, or as plain text. */
 const written = (text: string, markup = bodyFromPlainText(text)) => commandIn(markup) as WrittenCommand;
 
@@ -79,7 +83,7 @@ function serve(answers: Record<string, unknown>) {
   );
 }
 
-function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = true } = {}) {
+function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = true, sidebar = rooms } = {}) {
   const answers: RoomAnswer[] = [];
   const callbacks = { onFailed: vi.fn(), onOpenDirects: vi.fn(), onOpenShortcuts: vi.fn(), onSend: vi.fn(() => true), openSearch: vi.fn() };
   // The composer's ask before a message notifies a room of six or more, which here says to send it.
@@ -97,7 +101,7 @@ function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = 
         room,
         me,
         involvement,
-        rooms,
+        rooms: sidebar,
         askForRoom: () => (answer) => answers.push(answer),
         onFailed: callbacks.onFailed,
         onOpenDirects: callbacks.onOpenDirects,
@@ -356,6 +360,27 @@ describe("/ commands", () => {
     expect(navigate).toHaveBeenLastCalledWith(roomPath(design.id));
     expect(await run(written("/msg hello"))).toBe(false);
     expect(flash).toHaveBeenLastCalledWith("alert", "Write /msg, then @someone or #room, then your message.");
+  });
+
+  it("mutes, adds to and messages the room a command mentions, as the # list writes it, rather than another of the same name", async () => {
+    const otherDesign: SharedRoom = { id: "design-2", kind: "closed", name: "design", icon: null };
+    serve({
+      "PUT /api/rooms/design-2/involvement": { involvement: "nothing" },
+      "GET /api/rooms/design-2/settings": settingsOf(otherDesign, [ada]),
+      "PATCH /api/rooms/design-2/members": { room: otherDesign },
+    });
+    const { run } = runIn(general, { sidebar: [...rooms, listed(otherDesign, "everything")] });
+    expect(await run(written("", `<p>/mute ${roomMention(otherDesign)}</p>`))).toBe(true);
+    expect(await run(written("", `<p>/invite ${mention(grace)} ${roomMention(otherDesign)}</p>`))).toBe(true);
+    expect(await run(written("", `<p>/msg ${roomMention(otherDesign)} see the brief</p>`))).toBe(true);
+    expect(requests()).toEqual([
+      ["PUT", "/api/rooms/design-2/involvement", { involvement: "nothing" }],
+      ["GET", "/api/rooms/design-2/settings", undefined],
+      ["PATCH", "/api/rooms/design-2/members", { addedIds: [grace.id], removedIds: [] }],
+    ]);
+    // Without the mention, as without a room's name typed.
+    expect(sendAway).toHaveBeenCalledExactlyOnceWith(otherDesign.id, expect.objectContaining({ body: "<p>see the brief</p>" }));
+    expect(flash).toHaveBeenLastCalledWith("notice", "Sent to #design.");
   });
 
   it("opens the DM /msg asks for with nothing to send, unless you've opened another room by the time it has it", async () => {
