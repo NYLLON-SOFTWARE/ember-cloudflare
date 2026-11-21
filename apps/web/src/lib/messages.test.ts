@@ -1,7 +1,7 @@
 import type { Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { dateLabel, dateTimeLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline } from "./messages";
+import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline, visitedLabel } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -72,6 +72,34 @@ describe("Threads", () => {
     expect(lastReplyLabel(new Date(2026, 9, 12, 9, 41), now)).toEqual({ long: "on Oct 12", short: "on Oct 12" });
     expect(lastReplyLabel(new Date(2025, 9, 12, 9, 41), now)).toEqual({ long: "on Oct 12, 2025", short: "on Oct 12, 2025" });
     expect(lastReplyLabel(new Date(2026, 9, 31, 23, 0), new Date(2026, 10, 1, 0, 5)).short).toBe("yesterday");
+  });
+});
+
+describe("The Huddles page", () => {
+  it("says when a huddle started: today or yesterday at its time, or the day, with its year in another", () => {
+    const now = new Date(2026, 9, 30, 15, 0);
+    const today = new Date(2026, 9, 30, 9, 41);
+    const yesterday = new Date(2026, 9, 29, 9, 41);
+    const lastNight = new Date(2026, 9, 31, 23, 0);
+    expect(huddleStartedLabel(today, now)).toBe(`Today at ${timeLabel(today)}`);
+    expect(huddleStartedLabel(yesterday, now)).toBe(`Yesterday at ${timeLabel(yesterday)}`);
+    expect(huddleStartedLabel(new Date(2026, 9, 12, 9, 41), now)).toBe("Oct 12");
+    expect(huddleStartedLabel(new Date(2025, 9, 12, 9, 41), now)).toBe("Oct 12, 2025");
+    expect(huddleStartedLabel(lastNight, new Date(2026, 10, 1, 0, 5))).toBe(`Yesterday at ${timeLabel(lastNight)}`);
+  });
+});
+
+describe("History", () => {
+  it("says how long ago a page was shown: just now, in minutes or hours today, yesterday, or the day, with its year in another", () => {
+    const now = new Date(2026, 9, 30, 15, 0);
+    expect(visitedLabel(new Date(2026, 9, 30, 14, 59, 30), now)).toBe("Just now");
+    expect(visitedLabel(new Date(2026, 9, 30, 14, 55), now)).toBe("5 min");
+    expect(visitedLabel(new Date(2026, 9, 30, 14, 0, 30), now)).toBe("59 min");
+    expect(visitedLabel(new Date(2026, 9, 30, 12, 59), now)).toBe("2 hr");
+    expect(visitedLabel(new Date(2026, 9, 30, 0, 5), now)).toBe("14 hr");
+    expect(visitedLabel(new Date(2026, 9, 29, 23, 0), now)).toBe("Yesterday");
+    expect(visitedLabel(new Date(2026, 9, 12, 9, 41), now)).toBe("Oct 12");
+    expect(visitedLabel(new Date(2025, 9, 12, 9, 41), now)).toBe("Oct 12, 2025");
   });
 });
 

@@ -22,13 +22,18 @@ import {
   type ReleaseCheck,
   type RoleChange,
   type RoomId,
+  type SavedRoomLayout,
   type SidebarRoom,
+  type SidebarSection,
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { formatOf, TOP_LEVELS, modelName, type AssistantChanges, type AssistantSettings, type NewAssistantModel } from "@ember/protocol/assistant";
+import { blockedWordUnmatchable } from "@ember/protocol/blocked-words";
 import type { Agent, Agents } from "@ember/protocol/agents";
 import { RELAY_WITHOUT_HUDDLES, type HuddleRelaySetup, type HuddlesSetup } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
+import type { Reports } from "@ember/protocol/reports";
+import { OPEN_WITH_SSO, type SsoSettings, type SsoSetup } from "@ember/protocol/sso";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -54,7 +59,8 @@ import { CONFIRM_STOP_OUTSIDE_AI } from "./outside-ai-settings";
 import { CONFIRM_REMOVE } from "./people-list";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
 import { CHANGES_SAVED } from "./settings-page";
-import { CONFIRM_MEMBERS_ONLY, CONFIRM_OPEN } from "./ways-to-join";
+import { CONFIRM_FORGET_SSO } from "./sso-settings";
+import { CLOSES_MEMBERFUL, CONFIRM_MEMBERS_ONLY, CONFIRM_OPEN, CONFIRM_SSO_ONLY } from "./ways-to-join";
 import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
 vi.mock("@/lib/previews", () => ({
@@ -64,11 +70,12 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
   memberfulWebhooks: false,
+  sso: null,
   memberfulKeys: null,
   memberfulSiteKept: null,
   turnstile: null,
@@ -79,6 +86,7 @@ const asAdministrator: WorkspaceSettings = {
   email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
   invitations: [],
   emailDomains: [],
+  blockedWords: [],
   addresses: { deployed: null, others: [] },
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
@@ -128,6 +136,8 @@ interface Answers {
   ordered?: () => Response | Promise<Response>;
   /** What saving a logo answers, rather than the workspace with `LOGO`. */
   logoSaved?: () => Response | Promise<Response>;
+  /** What making, renaming or deleting a section answers, rather than the section as asked. */
+  sectioned?: () => Response | Promise<Response>;
 }
 
 /** The workspace's logo once one is uploaded. */
@@ -153,8 +163,8 @@ const RECAP: Agent = {
 };
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
-function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
-  let { account, emailDomains: keptDomains, email, turnstile, assistant, huddles, outsideAi } = settings;
+function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved, sectioned }: Answers = {}) {
+  let { account, emailDomains: keptDomains, email, turnstile, assistant, huddles, outsideAi, sso } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
@@ -164,15 +174,21 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
     }
     const removing = request.match(/^DELETE \/api\/account\/users\/(.+)$/);
     if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
+    const section = request.match(/^(PATCH|DELETE) \/api\/account\/sections\/(.+)$/);
+    if (section) {
+      if (sectioned) return sectioned();
+      return section[1] === "DELETE" ? new Response(null, { status: 204 }) : Response.json({ section: { id: section[2], ...(JSON.parse(String(init?.body)) as { name: string }) } });
+    }
     switch (request) {
       case "GET /api/account":
-        return Response.json({ ...settings, account, emailDomains: keptDomains, email, turnstile, assistant, huddles, outsideAi });
+        return Response.json({ ...settings, account, emailDomains: keptDomains, email, turnstile, assistant, huddles, outsideAi, sso });
       case "PATCH /api/account": {
         if (saved) return saved();
         const {
           name = account.name,
           tagline = account.tagline,
           settings: changed,
+          huddleVideo = account.huddleVideo,
           customDomain = account.customDomain,
           emailDomains = keptDomains,
           emailFrom = email.from,
@@ -180,6 +196,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         email = { ...email, from: emailFrom };
         // Members only turns Memberful on with it, and turning Memberful off turns it off, as the Worker does.
         const memberfulJoin = changed?.memberfulJoin ?? (changed?.memberfulSignIn || account.memberfulJoin);
+        // And SSO only, single sign-on.
+        const ssoJoin = changed?.ssoJoin ?? (changed?.ssoSignIn || account.ssoJoin);
         const emailDomainSignUp = changed?.emailDomainSignUp ?? account.emailDomainSignUp;
         keptDomains = emailDomains;
         account = {
@@ -188,13 +206,19 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           tagline,
           hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
+          restrictChannelMentions: changed?.restrictChannelMentions ?? account.restrictChannelMentions,
+          restrictEveryoneMention: changed?.restrictEveryoneMention ?? account.restrictEveryoneMention,
+          warnBeforeNotifying: changed?.warnBeforeNotifying ?? account.warnBeforeNotifying,
           huddleCameras: changed?.huddleCameras ?? account.huddleCameras,
           huddleScreens: changed?.huddleScreens ?? account.huddleScreens,
+          huddleVideo,
           customDomain,
           joinLink: changed?.joinLink ?? account.joinLink,
           openSignUp: changed?.openSignUp ?? account.openSignUp,
           memberfulJoin,
           memberfulSignIn: memberfulJoin && (changed?.memberfulSignIn ?? account.memberfulSignIn),
+          ssoJoin,
+          ssoSignIn: ssoJoin && (changed?.ssoSignIn ?? account.ssoSignIn),
           // The workspace shows Email domain's domains only while it's on, as the Worker does.
           emailDomainSignUp,
           emailDomains: emailDomainSignUp ? keptDomains : [],
@@ -218,6 +242,16 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
       case "PUT /api/account/turnstile_keys":
         turnstile = "saved";
         return Response.json({ turnstile });
+      case "PUT /api/account/sso": {
+        const { issuer = sso?.issuer ?? "", clientId = sso?.clientId ?? "", ...rest } = JSON.parse(String(init?.body)) as SsoSetup;
+        sso = { source: sso?.source ?? "saved", issuer, clientId, name: rest.name, scopes: rest.scopes, groupsClaim: rest.groupsClaim, allowedGroups: rest.allowedGroups, linksVerifiedEmails: rest.linksVerifiedEmails };
+        return Response.json({ sso });
+      }
+      case "DELETE /api/account/sso":
+        // Removing the provider turns single sign-on off, as the Worker does.
+        sso = null;
+        account = { ...account, ssoJoin: false, ssoSignIn: false };
+        return Response.json({ sso });
       case "DELETE /api/account/turnstile_keys":
         turnstile = null;
         return Response.json({ turnstile });
@@ -284,8 +318,12 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         const outcomes = emailAddresses.map((emailAddress) => ({ emailAddress, invitation: invitationTo(emailAddress), link: `https://ember.test/join/invitation#token=${emailAddress}` }));
         return Response.json({ outcomes } satisfies Invited);
       }
+      case "GET /api/reports":
+        return Response.json({ open: [], handled: [] } satisfies Reports);
+      case "POST /api/account/sections":
+        return sectioned ? sectioned() : Response.json({ section: { id: "s9", ...(JSON.parse(String(init?.body)) as { name: string }) } }, { status: 201 });
       case "PUT /api/account/room_order":
-        return ordered ? ordered() : Response.json({ sharedOrder: (JSON.parse(String(init?.body)) as { roomIds: RoomId[] }).roomIds });
+        return ordered ? ordered() : Response.json({ sharedOrder: (JSON.parse(String(init?.body)) as { roomIds: RoomId[] }).roomIds, sections: [] });
       default:
         throw new Error(`Unexpected request for ${request}`);
     }
@@ -305,6 +343,7 @@ const spies = () => ({
   onPersonChanged: vi.fn(),
   onFailed: vi.fn(),
   onSharedOrderSaved: vi.fn(),
+  onSectionsChanged: vi.fn(async () => {}),
   onSessionChanged: vi.fn(),
   onCheckForUpdates: vi.fn(async () => {}),
 });
@@ -314,8 +353,8 @@ type Callbacks = ReturnType<typeof spies>;
 let socketSays: (person: DirectoryUser) => void;
 /** Changes the workspace the page shows, as the workspace socket does. */
 let workspaceSays: (account: Account) => void;
-/** Changes the rooms the page shows, and the shared order, as the sidebar's list does. */
-let sidebarSays: (rooms: SidebarRoom[] | null, sharedOrder?: RoomId[]) => void;
+/** Changes the rooms the page shows, the shared order and the sections, as the sidebar's list does. */
+let sidebarSays: (rooms: SidebarRoom[] | null, sharedOrder?: RoomId[], sections?: SidebarSection[]) => void;
 /** Changes what the page shows of Ember's releases, as the workspace's release check does once the Worker answers. */
 let releaseSays: (check: ReleaseCheck) => void;
 
@@ -327,19 +366,19 @@ let releaseSays: (check: ReleaseCheck) => void;
 function Page({ me, listed, rooms: listedRooms, callbacks }: { me: Me; listed: DirectoryUser[]; rooms: SidebarRoom[] | null; callbacks: Callbacks }) {
   const [people, setPeople] = useState(() => new Map(listed.map((person) => [person.id, person])));
   const [account, setAccount] = useState<Account>({ ...asAdministrator.account, name: "Ember" });
-  const [sidebar, setSidebar] = useState<{ rooms: SidebarRoom[] | null; sharedOrder: RoomId[] }>({ rooms: listedRooms, sharedOrder: [] });
+  const [sidebar, setSidebar] = useState<{ rooms: SidebarRoom[] | null; sharedOrder: RoomId[]; sections: SidebarSection[] }>({ rooms: listedRooms, sharedOrder: [], sections: [] });
   const [releaseCheck, setReleaseCheck] = useState(release);
   socketSays = (person) => setPeople((people) => new Map(people).set(person.id, person));
   releaseSays = setReleaseCheck;
   workspaceSays = setAccount;
-  sidebarSays = (rooms, sharedOrder = []) => setSidebar({ rooms, sharedOrder });
+  sidebarSays = (rooms, sharedOrder = [], sections = []) => setSidebar({ rooms, sharedOrder, sections });
   const personChanged = (person: DirectoryUser) => {
     callbacks.onPersonChanged(person);
     socketSays(person);
   };
-  const sharedOrderSaved = (sharedOrder: RoomId[]) => {
-    callbacks.onSharedOrderSaved(sharedOrder);
-    setSidebar((sidebar) => ({ ...sidebar, sharedOrder }));
+  const sharedOrderSaved = (layout: SavedRoomLayout) => {
+    callbacks.onSharedOrderSaved(layout);
+    setSidebar((sidebar) => ({ ...sidebar, ...layout }));
   };
   // As the app's, which the page's loading waits on, it stays the same.
   const [askForAccount] = useState(() => () => (account: Account) => {
@@ -360,6 +399,7 @@ function Page({ me, listed, rooms: listedRooms, callbacks }: { me: Me; listed: D
               onPersonChanged={personChanged}
               rooms={sidebar.rooms}
               sharedOrder={sidebar.sharedOrder}
+              sections={sidebar.sections}
               onSharedOrderSaved={sharedOrderSaved}
               release={releaseCheck}
             />
@@ -497,6 +537,8 @@ describe("Version", () => {
   const card = () => screen.findByRole("region", { name: /^Ember \d(?!.* is out to try$)/ });
   /** The box under it that offers a beta to try, apart from it. */
   const betaBox = () => screen.queryByRole("region", { name: / is out to try$/ });
+  /** What heads General, its title and what it's for, which the card comes right after. */
+  const headingOfGeneral = () => screen.getByRole("heading", { level: 1, name: "Basic community settings" }).parentElement!;
   /** What the Worker says of a copy on GitHub, as its deploy told it, while Ember 0.2 is out, if `copy` is given. */
   const newerFor = (copy: CopyOnGitHub | null = null): ReleaseCheck => ({
     release: "0.1",
@@ -523,15 +565,14 @@ describe("Version", () => {
   }
 
   it.each([null, { repository: "someone/my-ember", branch: "main", workflow: true, betaWorkflow: true }])(
-    "shows administrators which release this is once the Worker has said, at the end of General (copy: %j)",
+    "shows administrators which release this is once the Worker has said, at the top of General (copy: %j)",
     async (copy) => {
       release = { release: "0.1", beta: false, newest: { release: "0.1", version: "0.1.0", notes: NOTES, newer: false }, checkedAt: CHECKED_AT, newestBeta: null, copy };
       showPage();
       const shown = await card();
       expect(shown.textContent).toBe(`Ember 0.1This is the newest release.Check for updates${LAST_CHECKED}`);
       expect(within(shown).queryByRole("link")).not.toBeInTheDocument();
-      const general = screen.getByRole("region", { name: "Basic community settings" });
-      expect(general.lastElementChild).toBe(shown);
+      expect(headingOfGeneral().nextElementSibling).toBe(shown);
     },
   );
 
@@ -622,8 +663,8 @@ describe("Version", () => {
       expect(shown.textContent).toBe(`Ember 0.2This is the newest release.Check for updates${LAST_CHECKED}`);
       expect(within(shown).queryByRole("link")).not.toBeInTheDocument();
       const box = shownBetaBox();
+      expect(headingOfGeneral().nextElementSibling).toBe(shown);
       expect(shown.nextElementSibling).toBe(box);
-      expect(screen.getByRole("region", { name: "Basic community settings" }).lastElementChild).toBe(box);
       // A little red, as a beta is experimental.
       expect(box).toHaveClass("border-beta-border", "bg-beta-background");
       expect(within(box).getByRole("heading", { level: 2 })).toHaveTextContent(/^Ember 0\.3 beta 1 is out to try$/);
@@ -1032,6 +1073,31 @@ describe("Workspace logo", () => {
 
     act(() => workspaceSays(asMember.account));
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", "/logos/app-icon.png");
+  });
+});
+
+describe("Warn before notifying a room of six or more", () => {
+  it("lets an administrator turn off the composer's question before @channel, @here or @everyone notifies a big room, and on again, saved with whatever else moved by Save changes", async () => {
+    const { onAccountChanged, user } = showPage();
+    const warn = await screen.findByRole("switch", { name: "Warn before notifying a room of six or more" });
+    expect(warn).toBeChecked();
+    expect(warn).toHaveAccessibleDescription("Ask people to confirm before @channel, @here or @everyone notifies a room of six or more.");
+
+    await user.click(warn);
+    await user.click(screen.getByRole("switch", { name: "Hide translation buttons" }));
+    expect(saved()).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, hideTranslationButtons: false, warnBeforeNotifying: false }));
+    expect(warn).not.toBeChecked();
+
+    await user.click(warn);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, hideTranslationButtons: false }));
+    expect(saved()).toEqual([
+      { name: "Analytical Engines", tagline: "", settings: { hideTranslationButtons: false, warnBeforeNotifying: false } },
+      { name: "Analytical Engines", tagline: "", settings: { warnBeforeNotifying: true } },
+    ]);
+    expect(warn).toBeChecked();
   });
 });
 
@@ -1502,6 +1568,13 @@ describe("Sign in with Memberful", () => {
     expect(screen.queryByText("Only the people administrators invite can join.")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Memberful" })).not.toBeInTheDocument();
   });
+
+  it("tells members that the provider's people join too while single sign-on lets them in beside Memberful", async () => {
+    const memberful = withMemberful(withKeys);
+    serve({ ...memberful, canAdminister: false, account: { ...memberful.account, joinLink: false, ssoJoin: true } });
+    showPage(asLinus);
+    expect(await screen.findByText(/join by signing in with Memberful/)).toHaveTextContent(`Members of ${SITE} join by signing in with Memberful, and others with single sign-on.`);
+  });
 });
 
 describe("Ways to join", () => {
@@ -1514,12 +1587,12 @@ describe("Ways to join", () => {
   const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
   const MEMBERS_ONLY_OVERRIDES = "Off while Memberful is members only.";
 
-  it("gives administrators Who can join: Open, Join link, Email domain and Memberful, each with a switch and whom it lets in", async () => {
+  it("gives administrators Who can join: Open, Join link, Email domain, Memberful and Single sign-on, each with a switch and whom it lets in", async () => {
     serve(withKeys);
     showPage();
     const ways = await screen.findByRole("region", { name: "Who can join" });
     expect(within(ways).getByRole("heading", { level: 2, name: "Who can join" })).toBeInTheDocument();
-    expect(within(ways).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Open", "Join link", "Email domain", "Memberful"]);
+    expect(within(ways).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Open", "Join link", "Email domain", "Memberful", "Single sign-on"]);
     const open = await way("Open");
     expect(open).not.toBeChecked();
     expect(open).toHaveAccessibleDescription("Anyone can create an account at Ember's sign-up page.");
@@ -1534,6 +1607,11 @@ describe("Ways to join", () => {
       "People with an email address at your domains join with a link Ember emails them. Ember can't send email yet, so turning this on sets that up first.",
     );
     expect(await way("Memberful")).not.toBeChecked();
+    const sso = await way("Single sign-on");
+    expect(sso).not.toBeChecked();
+    expect(sso).toHaveAccessibleDescription(
+      "Let people join and sign in with Okta, Entra ID, Google Workspace, or another identity provider.",
+    );
     // Each shows its settings while it's on.
     expect(within(screen.getByRole("region", { name: "Join link" })).getByRole("textbox", { name: "Share to invite more people" })).toBeInTheDocument();
     expect(signUpLink()).not.toBeInTheDocument();
@@ -2000,6 +2078,49 @@ describe("Join with an email domain", () => {
   });
 });
 
+describe("Blocked words", () => {
+  showingSection("membership-settings");
+  const card = () => screen.findByRole("region", { name: "Blocked words" });
+  const wordsField = async () => within(await card()).getByRole("textbox", { name: "Words and phrases, one a line or apart by commas" });
+  const saveButton = async () => within(await card()).queryByRole("button", { name: "Save blocked words" });
+
+  it("lists the words and phrases kept, one a line, for an administrator to change and save, saying Changes saved.", async () => {
+    serve({ ...asAdministrator, blockedWords: ["fudge", "darn it"] });
+    const { user } = showPage();
+    const words = await wordsField();
+    expect(words).toHaveValue("fudge\ndarn it");
+    expect(await saveButton()).toBeNull();
+
+    await user.type(words, ", Heck,  FUDGE");
+    await user.click((await saveButton())!);
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(saved()).toEqual([{ blockedWords: ["fudge", "darn it", "Heck"] }]);
+    expect(words).toHaveValue("fudge\ndarn it\nHeck");
+    expect(await saveButton()).toBeNull();
+  });
+
+  it("says which word or phrase it can't block, saving nothing, until it's changed", async () => {
+    const { user } = showPage();
+    const words = await wordsField();
+    await user.type(words, "fudge, ...");
+    await user.click((await saveButton())!);
+    const refusal = blockedWordUnmatchable("...");
+    expect(within(await card()).getByRole("alert")).toHaveTextContent(refusal);
+    expect(words).toHaveAccessibleDescription(refusal);
+    expect(saved()).toEqual([]);
+
+    await user.type(words, "{Backspace}");
+    expect(within(await card()).queryByRole("alert")).toBeNull();
+  });
+
+  it("isn't shown to members", async () => {
+    serve(asMember);
+    showPage(asLinus);
+    expect(await joinLink()).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Blocked words" })).not.toBeInTheDocument();
+  });
+});
+
 describe("Sending email", () => {
   showingSection("membership-settings");
 
@@ -2241,6 +2362,8 @@ describe("Set up huddles", () => {
   /** The card under it, which says whether cameras may go on in a huddle, and after that, whether screens may be shared. */
   const camerasCard = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Cameras" });
   const screensRow = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Screen sharing" });
+  /** The card after that, which says how sharp huddles' video is. */
+  const videoCard = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Video quality" });
   /** And the last, which says whether huddles have a relay. */
   const relayCard = () => within(screen.getByRole("region", { name: "Huddles" })).queryByRole("region", { name: "Relay for strict networks" });
   /** A TURN key's ID and its API token, as an administrator copies them from Cloudflare's dashboard. */
@@ -2252,8 +2375,9 @@ describe("Set up huddles", () => {
     expect(card).toHaveTextContent("Huddles let people in a room talk to each other live.");
     const huddlesSwitch = within(card).getByRole("switch", { name: "Audio and video chat" });
     expect(huddlesSwitch).not.toBeChecked();
-    // What people may do in a huddle waits for huddles, as their relay does.
+    // What people may do in a huddle waits for huddles, as their video quality and relay do.
     expect(camerasCard()).not.toBeInTheDocument();
+    expect(videoCard()).not.toBeInTheDocument();
     expect(relayCard()).not.toBeInTheDocument();
 
     await user.click(huddlesSwitch);
@@ -2268,6 +2392,7 @@ describe("Set up huddles", () => {
     expect(huddlesSwitch).toBeChecked();
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "PUT", body: JSON.stringify(APP) }));
     expect(camerasCard()).toBeInTheDocument();
+    expect(videoCard()).toBeInTheDocument();
     expect(relayCard()).toBeInTheDocument();
 
     await user.click(within(card).getByRole("button", { name: "Change keys" }));
@@ -2298,6 +2423,7 @@ describe("Set up huddles", () => {
     expect(card).toHaveTextContent("Huddles let people in a room talk to each other live.");
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "DELETE" }));
     expect(camerasCard()).not.toBeInTheDocument();
+    expect(videoCard()).not.toBeInTheDocument();
     expect(relayCard()).not.toBeInTheDocument();
   });
 
@@ -2426,6 +2552,31 @@ describe("Set up huddles", () => {
     expect(screensSwitch).not.toBeChecked();
   });
 
+  it("has a Video quality card between that card and the relay's, whose choice is saved at once with no notice, and follows the workspace socket", async () => {
+    serve({ ...asAdministrator, huddles: { appId: APP.appId, relayKeyId: null } });
+    const { onAccountChanged, user } = showPage();
+    await huddlesCard();
+    const video = videoCard()!;
+    const quality = (name: string) => within(video).getByRole("radio", { name });
+    expect(camerasCard()!.parentElement!.compareDocumentPosition(video) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(video.compareDocumentPosition(relayCard()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(video).toHaveTextContent("How sharp cameras and shared screens look in huddles.");
+    expect(quality("HD")).toBeChecked();
+
+    await user.click(quality("Full HD"));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, huddleVideo: "full-hd" }));
+    await waitFor(() => expect(quality("Full HD")).toBeEnabled());
+    expect(quality("Full HD")).toBeChecked();
+    await user.click(quality("Standard"));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, huddleVideo: "standard" }));
+    expect(saved()).toEqual([{ huddleVideo: "full-hd" }, { huddleVideo: "standard" }]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Chosen in another tab.
+    act(() => workspaceSays({ ...asAdministrator.account, huddleVideo: "hd" }));
+    expect(quality("HD")).toBeChecked();
+  });
+
   it("keeps the card out of Rooms and permissions, where it was", async () => {
     showPage();
     await huddlesCard();
@@ -2443,6 +2594,7 @@ describe("Set up huddles", () => {
     expect(screen.queryByRole("region", { name: "Audio and video chat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Cameras" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Screen sharing" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Video quality" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Relay for strict networks" })).not.toBeInTheDocument();
   });
 });
@@ -2558,6 +2710,41 @@ describe("Create an open room", () => {
     expect(newRoom).toHaveAttribute("href", "/rooms/opens/new");
     await user.click(newRoom);
     expect(location.pathname).toBe("/rooms/opens/new");
+  });
+});
+
+describe("Only administrators use @channel, @here and @everyone (settings)", () => {
+  const roomsSection = () => screen.getByRole("region", { name: "Room order and permissions" });
+  showingSection("channel-settings");
+
+  it("gives administrators a crowned switch for each under Must be admin to create new rooms, each saved at once on its own", async () => {
+    const { onAccountChanged, user } = showPage();
+    const channel = await screen.findByRole("switch", { name: "Must be admin to use @channel and @here" });
+    const everyone = screen.getByRole("switch", { name: "Must be admin to use @everyone" });
+    expect(within(roomsSection()).getAllByRole("switch").map((control) => control.getAttribute("aria-label"))).toEqual([
+      "Must be admin to create new rooms",
+      "Must be admin to use @channel and @here",
+      "Must be admin to use @everyone",
+    ]);
+    for (const control of [channel, everyone]) {
+      expect(control.parentElement!.querySelector("svg")).toHaveClass("iconoir-crown");
+      expect(control).not.toBeChecked();
+    }
+
+    await user.click(channel);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, restrictChannelMentions: true }));
+    await user.click(everyone);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, restrictChannelMentions: true, restrictEveryoneMention: true }));
+    expect(saved()).toEqual([{ settings: { restrictChannelMentions: true } }, { settings: { restrictEveryoneMention: true } }]);
+    expect([channel, everyone].map((control) => control.getAttribute("aria-checked"))).toEqual(["true", "true"]);
+  });
+
+  it("follows the workspace socket, for a switch moved in another tab", async () => {
+    showPage();
+    const everyone = await screen.findByRole("switch", { name: "Must be admin to use @everyone" });
+    act(() => workspaceSays({ ...asAdministrator.account, restrictEveryoneMention: true }));
+    expect(everyone).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Must be admin to use @channel and @here" })).not.toBeChecked();
   });
 });
 
@@ -2696,7 +2883,7 @@ describe("Shared room order", () => {
     await user.click(button("Save order"));
     await waitFor(() => expect(status()).toHaveTextContent("Room order saved for everyone."));
     expect(sentOrders()).toEqual([["PUT", { roomIds: ["secret", "random", "general"] }]]);
-    expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith(["secret", "random", "general"]);
+    expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith({ sharedOrder: ["secret", "random", "general"], sections: [] });
     expect(ordered()).toEqual(["Design", "random", "general"]);
     expect(button("Save order")).toBeDisabled();
     expect(button("Cancel")).toBeDisabled();
@@ -2726,7 +2913,7 @@ describe("Shared room order", () => {
     altArrow("random", "ArrowUp");
     expect(ordered()).toEqual(["general", "Design", "random"]);
 
-    await act(async () => answer(Response.json({ sharedOrder: ["general", "secret", "random"] })));
+    await act(async () => answer(Response.json({ sharedOrder: ["general", "secret", "random"], sections: [] })));
     expect(status()).toHaveTextContent("Room order saved for everyone.");
     expect(sentOrders()).toHaveLength(1);
   });
@@ -2820,7 +3007,7 @@ describe("Shared room order", () => {
     it("saves the order staged before going on, staying, saying so, while it can't be saved", async () => {
       let answers = 0;
       serve(asAdministrator, {
-        ordered: () => (answers++ === 0 ? Response.json({ error: "Something went wrong" }, { status: 500 }) : Response.json({ sharedOrder: ["general", "secret", "random"] })),
+        ordered: () => (answers++ === 0 ? Response.json({ error: "Something went wrong" }, { status: 500 }) : Response.json({ sharedOrder: ["general", "secret", "random"], sections: [] })),
       });
       const { onSharedOrderSaved, user } = showPage();
       await screen.findByRole("list", { name: "Room order" });
@@ -2837,7 +3024,7 @@ describe("Shared room order", () => {
         ["PUT", { roomIds: ["general", "secret", "random"] }],
         ["PUT", { roomIds: ["general", "secret", "random"] }],
       ]);
-      expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith(["general", "secret", "random"]);
+      expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith({ sharedOrder: ["general", "secret", "random"], sections: [] });
       await waitFor(() => expect(asking()).not.toBeInTheDocument());
     });
 
@@ -2853,7 +3040,7 @@ describe("Shared room order", () => {
       expect(button("Saving…")).toBeDisabled();
       expect(location.pathname).toBe(WORKSPACE_SETTINGS_PATH);
 
-      await act(async () => answer(Response.json({ sharedOrder: ["general", "secret", "random"] })));
+      await act(async () => answer(Response.json({ sharedOrder: ["general", "secret", "random"], sections: [] })));
       await waitFor(() => expect(location.pathname).toBe("/rooms/opens/random/edit"));
       expect(sentOrders()).toHaveLength(1);
     });
@@ -2979,6 +3166,262 @@ describe("Shared room order", () => {
       fireEvent.touchEnd(window);
       expect(status()).toHaveTextContent("Unsaved room order.");
     });
+  });
+});
+
+describe("Sidebar sections in Rooms and permissions", () => {
+  showingSection("channel-settings");
+  const engineering = { id: "s1", name: "Engineering" };
+  const sales = { id: "s2", name: "Sales" };
+  /** Ada's sections: Engineering with random and general, then Sales, with none of her rooms. */
+  const sections = [
+    { ...engineering, roomIds: ["random", "general"] },
+    { ...sales, roomIds: [] },
+  ];
+  const orderList = () => screen.getByRole("list", { name: "Room order" });
+  const orderRows = () => within(orderList()).getAllByRole("listitem");
+  /** What a row is for: a room, by the name of its link to the room's settings, or a section, as § and its name. */
+  const rowOf = (row: HTMLElement) => {
+    const link = within(row).queryByRole("link");
+    return link ? link.getAttribute("aria-label")!.replace("Settings for ", "") : `§ ${row.textContent!.replace(/(No rooms|\d+ rooms?)$/, "")}`;
+  };
+  const rows = () => orderRows().map(rowOf);
+  const orderRow = (name: string) => orderRows().find((row) => rowOf(row) === name)!;
+  const button = (name: string) => screen.getByRole("button", { name });
+  const status = () => within(screen.getByRole("region", { name: "Room order and permissions" })).getByRole("status");
+  const altArrow = (name: string, key: "ArrowUp" | "ArrowDown") => fireEvent.keyDown(orderRow(name), { key, altKey: true });
+  const sent = (method: string, path: RegExp) =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([input, init]) => init?.method === method && path.test(String(input)))
+      .map(([input, init]) => [String(input), init?.body === undefined ? undefined : JSON.parse(String(init.body))]);
+
+  async function showSections(me = asAda) {
+    const shown = showPage(me);
+    await screen.findByRole("list", { name: "Room order" });
+    act(() => sidebarSays(adasRooms, [], sections));
+    return shown;
+  }
+
+  it("lists each section's heading after the rooms in none, saying how many rooms it has, with its rooms set in under it", async () => {
+    await showSections();
+    expect(rows()).toEqual(["Design", "§ Engineering", "general", "random", "§ Sales"]);
+    const heading = orderRow("§ Engineering");
+    expect(heading).toHaveAccessibleName("Engineering");
+    expect(heading).toHaveTextContent("2 rooms");
+    expect(orderRow("§ Sales")).toHaveTextContent("No rooms");
+    expect(heading).toHaveAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+    for (const name of ["Move Engineering", "Rename Engineering", "Delete Engineering"]) expect(within(heading).getByRole("button", { name })).toBeInTheDocument();
+    const help = "Drag a room to reorder your community sidebar, or into a section. Click a room to set its permissions.";
+    expect(screen.getByText(help)).toBeInTheDocument();
+    expect(orderRow("general")).toHaveClass("pl-8");
+    expect(orderRow("general")).toHaveAccessibleDescription(`Engineering ${help}`);
+    expect(orderRow("Design")).toHaveClass("pl-1");
+    expect(orderRow("Design")).toHaveAccessibleDescription(help);
+  });
+
+  it("moves a room into a section and out with Alt and an arrow, and a section past another with its rooms, saving them all with Save order", async () => {
+    const { onSharedOrderSaved, user } = await showSections();
+    altArrow("Design", "ArrowDown");
+    expect(rows()).toEqual(["§ Engineering", "Design", "general", "random", "§ Sales"]);
+    expect(orderRow("Design")).toHaveFocus();
+    expect(orderRow("§ Engineering")).toHaveTextContent("3 rooms");
+    altArrow("random", "ArrowDown");
+    expect(rows()).toEqual(["§ Engineering", "Design", "general", "§ Sales", "random"]);
+
+    orderRow("§ Engineering").focus();
+    altArrow("§ Engineering", "ArrowDown");
+    expect(rows()).toEqual(["§ Sales", "random", "§ Engineering", "Design", "general"]);
+    expect(orderRow("§ Engineering")).toHaveFocus();
+    expect(status()).toHaveTextContent("Unsaved room order. Save to apply it to everyone.");
+    // Not past the last section, nor above the rooms in none.
+    altArrow("§ Engineering", "ArrowDown");
+    altArrow("§ Sales", "ArrowUp");
+    expect(rows()).toEqual(["§ Sales", "random", "§ Engineering", "Design", "general"]);
+
+    const saved = {
+      sharedOrder: ["random", "secret", "general"],
+      sections: [
+        { ...sales, roomIds: ["random"] },
+        { ...engineering, roomIds: ["secret", "general"] },
+      ],
+    };
+    serve(asAdministrator, { ordered: () => Response.json(saved) });
+    await user.click(button("Save order"));
+    await waitFor(() => expect(status()).toHaveTextContent("Room order saved for everyone."));
+    expect(sent("PUT", /room_order$/)).toEqual([
+      [
+        "/api/account/room_order",
+        {
+          roomIds: ["random", "secret", "general"],
+          sections: [
+            { id: "s2", roomIds: ["random"] },
+            { id: "s1", roomIds: ["secret", "general"] },
+          ],
+        },
+      ],
+    ]);
+    expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith(saved);
+    expect(rows()).toEqual(["§ Sales", "random", "§ Engineering", "Design", "general"]);
+    expect(button("Save order")).toBeDisabled();
+  });
+
+  it("keeps a room moved into a section deleted meanwhile where it's saved, and the sections made meanwhile, last", async () => {
+    await showSections();
+    altArrow("Design", "ArrowDown");
+    act(() => sidebarSays(adasRooms, [], [{ ...sales, roomIds: [] }, { id: "s3", name: "Design work", roomIds: ["secret"] }]));
+    expect(rows()).toEqual(["general", "random", "§ Sales", "§ Design work", "Design"]);
+  });
+
+  describe("dragged", () => {
+    // jsdom lays nothing out, so each row is 52px tall, in the order the list draws them.
+    function layOutRows() {
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        if (!this.dataset.roomId) return DOMRect.fromRect({ x: 0, y: -1000, width: 600, height: 3000 });
+        return DOMRect.fromRect({ x: 0, y: Array.prototype.indexOf.call(this.parentElement!.children, this) * 52, width: 600, height: 52 });
+      });
+    }
+    const grip = (name: string) => within(orderRow(name)).getByRole("button", { name: `Move ${name.replace("§ ", "")}` });
+    const pressGrip = (name: string) =>
+      fireEvent.pointerDown(grip(name), { pointerType: "mouse", button: 0, clientX: 20, clientY: orderRows().indexOf(orderRow(name)) * 52 + 26 });
+    const dragTo = (clientY: number) => fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY });
+
+    it("moves a section by its grip, its rooms folded under it as it goes, past another once it's past that one's middle", async () => {
+      await showSections();
+      layOutRows();
+      pressGrip("§ Engineering");
+      expect(status()).toHaveTextContent("Moving Engineering. Release to place, or press Escape to cancel.");
+      expect(rows()).toEqual(["Design", "§ Engineering", "§ Sales"]);
+      expect(orderRow("§ Engineering")).toHaveClass("bg-hover");
+      // Sales is drawn from 104px to 156px.
+      dragTo(125);
+      expect(rows()).toEqual(["Design", "§ Engineering", "§ Sales"]);
+      dragTo(135);
+      expect(rows()).toEqual(["Design", "§ Sales", "§ Engineering"]);
+      fireEvent.pointerUp(window);
+      expect(rows()).toEqual(["Design", "§ Sales", "§ Engineering", "general", "random"]);
+      expect(orderRow("§ Engineering")).toHaveFocus();
+    });
+
+    it("lets go of a section deleted while its heading is dragged, its rooms left in none", async () => {
+      await showSections();
+      layOutRows();
+      pressGrip("§ Engineering");
+      expect(rows()).toEqual(["Design", "§ Engineering", "§ Sales"]);
+      // Deleted in another tab, as the sidebar hears.
+      act(() => sidebarSays(adasRooms, [], [{ ...sales, roomIds: [] }]));
+      expect(rows()).toEqual(["Design", "general", "random", "§ Sales"]);
+      dragTo(170);
+      fireEvent.pointerUp(window);
+      expect(status()).toHaveTextContent("Section move canceled. It was deleted.");
+      expect(rows()).toEqual(["Design", "general", "random", "§ Sales"]);
+      expect(button("Save order")).toBeDisabled();
+    });
+
+    it("drags a room into a section, under its heading, or out of every section, above the first", async () => {
+      await showSections();
+      layOutRows();
+      pressGrip("Design");
+      // Past Engineering's heading and general.
+      dragTo(2 * 52 + 30);
+      fireEvent.pointerUp(window);
+      expect(rows()).toEqual(["§ Engineering", "general", "Design", "random", "§ Sales"]);
+      pressGrip("random");
+      dragTo(10);
+      fireEvent.pointerUp(window);
+      expect(rows()).toEqual(["random", "§ Engineering", "general", "Design", "§ Sales"]);
+    });
+
+    it("drops a room where it's dragged without undoing what others changed meanwhile", async () => {
+      await showSections();
+      layOutRows();
+      pressGrip("Design");
+      dragTo(2 * 52 + 30);
+      // Someone puts random in Sales from its settings as Design is dragged.
+      act(() => sidebarSays(adasRooms, [], [{ ...engineering, roomIds: ["general"] }, { ...sales, roomIds: ["random"] }]));
+      fireEvent.pointerUp(window);
+      expect(rows()).toEqual(["§ Engineering", "general", "Design", "§ Sales", "random"]);
+    });
+  });
+
+  it("renames a section in its dialog, saying why a name is refused", async () => {
+    const { onSectionsChanged, user } = await showSections();
+    serve(asAdministrator, { sectioned: () => Response.json({ error: "There's a section with that name already" }, { status: 409 }) });
+    await user.click(within(orderRow("§ Engineering")).getByRole("button", { name: "Rename Engineering" }));
+    const dialog = screen.getByRole("dialog", { name: "Rename section" });
+    const name = within(dialog).getByRole("textbox", { name: "Section name" });
+    expect(name).toHaveValue("Engineering");
+    expect(name).toHaveAttribute("maxlength", "100");
+    // Nothing to rename until the name changes.
+    expect(within(dialog).getByRole("button", { name: "Rename" })).toBeDisabled();
+    await user.clear(name);
+    await user.type(name, "Sales");
+    await user.click(within(dialog).getByRole("button", { name: "Rename" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("There's a section with that name already");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(onSectionsChanged).not.toHaveBeenCalled();
+
+    serve(asAdministrator);
+    await user.clear(name);
+    await user.type(name, "Software engineering");
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(sent("PATCH", /sections/)).toEqual([
+      ["/api/account/sections/s1", { name: "Sales" }],
+      ["/api/account/sections/s1", { name: "Software engineering" }],
+    ]);
+    expect(onSectionsChanged).toHaveBeenCalledOnce();
+  });
+
+  it("deletes a section once that's confirmed, its rooms staying, in none", async () => {
+    const { onSectionsChanged, user } = await showSections();
+    const confirmed = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const remove = () => within(orderRow("§ Engineering")).getByRole("button", { name: "Delete Engineering" });
+    await user.click(remove());
+    expect(confirmed).toHaveBeenCalledExactlyOnceWith("Are you sure you want to delete this section? Its rooms stay, in no section.");
+    expect(sent("DELETE", /sections/)).toEqual([]);
+
+    confirmed.mockReturnValue(true);
+    let loaded = () => {};
+    onSectionsChanged.mockImplementation(() => new Promise<void>((resolve) => (loaded = resolve)));
+    await user.click(remove());
+    await waitFor(() => expect(onSectionsChanged).toHaveBeenCalledOnce());
+    expect(sent("DELETE", /sections/)).toEqual([["/api/account/sections/s1", undefined]]);
+    // Until the sidebar has loaded without it.
+    expect(remove()).toBeDisabled();
+    act(() => sidebarSays(adasRooms, [], [{ ...sales, roomIds: [] }]));
+    await act(async () => loaded());
+    expect(rows()).toEqual(["Design", "general", "random", "§ Sales"]);
+  });
+
+  it("takes a section deleted elsewhere as deleted", async () => {
+    const { onSectionsChanged, onFailed, user } = await showSections();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    serve(asAdministrator, { sectioned: () => Response.json({ error: "Section not found" }, { status: 404 }) });
+    await user.click(within(orderRow("§ Sales")).getByRole("button", { name: "Delete Sales" }));
+    await waitFor(() => expect(onSectionsChanged).toHaveBeenCalledOnce());
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("makes a section from New section, beside New room, which only administrators have", async () => {
+    const { onSectionsChanged, user } = await showSections();
+    await user.click(button("New section"));
+    const dialog = screen.getByRole("dialog", { name: "New section" });
+    const name = within(dialog).getByRole("textbox", { name: "Section name" });
+    expect(name).toHaveAttribute("placeholder", "Such as Software engineering");
+    expect(within(dialog).getByRole("button", { name: "Create section" })).toBeDisabled();
+    await user.type(name, "Design work");
+    await user.click(within(dialog).getByRole("button", { name: "Create section" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(sent("POST", /sections$/)).toEqual([["/api/account/sections", { name: "Design work" }]]);
+    expect(onSectionsChanged).toHaveBeenCalledOnce();
+    cleanup();
+
+    serve(asMember);
+    showPage(asLinus);
+    expect(await screen.findByText("Community admins manage room order and permissions.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New section" })).not.toBeInTheDocument();
   });
 });
 
@@ -3284,6 +3727,214 @@ describe("Remove someone from the workspace", () => {
     expect(await deleteOf("linus Torvalds")).toBeEnabled();
     expect((await readList()).flat()).toContain("linus Torvalds");
     expect(onPersonChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("Single sign-on", () => {
+  showingSection("membership-settings");
+  const PROVIDER: SsoSettings = {
+    source: "saved",
+    issuer: "https://example.zitadel.cloud",
+    clientId: "290871046598765432",
+    name: "Acme",
+    scopes: [],
+    groupsClaim: "groups",
+    allowedGroups: [],
+    linksVerifiedEmails: false,
+  };
+  const withSso: WorkspaceSettings = { ...asAdministrator, sso: PROVIDER };
+  const withAccount = (settings: WorkspaceSettings, changes: Partial<Account>): WorkspaceSettings => ({ ...settings, account: { ...settings.account, ...changes } });
+  const way = (name: string) => screen.findByRole("switch", { name });
+  const SSO_ONLY_OVERRIDES = "Off while SSO only is on.";
+
+  it("opens Set up single sign-on as it's turned on before a provider is set up, then turns it on once that's saved", async () => {
+    serve(asAdministrator);
+    const { onAccountChanged, user } = showPage();
+    await user.click(await way("Single sign-on"));
+    const setup = await screen.findByRole("dialog", { name: "Set up single sign-on" });
+    expect(saved()).toEqual([]);
+    await user.type(within(setup).getByLabelText("Issuer URL"), PROVIDER.issuer);
+    await user.type(within(setup).getByLabelText("Client ID"), PROVIDER.clientId);
+    await user.type(within(setup).getByLabelText("Client Secret"), "s3cr3t");
+    await user.click(within(setup).getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "Done" }));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, ssoJoin: true }));
+    expect(saved()).toEqual([{ settings: { ssoJoin: true } }]);
+    expect(await way("Single sign-on")).toHaveAccessibleDescription(/^People sign in at https:\/\/example\.zitadel\.cloud using the Sign in with SSO button/);
+    expect(await way("SSO only")).not.toBeChecked();
+  });
+
+  it("turns nothing on when Set up single sign-on is closed without saving", async () => {
+    serve(asAdministrator);
+    const { user } = showPage();
+    await user.click(await way("Single sign-on"));
+    await user.click(within(await screen.findByRole("dialog", { name: "Set up single sign-on" })).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await way("Single sign-on")).not.toBeChecked();
+    expect(saved()).toEqual([]);
+  });
+
+  it("turns SSO only on once you confirm, greying out the ways it turns off", async () => {
+    serve(withAccount(withSso, { ssoJoin: true }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    await user.click(await way("SSO only"));
+    expect(confirm).toHaveBeenCalledWith(CONFIRM_SSO_ONLY);
+    await waitFor(() => expect(saved()).toEqual([{ settings: { ssoSignIn: true } }]));
+    for (const name of ["Open", "Join link", "Email domain"]) {
+      expect(await way(name)).toBeDisabled();
+      expect(await way(name)).toHaveAccessibleDescription(SSO_ONLY_OVERRIDES);
+    }
+    // Memberful can be the other only way in, so it stays, but off: alone, it would let nobody in.
+    expect(await way("Memberful")).toBeEnabled();
+    expect(await way("Memberful")).not.toBeChecked();
+  });
+
+  it("shows Memberful off while SSO only is on, though it's on, since it lets nobody in unless it's members only too", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, ssoSignIn: true, memberfulJoin: true }));
+    showPage();
+    expect(await way("Memberful")).not.toBeChecked();
+    expect(screen.queryByRole("switch", { name: "Members only" })).not.toBeInTheDocument();
+  });
+
+  it("turns Members only on, without asking, as Memberful is turned on while SSO only is on, so that either lets people in", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, ssoSignIn: true }));
+    const confirm = vi.spyOn(window, "confirm");
+    const { user } = showPage();
+    await user.click(await way("Memberful"));
+    await waitFor(() => expect(saved()).toEqual([{ settings: { memberfulSignIn: true } }]));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await way("Memberful")).toBeChecked();
+    expect(screen.queryByRole("switch", { name: "Members only" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "SSO only" })).not.toBeInTheDocument();
+    expect(await way("Join link")).toHaveAccessibleDescription("Off while Memberful and single sign-on are the only ways in.");
+  });
+
+  it("says single sign-on is off for everyone while Memberful is members only and SSO only isn't on", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, memberfulJoin: true, memberfulSignIn: true }));
+    showPage();
+    expect(await way("Single sign-on")).not.toBeChecked();
+    expect(await way("Single sign-on")).toHaveAccessibleDescription(/^Off while Memberful is members only, even for people who joined with it\./);
+  });
+
+  it("warns, as SSO only is turned on, that it turns Memberful off too while Memberful isn't members only", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, memberfulJoin: true }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { user } = showPage();
+    await user.click(await way("SSO only"));
+    expect(confirm).toHaveBeenCalledWith(`${CONFIRM_SSO_ONLY}${CLOSES_MEMBERFUL}`);
+    expect(saved()).toEqual([]);
+  });
+
+  it("turns Memberful off with Members only while both are the only ways in, leaving single sign-on the only one", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, ssoSignIn: true, memberfulJoin: true, memberfulSignIn: true }));
+    const { user } = showPage();
+    await user.click(await way("Memberful"));
+    await waitFor(() => expect(saved()).toEqual([{ settings: { memberfulJoin: false } }]));
+    expect(await way("SSO only")).toBeChecked();
+  });
+
+  it("waits for Memberful's move to be saved before it can be moved back while SSO only is on, since on and off save different settings", async () => {
+    let answer = (_: Response) => {};
+    const both = { ssoJoin: true, ssoSignIn: true, memberfulJoin: true, memberfulSignIn: true };
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, both), { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const memberful = await way("Memberful");
+    await user.click(memberful);
+    expect(memberful).not.toBeChecked();
+    expect(memberful).toBeDisabled();
+    // Were it moved back now, turning Members only on could be saved before turning Memberful off.
+    await user.click(memberful);
+    expect(saved()).toEqual([{ settings: { memberfulJoin: false } }]);
+
+    await act(async () => answer(Response.json({ account: { ...withSso.account, ...both, memberfulJoin: false, memberfulSignIn: false } })));
+    expect(memberful).toBeEnabled();
+    await user.click(memberful);
+    expect(memberful).toBeChecked();
+    expect(saved()).toEqual([{ settings: { memberfulJoin: false } }, { settings: { memberfulSignIn: true } }]);
+  });
+
+  it("waits for SSO only's move to be saved before Memberful's switch turns Members only on beside it, which asks nothing only because SSO only is on", async () => {
+    let answer = (_: Response) => {};
+    const ways = { ssoJoin: true, memberfulJoin: true };
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, ways), { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    await user.click(await way("SSO only"));
+    const memberful = await way("Memberful");
+    expect(memberful).not.toBeChecked();
+    expect(memberful).toBeDisabled();
+    // Were SSO only refused, Members only alone would close single sign-on without asking.
+    await user.click(memberful);
+    expect(saved()).toEqual([{ settings: { ssoSignIn: true } }]);
+
+    await act(async () => answer(Response.json({ account: { ...withSso.account, ...ways, ssoSignIn: true } })));
+    expect(memberful).toBeEnabled();
+    await user.click(memberful);
+    expect(saved()).toEqual([{ settings: { ssoSignIn: true } }, { settings: { memberfulSignIn: true } }]);
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("warns, as SSO only is turned on, that it closes Memberful to the members who joined with it, though Memberful lets nobody new join", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { user } = showPage();
+    await user.click(await way("SSO only"));
+    expect(confirm).toHaveBeenCalledWith(`${CONFIRM_SSO_ONLY}${CLOSES_MEMBERFUL}`);
+    expect(saved()).toEqual([]);
+  });
+
+  it("says that turning either off while both are the only ways in lets nobody in with it, not even those who joined with it", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, ssoSignIn: true, memberfulJoin: true, memberfulSignIn: true }));
+    showPage();
+    expect(await way("Memberful")).toHaveAccessibleDescription(
+      "Members of https://example.memberful.com join and sign in with their Memberful account. Turned off, it lets nobody in while SSO only is on, not even those who joined with it.",
+    );
+    expect(await way("Single sign-on")).toHaveAccessibleDescription(
+      "People sign in at https://example.zitadel.cloud using the Sign in with Acme button. When this is off, nobody signs in with it while Memberful is members only, not even those who joined with it.",
+    );
+    expect(screen.getByRole("region", { name: "Memberful" })).toHaveTextContent("Nobody else can join but the people you invite, and only they and administrators sign in with a password.");
+  });
+
+  it("hears of the provider set up in another tab as single sign-on is turned on there, rather than saying none is set up", async () => {
+    showPage();
+    const on = await way("Single sign-on");
+    const loads = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => `${init?.method ?? "GET"} ${String(input)}` === "GET /api/account").length;
+    expect(loads()).toBe(1);
+
+    serve(withSso);
+    act(() => workspaceSays({ ...asAdministrator.account, ssoJoin: true }));
+    expect(on).toBeChecked();
+    await waitFor(() => expect(on).toHaveAccessibleDescription(/^People sign in at https:\/\/example\.zitadel\.cloud using the Sign in with Acme button\./));
+    expect(screen.getByRole("button", { name: "Change settings" })).toBeInTheDocument();
+    expect(loads()).toBe(2);
+    expect(saved()).toEqual([]);
+  });
+
+  it("is set aside while Open lets anyone join, as Memberful is", async () => {
+    serve(withAccount(withSso, { openSignUp: true }));
+    showPage();
+    expect(await way("Single sign-on")).toBeDisabled();
+    expect(await way("Single sign-on")).toHaveAccessibleDescription("Set aside while Open lets anyone join.");
+  });
+
+  it("moves SSO only back, saying why, when the server refuses it", async () => {
+    serve(withAccount(withSso, { ssoJoin: true }), { saved: () => Response.json({ error: OPEN_WITH_SSO }, { status: 422 }) });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onFailed, user } = showPage();
+    const ssoOnly = await way("SSO only");
+    await user.click(ssoOnly);
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: OPEN_WITH_SSO })));
+    expect(ssoOnly).not.toBeChecked();
+  });
+
+  it("removes the provider once you confirm, which turns single sign-on off", async () => {
+    serve(withAccount(withSso, { ssoJoin: true }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    expect(window.confirm).toHaveBeenCalledWith(CONFIRM_FORGET_SSO);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Change settings" })).not.toBeInTheDocument());
   });
 });
 

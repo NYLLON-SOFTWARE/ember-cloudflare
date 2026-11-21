@@ -1,6 +1,7 @@
 import type { RoomId, User, UserId } from "@ember/protocol";
-import type { HuddlePerson } from "@ember/protocol/huddles";
+import { ALL_HUDDLE_SOUNDS, DEFAULT_HUDDLE_VIDEO, type CameraSizeName, type HuddlePerson, type HuddleSounds, type HuddleSticker, type HuddleVideoQuality } from "@ember/protocol/huddles";
 import type { HuddleDevice } from "./huddle-devices";
+import { NO_REACTIONS, type ShownReactions } from "./huddle-reactions";
 
 /**
  * The huddle this tab is in, as its room's header, the huddle's bar and the huddle itself, opened, show
@@ -15,6 +16,8 @@ export interface JoinedHuddle {
   /** Everyone in the huddle, in the order they joined, as the room last said. */
   people: HuddlePerson[];
   muted: boolean;
+  /** The sticker the tab's person shows on their tile, or null while they show none. */
+  sticker: HuddleSticker | null;
   /** Whether the tab has a microphone to unmute. Without one its person only listens. */
   microphone: boolean;
   /** That microphone, by its device's id: empty with none, and where the browser doesn't say which it is. */
@@ -46,14 +49,18 @@ export interface HuddleControls {
   setOpen(open: boolean): void;
   /** Shows the huddle's thread beside the people in it, in the huddle opened, or closes it. */
   setThread(shown: boolean): void;
-  /** Says whether the huddle, opened, shows people in tiles small enough for the smaller of the sizes a camera is sent in, which is then the one it's sent. */
-  setSmall(small: boolean): void;
+  /** Says which of the sizes a camera is sent in the huddle, opened, shows people's tiles as well as a larger would, which is then the one it's sent of each. */
+  setCameraSize(size: CameraSizeName): void;
   /** Speaks through the microphone `deviceId`, plays through that speaker, or shows that camera, from now. */
   setDevice(kind: HuddleDevice, deviceId: string): void;
   /** Shows, in place of the camera that's on, the one that faces the other way, or the next the browser lists. */
   switchCamera(): void;
   /** Asks the room to invite the people `userIds` names into the huddle, saying whether it could, which it can't while its connection to the room is down. */
   invite(userIds: UserId[]): boolean;
+  /** Shows `sticker` on the tile of the tab's person, in place of any they show, or with null, takes theirs off. */
+  setSticker(sticker: HuddleSticker | null): void;
+  /** Reacts with `emoji`, which rises from the base of the huddle for a moment, for everyone in it, once the room has told them of it. */
+  react(emoji: string): void;
 }
 
 /** The id the huddle opened has in the page, where Skip to main content goes while it covers the page. */
@@ -90,6 +97,58 @@ export function showSpeaking(who: ReadonlySet<UserId>): void {
   for (const listener of speakingListeners) listener();
 }
 
+// A reaction shows for a moment, so the ones that show are kept apart from the huddle too.
+let reactions = NO_REACTIONS;
+const reactionListeners = new Set<() => void>();
+
+/** Hears whenever the reactions that show in the tab's huddle change, until the function returned is called. */
+export function watchReactions(listener: () => void): () => void {
+  reactionListeners.add(listener);
+  return () => void reactionListeners.delete(listener);
+}
+
+/** The reactions that show in the tab's huddle now: those that rise, and the emoji that have a pill. */
+export const shownReactions = () => reactions;
+
+/** Shows the reactions that show in the tab's huddle. The huddle's own code calls this. */
+export function showReactions(shown: ShownReactions): void {
+  reactions = shown;
+  for (const listener of reactionListeners) listener();
+}
+
+// Which of a huddle's own sounds the tab's person hears is theirs to say on their profile, whether or
+// not the tab is in a huddle, so it's kept apart from the huddle as well, for its sounds to go by.
+let heard = ALL_HUDDLE_SOUNDS;
+const heardListeners = new Set<() => void>();
+
+/** Hears whenever which of a huddle's sounds the tab's person hears changes, until the function returned is called. */
+export function watchHeardSounds(listener: () => void): () => void {
+  heardListeners.add(listener);
+  return () => void heardListeners.delete(listener);
+}
+
+/** Which of a huddle's own sounds the tab's person hears: all of them, until the page says which they've turned off. */
+export const heardSounds = () => heard;
+
+/** Has the huddle the tab is in, and the next it joins, play only those of its sounds its person hears, `sounds`. The page calls this. */
+export function hearSounds(sounds: HuddleSounds): void {
+  heard = sounds;
+  for (const listener of heardListeners) listener();
+}
+
+// The quality cameras and screens go out at is the workspace's, which an administrator chooses whether
+// or not the tab is in a huddle, so it's kept apart from the huddle as well, for each camera the tab
+// turns on, and each screen it shares, to go out at.
+let video: HuddleVideoQuality = DEFAULT_HUDDLE_VIDEO;
+
+/** The quality a camera turned on now goes out at, and a screen shared now: HD, until the page says what the workspace's is. */
+export const videoQuality = () => video;
+
+/** Has the huddle the tab is in, and the next it joins, send the cameras turned on and the screens shared from now at `quality`. The page calls this. */
+export function sendVideoAt(quality: HuddleVideoQuality): void {
+  video = quality;
+}
+
 /** The huddle the tab is in, or null. */
 export const joinedHuddle = () => joined;
 
@@ -118,8 +177,8 @@ export const openHuddle = (open: boolean) => controls?.setOpen(open);
 /** Shows the thread of the tab's huddle beside the people in it, in the huddle opened, or closes it, if it's in one. */
 export const showHuddleThread = (shown: boolean) => controls?.setThread(shown);
 
-/** Has the tab's huddle be sent the others' cameras in the smaller of their sizes, as while it shows them in small tiles, or in the larger again, if it's in one. */
-export const takeCamerasSmall = (small: boolean) => controls?.setSmall(small);
+/** Has the tab's huddle be sent the others' cameras in the size `size`, which its tiles show as well as a larger would, if it's in one. */
+export const takeCamerasIn = (size: CameraSizeName) => controls?.setCameraSize(size);
 
 /**
  * Has the tab's huddle speak through another microphone, play through another speaker, or show another
@@ -139,6 +198,12 @@ export const switchHuddleCamera = () => controls?.switchCamera();
  * once the tab is in no huddle.
  */
 export const inviteToHuddle = (userIds: UserId[]) => controls?.invite(userIds) ?? false;
+
+/** Shows a sticker on the tile of the tab's person in its huddle, in place of any they show, or with null, takes theirs off, if it's in one. */
+export const showHuddleSticker = (sticker: HuddleSticker | null) => controls?.setSticker(sticker);
+
+/** Reacts with `emoji` in the tab's huddle, if it's in one: it rises from the huddle's base for a moment, for everyone in it. */
+export const reactInHuddle = (emoji: string) => controls?.react(emoji);
 
 /**
  * Has `say` told whatever the tab's huddle has to tell its person, until the function returned is

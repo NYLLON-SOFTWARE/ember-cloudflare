@@ -1,7 +1,8 @@
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
-import type { Favorites, Invitation, Involvement, Me, SidebarRoom } from "@ember/protocol";
+import type { Favorites, Invitation, Involvement, Me, SidebarRoom, User } from "@ember/protocol";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
+import { useGivingBack } from "@/hooks/use-giving-back";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMessageEditors } from "@/hooks/use-message-editors";
 import { useRoom } from "@/hooks/use-room";
@@ -22,6 +23,14 @@ import { ThreadPanel } from "./thread-panel";
 
 /** Where a thread covers its room, rather than showing beside it: below 1180px wide. */
 const THREAD_COVERS_ROOM = "(width < 73.75rem)";
+
+/** Who joined the workspace, and when, in a DM started as they did, which its timeline opens with, or null. */
+function joinedIn(room: Room): { user: User; at: string } | null {
+  if (room.kind !== "direct" || !room.joined) return null;
+  const { userId, at } = room.joined;
+  const user = room.members.find((member) => member.id === userId);
+  return user ? { user, at } : null;
+}
 
 interface Props {
   room: Room;
@@ -89,9 +98,9 @@ export function RoomView({
   onGone,
   ref,
 }: Props) {
-  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
+  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId);
   // Slack's / commands, in the room's composer and its thread's.
-  const slash = useSlashCommands({ room, me, involvement, rooms, askForRoom, onFailed, onOpenDirects, onOpenShortcuts, onSend: postMessage });
+  const slash = useSlashCommands({ room, me, involvement, rooms, askForRoom, onFailed, onOpenDirects, onOpenShortcuts, onSend: (body) => postMessage(body) !== null });
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
@@ -119,12 +128,11 @@ export function RoomView({
     const inThread = threadId !== undefined || (last.threadId !== undefined && last.messageId === messageId);
     if (inThread || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId };
   }, [messageId, visit, threadId, state.connections]);
-  const typingUsers = Object.values(state.typing)
-    .map((t) => t.user)
-    .filter((u) => u.id !== me.id);
+  const typists = Object.values(state.typing).filter(({ user }) => user.id !== me.id);
   const composer = useRef<ComposerHandle>(null);
   const { editing, editors } = useMessageEditors(composer);
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
+  useGivingBack(state.messages, composer, givenBack);
   // A thread that covers the room leaves nothing of it to reach until it's closed.
   const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined;
 
@@ -173,6 +181,7 @@ export function RoomView({
             onDropFiles={(files) => composer.current?.addFiles(files)}
             openThread={threadId}
             newSince={newSince}
+            joined={joinedIn(room)}
           />
           {deleted ? (
             <RoomDeleted />
@@ -183,7 +192,7 @@ export function RoomView({
               roomName={name}
               direct={direct}
               userId={me.id}
-              typing={typingUsers}
+              typing={typists}
               disabled={state.offline}
               // Only while the room's first messages are on their way, not once it's been out of reach a while.
               deferEditor={state.status === "connecting" && !state.offline}

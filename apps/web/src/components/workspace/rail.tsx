@@ -8,6 +8,7 @@ import { AppearanceMenu } from "./appearance-menu";
 import { NavigationIcon } from "./navigation-icon";
 import { opensNewDirect } from "./new-direct-dialog";
 import { OpenSearchContext, opensSearch } from "./search-box";
+import { openReportsNamed } from "./settings-navigation";
 import { UserAvatar } from "./user-avatar";
 
 const RAIL_LINK = cn(
@@ -23,12 +24,13 @@ interface RailLinkProps {
   /** What a dot at the icon's corner says is waiting there, said to screen readers as a description. */
   notice?: string;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  className?: string;
 }
 
 /** One of the rail's links, marked when it's the page shown, with a dot in ink when something's waiting there. */
-function RailLink({ slot, label, href, current, notice, onClick }: RailLinkProps) {
+function RailLink({ slot, label, href, current, notice, onClick, className }: RailLinkProps) {
   return (
-    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={notice} onClick={onClick} className={RAIL_LINK}>
+    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={notice} onClick={onClick} className={cn(RAIL_LINK, className)}>
       <NavigationIcon slot={slot} size={22} className="size-[22px]" />
       <span>{label}</span>
       {notice && <span aria-hidden="true" className="absolute top-[5px] right-[13px] size-[11px] rounded-full border-2 border-surface bg-foreground" />}
@@ -87,19 +89,30 @@ interface Props {
   activity: Activity;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
+  /** How many reports are open, which Admin marks for an administrator too. */
+  openReports?: number;
   /** Opens New direct message, which DMs does in place, from the link that opened it. */
   onNewDirect: (opener: HTMLElement) => void;
+  /**
+   * Whether the drawer's rail has Search, as on community settings, where the drawer holds the rail
+   * alone, without the conversations or the search field atop them.
+   */
+  searchInDrawer?: boolean;
 }
 
 /**
  * The persistent navigation rail, drawn with the icons an administrator chose in Community settings, or
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
- * out, which General, where it goes, tells of.
+ * out, which General, where it goes, tells of, or while reports are open, which Membership counts.
+ * Search and the arrows that go back and forward are the top bar's, over it (top-bar.tsx), but for
+ * Search where nothing else has it: on a phone in landscape, which has no top bar, and in the drawer
+ * when it holds the rail alone.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect, searchInDrawer = false }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
+  const notices = [newRelease !== null && `Ember ${newRelease} is available`, openReports > 0 && openReportsNamed(openReports)].filter((notice) => notice !== false);
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
     <nav
@@ -124,15 +137,24 @@ export function Rail({ me, workspaceName, current, activity, newRelease, onNewDi
       {/* Never marked, since its address opens New direct message over the last room visited. */}
       <RailLink slot="dms" label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
-      {/* Opens the search box in place, for everything. */}
-      <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />
+      {/* Opens the search box in place, for everything, where nothing else does: on a phone in landscape,
+          which has neither the top bar's search field nor the drawer's, and too little height for either,
+          and in the drawer, at 900px and below, when it has no search field. */}
+      <RailLink
+        slot="search"
+        label="Search"
+        href={SEARCHES_PATH}
+        current={marked === "search"}
+        onClick={opensSearch(openSearch)}
+        className={cn("hidden md:no-top-bar:flex", searchInDrawer && "max-md:flex")}
+      />
       <hr className="my-1 w-8 border-t" />
       <RailLink
         slot="admin"
         label={me.administrator ? "Admin" : "Workspace"}
         href={WORKSPACE_SETTINGS_PATH}
         current={marked === "workspace"}
-        notice={newRelease === null ? undefined : `Ember ${newRelease} is available`}
+        notice={notices.length > 0 ? notices.join(". ") : undefined}
       />
       <AppearanceMenu />
       {/* Your avatar, at 36px, links to your profile, where you log out. */}

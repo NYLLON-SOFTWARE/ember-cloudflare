@@ -1,10 +1,11 @@
-import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomId } from "@ember/protocol";
+import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomId, type SpecialMention } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pushesInChunks } from "../src/push/delivery";
 import { UNDELIVERED_EVENTS, type RoomEvent } from "../src/room-log";
 import type { Workspace } from "../src/workspace";
-import { MESSAGE_PUSHES, type MessagePush, type WorkspaceStore } from "../src/workspace-store";
+import { MESSAGE_PUSHES, ROOM_MENTION_PUSHES, type MessagePush, type PushDelivery, type WorkspaceStore } from "../src/workspace-store";
 import {
   api,
   connect,
@@ -14,6 +15,7 @@ import {
   direct,
   freshDeploy,
   freshRoom,
+  openWorkspaceSocket,
   post,
   pushBrowser,
   recordedImage,
@@ -80,6 +82,21 @@ const message = (author: Session, text: string, ...mentioned: Session[]): RoomEv
   at: new Date().toISOString(),
   message: { id: crypto.randomUUID(), plainText: text, mentionIds: mentioned.map(({ user }) => user.id) },
 });
+
+/** A new message by `author`, as `message` has it, that notifies its room as `notifies` says. */
+function notifying(notifies: SpecialMention, author: Session, text: string, ...mentioned: Session[]): RoomEvent {
+  const event = message(author, text, ...mentioned);
+  return { ...event, message: { ...event.message!, notifies } };
+}
+
+/** How a message makes the special mention `name`, as the composer writes one picked from the @ prompt. */
+const special = (name: SpecialMention) => `<action-text-attachment sgid="${name}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+
+/** Has `blocker` block `blocked`, as their Block does. */
+async function block(blocker: Session, blocked: Session): Promise<void> {
+  const response = await api(`/api/users/${blocked.user.id}/block`, { method: "POST", headers: { Cookie: blocker.cookie } });
+  expect(response.status).toBe(200);
+}
 
 /** `reader` opening the room, as its room's log sends it to the Workspace. */
 const read = (reader: Session): RoomEvent => ({ seq: ++seq, kind: "read", userId: reader.user.id, at: new Date().toISOString() });
@@ -251,7 +268,7 @@ describe("Who gets a push", () => {
     await connect(room, "Ada");
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1, 1, "[]"));
+    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", 1, 1, 1, "[]", "[]"));
     expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
@@ -269,6 +286,59 @@ describe("Who gets a push", () => {
 
     await workspaceStub().forgetPushSubscriptions([id]);
     expect(await workspaceSql("SELECT id > ? AS later, endpoint FROM push_subscriptions", id)).toEqual([{ later: 1, endpoint: "https://fcm.googleapis.com/fcm/send/lin" }]);
+  });
+});
+
+describe("Who @channel, @here and @everyone push", () => {
+  it("pushes a message that notifies the room with @channel, or an open room with @everyone, to everyone in it at @mentions or all messages, as a mention of each of them would be", async () => {
+    const room = await freshRoom("Designers");
+    const [ada, grace, lin, hopper, joan, kay, max, nina] = await people("Ada", "Grace", "Lin", "Hopper", "Joan", "Kay", "Max", "Nina");
+    for (const [session, label] of [[ada, "ada"], [grace, "grace"], [lin, "lin"], [hopper, "hopper"], [joan, "joan"], [kay, "kay"], [max, "max"], [nina, "nina"]] as const) {
+      await subscribe(session, label);
+    }
+    await involve(lin, room, "everything");
+    await involve(kay, room, "nothing");
+    await involve(max, room, "invisible");
+    await block(hopper, ada);
+    await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", nina.user.id);
+
+    expect(labelsOf(await pushesFor(room, [notifying("channel", ada, "Standup @channel")], [joan]))).toEqual(["lin", "grace"]);
+    expect(labelsOf(await pushesFor(room, [notifying("everyone", ada, "Lunch @everyone")], [joan]))).toEqual(["lin", "grace"]);
+    expect(labelsOf(await pushesFor(room, [message(ada, "Standup")], [joan]))).toEqual(["lin"]);
+  });
+
+  it("pushes a message that notifies the room with @here to those in it whose tabs are in use, at @mentions or all messages, and to whom it mentions", async () => {
+    const [ada, joan, grace, lin, hopper, nina] = await people("Ada", "Joan", "Grace", "Lin", "Hopper", "Nina");
+    const { id: room } = await createRoom("Designers", { closedTo: [ada, joan, grace, lin, hopper].map(({ user }) => user.id), as: ada });
+    for (const [session, label] of [[joan, "joan"], [grace, "grace"], [lin, "lin"], [hopper, "hopper"], [nina, "nina"]] as const) await subscribe(session, label);
+    await involve(joan, room, "everything");
+    // Grace's tab and Nina's, who isn't in the room, are in use, and Lin's says it isn't.
+    await openWorkspaceSocket(grace);
+    await openWorkspaceSocket(nina);
+    const linsTab = await openWorkspaceSocket(lin);
+    linsTab.send(JSON.stringify({ type: "presence.active", active: false }));
+    while ((await linsTab.next()).type !== "presence");
+
+    expect(labelsOf(await pushesFor(room, [notifying("here", ada, "Lunch? @here @Hopper", hopper)]))).toEqual(["joan", "grace", "hopper"]);
+    expect(labelsOf(await pushesFor(room, [message(ada, "Lunch? @Hopper", hopper)]))).toEqual(["joan", "hopper"]);
+  });
+
+  it("finds @channel's pushes through the memberships', people's and subscriptions' keys", async () => {
+    const room = await freshRoom("plans");
+    // Which makes the room's tables, on Durable Object SQLite.
+    await connect(room, "Ada");
+    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${ROOM_MENTION_PUSHES}`, room, "someone", "[]", 1, 1)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
+    expect(plan).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
+    expect(plan).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
+  });
+
+  it("splits pushes into lists of at most so many deliveries, in order, a push split between lists going in each with its share", () => {
+    const delivery = (n: number): PushDelivery => ({ subscriptionId: n, endpoint: `https://fcm.googleapis.com/fcm/send/${n}`, p256dhKey: "", authKey: "", badge: 0 });
+    const push = (title: string, ...deliveries: number[]): MessagePush => ({ payload: { title, body: "", path: "" }, deliveries: deliveries.map(delivery) });
+    const chunks = pushesInChunks([push("a", 1, 2, 3), push("b", 4), push("c", 5, 6, 7, 8)], 3);
+    expect(chunks.map(labelsOf)).toEqual([["1", "2", "3"], ["4", "5", "6"], ["7", "8"]]);
+    expect(chunks.map((chunk) => chunk.map(({ payload }) => payload.title))).toEqual([["a"], ["b", "c"], ["c"]]);
+    expect(pushesInChunks([], 3)).toEqual([]);
   });
 });
 
@@ -414,6 +484,56 @@ describe("Who gets a push", () => {
       await post(adaThere, "<p>After the ban</p>");
       await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
       expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "Ada: After the ban" } });
+    });
+
+    it("pushes a message sent to the room with @channel to everyone in it at @mentions, saying so as the message does", async () => {
+      const pushed = pushServices();
+      const room = await freshRoom("Designers");
+      const [grace, kay] = await people("Grace", "Kay");
+      const browser = await pushBrowser();
+      await subscribe(grace, "grace", browser);
+      await subscribe(kay, "kay");
+      await involve(kay, room, "nothing");
+      const ada = await connect(room, "Ada", { visible: true });
+
+      expect((await post(ada, `<p>Standup in 5 ${special("channel")}</p>`)).notifies).toBe("channel");
+      await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
+      expect(pushed[0]!.endpoint).toMatch(/\/grace$/);
+      expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ title: "Designers", options: { body: "Ada: Standup in 5 @channel" } });
+    });
+
+    it("pushes a message that notifies a big room to everyone in it, sending 40 pushes itself and handing the rest to the Workspace, 40 a call, as an invocation can make only 50 requests on Workers Free", async () => {
+      const pushed = pushServices();
+      const room = await freshRoom("Everyone");
+      const browser = await pushBrowser();
+      const now = new Date().toISOString();
+      for (const [n, session] of (await people(...Array.from({ length: 12 }, (_, n) => `Person ${n}`))).entries()) {
+        await workspaceSql(
+          `WITH RECURSIVE browsers (k) AS (SELECT 1 UNION ALL SELECT k + 1 FROM browsers WHERE k < ${MAX_PUSH_SUBSCRIPTIONS})
+           INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, created_at, updated_at) SELECT ?1, ?2 || k, ?3, ?4, ?5, ?5 FROM browsers`,
+          session.user.id,
+          `https://fcm.googleapis.com/fcm/send/${n}-`,
+          browser.p256dh,
+          browser.auth,
+          now,
+        );
+      }
+      // How many deliveries each call the room hands the Workspace has.
+      const handed: number[] = [];
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const prototype = Object.getPrototypeOf(workspace) as Workspace;
+        const send = prototype.sendRoomPushes;
+        vi.spyOn(prototype, "sendRoomPushes").mockImplementation(function (this: Workspace, pushes) {
+          handed.push(pushes.reduce((count, { deliveries }) => count + deliveries.length, 0));
+          return send.call(this, pushes);
+        });
+      });
+      const ada = await connect(room, "Ada", { visible: true });
+
+      await post(ada, `<p>All hands ${special("channel")}</p>`);
+      await vi.waitFor(() => expect(pushed).toHaveLength(12 * MAX_PUSH_SUBSCRIPTIONS), { timeout: 10_000 });
+      expect(new Set(pushed.map(({ endpoint }) => endpoint)).size).toBe(12 * MAX_PUSH_SUBSCRIPTIONS);
+      expect(handed).toEqual([40, 40]);
     });
 
     it("forgets a subscription its push service says is gone, and keeps one it couldn't reach", async () => {

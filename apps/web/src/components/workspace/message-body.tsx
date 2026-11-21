@@ -1,6 +1,6 @@
 import { createElement, useContext, type ComponentProps, type ReactNode } from "react";
 import { isAppPage, type User, type UserId } from "@ember/protocol";
-import type { DisplayElement, DisplayNode, DisplayPreview } from "@ember/richtext/dom";
+import { displayBody, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
 import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,19 @@ const TABLE_PARTS = new Set(["table", "thead", "tbody", "tfoot", "tr"]);
 
 /** What a mention of someone no one knows shows. */
 export const UNKNOWN_PERSON = "☒";
+
+/**
+ * What a stored body shows, or null when it can't be shown. `plainText` is the body's, which tells when a
+ * message is only the link its preview is of, and a preview can't link to the page's own host.
+ */
+export function shownBody(body: string, plainText: string): DisplayNode[] | null {
+  try {
+    return displayBody(body, plainText, location.hostname);
+  } catch (error) {
+    console.error("Could not show a message", error);
+    return null;
+  }
+}
 
 interface Props {
   /** The text, as `displayBody` says it shows. */
@@ -47,6 +60,8 @@ export function MessageBody({ nodes, mentions, emoji = false, trailing, classNam
 function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLink = false, matches: Matches | null = null): ReactNode {
   if (node.kind === "text") return markedRanges(node.value, matches?.get(node));
   if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions, inLink });
+  // @here, @channel or @everyone, in semibold as a person's name is in a mention of them.
+  if (node.kind === "special-mention") return createElement("span", { className: "font-semibold" }, `@${node.mention}`);
   if (node.kind === "preview") return createElement(LinkPreview, { preview: node, mentions, inLink });
   const shown = TABLE_PARTS.has(node.name) ? node.children.filter((child) => child.kind !== "text" || child.value.trim() !== "") : node.children;
   const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a", matches));

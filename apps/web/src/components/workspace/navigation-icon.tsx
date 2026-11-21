@@ -30,8 +30,8 @@ export function SlotIcon({ slot, icon, size, className }: Props & { icon: RoomIc
 }
 
 /**
- * The icon an administrator chose in Community settings for one of the rail's buttons or an appearance
- * mode, or the slot's own.
+ * The icon an administrator chose in Community settings for one of the rail's buttons, the top bar's
+ * search field or an appearance mode, or the slot's own.
  */
 export function NavigationIcon(props: Props) {
   return <SlotIcon icon={useAccount().navigationIcons[props.slot] ?? null} {...props} />;

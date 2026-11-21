@@ -34,6 +34,8 @@ export interface SfuAsked {
   authorization: string | undefined;
   sizes?: string[];
   ttl?: number;
+  /** Set once the SFU has answered a request for tracks with one that its session carries from then, published or pulled. */
+  carried?: true;
 }
 
 /** A server a connection goes by, as Cloudflare's TURN service answers it, and a browser takes it. */
@@ -92,9 +94,11 @@ export async function startFakeSfu(page?: Page): Promise<FakeSfu> {
     void bodyOf(request).then(async (asked) => {
       const { method = "", url = "" } = request;
       const sizes = (asked.tracks ?? []).flatMap(({ simulcast }) => simulcast?.preferredRid ?? []);
-      sfu.asked.push({ method, path: url, authorization: request.headers.authorization, ...(sizes.length > 0 && { sizes }), ...(asked.ttl !== undefined && { ttl: asked.ttl }) });
+      const asking: SfuAsked = { method, path: url, authorization: request.headers.authorization, ...(sizes.length > 0 && { sizes }), ...(asked.ttl !== undefined && { ttl: asked.ttl }) };
+      sfu.asked.push(asking);
       const [, keyId] = TURN_SERVERS.exec(url) ?? [];
       const [status, body] = keyId === undefined ? await answer(request, asked, relay, sfu) : turnServersFor(request, keyId, sfu.turnServers);
+      if (givesTrack(method, url, body)) asking.carried = true;
       response.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body));
     });
   });
@@ -137,6 +141,13 @@ async function answer(
     return [400, { errorCode: "invalid_request", errorDescription: String(error) }];
   }
 }
+
+/**
+ * Whether the SFU's answer to a request gives its session a track: an answer about new tracks that names
+ * no error for one of them. Asked only for what nobody publishes any more, a session is given none.
+ */
+const givesTrack = (method: string, url: string, body: unknown) =>
+  method === "POST" && url.endsWith("/tracks/new") && ((body as { tracks?: Array<{ errorCode?: string }> }).tracks ?? []).some(({ errorCode }) => errorCode === undefined);
 
 /** Where the TURN service is asked for the servers a connection goes by, as the TURN key the address names. */
 const TURN_SERVERS = /^\/v1\/turn\/keys\/([^/]+)\/credentials\/generate-ice-servers$/;
@@ -289,7 +300,14 @@ async function relayOn(page: Page): Promise<Relay> {
           const received = new Map((sizes?.mid === mid ? sizes.rids : [""]).map((rid) => [rid, receivedOn(rid || mid)]));
           if ([...received.values()].some((track) => !track)) return { mid, trackName, errorCode: "invalid_request", errorDescription: "No such media section" };
           published.set(trackName, { mid, sizes: received as Map<string, MediaStreamTrack> });
-          for (const track of received.values()) play(track!);
+          for (const track of received.values()) {
+            // Chromium encodes a picture again to pass it on, and starts it smaller than it came while it knows
+            // little of what the connection carries, growing it over seconds. Cloudflare's SFU passes on what
+            // it's sent as it is, so the relay keeps a picture's size, which shows which of a camera's sizes
+            // someone is sent.
+            if (track!.kind === "video") track!.contentHint = "detail";
+            play(track!);
+          }
           return { mid, trackName };
         });
         const answer = await described(connection, await connection.createAnswer());

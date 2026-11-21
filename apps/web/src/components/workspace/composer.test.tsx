@@ -1,12 +1,14 @@
-import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
-import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
+import { MAX_FILE_SIZE, type LinkPreview, type NotifiedCounts } from "@ember/protocol";
+import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, type SpecialMention } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
-import { createRef } from "react";
+import type { Typist } from "@/lib/room-state";
 import { SHRUG, SLASH_COMMANDS, type WrittenCommand } from "@/lib/slash-commands";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { createRef, type ReactNode } from "react";
+import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
@@ -22,42 +24,55 @@ vi.mock("./emoji-panel", () => ({
   ),
 }));
 
+/** What `onSend` answers for a message that went, where nothing's to come after it. */
+const went: AddPreview = () => {};
+
+/** The workspace as the app has it, but whether it warns before a message notifies a room of six or more. */
+function Warning({ on, children }: { on: boolean; children: ReactNode }) {
+  return <AccountContext value={{ ...useAccount(), warnBeforeNotifying: on }}>{children}</AccountContext>;
+}
+
 async function showComposer({
-  typing = [] as User[],
+  typing = [] as Typist[],
   disabled = false,
   roomId = "r1",
   threadId = undefined as string | undefined,
   direct = false,
   autoFocus = true,
   mentionsAbove = false,
+  warns = true,
   onCommand = undefined as ((written: WrittenCommand) => Promise<boolean>) | undefined,
 } = {}) {
-  const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
+  // Hears a link's preview that comes once the message has gone.
+  const addPreview = vi.fn((_preview: LinkPreview) => {});
+  const onSend = vi.fn((_body: string, _alsoSend: boolean): AddPreview | null => addPreview);
   const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
   const composer = createRef<ComposerHandle>();
   const view = render(
-    <Composer
-      ref={composer}
-      roomId={roomId}
-      roomName="general"
-      direct={direct}
-      userId="u1"
-      typing={typing}
-      disabled={disabled}
-      threadId={threadId}
-      onSend={onSend}
-      onSendFiles={onSendFiles}
-      onTyping={onTyping}
-      autoFocus={autoFocus}
-      mentionsAbove={mentionsAbove}
-      commands={onCommand && SLASH_COMMANDS}
-      onCommand={onCommand}
-    />,
+    <Warning on={warns}>
+      <Composer
+        ref={composer}
+        roomId={roomId}
+        roomName="general"
+        direct={direct}
+        userId="u1"
+        typing={typing}
+        disabled={disabled}
+        threadId={threadId}
+        onSend={onSend}
+        onSendFiles={onSendFiles}
+        onTyping={onTyping}
+        autoFocus={autoFocus}
+        mentionsAbove={mentionsAbove}
+        commands={onCommand && SLASH_COMMANDS}
+        onCommand={onCommand}
+      />
+    </Warning>,
   );
   // The editor loads as the first composer shows.
   const input = await within(view.container).findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { onSend, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
+  return { onSend, addPreview, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
 }
 
 function touchScreen() {
@@ -103,6 +118,16 @@ describe("Composer", () => {
     expect((await showComposer()).input).toHaveAttribute("data-mentions-above");
   });
 
+  it("offers @here and @channel from @ in a room's own composer, but not a thread's or a DM's, where they'd notify nobody", async () => {
+    const asked = [];
+    for (const props of [{}, { threadId: "m1" }, { direct: true }]) {
+      const { input, view } = await showComposer(props);
+      asked.push(input.getAttribute("data-mentions-from"));
+      view.unmount();
+    }
+    expect(asked).toEqual(["/api/autocompletable/users?room_id=r1&special_mentions=1", "/api/autocompletable/users?room_id=r1", "/api/autocompletable/users?room_id=r1"]);
+  });
+
   it("lists them above the text with a mouse only where it's asked to, as where something under the composer would cut the list off", async () => {
     const { input, view } = await showComposer();
     expect(input).not.toHaveAttribute("data-mentions-above");
@@ -110,7 +135,7 @@ describe("Composer", () => {
     expect((await showComposer({ mentionsAbove: true })).input).toHaveAttribute("data-mentions-above");
   });
 
-  const room = { roomId: "r1", roomName: "general", userId: "u1", typing: [], disabled: false, onSend: () => true, onSendFiles: () => {}, onTyping: () => {} };
+  const room = { roomId: "r1", roomName: "general", userId: "u1", typing: [], disabled: false, onSend: () => went, onSendFiles: () => {}, onTyping: () => {} };
 
   it("holds the editor back while the room's first messages are on their way, which loading it would delay", async () => {
     // React has the editor's code from an earlier composer, so it would show at once if it weren't held back.
@@ -154,7 +179,7 @@ describe("Composer", () => {
 
 describe("Group DMs and DM names", () => {
   it("asks for a message to the others in a DM by name, without the #", async () => {
-    render(<Composer roomId="d1" roomName="Grace and Linus" direct userId="u1" typing={[]} disabled={false} onSend={() => true} onSendFiles={() => {}} onTyping={() => {}} />);
+    render(<Composer roomId="d1" roomName="Grace and Linus" direct userId="u1" typing={[]} disabled={false} onSend={() => went} onSendFiles={() => {}} onTyping={() => {}} />);
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message Grace and Linus");
   });
 });
@@ -415,7 +440,7 @@ describe("Send from the keyboard", () => {
 
   it("keeps what's written when the room won't take it, as when it's too long", async () => {
     const { onSend, input, user } = await showComposer();
-    onSend.mockReturnValue(false);
+    onSend.mockReturnValue(null);
     await user.type(input, "Too much{Enter}");
     expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Too much</p>", false);
     expect(input).toHaveValue("Too much");
@@ -429,6 +454,156 @@ describe("Send from the keyboard", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(input).toHaveValue("Are you there?");
     expect(sendButton()).toBeDisabled();
+  });
+});
+
+describe("Ask before notifying a room", () => {
+  /** Answers the composer's ask for whom the room's special mentions notify with `answer`, or fails it. */
+  function counts(answer: NotifiedCounts | Error) {
+    const fetch = vi.fn(async (_path: string) => {
+      if (answer instanceof Error) throw answer;
+      return Response.json(answer);
+    });
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+  /** A room of six, from which @here would notify two and @channel the other five. */
+  const six: NotifiedCounts = { members: 6, mentions: { here: 2, channel: 5 } };
+  /** How the composer writes the special mention `name`, picked from @'s list. */
+  const special = (name: SpecialMention) => `<action-text-attachment sgid="${name}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+  const asking = () => screen.queryByRole("dialog");
+
+  it("asks before @channel notifies a room of six or more, as Slack asks, sending on Send, which Enter presses", async () => {
+    const fetch = counts(six);
+    const { onSend, input, user } = await showComposer();
+    await user.type(input, "@channel Standup{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    expect(dialog).toHaveAccessibleDescription("@channel notifies everyone in #general.");
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/rooms/r1/notified"]);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: "Send" })).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(`<p>${special("channel")} Standup</p>`, false);
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+  });
+
+  it("goes back to what's written on Cancel or Escape, with focus", async () => {
+    counts(six);
+    const { onSend, input, user } = await showComposer();
+    await user.type(input, "@here Lunch?{Enter}");
+    expect(await screen.findByRole("dialog", { name: "Notify 2 people?" })).toHaveAccessibleDescription("@here notifies everyone active in #general.");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    expect(input).toHaveValue("@here Lunch?");
+    expect(input).toHaveFocus();
+
+    await user.click(sendButton());
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("@here Lunch?");
+  });
+
+  it("counts the widest special mention the message makes that would notify the room, as @everyone in an open room", async () => {
+    counts({ members: 40, mentions: { here: 3, channel: 39, everyone: 39 } });
+    const { input, user } = await showComposer();
+    await user.type(input, "@here @everyone Party at 5{Enter}");
+    expect(await screen.findByRole("dialog", { name: "Notify 39 people?" })).toHaveAccessibleDescription("@everyone notifies everyone in the workspace.");
+  });
+
+  it("sends at once in a room of five, or where the mention would notify nobody from its writer, nor anyone at all", async () => {
+    const { onSend, input, user } = await showComposer();
+    counts({ members: 5, mentions: { here: 4, channel: 4 } });
+    await user.type(input, "@channel Standup{Enter}");
+    await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+    // Those of @everyone count, which only an open room's has.
+    counts({ members: 30, mentions: { here: 6, channel: 29 } });
+    await user.type(input, "@everyone Party{Enter}");
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    counts({ members: 30, mentions: { here: 0, channel: 29 } });
+    await user.type(input, "@here Anyone?{Enter}");
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(3));
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("sends at once when the room's counts don't come, as it did before it asked", async () => {
+    counts(new TypeError("Failed to fetch"));
+    const { onSend, input, user } = await showComposer();
+    await user.type(input, "@channel Standup{Enter}");
+    await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+    expect(input).toHaveValue("");
+  });
+
+  it("asks nothing where the workspace has the warning off, nor in a thread's composer or a DM's, whose messages notify nobody, nor of a message without one", async () => {
+    const fetch = counts(six);
+    for (const props of [{ warns: false }, { threadId: "m1" }, { direct: true }]) {
+      const { onSend, input, user, view } = await showComposer(props);
+      await user.type(input, "@channel Standup{Enter}");
+      expect(onSend).toHaveBeenCalledOnce();
+      view.unmount();
+    }
+    const { onSend, input, user } = await showComposer();
+    await user.type(input, "Standup at 10{Enter}");
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("asks once however often Send is pressed while the room's counts are on their way, and sends the files picked only with the message", async () => {
+    let answer!: (response: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => (answer = resolve)));
+    vi.stubGlobal("fetch", fetch);
+    const { onSend, onSendFiles, input, user } = await showComposer();
+    await user.upload(fileField(), fileOf("agenda.txt"));
+    await user.type(input, "@channel Agenda{Enter}");
+    await user.click(sendButton());
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(onSendFiles).not.toHaveBeenCalled();
+
+    answer(Response.json(six));
+    const dialog = await screen.findByRole("dialog");
+    expect(screen.getAllByRole("dialog")).toEqual([dialog]);
+    await user.click(within(dialog).getByRole("button", { name: "Send" }));
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "agenda.txt" })], false);
+    expect(onSend).toHaveBeenCalledOnce();
+  });
+
+  it("asks of what's written as the room's counts come, written over while they were on their way, and sends that", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { onSend, input, user } = await showComposer();
+    await user.type(input, "@here Lunch?{Enter}");
+    await user.clear(input);
+    await user.type(input, "@channel Lunch?");
+    answer(Response.json(six));
+    const dialog = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    expect(dialog).toHaveAccessibleDescription("@channel notifies everyone in #general.");
+    await user.click(within(dialog).getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(`<p>${special("channel")} Lunch?</p>`, false);
+
+    // Without its mention by then, it goes without asking.
+    await user.type(input, "@channel Standup{Enter}");
+    await user.clear(input);
+    await user.type(input, "Standup");
+    answer(Response.json(six));
+    await waitFor(() => expect(onSend).toHaveBeenLastCalledWith("<p>Standup</p>", false));
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("sends the files picked as it goes, though some were picked or removed while the room's counts were on their way", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { onSendFiles, input, user } = await showComposer();
+    await user.upload(fileField(), [fileOf("agenda.txt"), fileOf("notes.txt")]);
+    await user.type(input, "@channel Agenda{Enter}");
+    await user.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+    await user.upload(fileField(), fileOf("slides.pdf"));
+    answer(Response.json(six));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Send" }));
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "agenda.txt" }), expect.objectContaining({ name: "slides.pdf" })], false);
+    expect(chips()).toEqual([]);
   });
 });
 
@@ -516,7 +691,7 @@ describe("Attach files", () => {
     (await showComposer()).view.unmount();
     const onSendFiles = vi.fn();
     const user = userEvent.setup();
-    render(<Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} deferEditor onSend={() => true} onSendFiles={onSendFiles} onTyping={() => {}} />);
+    render(<Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} deferEditor onSend={() => went} onSendFiles={onSendFiles} onTyping={() => {}} />);
     await user.upload(fileField(), fileOf("a.txt"));
     await user.click(sendButton());
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
@@ -1041,12 +1216,63 @@ describe("A thread's draft, beside its room and in the room's huddle over it", (
   });
 });
 
+describe("A message the room won't take for what it says", () => {
+  const WHY = "This community doesn't allow one of these words.";
+
+  it("comes back to be changed, keeping it as the draft, with why above the card, until something's sent", async () => {
+    const { composer, input, user, onSend } = await showComposer();
+    await user.type(input, "Oh fudge");
+    await user.keyboard("{Enter}");
+    expect(input).toHaveValue("");
+
+    let taken = false;
+    act(() => void (taken = composer.current!.giveBack("<p>Oh fudge</p>", WHY, false)));
+    expect(taken).toBe(true);
+    expect(input).toHaveValue("Oh fudge");
+    expect(input).toHaveFocus();
+    expect(screen.getByRole("alert")).toHaveTextContent(WHY);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Oh fudge</p>");
+
+    await user.clear(input);
+    await user.type(input, "Oh fiddlesticks");
+    expect(screen.getByRole("alert")).toHaveTextContent(WHY);
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenLastCalledWith("<p>Oh fiddlesticks</p>", false);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("stays out of the composer once something else is written there", async () => {
+    const { composer, input, user } = await showComposer();
+    await user.type(input, "Never mind");
+
+    let taken = true;
+    act(() => void (taken = composer.current!.giveBack("<p>Oh fudge</p>", WHY, false)));
+    expect(taken).toBe(false);
+    expect(input).toHaveValue("Never mind");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("comes back to a thread's composer with Also send to the room ticked again, as it went", async () => {
+    const { composer, input } = await showComposer({ threadId: "m1" });
+    act(() => void composer.current!.giveBack("<p>Oh fudge</p>", WHY, true));
+    expect(input).toHaveValue("Oh fudge");
+    expect(screen.getByRole("checkbox", { name: "Also send to #general" })).toBeChecked();
+  });
+
+  it("says why only in the room it came back in", async () => {
+    const { composer, view } = await showComposer();
+    act(() => void composer.current!.giveBack("<p>Oh fudge</p>", WHY, false));
+    view.rerender(<Composer ref={composer} roomId="r2" roomName="random" userId="u1" typing={[]} disabled={false} onSend={() => went} onSendFiles={() => {}} onTyping={() => {}} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
 describe("Reply with a quote", () => {
   it("writes a reply in place of what's written, with the cursor at its end, keeping it as the draft", async () => {
     const composer = createRef<ComposerHandle>();
     const onTyping = vi.fn();
     render(
-      <Composer ref={composer} roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} onSend={() => true} onSendFiles={() => {}} onTyping={onTyping} />,
+      <Composer ref={composer} roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} onSend={() => went} onSendFiles={() => {}} onTyping={onTyping} />,
     );
     const input = await screen.findByRole("textbox", { name: "Write a message" });
     await userEvent.setup().type(input, "Unsent");
@@ -1076,7 +1302,7 @@ describe("Reply with a quote", () => {
         typing={[]}
         disabled={false}
         deferEditor={deferEditor}
-        onSend={() => true}
+        onSend={() => went}
         onSendFiles={() => {}}
         onTyping={onTyping}
       />
@@ -1168,6 +1394,104 @@ describe("Link previews while writing", () => {
     over.view.unmount();
     expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(true);
   });
+
+  describe("once the message has gone", () => {
+    /** Answers each ask for a link's preview with `preview` once `answer` is called. */
+    function slowPreviews(preview: LinkPreview) {
+      let answer!: () => void;
+      const answered = new Promise<void>((resolve) => (answer = resolve));
+      const fetch = previews(async () => {
+        await answered;
+        return Response.json(preview);
+      });
+      return { fetch, answer: () => act(async () => answer()) };
+    }
+
+    it("adds a pasted link's preview that comes after the message went to the message, rather than below the link", async () => {
+      const { fetch, answer } = slowPreviews(basecamp);
+      const { onSend, addPreview, user, view } = await showComposer();
+      await user.paste("https://basecamp.com");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>https://basecamp.com</p>", false);
+      view.unmount();
+      expect(addPreview).not.toHaveBeenCalled();
+
+      await answer();
+      expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp);
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(false);
+      expect(shownPreviews(view)).toHaveLength(0);
+    });
+
+    it("asks for the preview of the first link to a web page typed in the message as it goes, as Slack does", async () => {
+      const fetch = previews(() => Response.json(basecamp));
+      const { addPreview, input, user } = await showComposer({ threadId: "m1" });
+      await user.type(input, "Mail ada@example.com, or see www.basecamp.com and https://example.com{Enter}");
+      await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
+      expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/unfurl", expect.objectContaining({ body: JSON.stringify({ url: "http://www.basecamp.com" }) }));
+    });
+
+    it("adds none to a message that took a preview as it was written, even one taken out of it", async () => {
+      const fetch = previews(() => Response.json(basecamp));
+      const { onSend, addPreview, input, user, view } = await showComposer();
+      await user.paste("https://basecamp.com");
+      await screen.findByRole("link", { name: "Basecamp" });
+      await user.keyboard("{Enter}");
+      expect(onSend.mock.calls[0]![0]).toContain(OPENGRAPH_EMBED_CONTENT_TYPE);
+
+      await user.paste("https://basecamp.com");
+      await screen.findByRole("link", { name: "Basecamp" });
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      expect(shownPreviews(view)).toHaveLength(0);
+      await user.type(input, " is calm{Enter}");
+      expect(onSend).toHaveBeenLastCalledWith("<p>https://basecamp.com is calm</p>", false);
+
+      await act(async () => {});
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(addPreview).not.toHaveBeenCalled();
+    });
+
+    it("asks for a pasted link changed before the message went as it went, rather than add the pasted one's preview", async () => {
+      let answerPasted!: () => void;
+      const pastedAnswered = new Promise<void>((resolve) => (answerPasted = resolve));
+      const fetch = previews(async (url) => {
+        if (url.endsWith("/story")) await pastedAnswered;
+        return Response.json({ ...basecamp, title: url });
+      });
+      const { addPreview, input, user } = await showComposer();
+      await user.paste("https://example.com/story");
+      await user.type(input, "/other{Enter}");
+      await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith({ ...basecamp, title: "https://example.com/story/other" }));
+      expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(true);
+
+      await act(async () => answerPasted());
+      expect(addPreview).toHaveBeenCalledOnce();
+    });
+
+    it("asks once for a pasted link's page that has none, then for a link typed after it, and forgets a preview whose link has gone", async () => {
+      const answers: Record<string, Response> = { "https://example.com/none": new Response(null, { status: 204 }), "https://example.com/some": Response.json(basecamp) };
+      const fetch = previews((url) => answers[url]!);
+      const { addPreview, input, user } = await showComposer();
+      await user.paste("https://example.com/none");
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      await user.type(input, " has none{Enter}");
+      await act(async () => {});
+      expect(fetch).toHaveBeenCalledOnce();
+
+      await user.paste("https://example.com/none");
+      await user.type(input, " has none, but https://example.com/some does{Enter}");
+      await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
+      expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body as string).url)).toEqual(["https://example.com/none", "https://example.com/none", "https://example.com/some"]);
+
+      addPreview.mockClear();
+      const { answer } = slowPreviews(basecamp);
+      await user.paste("https://basecamp.com");
+      await user.clear(input);
+      await user.type(input, "Never mind{Enter}");
+      await answer();
+      expect(addPreview).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("Typing indicator", () => {
@@ -1189,7 +1513,7 @@ describe("Typing indicator", () => {
     expect(onTyping).not.toHaveBeenCalledWith(false);
   });
 
-  const typist = (name: string, i: number): User => ({ id: `u${i}`, name });
+  const typist = (name: string, i: number): Typist => ({ user: { id: `u${i}`, name } });
 
   it.each([
     [["Ada"], "Ada"],
@@ -1216,7 +1540,7 @@ describe("Typing indicator", () => {
           userId="u1"
           typing={[typist("Linus", 1), typist("Grace", 2)]}
           disabled={false}
-          onSend={vi.fn(() => true)}
+          onSend={vi.fn(() => went)}
           onSendFiles={vi.fn()}
           onTyping={vi.fn()}
         />
@@ -1224,6 +1548,15 @@ describe("Typing indicator", () => {
     );
     await screen.findByRole("textbox", { name: "Write a message" });
     expect(container.querySelector(".spinner")).toHaveTextContent("Grace Hopper, Linus", { normalizeWhitespace: false });
+  });
+
+  it("follows an answerer's name with what it's doing meanwhile, when it says, among the others typing", async () => {
+    const digg = { user: { id: "u9", name: "digg" }, doing: "is using Digg: digg_get_post" };
+    const { view } = await showComposer({ typing: [typist("Grace", 2), digg, typist("Ada", 1)] });
+    expect(view.container.querySelector(".spinner")).toHaveTextContent("Ada, Grace, digg is using Digg: digg_get_post", { normalizeWhitespace: false });
+
+    view.rerender(<Composer roomId="r1" roomName="general" userId="u1" typing={[{ user: digg.user }]} disabled={false} onSend={() => went} onSendFiles={() => {}} onTyping={() => {}} />);
+    expect(view.container.querySelector(".spinner")).toHaveTextContent(/^digg$/, { normalizeWhitespace: false });
   });
 
   it("shows nothing while nobody is typing, and fades in when someone starts", async () => {

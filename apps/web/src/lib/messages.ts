@@ -34,20 +34,54 @@ export const dateLabel = (date: Date) => dateFormat.format(date);
 /** What a time or a separator's date shows on hover: "10/12/26, 3:04 PM". */
 export const dateTimeLabel = (date: Date) => dateTimeFormat.format(date);
 
+/** The day `date` falls on, as of `now`: today, yesterday, or its date, "Oct 12", or "Oct 12, 2025" in another year. */
+function dayAsOf(date: Date, now: Date): { near: "today" | "yesterday" } | { on: string } {
+  const day = dayFormat.format(date);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (day === dayFormat.format(now)) return { near: "today" };
+  if (day === dayFormat.format(yesterday)) return { near: "yesterday" };
+  return { on: (yearFormat.format(date) === yearFormat.format(now) ? monthDayFormat : shortDateFormat).format(date) };
+}
+
 /**
  * When a thread's newest reply came, as the thread's summary says it, as of `now`: "today at 3:04 PM",
  * "yesterday at 3:04 PM", "on Oct 12", or "on Oct 12, 2025" in another year. A narrow summary, as on a
  * phone, says it `short`: today's time, or "yesterday".
  */
 export function lastReplyLabel(date: Date, now = new Date()): { long: string; short: string } {
-  const day = dayFormat.format(date);
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (day === dayFormat.format(now)) return { long: `today at ${timeLabel(date)}`, short: timeLabel(date) };
-  if (day === dayFormat.format(yesterday)) return { long: `yesterday at ${timeLabel(date)}`, short: "yesterday" };
-  const on = `on ${(yearFormat.format(date) === yearFormat.format(now) ? monthDayFormat : shortDateFormat).format(date)}`;
-  return { long: on, short: on };
+  const day = dayAsOf(date, now);
+  if ("on" in day) return { long: `on ${day.on}`, short: `on ${day.on}` };
+  return { long: `${day.near} at ${timeLabel(date)}`, short: day.near === "today" ? timeLabel(date) : "yesterday" };
 }
+
+/**
+ * When a huddle started, as the Huddles page says it, as of `now`: "Today at 3:04 PM", "Yesterday at
+ * 3:04 PM", "Oct 12", or "Oct 12, 2025" in another year.
+ */
+export function huddleStartedLabel(date: Date, now = new Date()): string {
+  const day = dayAsOf(date, now);
+  return "on" in day ? day.on : `${day.near === "today" ? "Today" : "Yesterday"} at ${timeLabel(date)}`;
+}
+
+const minutesFormat = new Intl.NumberFormat(undefined, { style: "unit", unit: "minute", unitDisplay: "short" });
+const hoursFormat = new Intl.NumberFormat(undefined, { style: "unit", unit: "hour", unitDisplay: "short" });
+
+/**
+ * How long ago a page was shown, as the top bar's History says it, as of `now`: "Just now", "5 min" or
+ * "2 hr" today, "Yesterday", "Oct 12", or "Oct 12, 2025" in another year.
+ */
+export function visitedLabel(date: Date, now = new Date()): string {
+  const day = dayAsOf(date, now);
+  if ("on" in day) return day.on;
+  if (day.near === "yesterday") return "Yesterday";
+  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (minutes < 1) return "Just now";
+  return minutes < 60 ? minutesFormat.format(minutes) : hoursFormat.format(Math.floor(minutes / 60));
+}
+
+/** Whether two ISO times fall on the same day in the reader's time zone, as a timeline's separators tell days apart. */
+export const sameDay = (a: string, b: string) => dayFormat.format(new Date(a)) === dayFormat.format(new Date(b));
 
 /** The day each message was written, as `dayFormat` writes it, kept with the message, since a timeline asks again on every render. */
 const days = new WeakMap<Message, string>();
@@ -120,9 +154,11 @@ function quoted(nodes: DisplayNode[]): DisplayNode[] {
   return link && !hasText(nodes) ? [{ kind: "text", value: link }] : nodes;
 }
 
-/** Whether there's text outside link previews, where a mention is the name it shows. */
+/** Whether there's text outside link previews, where a mention is the name it shows, and a special mention its own. */
 const hasText = (nodes: DisplayNode[]): boolean =>
-  nodes.some((node) => node.kind === "mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)));
+  nodes.some(
+    (node) => node.kind === "mention" || node.kind === "special-mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)),
+  );
 
 /** The first link in a link preview, as `.og-embed a` finds it, by where it goes. */
 function firstPreviewLink(nodes: DisplayNode[]): string | undefined {

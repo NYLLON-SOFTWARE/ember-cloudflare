@@ -176,6 +176,10 @@
   --animate-zoom-fade: zoom-fade 300ms ease-out;
   /* And its `.boost--deleting` (boosts.css): a reaction you delete shrinks away. */
   --animate-scale-fade-out: scale-fade-out 0.2s both;
+  /* A reaction in a huddle pops up at the base of the people in it, rises and fades, for as long as it shows (lib/huddle-reactions.ts), */
+  --animate-reaction: reaction 4s ease-out both;
+  /* and its emoji grows as it does, over the name under it, which doesn't. */
+  --animate-reaction-emoji: reaction-emoji 4s ease-out both;
 
   @keyframes shake {
     0% {
@@ -248,6 +252,36 @@
     100% {
       transform: scale(0);
       opacity: 0;
+    }
+  }
+
+  @keyframes reaction {
+    0% {
+      transform: translateY(40%) scale(0.4);
+      opacity: 0;
+    }
+    8% {
+      transform: translateY(0) scale(1.15);
+      opacity: 1;
+    }
+    14% {
+      transform: translateY(0) scale(1);
+    }
+    70% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(-13rem) scale(1);
+      opacity: 0;
+    }
+  }
+
+  @keyframes reaction-emoji {
+    14% {
+      transform: scale(1);
+    }
+    100% {
+      transform: scale(1.4);
     }
   }
 }
@@ -343,6 +377,20 @@
 /* `short:` tightens dialogs on screens under 500px tall, such as a phone in landscape. */
 @custom-variant short (@media (height < 31.25rem));
 
+/*
+ * `no-top-bar:` is where the workspace leaves out its top bar: at 900px and below, where the drawer
+ * starts with the search field, and on a phone in landscape, under 500px tall with a finger for a
+ * pointer, where the bar would take what little height the room has, and the rail keeps Search.
+ */
+@custom-variant no-top-bar {
+  @media (width < 56.3125rem) {
+    @slot;
+  }
+  @media (height < 31.25rem) and (pointer: coarse) {
+    @slot;
+  }
+}
+
 /* Campfire's `.hide-in-ios-pwa` (utilities.css): Ember added to an iPhone's or iPad's home screen. */
 @custom-variant ios-pwa {
   @media (display-mode: standalone) {
@@ -352,11 +400,22 @@
   }
 }
 
-/* The sidebar's width, which `narrow:` takes from 280px to 230px; the drawer keeps 280px. */
+/*
+ * The sidebar's width, which `narrow:` takes from 280px to 230px, where the drawer keeps 280px, and the
+ * top bar's height, which `touch:` takes from 44px to 52px, for buttons as big as fingers, and which is
+ * nothing where `no-top-bar:` leaves the bar out.
+ */
 :root {
   --sidebar-width: 280px;
+  --top-bar-height: 44px;
   @variant narrow {
     --sidebar-width: 230px;
+  }
+  @variant touch {
+    --top-bar-height: 52px;
+  }
+  @variant no-top-bar {
+    --top-bar-height: 0px;
   }
 }
 
@@ -416,7 +475,8 @@
   --color-drag-shadow: var(--drag-shadow);
   --color-tooltip-shadow: var(--tooltip-shadow);
   --color-search-match: var(--search-match);
-  /* Workspace geometry: 80px rail, 280px sidebar (230px `narrow:`), 60px header. */
+  /* Workspace geometry: 44px top bar (52px `touch:`, none `no-top-bar:`), 80px rail, 280px sidebar (230px `narrow:`), 60px header. */
+  --spacing-top-bar: var(--top-bar-height);
   --spacing-rail: 80px;
   --spacing-sidebar: var(--sidebar-width);
   --spacing-header: 60px;

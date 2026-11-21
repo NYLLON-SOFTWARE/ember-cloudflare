@@ -20,7 +20,7 @@ import { evictDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { APP, OTHER_APP, OTHER_RELAY, RELAY, relayServersMade } from "./huddle-support";
-import { api, apiWith, cookieOf, freshDeploy, openWorkspaceSocket, shown, signIn, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, apiWith, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, shown, signIn, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
@@ -70,6 +70,9 @@ const switchCameras = (session: Session | null, huddleCameras: unknown) => api("
 
 /** Turns Screen sharing on or off as `session`, as its switch on the Huddles tab does. */
 const switchScreens = (session: Session | null, huddleScreens: unknown) => api("/api/account", { method: "PATCH", headers: as(session), body: JSON.stringify({ settings: { huddleScreens } }) });
+
+/** Chooses the quality huddles send cameras and screens in as `session`, as Video quality on the Huddles tab does. */
+const chooseVideo = (session: Session | null, huddleVideo: unknown) => api("/api/account", { method: "PATCH", headers: as(session), body: JSON.stringify({ huddleVideo }) });
 
 /** The account as a page is told of it before anyone signs in. */
 const shownAccount = async () => ((await (await api("/api/bootstrap")).json()) as Bootstrap).account;
@@ -730,5 +733,91 @@ describe("Screen sharing in huddles (setting)", () => {
     // Started afresh, the Workspace has to read the account again.
     await evictDurableObject(workspaceStub());
     expect((await shownAccount()).huddleScreens).toBe(true);
+  });
+});
+
+describe("Video quality in huddles (setting)", () => {
+  it("sends cameras and screens in HD until an administrator chooses otherwise, before first run too", async () => {
+    expect((await shownAccount()).huddleVideo).toBe("hd");
+    const administrator = await setUp();
+    expect((await settings(administrator)).account.huddleVideo).toBe("hd");
+    expect(await storedSettings()).not.toHaveProperty("huddle_video");
+  });
+
+  it("changes for everyone as an administrator chooses it, whether or not huddles are on, keeping the other settings", async () => {
+    const administrator = await setUp();
+    const member = await signIn("Grace");
+    fakeSfu();
+    await saveKeys(administrator);
+    await switchCameras(administrator, false);
+    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(member)];
+
+    const response = await chooseVideo(administrator, "full-hd");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ account: { huddles: true, huddleCameras: false, huddleVideo: "full-hd" } });
+    expect(await storedSettings()).toMatchObject({ huddle_video: "full-hd", huddle_cameras: false, huddles: { app_id: APP.appId } });
+    for (const socket of sockets) expect(await socket.next()).toMatchObject({ type: "account.updated", account: { huddles: true, huddleCameras: false, huddleVideo: "full-hd" } });
+    expect((await settings(member)).account.huddleVideo).toBe("full-hd");
+    // As it is once the Workspace starts afresh, and for a page nobody has signed in on.
+    await evictDurableObject(workspaceStub());
+    expect((await shownAccount()).huddleVideo).toBe("full-hd");
+
+    // The same again is nothing new, and huddles going off leave it as it was.
+    const again = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(member)];
+    expect((await chooseVideo(administrator, "full-hd")).status).toBe(200);
+    for (const socket of again) expect(await socket.answers()).toBe(true);
+    expect((await turnOff(administrator)).status).toBe(200);
+    for (const socket of again) expect(await socket.next()).toMatchObject({ type: "account.updated", account: { huddles: false, huddleVideo: "full-hd" } });
+    expect(await (await chooseVideo(administrator, "standard")).json()).toMatchObject({ account: { huddles: false, huddleCameras: false, huddleVideo: "standard" } });
+    for (const socket of again) expect(await socket.next()).toMatchObject({ type: "account.updated", account: { huddles: false, huddleVideo: "standard" } });
+    expect(await storedSettings()).toMatchObject({ huddle_video: "standard", huddle_cameras: false });
+  });
+
+  it("lets only administrators choose it, and takes only standard, hd or full-hd", async () => {
+    const administrator = await setUp();
+    const member = await signIn("Grace");
+    expect((await chooseVideo(member, "full-hd")).status).toBe(403);
+    expect((await chooseVideo(null, "full-hd")).status).toBe(401);
+    for (const quality of ["4k", "HD", "", null, 720]) {
+      const refused = await chooseVideo(administrator, quality);
+      expect(refused.status).toBe(422);
+      expect(await refused.json()).toEqual({ error: 'Video quality must be "standard", "hd" or "full-hd"' });
+    }
+    expect((await shownAccount()).huddleVideo).toBe("hd");
+    expect(await storedSettings()).not.toHaveProperty("huddle_video");
+  });
+
+  it.each([
+    ["null", '{"huddle_video":null}'],
+    ["a quality there's no such thing as", '{"huddle_video":"4k"}'],
+    ["a number", '{"huddle_video":720}'],
+  ])("sends video in HD for a workspace that stored %s", async (_, stored) => {
+    await setUp();
+    await workspaceSql("UPDATE accounts SET settings = ?", stored);
+    // Started afresh, the Workspace has to read the account again.
+    await evictDurableObject(workspaceStub());
+    expect((await shownAccount()).huddleVideo).toBe("hd");
+  });
+});
+
+describe("Allow huddles in a room (setting)", () => {
+  it("tells a room whether its own settings allow huddles in it, with the app huddles run through either way", async () => {
+    const administrator = await setUp();
+    fakeSfu();
+    await saveKeys(administrator);
+    const [room, other] = [await createRoom("Announcements", { as: administrator }), await createRoom("Design", { as: administrator })];
+    const app = { ...APP, cameras: true, screens: true, relay: null };
+    expect(await workspaceStub().huddlesIn(room.id)).toEqual({ app, allowed: true });
+
+    expect((await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: as(administrator), body: JSON.stringify({ huddles: false }) })).status).toBe(200);
+    expect(await workspaceStub().huddlesIn(room.id)).toEqual({ app, allowed: false });
+    // Another room's still do, and so do those of a room the Workspace doesn't know.
+    expect(await workspaceStub().huddlesIn(other.id)).toEqual({ app, allowed: true });
+    expect(await workspaceStub().huddlesIn("no such room")).toEqual({ app, allowed: true });
+
+    // There's no app to tell it of while huddles are off.
+    await turnOff(administrator);
+    expect(await workspaceStub().huddlesIn(room.id)).toEqual({ app: null, allowed: false });
+    expect(await workspaceStub().huddlesIn(other.id)).toEqual({ app: null, allowed: true });
   });
 });

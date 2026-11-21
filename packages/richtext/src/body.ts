@@ -1,13 +1,25 @@
 // What Ember keeps of a message body when it's written: the canonical markup, its plain text and
 // whom it mentions (Ember's rich-text design: sanitize on write, render on the client).
 
-import { RenderError, type MentionUser, type ResolveMention } from "./attachments";
+import { RenderError, type MentionUser, type ResolveMention, type SpecialMention } from "./attachments";
 import { autoLink } from "./autolink";
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { displayBody } from "./display";
-import { ParseLimitError, type HtmlParser } from "./markup";
-import { editableBody, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
+import { forOneReading, ParseLimitError, type HtmlParser } from "./markup";
+import {
+  editableBody,
+  mentionedUsers,
+  mentionsIn,
+  specialMentionsAsText,
+  specialMentionsAttached,
+  userIdFromSgid,
+  userIdsIn,
+  usersAttached,
+  writtenMentions,
+  type MentionCard,
+} from "./mentions";
 import { plainParagraphLines } from "./plain-paragraph";
+import { hasPreview } from "./previews";
 import { canonicalize } from "./render";
 import { chompNewlines, isBlank } from "./ruby";
 import { toHtml } from "./serialize";
@@ -24,13 +36,16 @@ export interface PreparedBody {
   plainText: string;
   /** The users it mentions, once each, in order, named as `resolve` named them. */
   mentions: MentionUser[];
+  /** The special mentions it makes, once each, in order. */
+  specialMentions: SpecialMention[];
   /** Nothing to send: no text but whitespace, and no mentions. */
   blank: boolean;
 }
 
 /** `message.body.to_plain_text`. Throws `ParseLimitError` past the parser's limits. */
 export function plainText(parse: HtmlParser, markup: string, resolve: ResolveMention): string {
-  return contentToPlainText(parse, loadContent(parse, markup), resolve);
+  const read = forOneReading(parse);
+  return contentToPlainText(read, loadContent(read, markup), resolve);
 }
 
 /**
@@ -67,7 +82,7 @@ function preparePlainParagraph(markup: string): PreparedBody | null {
   const lines = plainParagraphLines(markup);
   if (lines === null) return null;
   const text = chompNewlines(lines.map(chompNewlines).join("\n"));
-  return { html: markup, plainText: text, mentions: [], blank: isBlank(text) };
+  return { html: markup, plainText: text, mentions: [], specialMentions: [], blank: isBlank(text) };
 }
 
 /** `prepareBody` the long way, parsing the markup, as it has to unless it's a plain paragraph. */
@@ -78,7 +93,7 @@ export function prepareParsedBody(parse: HtmlParser, markup: string, resolve: Re
     const attachments = attachmentNodes(content);
     const mentions = usersAttached(attachments, resolve).map(({ id, name }) => ({ id, name }));
     const text = contentToPlainText(parse, content, resolve);
-    return { html, plainText: text, mentions, blank: isBlank(text) && attachments.length === 0 };
+    return { html, plainText: text, mentions, specialMentions: specialMentionsAttached(attachments), blank: isBlank(text) && attachments.length === 0 };
   } catch (error) {
     if (error instanceof ParseLimitError || error instanceof RenderError) return null;
     throw error;
@@ -105,9 +120,12 @@ export function withParser(parse: HtmlParser) {
     plainText: (markup: string, resolve: ResolveMention) => plainText(parse, markup, resolve),
     mentionedUsers: (markup: string, resolve: ResolveMention): MentionUser[] => mentionedUsers(parse, markup, resolve),
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
+    mentionsIn: (markup: string) => mentionsIn(parse, markup),
     writtenBody: (markup: string) => writtenBody(parse, markup),
     editableBody: (stored: string, card: (userId: string) => MentionCard | undefined, host: string) => editableBody(parse, stored, card, host),
+    specialMentionsAsText: (stored: string, refused: readonly SpecialMention[]) => specialMentionsAsText(parse, stored, refused),
     autoLink: (html: string) => autoLink(parse, html),
     displayBody: (html: string, plainText: string, host: string) => displayBody(parse, html, plainText, host),
+    hasPreview: (markup: string) => hasPreview(parse, markup),
   };
 }

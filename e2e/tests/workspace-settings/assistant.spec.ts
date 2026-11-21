@@ -1,6 +1,6 @@
 import { DEFAULT_LEVELS, TOP_LEVELS } from "@ember/protocol/assistant";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { administratorSession, cookieHeader, drawnPicture, editorField, expect, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
+import { administratorSession, cookieHeader, drawnPicture, editorField, expect, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress, variantType } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { ANTHROPIC_PATH, FOUND, GEMMA, HELLO, NEWER, RECALL_QUESTION, RECALLED, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
@@ -329,10 +329,11 @@ test.describe("Ember AI", () => {
     await expect(avatar).not.toHaveAttribute("src", flame);
     const uploaded = (await avatar.getAttribute("src"))!;
     // The variant the administrator's browser made of it, 512×512.
-    expect(await shownPicture(avatar)).toEqual({ type: "image/webp", width: 512, height: 512 });
+    const variant = { type: await variantType(page), width: 512, height: 512 };
+    expect(await shownPicture(avatar)).toEqual(variant);
     // The room shows it without loading again.
     await expect(answersAvatar).toHaveAttribute("src", uploaded);
-    expect(await shownPicture(answersAvatar)).toEqual({ type: "image/webp", width: 512, height: 512 });
+    expect(await shownPicture(answersAvatar)).toEqual(variant);
 
     // Straight away, which can be the same second, and the address is new all the same.
     await useTheFlame.click();
@@ -354,7 +355,7 @@ test.describe("Ember AI", () => {
     await expect(save).toBeDisabled();
     await card.getByText("What Ember adds around them").click();
     await expect(card.locator("details")).toContainText('You are Ember, the AI assistant in the team chat');
-    await expect(card.locator("details")).toContainText("Answer the last one, which Ada Lovelace wrote, as a helpful teammate would");
+    await expect(card.locator("details")).toContainText(`Answer the last one, which "Ada Lovelace" wrote, as a helpful teammate would`);
 
     await instructions.fill("Answer in British English.");
     await save.click();
@@ -393,7 +394,7 @@ test.describe("Ember AI", () => {
 
     // Without instructions added, nor the space they'd take.
     await askEmber(page, "Colour or color?");
-    expect(gateway.asked.at(-1)!.body.system).toMatch(/^You are Ember, the scribe of [^\n]+\.\n\nYou're asked in the room "general"\. Answer Ada Lovelace in at most [\d,]+ words\.$/);
+    expect(gateway.asked.at(-1)!.body.system).toMatch(/^You are Ember, the scribe of [^\n]+\.\n\nYou're asked in the room "general"\. Answer "Ada Lovelace" in at most [\d,]+ words\.$/);
   });
 
   test("the administrator turns Ember AI off, once they're sure", async ({ page, request }) => {
@@ -416,6 +417,25 @@ test.describe("Ember AI", () => {
 });
 
 test.describe("@ember", () => {
+  test("someone asks @ember from the top bar's end, while Ember AI is on, which opens their DM with it", async ({ page, request }) => {
+    await useOwnAddress(page);
+    await page.goto("/");
+    await signInAsAdministrator(page);
+    const bar = page.getByRole("banner");
+    await expect(bar.getByRole("button", { name: /^Search / })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Ask @ember" })).toHaveCount(0);
+
+    await setUpAssistant(request);
+    await page.reload();
+    const ask = bar.getByRole("button", { name: "Ask @ember" });
+    // @ember's own picture, which is Ember's flame until an administrator uploads another.
+    await expect(ask.locator("img")).toBeVisible();
+    await ask.click();
+    await expect(page).toHaveURL(/\/rooms\/[^/]+$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Ember");
+    await expect(page.getByRole("region", { name: "DMs" }).locator("a[aria-current=page]")).toHaveAccessibleName(/Ember/);
+  });
+
   test("someone mentions @ember in a room, sees it typing, and reads its answer there", async ({ page, request }) => {
     await setUpAssistant(request);
     await useOwnAddress(page);

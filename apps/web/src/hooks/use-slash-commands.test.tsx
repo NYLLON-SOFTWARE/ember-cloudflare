@@ -31,7 +31,31 @@ const listed = (room: Room, involvement: Involvement): SidebarRoom => ({ ...room
 const rooms = [listed(general, "mentions"), listed(design, "everything"), listed(withGrace, "everything")];
 
 /** A workspace with huddles turned on. */
-const account: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: true, huddleCameras: true, huddleScreens: true };
+const account: Account = {
+  name: "Ember",
+  tagline: "",
+  hideTranslationButtons: true,
+  customStyles: "",
+  restrictRoomCreation: false,
+  restrictChannelMentions: false,
+  restrictEveryoneMention: false,
+  warnBeforeNotifying: true,
+  logo: null,
+  customDomain: null,
+  joinLink: true,
+  openSignUp: false,
+  memberfulJoin: false,
+  memberfulSignIn: false,
+  ssoJoin: false,
+  ssoSignIn: false,
+  emailDomainSignUp: false,
+  emailDomains: [],
+  navigationIcons: {},
+  huddles: true,
+  huddleCameras: true,
+  huddleScreens: true,
+  huddleVideo: "hd",
+};
 
 /** A mention of `person`, as the @ list writes it. */
 const mention = ({ id, name, avatarUrl }: DirectoryUser) =>
@@ -83,10 +107,14 @@ function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = 
   return { ...callbacks, answers, unmount, run: (command: WrittenCommand) => result.current.run(command), commands: () => result.current.commands.map(({ name }) => name) };
 }
 
-const settingsOf = (room: SharedRoom, members: DirectoryUser[], canAdminister = true): RoomSettings => ({
+const settingsOf = (room: SharedRoom, members: DirectoryUser[], canAdminister = true, people = [ada, grace, linus]): RoomSettings => ({
   room,
   canAdminister,
-  people: [ada, grace, linus].map((p) => ({ id: p.id, name: p.name, member: members.includes(p) })),
+  canChangeHuddles: false,
+  canChangeChannelMentions: false,
+  people: people.map((p) => ({ id: p.id, name: p.name, member: members.includes(p) })),
+  section: null,
+  sections: [],
 });
 
 beforeEach(() => serve({}));
@@ -176,7 +204,7 @@ describe("/ commands", () => {
 
   it("adds and removes each of two people /invite and /remove mention who share a name", async () => {
     const otherGrace = person("grace00000000002", "Grace Hopper");
-    const settings = (members: DirectoryUser[]): RoomSettings => ({ room: design, canAdminister: true, people: [ada, grace, otherGrace].map((p) => ({ id: p.id, name: p.name, member: members.includes(p) })) });
+    const settings = (members: DirectoryUser[]) => settingsOf(design, members, true, [ada, grace, otherGrace]);
     const both = `${mention(grace)} ${mention(otherGrace)}`;
     serve({ "GET /api/rooms/design/settings": settings([ada]), "PATCH /api/rooms/design/members": { room: design } });
     expect(await runIn(design).run(written("", `<p>/invite ${both}</p>`))).toBe(true);

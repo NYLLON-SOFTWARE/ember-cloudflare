@@ -18,6 +18,7 @@ import {
   type MentionUser,
   type OpengraphEmbed,
   type ResolveMention,
+  type SpecialMention,
 } from "./attachments";
 import {
   attachmentGalleryNodes,
@@ -27,17 +28,19 @@ import {
   MAX_CONTENT_ATTACHMENT_DEPTH,
   sanitizeContentAttribute,
 } from "./content";
-import { BODY, parseReplacement, setInnerHtml, type HtmlParser } from "./markup";
+import { BODY, forOneReading, parseReplacement, setInnerHtml, type HtmlParser } from "./markup";
 import { mentionSgid } from "./mentions";
 import { previewContent, removeSoloUnfurledLinkText } from "./previews";
 import { chomp, htmlEscape, presence, strip } from "./ruby";
 import { ACTION_TEXT, ATTACHMENT_ATTRIBUTES, AUTO_LINK, CONTENT_FILTER, sanitize, sanitizeTags, scrub } from "./sanitize";
 import { toHtml } from "./serialize";
 import {
+  ancestors,
   createElement,
   createFragment,
   descendants,
   detach,
+  elementChildren,
   getAttr,
   isElement,
   removeAttr,
@@ -52,8 +55,12 @@ import {
 /** What mentions and link previews render as: Campfire's partials for them, or stand-ins. */
 interface Partials {
   mention: (user: MentionUser) => string;
+  specialMention: (mention: SpecialMention) => string;
   preview: (embed: OpengraphEmbed) => string;
 }
+
+/** A special mention as a message presents it, which Campfire has no partial for: its plain text. */
+const specialMentionText = (mention: SpecialMention) => `@${mention}`;
 
 /**
  * `message_presentation`'s rendering, sanitized as its auto_link sanitizes it but not linked: `<` and
@@ -62,8 +69,9 @@ interface Partials {
  * rescues to show nothing.
  */
 export function presentMessage(parse: HtmlParser, body: string, resolve: ResolveMention, mention: Partials["mention"], host = ""): string {
-  const partials = { mention, preview: opengraphEmbedPartial };
-  return toHtml(renderFiltered(parse, filterMessage(parse, body, resolve, host), resolve, partials, host), { escapeAttributeBrackets: true });
+  const partials = { mention, specialMention: specialMentionText, preview: opengraphEmbedPartial };
+  const read = forOneReading(parse);
+  return toHtml(renderFiltered(read, filterMessage(read, body, resolve, host), resolve, partials, host), { escapeAttributeBrackets: true });
 }
 
 const MENTION_MARKER = "ember-mention";
@@ -73,7 +81,8 @@ const isMarker = (element: Element) => element.name === MENTION_MARKER || elemen
 /**
  * The form Ember stores a body in: `presentMessage`'s, out of its layout and stripped, with each
  * mention as an empty `<action-text-attachment content-type="application/vnd.campfire.mention"
- * sgid="<user id>">` that renders the person as they are now, each link preview as the attachment
+ * sgid="<user id>">` that renders the person as they are now, each special mention as one whose sgid
+ * is its name, each link preview as the attachment
  * the composer writes for one (`previewContent`), which renders as the page shows it, and without
  * three things: `class` attributes, since a message's Tailwind classes could restyle the page, the
  * images of remote image attachments, which a stored body can't hold (SanitizeTags removes
@@ -84,14 +93,16 @@ const isMarker = (element: Element) => element.name === MENTION_MARKER || elemen
 export function canonicalize(parse: HtmlParser, body: string, resolve: ResolveMention): string {
   const previews: OpengraphEmbed[] = [];
   const markers: Partials = {
-    mention: (user) => `<${MENTION_MARKER} user="${htmlEscape(user.id)}"></${MENTION_MARKER}>`,
+    mention: (user) => `<${MENTION_MARKER} sgid="${htmlEscape(mentionSgid(user.id))}"></${MENTION_MARKER}>`,
+    specialMention: (mention) => `<${MENTION_MARKER} sgid="${mention}"></${MENTION_MARKER}>`,
     preview: (embed) => `<${PREVIEW_MARKER} index="${previews.push(embed) - 1}"></${PREVIEW_MARKER}>`,
   };
-  const content = withoutLayout(renderFiltered(parse, filterStored(parse, body, resolve), resolve, markers, ""));
+  const read = forOneReading(parse);
+  const content = withoutLayout(renderFiltered(read, filterStored(read, body, resolve), resolve, markers, ""));
   const replacements = new Map<Node, Node[]>();
   for (const node of descendants(content)) {
     if (!isElement(node)) continue;
-    if (node.name === MENTION_MARKER) replacements.set(node, [mentionAttachment(getAttr(node, "user")!)]);
+    if (node.name === MENTION_MARKER) replacements.set(node, [mentionAttachment(getAttr(node, "sgid")!)]);
     else if (node.name === PREVIEW_MARKER) replacements.set(node, [previewAttachment(previews[Number(getAttr(node, "index"))]!)]);
     else if (node.name === "img") replacements.set(node, []);
     else removeAttr(node, "class");
@@ -109,10 +120,10 @@ function withoutLeadingNewlines(pre: Element): void {
   }
 }
 
-function mentionAttachment(userId: string): Element {
+function mentionAttachment(sgid: string): Element {
   return createElement(ATTACHMENT_TAG, [
     { name: "content-type", value: MENTION_CONTENT_TYPE },
-    { name: "sgid", value: mentionSgid(userId) },
+    { name: "sgid", value: sgid },
   ]);
 }
 
@@ -128,7 +139,7 @@ function previewAttachment(embed: OpengraphEmbed): Element {
  * SanitizeTags and SanitizeAttributes. The first reads the body's plain text, which can raise.
  */
 export function filterMessage(parse: HtmlParser, body: string, resolve: ResolveMention, host = ""): Fragment {
-  const plainText = contentToPlainText(parse, loadContent(parse, body), resolve);
+  const plainText = readPlainText(parse, body, resolve);
   const content = loadContent(parse, body);
   removeSoloUnfurledLinkText(parse, content, plainText, host);
   return sanitizeFiltered(parse, content);
@@ -139,8 +150,14 @@ export function filterMessage(parse: HtmlParser, body: string, resolve: ResolveM
  * applies as a message shows, but still raising where reading its plain text does.
  */
 function filterStored(parse: HtmlParser, body: string, resolve: ResolveMention): Fragment {
-  contentToPlainText(parse, loadContent(parse, body), resolve);
+  readPlainText(parse, body, resolve);
   return sanitizeFiltered(parse, loadContent(parse, body));
+}
+
+/** The body's plain text, in a reading of its own: the one `parse` is for reads the body again, and copies as much. */
+function readPlainText(parse: HtmlParser, body: string, resolve: ResolveMention): string {
+  const read = forOneReading(parse);
+  return contentToPlainText(read, loadContent(read, body), resolve);
 }
 
 /** SanitizeTags, then SanitizeAttributes. */
@@ -166,6 +183,8 @@ function withoutLayout(fragment: Fragment): Fragment {
 class Renderer {
   /** The `content` attributes of rendered attachments, by the stand-ins that replace them. */
   private readonly contents = new Map<string, string>();
+  /** What `renderContent` made of each content it rendered, by its depth and the content. */
+  private readonly renderedContents = new Map<string, string>();
 
   constructor(
     private readonly parse: HtmlParser,
@@ -178,6 +197,13 @@ class Renderer {
    * `render_action_text_content(content)` for content `depth` content attachments down: its
    * attachments and galleries rendered, then sanitized with Action Text's allowlist, which leaves
    * the stand-ins for mentions and previews as they are.
+   *
+   * Unlike Rails, a gallery renders only its own attachments, and the galleries in what an
+   * attachment's content rendered stay as that level rendered them. Rails counts the gallery
+   * attachments in what a gallery's attachments rendered as the gallery's too, and renders the
+   * galleries in rendered content again at every level above them, so galleries nested in one
+   * another's attachments multiplied the rendering and its markup at each level, however deep
+   * content renders.
    */
   render(content: Fragment, depth: number): string {
     const parse = this.parse;
@@ -192,9 +218,9 @@ class Renderer {
     replaceEach(attachments);
     const galleries = new Map<Node, Node[]>();
     for (const gallery of attachmentGalleryNodes(content)) {
-      const members = descendants(gallery).filter(
-        (node): node is Element => isElement(node, ATTACHMENT_TAG) && getAttr(node, "presentation") === "gallery",
-      );
+      if (isInsideAttachment(gallery)) continue;
+      // A gallery's elements are all gallery attachments
+      const members = elementChildren(gallery);
       let rendered = "";
       for (const member of members) {
         const node = this.withContent(member);
@@ -215,6 +241,8 @@ class Renderer {
     switch (attachable.kind) {
       case "mention":
         return chomp(this.partials.mention(attachable.user));
+      case "special-mention":
+        return chomp(this.partials.specialMention(attachable.mention));
       case "opengraph-embed":
         return chomp(this.partials.preview(attachable.embed));
       // Rails asks a missing record's model for its partial, which User doesn't have, so a mention of
@@ -230,9 +258,20 @@ class Renderer {
     }
   }
 
-  /** A content attachment's content, rendered without a layout, as deep as content renders. */
+  /**
+   * A content attachment's content, rendered without a layout, as deep as content renders. Content
+   * renders the same each time at a depth, and a gallery renders its attachments a second time, so
+   * each rendering is kept: rendered twice, nested galleries would double the work at every level.
+   */
   private renderContent(content: string, depth: number): string {
-    return depth < MAX_CONTENT_ATTACHMENT_DEPTH ? `${this.render(loadContent(this.parse, content), depth + 1)}\n` : "";
+    if (depth >= MAX_CONTENT_ATTACHMENT_DEPTH) return "";
+    const key = `${depth} ${content}`;
+    let rendered = this.renderedContents.get(key);
+    if (rendered === undefined) {
+      rendered = `${this.render(loadContent(this.parse, content), depth + 1)}\n`;
+      this.renderedContents.set(key, rendered);
+    }
+    return rendered;
   }
 
   /**
@@ -262,14 +301,18 @@ class Renderer {
   }
 }
 
+/** Whether a node is part of what an attachment rendered, which is all a rendered attachment holds. */
+const isInsideAttachment = (node: Node) => ancestors(node).some((ancestor) => isElement(ancestor, ATTACHMENT_TAG));
+
 /**
  * `Attachment#with_full_attributes`'s node: the node's attachment attributes, in Action Text's
- * order, with a mentioned user's content type.
+ * order, with a mentioned user's content type, which a special mention has too.
  */
 function withFullAttributes(node: Element, attachable: Attachable): Element {
   const attrs = [];
+  const mention = attachable.kind === "mention" || attachable.kind === "special-mention";
   for (const name of ATTACHMENT_ATTRIBUTES) {
-    const value = name === "content-type" && attachable.kind === "mention" ? MENTION_CONTENT_TYPE : getAttr(node, name);
+    const value = name === "content-type" && mention ? MENTION_CONTENT_TYPE : getAttr(node, name);
     if (value !== undefined) attrs.push({ name, value });
   }
   // Rails makes no node of no attributes, then calls #node on the nil

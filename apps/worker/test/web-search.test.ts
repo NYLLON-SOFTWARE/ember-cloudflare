@@ -865,7 +865,7 @@ describe("@ember on the web", () => {
     expect(said).toBe("I can't search the web.");
     expect(unsearchable.map(({ url, body }) => [url.split("/ai/v1/")[1], body.tools])).toEqual([["chat/completions", undefined]]);
     const instructions = unsearchable[0]!.body.messages![0]!.content;
-    expect(instructions).toContain("You can't search the web or open links with the model Ada Lovelace picked for your answers to them.");
+    expect(instructions).toContain(`You can't search the web or open links with the model "Ada Lovelace" picked for your answers to them.`);
     expect(instructions).toContain("they can pick one that can under Ember AI on their profile.");
     expect(instructions).not.toContain("an administrator can turn on Search the web");
 
@@ -918,7 +918,7 @@ describe("What @ember is told of the web", () => {
 
   it("says, while Search the web is on, that the model the asker picked can't search, and that they can pick one that can", () => {
     const told = questionFor({ ...EMBER, instructions: "", promptTemplate: null }, [QUESTION], ADA, IN_GENERAL, { thinking: "low", length: "medium" }, new Date(), [], true).instructions;
-    expect(told).toContain("You can't search the web or open links with the model Ada Lovelace picked for your answers to them.");
+    expect(told).toContain(`You can't search the web or open links with the model "Ada Lovelace" picked for your answers to them.`);
     expect(told).toContain("When they ask you to, say so, and that they can pick one that can under Ember AI on their profile.");
     expect(told).not.toContain("an administrator");
   });
@@ -949,7 +949,7 @@ describe("An answer's sources", () => {
       `<p>Short.</p><p>Sources: <a href="https://example.com/">${title.slice(0, 79).trimEnd()}…</a></p>`,
     );
     const paragraph = `${"word ".repeat(199)}word`;
-    const { markup } = answerOf(Array.from({ length: 20 }, () => paragraph).join("\n\n"), [DOCS]);
+    const { markup } = answerOf(Array.from({ length: 50 }, () => paragraph).join("\n\n"), [DOCS]);
     expect(markup).toMatch(new RegExp(`<p>…</p><p>Sources: <a href="${DOCS.url}">${DOCS.title}</a></p>$`));
   });
 
@@ -967,7 +967,7 @@ describe("An answer's sources", () => {
 
   it("name a page the answer links to only past where it's cut", () => {
     const paragraph = `${"word ".repeat(199)}word`;
-    const text = [...Array.from({ length: 20 }, () => paragraph), `See [the docs](${DOCS.url}).`].join("\n\n");
+    const text = [...Array.from({ length: 50 }, () => paragraph), `See [the docs](${DOCS.url}).`].join("\n\n");
     const { markup } = answerOf(text, [DOCS]);
     expect(markup).not.toContain("See ");
     expect(markup).toMatch(new RegExp(`<p>…</p><p>Sources: <a href="${DOCS.url}">${DOCS.title}</a></p>$`));

@@ -11,6 +11,7 @@ import { roomName } from "@/lib/directs";
 import { joinHuddle } from "@/lib/huddle";
 import { cameraOf, closeDevice, facesAway, listDevices, microphoneOf, NO_CAMERA, NO_DEVICES, openCamera, openMicrophone, rememberDevice, rememberedDevice, speakerChoices, watchDevices, withOpen } from "@/lib/huddle-devices";
 import { huddledWith, huddlePlace, inItNow, invitedOnceItStarts } from "@/lib/huddle-people";
+import { videoQuality } from "@/lib/huddle-store";
 import { cn } from "@/lib/utils";
 import { useJoinsNoHuddle } from "./huddle-button";
 import { HuddlePicture } from "./huddle-picture";
@@ -109,7 +110,7 @@ function usePreviewCamera(opened: () => void, allowed: boolean) {
       turnOff();
       setRefused(false);
       setTakenDown(false);
-      const asking = (opening.current = { answer: openCamera(deviceId), taken: false });
+      const asking = (opening.current = { answer: openCamera(deviceId, videoQuality()), taken: false });
       const camera = await asking.answer;
       // The huddle's now, to show once it's open.
       if (asking.taken) return;
