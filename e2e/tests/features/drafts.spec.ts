@@ -1,6 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { cookieHeader, editorField } from "../../fixtures";
-import { expect, startDirect, test, unique, type Member } from "./fixtures";
+import { expect, recordsClips, startDirect, test, unique, type Member } from "./fixtures";
 
 // Slack's Manage drafts, the pencil beside Send: the conversation's drafts, the one written ticked, any of
 // which it opens again, and Save as draft, which puts what's written aside to write another.
@@ -128,13 +128,14 @@ test.describe("Manage drafts", () => {
     await expect(field).not.toContainText("#random");
   });
 
-  test("is in + where the composer has no room for it beside Send, as in a narrow window", async ({ members }) => {
+  test("is in + where the composer has no room for it beside Send, as in a narrow window", async ({ members, browserName }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     // A card narrower than its nine buttons, 304px, with Manage drafts.
     await ada.page.locator("form.composer").evaluate((form) => (form.style.inlineSize = "300px"));
     await ada.composer().fill("Narrow thought");
     await expect(underText(ada.composer(), "Manage drafts")).toBeHidden();
-    await expect(underText(ada.composer(), "Record video clip")).toBeVisible();
+    // The clips keep their place, where the browser can record them.
+    await expect(underText(ada.composer(), "Record video clip")).toBeVisible({ visible: recordsClips(browserName) });
     await underText(ada.composer(), "Attach").click();
     await expect(drafts(ada, "room")).toHaveText(["Narrow thought"]);
     await saveAsDraft(ada).click();
