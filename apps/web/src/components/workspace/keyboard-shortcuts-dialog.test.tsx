@@ -39,6 +39,8 @@ describe("Keyboard shortcuts dialog", () => {
     expect(keysOf("Go back")).toEqual(["⌘", "["]);
     expect(keysOf("Go forward")).toEqual(["⌘", "]"]);
     expect(keysOf("Search")).toEqual(["⌘", "F"]);
+    expect(keysOf("Open the room above or below")).toEqual(["⌥", "↑ ↓"]);
+    expect(keysOf("Open the unread room above or below")).toEqual(["⌥", "⇧", "↑ ↓"]);
     expect(keysOf("Move a starred room up or down")).toEqual(["⌥", "↑ ↓"]);
     expect(keysOf("Start, join or leave a huddle")).toEqual(["⌘", "⌥", "⇧", "H"]);
     expect(keysOf("Edit your last message, with nothing written")).toEqual(["↑"]);
@@ -52,6 +54,7 @@ describe("Keyboard shortcuts dialog", () => {
     render(<Shortcuts />);
     expect(keysOf("Go back")).toEqual(["Alt", "←"]);
     expect(keysOf("Search")).toEqual(["Ctrl", "F"]);
+    expect(keysOf("Open the unread room above or below")).toEqual(["Alt", "Shift", "↑ ↓"]);
     expect(keysOf("Move a starred room up or down")).toEqual(["Alt", "↑ ↓"]);
     expect(keysOf("Send")).toEqual(["Enter"]);
     expect(keysOf("Send, on a touch screen too")).toEqual(["Ctrl", "Enter"]);

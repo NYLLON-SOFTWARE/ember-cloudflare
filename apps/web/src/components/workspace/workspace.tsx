@@ -10,6 +10,7 @@ import { useAccount, useCamerasAllowed, useHuddleVideo, useScreensAllowed } from
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
 import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory, usePauseEnd } from "@/hooks/use-directory";
+import { useFoldedSections } from "@/hooks/use-folded-sections";
 import { RoomsContext, useRoomCards } from "@/hooks/use-rooms";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
@@ -22,13 +23,13 @@ import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
 import { hasHuddles } from "@/lib/huddle-people";
 import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, sendVideoAt, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
-import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
+import { movesRoom, movesUnreadRoom, opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
 import { lastRoomVisited } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { takeSsoFlash } from "@/lib/sso";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
-import { isQuietWelcome, markedUnread } from "@/lib/room-list";
+import { isQuietWelcome, markedUnread, neighborRoom, sidebarOrder } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { afterNavigating, leave, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
 import { HuddlesContext, joinsNoHuddle, NO_HUDDLES, type Huddles } from "./huddle-button";
@@ -319,6 +320,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
   const sections = list?.sections ?? NO_SECTIONS;
+  const { folded } = useFoldedSections();
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
 
   // Crossing 900px, as a big phone does on its side, closes the drawer.
@@ -745,6 +747,21 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     if (!room || !offersHuddle(room) || goneRoom) return;
     pressed(() => setHuddlePreview(room.id));
   });
+  // Alt and an arrow open the room or DM above or below the one shown, in the order the sidebar draws them,
+  // only the unread ones while Activity is on, and with Shift too, the nearest one marked unread. They work
+  // from the composer too, but not in a dialog, and not on a starred room's focused row, which Alt and an
+  // arrow move instead. Held down, each repeat opens the next.
+  const roomKeyPressed = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || !rooms) return;
+    const toUnread = movesUnreadRoom(event);
+    const step = movesRoom(event) ?? toUnread;
+    if (step === null || (event.target instanceof Element && event.target.closest("dialog, [role=dialog]"))) return;
+    event.preventDefault();
+    const unread = (roomId: RoomId) => rooms.some((r) => r.id === roomId && markedUnread(r, currentRoomId));
+    const drawn = unreadOnly ? rooms.filter((r) => r.id === currentRoomId || markedUnread(r, currentRoomId)) : rooms;
+    const next = neighborRoom(sidebarOrder(drawn, favorites.rooms, sharedOrder, { sections, folded, currentRoomId, meId: me.id, huddles: huddlesOn ? liveHuddles : NO_HUDDLES }), currentRoomId, step, toUnread === null ? undefined : unread);
+    if (next) select(next);
+  });
   // Cmd+/ or Ctrl+/ opens the keyboard shortcuts: from the composer too, which has no
   // key of its own there, but not over another dialog, a native <dialog> like Notification setup included.
   const shortcutsPressed = useEffectEvent((event: KeyboardEvent) => {
@@ -757,6 +774,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     const listener = (event: KeyboardEvent) => {
       findPressed(event);
       huddleKeyPressed(event);
+      roomKeyPressed(event);
       shortcutsPressed(event);
     };
     window.addEventListener("keydown", listener);

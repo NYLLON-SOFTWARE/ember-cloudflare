@@ -45,6 +45,27 @@ export function togglesMute(event: KeyboardEvent): boolean {
   return event.shiftKey && !event.altKey && !event.isComposing && commandHeld(event);
 }
 
+/** Which way an arrow key goes through the sidebar: -1 up, 1 down, or null for any other key. */
+const arrowStep = (event: KeyboardEvent): -1 | 1 | null => (event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : null);
+
+/**
+ * Alt+Up or Alt+Down, Option on a Mac, which opens the room or DM above or below the one shown, in the
+ * sidebar's order: -1 for the one above, 1 for the one below, or null for any other key.
+ */
+export function movesRoom(event: KeyboardEvent): -1 | 1 | null {
+  if (!event.altKey || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return null;
+  return arrowStep(event);
+}
+
+/**
+ * Alt+Shift+Up or Alt+Shift+Down, Option+Shift on a Mac, which opens the nearest room or DM above or
+ * below the one shown that's marked unread.
+ */
+export function movesUnreadRoom(event: KeyboardEvent): -1 | 1 | null {
+  if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return null;
+  return arrowStep(event);
+}
+
 /**
  * Cmd+O on a Mac, iPad or iPhone, or Ctrl+O elsewhere, pressed in the composer's text, which picks files to
  * send, as Slack's Upload from your computer does, in place of the browser's own Open.
@@ -206,6 +227,8 @@ export const SHORTCUTS: { group: string; rows: ShortcutRow[] }[] = [
       { action: "Go back", keys: (apple) => backShortcut(apple).keys },
       { action: "Go forward", keys: (apple) => forwardShortcut(apple).keys },
       { action: "Search", keys: (apple) => [command(apple), "F"] },
+      { action: "Open the room above or below", keys: (apple) => [option(apple), "↑ ↓"] },
+      { action: "Open the unread room above or below", keys: (apple) => [option(apple), shift(apple), "↑ ↓"] },
       { action: "Move a starred room up or down", keys: (apple) => [option(apple), "↑ ↓"] },
       { action: "Show keyboard shortcuts", keys: (apple) => [command(apple), "/"] },
     ],
