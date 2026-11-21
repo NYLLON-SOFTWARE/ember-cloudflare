@@ -234,8 +234,8 @@ describe("A call of a connected app's tool", () => {
     expect(await waiting(general)).toEqual([]);
   });
 
-  it("leaves the answer as much of the room to read as it had left when it began to wait", async () => {
-    const { general, inGeneral } = await setUp();
+  it("leaves the answer as much of the room to read as it had left when it began to wait, and who wrote what it read", async () => {
+    const { general, inGeneral, ada } = await setUp();
     await post(inGeneral, "<p>The login page hangs.</p>");
     const reading = { calls: [{ name: "read_room", input: {} }] };
     script = [reading, CALL, reading, { text: "I opened #12 for it." }];
@@ -243,10 +243,10 @@ describe("A call of a connected app's tool", () => {
     const card = await ask(inGeneral);
     const [read] = (asked[1]!.messages.at(-1)!.content as Array<{ content: string }>).map(({ content }) => content.split("\n\n"));
     const [{ call }] = (await roomSql(general, "SELECT call FROM waiting_calls WHERE room_id = ?", general)) as [{ call: string }];
-    expect((JSON.parse(call) as WaitingCall).readLeft).toBe(MAX_ROOM_READ_LENGTH - read!.slice(1, -1).join("").length);
+    expect((JSON.parse(call) as WaitingCall).read).toEqual({ left: MAX_ROOM_READ_LENGTH - read!.slice(1, -1).join("").length, writers: [{ id: ada.user.id, name: "Ada Lovelace" }] });
 
     // With nothing left, the answer reads no more of the room once it goes on.
-    await roomSql(general, "UPDATE waiting_calls SET call = json_set(call, '$.readLeft', 0) WHERE room_id = ?", general);
+    await roomSql(general, "UPDATE waiting_calls SET call = json_set(call, '$.read.left', 0) WHERE room_id = ?", general);
     click(inGeneral, card, "allow");
     expect((await fromEmber(inGeneral)).plainText).toBe("I opened #12 for it.");
     expect(told()).toEqual([[READ_ENOUGH, true]]);

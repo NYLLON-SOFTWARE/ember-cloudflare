@@ -872,31 +872,32 @@ one, @ember's note says which, and that an administrator can change what it bloc
 For more of the room than the messages it reads, @ember has three tools Ember runs for it in the room
 it's asked in: its model answers with a call of one in place of an answer, Ember runs it and asks the
 model again with what it came to, and the model answers, or calls again. The search finds the room's
-messages that have every word the model gives, or that someone it names wrote, by their name as the
-conversation has it, or both, its threads' too, as Ember's search does for someone in the room. It
-answers the newest 10 but those @ember was given with the question, which would only crowd out what's
-older, at most 600 characters of each. Reading the room answers 40 of its messages at a time, oldest
-first: those before the question, or before the thread it's asked in, which take in what @ember was
-given, so that the model learns their ids, or those before or after a message the model names, at most
-2,000 characters of each, with where to read on. Reading a thread answers the message it's under and
-its newest 40 replies, or the 40 before a reply the model names, of the thread @ember is asked in or of
-a message the model names. Each message comes with when it was written, its id, which the tools take,
-the thread it's a reply in or how many replies its own has, who wrote it and what it says, which the
-model's provider reads as it does the conversation. None of them reads another room, and an id finds
-only the room's own messages, so an answer holds nothing its readers couldn't find themselves. An answer's calls of them read at most 80,000 characters of the room between them, about
-20,000 tokens, twice what it's given with the question, counting what it read before it waited at a
-call of an app's tool, then the model is told it has read enough and to answer with what it has. An
-answer makes at most 20 calls, of these and [apps' tools](#apps) together, then the model is told to
-answer with what it has, and they share the answer's limit of tokens, so a model that spends them all
-reading is cut short as any other answer is. Claude, GPT and Grok, the models the models file lists,
-are given the tools, with nothing to turn on; Workers AI's models aren't, nor is a model kept from
-before Ember offered its own, or a test question, and a model that stops taking the tools is asked
-again without them: one refused only once it has called them answers without them, told what its calls
-found, in the tokens, and with the web searches and pages, the answer has left. Each call has the model
-read the conversation again, with all it has read since, so an answer that reads the room costs that
-many more tokens read. A picture or a link that only the tools found shows as a link, as the rule above
-has it, since the card and the preview are only of addresses in the messages @ember read with the
-question.
+messages, its threads' too, that have every word the model gives, or that someone it names wrote, or
+both, as Ember's search does for someone in the room. It knows someone by the name they have or by the
+one a message @ember was given or read gives them, which they may have changed since, and answers the
+newest 10 but those @ember was given with the question, which would only crowd out what's older, at most
+600 characters of each. Reading the room answers 40 of its messages at a time, oldest first: those
+before the question, or before the thread it's asked in, which take in what @ember was given, so that
+the model learns their ids, or those before or after a message the model names, at most 2,000 characters
+of each, with where to read on. Reading a thread answers the message it's under and its newest 40
+replies, or the 40 before a reply the model names, of the thread @ember is asked in or of a message the
+model names. Each message comes with when it was written, its id, which the tools take, the thread it's
+a reply in or how many replies its own has, who wrote it and what it says, which the model's provider
+reads as it does the conversation. None of them reads another room, and an id finds only the room's own
+messages, so an answer holds nothing its readers couldn't find themselves. An answer's calls of them
+read at most 80,000 characters of the room between them, about 20,000 tokens, twice what it's given with
+the question, counting what it read before it waited at a call of an app's tool, then the model is told
+it has read enough and to answer with what it has. An answer makes at most 20 calls, of these and [apps'
+tools](#apps) together, then the model is told to answer with what it has, and they share the answer's
+limit of tokens, so a model that spends them all reading is cut short as any other answer is. Claude,
+GPT and Grok, the models the models file lists, are given the tools, with nothing to turn on; Workers
+AI's models aren't, nor is a model kept from before Ember offered its own, or a test question, and a
+model that stops taking the tools is asked again without them: one refused only once it has called them
+answers without them, told what its calls found, in the tokens, and with the web searches and pages, the
+answer has left. Each call has the model read the conversation again, with all it has read since, so an
+answer that reads the room costs that many more tokens read. A picture or a link that only the tools
+found shows as a link, as the rule above has it, since the card and the preview are only of addresses in
+the messages @ember read with the question.
 
 @ember can also show cards under its answer, as a chat bot's [Slack-compatible
 webhook](slack-webhooks.md) does, for where something stands, a report, options to compare, a table or

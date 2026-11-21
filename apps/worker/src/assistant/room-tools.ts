@@ -1,10 +1,11 @@
-import { hasWords, HISTORY_PAGE_SIZE, MAX_SEARCH_LENGTH, MAX_USER_NAME_LENGTH, searchWords, type Message, type RoomId, type TimelinePage, type UserId } from "@ember/protocol";
+import { hasWords, HISTORY_PAGE_SIZE, MAX_SEARCH_LENGTH, MAX_USER_NAME_LENGTH, searchWords, type Message, type RoomId, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import { MAX_CONVERSATION_LENGTH } from "@ember/protocol/assistant";
 import type { Env } from "../env";
 import { searchIndex } from "../search-index";
 import { matchesOf } from "../searches";
 import type { PageCursor } from "../store";
 import { workspace } from "../workspace";
+import { NAMESAKES } from "../workspace-store";
 import { ToolError, type EmberTool, type Unlogged } from "./tool-calls";
 
 // The tools Ember runs for @ember and the agents that read the room they're asked in past the messages
@@ -45,12 +46,20 @@ export interface RoomReader {
   replies(parentId: string, before?: string): Promise<{ messages: Message[]; hasMore: boolean }>;
 }
 
-/** How many more characters of the room's messages an answer's calls of the tools may answer with, which they share. */
-export interface ReadBudget {
+/**
+ * What an answer's calls of the tools have read of the room, which they share: how many more characters
+ * of its messages they may answer with, and who wrote those they did, by the names those messages give
+ * them, which they may have changed since.
+ */
+export interface RoomRead {
   left: number;
+  writers: User[];
 }
 
-/** What the tools read for: the room an answer is asked in, who asked, as whom they search it, the question, what the answer was given with it, and how much more it may read. */
+/** What an answer's calls have read of the room before the first: nothing, with all they may read left. */
+export const nothingRead = (): RoomRead => ({ left: MAX_ROOM_READ_LENGTH, writers: [] });
+
+/** What the tools read for: the room an answer is asked in, who asked, as whom they search it, the question, what the answer was given with it, and what its calls have read. */
 export interface RoomReading {
   env: Env;
   roomId: RoomId;
@@ -59,7 +68,7 @@ export interface RoomReading {
   /** The messages the answer was given with the question, as its model has them. */
   given: readonly Message[];
   reader: RoomReader;
-  budget: ReadBudget;
+  read: RoomRead;
 }
 
 /** One of the tools, with what the room's typing line says the answerer is doing, after its name, while a call of it runs. */
@@ -131,19 +140,20 @@ export function roomTools(reading: RoomReading): RoomTool[] {
 
 /**
  * What a search of the room answers: its newest messages with every word of `words`, if it's given, that
- * someone named `from` wrote, if that's given, but those `given` with the question, or that there are none.
- * A page of the search holds more matches than a question's conversation has messages, so what's left of a
- * full one is enough to answer with, and of the few people who may share a name, each one's page is.
+ * whoever `from` names wrote, if that's given (`writersNamed`), but those `given` with the question, or
+ * that there are none. A page of the search holds more matches than a question's conversation has
+ * messages, so what's left of a full one is enough to answer with, and of the few people a name may mean,
+ * each one's page is.
  */
 async function searched(reading: RoomReading, given: ReadonlySet<string>, { words, from }: Record<string, unknown>): Promise<string | Unlogged> {
-  const { env, roomId, askerId, budget } = reading;
+  const { env, roomId, askerId, read } = reading;
   if (words !== undefined && typeof words !== "string") throw new ToolError("Give the words to find as `words`, a string.");
   if (typeof words === "string" && words.length > MAX_SEARCH_LENGTH) throw new ToolError("That's too much to search for. Give one or two words.");
   if (from !== undefined && (typeof from !== "string" || from.trim() === "" || from.length > MAX_USER_NAME_LENGTH)) throw new ToolError("Give `from` as the name of whoever wrote the messages, as the conversation names them.");
   const wanted = typeof words === "string" && hasWords(words) ? searchWords(words) : [];
   const writer = typeof from === "string" ? from.trim() : undefined;
   if (wanted.length === 0 && writer === undefined) throw new ToolError("Give the words to find, as `words`, or the name of whoever wrote the messages, as `from`.");
-  const writers = writer === undefined ? [undefined] : await workspace(env).peopleNamed(writer);
+  const writers = writer === undefined ? [undefined] : await writersNamed(reading, writer);
   const pages = await Promise.all(
     writers.map((creatorId) => searchIndex(env).search({ words: wanted, roomIds: [roomId], searcherId: askerId, ...(creatorId !== undefined && { creatorId }), sort: "newest", after: null })),
   );
@@ -153,8 +163,9 @@ async function searched(reading: RoomReading, given: ReadonlySet<string>, { word
   const ungiven = hits.filter(({ messageId }) => !given.has(messageId));
   const others = await matchesOf(env, ungiven);
   const lines = taken(
-    budget,
-    others.slice(0, MESSAGES_FOUND).map(({ message }) => lineOf(message, MAX_FOUND_LENGTH)),
+    read,
+    others.slice(0, MESSAGES_FOUND).map(({ message }) => message),
+    (message) => lineOf(message, MAX_FOUND_LENGTH),
   );
   const none = writer === undefined ? "No message in this room has those words" : wanted.length === 0 ? `No message in this room is from anyone named ${writer}` : `No message in this room from anyone named ${writer} has those words`;
   if (lines.length === 0) return ungiven.length === hits.length ? `${none}.` : `${none}, but for those of the conversation you were given.`;
@@ -165,28 +176,44 @@ async function searched(reading: RoomReading, given: ReadonlySet<string>, { word
 }
 
 /**
+ * Who `name` may mean, a few at most: whoever wrote what the answer was given or its calls have read under
+ * that name, which they may have changed since, then whoever has it now, with ASCII letters in either case
+ * alike, as `peopleNamed` finds them.
+ */
+async function writersNamed({ env, given, read }: RoomReading, name: string): Promise<UserId[]> {
+  const sought = folded(name);
+  const wrote = [...given.map(({ creator }) => creator), ...read.writers].filter((writer) => folded(writer.name) === sought);
+  const named = await workspace(env).peopleNamed(name);
+  return [...new Set([...wrote.map(({ id }) => id), ...named])].slice(0, NAMESAKES);
+}
+
+/** `name` with its ASCII capitals made small, as SQLite's NOCASE compares names. */
+const folded = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+
+/**
  * A page of the room's messages, oldest first: those before the message `before` names, or after the one
  * `after` names, or else before the question, or before the thread it's in, which takes in what the answer
  * was given with it, so that the model learns their ids and threads. It's as much of the page as the
  * answer has left to read, nearest where it starts, with where to read on.
  */
-async function readRoom({ env, roomId, question, reader, budget }: RoomReading, { before, after }: Record<string, unknown>): Promise<string | Unlogged> {
+async function readRoom({ env, roomId, question, reader, read }: RoomReading, { before, after }: Record<string, unknown>): Promise<string | Unlogged> {
   if (before !== undefined && typeof before !== "string") throw new ToolError("Give `before` as a message's id.");
   if (after !== undefined && typeof after !== "string") throw new ToolError("Give `after` as a message's id.");
   if (before !== undefined && after !== undefined) throw new ToolError("Give `before` or `after`, not both.");
   const page = await reader.page(after !== undefined ? { after } : { before: before ?? question.parentId ?? question.id });
   if (!page) throw new ToolError(before === undefined && after === undefined ? "The message you're asked is gone from the room." : NO_MESSAGE);
   const { messages } = page;
+  const lineIn = (message: Message) => lineOf(message, MAX_READ_LENGTH);
   if (after !== undefined) {
     if (messages.length === 0) return `The room has no messages after message ${after}.`;
-    const lines = taken(budget, messages.map((message) => lineOf(message, MAX_READ_LENGTH)));
+    const lines = taken(read, messages, lineIn);
     const last = messages[lines.length - 1]!;
     const on = page.hasNewer || lines.length < messages.length ? `To read on, call read_room with \`after\` set to ${last.id}.` : "That's the room's newest message.";
     return readFrom(env, roomId, [`The room's ${counted(lines.length)} after message ${after}, oldest first:`, ...lines, on].join("\n\n"));
   }
   const from = before === undefined ? (question.parentId === undefined ? "the message you're asked" : "the thread you're asked in") : `message ${before}`;
   if (messages.length === 0) return `The room has no messages before ${from}.`;
-  const lines = taken(budget, messages.toReversed().map((message) => lineOf(message, MAX_READ_LENGTH))).reverse();
+  const lines = taken(read, messages.toReversed(), lineIn).reverse();
   const first = messages[messages.length - lines.length]!;
   const back = page.hasMore || lines.length < messages.length ? `To read further back, call read_room with \`before\` set to ${first.id}.` : "That's the start of the room.";
   return readFrom(env, roomId, [`The room's ${counted(lines.length)} before ${from}, oldest first:`, ...lines, back].join("\n\n"));
@@ -198,7 +225,7 @@ async function readRoom({ env, roomId, question, reader, budget }: RoomReading, 
  * else the thread the question is in. It's as much of the thread as the answer has left to read, the
  * message it's under first, then the replies nearest where it starts, with where to read on.
  */
-async function readThread({ env, roomId, question, reader, budget }: RoomReading, { message_id: messageId, before }: Record<string, unknown>): Promise<string | Unlogged> {
+async function readThread({ env, roomId, question, reader, read }: RoomReading, { message_id: messageId, before }: Record<string, unknown>): Promise<string | Unlogged> {
   if (messageId !== undefined && typeof messageId !== "string") throw new ToolError("Give `message_id` as a message's id.");
   if (before !== undefined && typeof before !== "string") throw new ToolError("Give `before` as a reply's id.");
   const id = messageId ?? question.parentId;
@@ -208,16 +235,17 @@ async function readThread({ env, roomId, question, reader, budget }: RoomReading
   if (!parent) throw new ToolError(NO_MESSAGE);
   if (before !== undefined && (await reader.find(before))?.parentId !== parent.id) throw new ToolError(`The thread under message ${parent.id} has no reply with the id given as \`before\`.`);
   const { messages: replies, hasMore } = await reader.replies(parent.id, before);
-  const lineIn = (reply: Message) => lineOf(reply, MAX_READ_LENGTH, parent.id);
+  // The replies leave out the thread they're in, which the answer names, and the message it's under is in none.
+  const lineIn = (message: Message) => lineOf(message, MAX_READ_LENGTH, parent.id);
   if (before !== undefined) {
     if (replies.length === 0) return `The thread under message ${parent.id} has no replies before reply ${before}.`;
-    const lines = taken(budget, replies.toReversed().map(lineIn)).reverse();
+    const lines = taken(read, replies.toReversed(), lineIn).reverse();
     const older = hasMore || lines.length < replies.length ? [olderIn(parent, replies[replies.length - lines.length]!)] : [];
     return readFrom(env, roomId, [`The ${lines.length === 1 ? "reply" : `${lines.length} replies`} before reply ${before} in the thread under message ${parent.id}, oldest first:`, ...lines, ...older].join("\n\n"));
   }
-  if (replies.length === 0) return readFrom(env, roomId, [`Message ${parent.id} has no replies:`, ...taken(budget, [lineOf(parent, MAX_READ_LENGTH)])].join("\n\n"));
+  if (replies.length === 0) return readFrom(env, roomId, [`Message ${parent.id} has no replies:`, ...taken(read, [parent], lineIn)].join("\n\n"));
   // The message it's under comes first, then as many of the newest replies as fit, but never it alone.
-  const [head, ...newest] = taken(budget, [lineOf(parent, MAX_READ_LENGTH), ...replies.toReversed().map(lineIn)], 2);
+  const [head, ...newest] = taken(read, [parent, ...replies.toReversed()], lineIn, 2);
   const shown = newest.reverse();
   const cut = hasMore || shown.length < replies.length;
   const which = cut ? `its newest ${shown.length === 1 ? "reply" : `${shown.length} replies`}` : shown.length === 1 ? "its only reply" : `all ${shown.length} of its replies`;
@@ -232,20 +260,25 @@ const olderIn = (parent: Message, first: Message) => `To read older replies, cal
 const counted = (count: number) => (count === 1 ? "1 message" : `${count} messages`);
 
 /**
- * As many of `lines` as fit in what `budget` has left to read, in order, which they then take of it, or,
- * when fewer than `least` of them fit, none, telling the model it has read enough.
+ * The lines, by `lineIn`, of as many of `messages` as fit in what the answer's calls have left to read, in
+ * order, which they then take of it, as their writers join those `read` has, or, when fewer than `least`
+ * of them fit, none, telling the model it has read enough.
  */
-function taken(budget: ReadBudget, lines: readonly string[], least = 1): string[] {
-  let left = budget.left;
-  const fit: string[] = [];
-  for (const line of lines) {
+function taken(read: RoomRead, messages: readonly Message[], lineIn: (message: Message) => string, least = 1): string[] {
+  let left = read.left;
+  const lines: string[] = [];
+  for (const message of messages) {
+    const line = lineIn(message);
     if (line.length > left) break;
     left -= line.length;
-    fit.push(line);
+    lines.push(line);
   }
-  if (fit.length < Math.min(least, lines.length)) throw new ToolError(READ_ENOUGH);
-  budget.left = left;
-  return fit;
+  if (lines.length < Math.min(least, messages.length)) throw new ToolError(READ_ENOUGH);
+  read.left = left;
+  for (const { creator } of messages.slice(0, lines.length)) {
+    if (!read.writers.some(({ id, name }) => id === creator.id && name === creator.name)) read.writers.push({ id: creator.id, name: creator.name });
+  }
+  return lines;
 }
 
 /** What a tool answers with `text`, read from room `roomId`: unlogged once the room's private, as it may have been made since the answer began in the open. */

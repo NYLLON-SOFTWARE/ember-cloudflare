@@ -62,7 +62,7 @@ import {
 } from "./assistant/answers";
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal, type Question } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
-import { MAX_ROOM_READ_LENGTH, roomTools, type ReadBudget, type RoomReader } from "./assistant/room-tools";
+import { nothingRead, roomTools, type RoomRead, type RoomReader } from "./assistant/room-tools";
 import { ToolError, type EmberTool } from "./assistant/tool-calls";
 import { saidCard, toolCallOf, toolCards, type CardCall } from "./apps/cards";
 import {
@@ -318,9 +318,9 @@ interface Said extends Pick<Answered, "text" | "sources"> {
 
 /**
  * What a question comes to: what its answerer says, or the call of an app's tool its answer waits at, with
- * the apps' tools its model was given and how much more of the room its calls may read.
+ * the apps' tools its model was given and what its calls have read of the room.
  */
-type Outcome = Said | { asking: Asking; given: GivenTool[]; readLeft: number };
+type Outcome = Said | { asking: Asking; given: GivenTool[]; read: RoomRead };
 
 /** What the room tells whoever clicks a call's card that isn't waiting any more, as someone answered it first. */
 const CALL_ANSWERED = "Someone has answered that already";
@@ -1963,11 +1963,11 @@ export class ChatRoom extends DurableObject<Env> {
     const appTools = given.map((tool) =>
       this.sayingWhile(bot, message, usingApp(tool), appTool(this.env, bot.id, tool, askedBy, { described: tool, allows: this.allowsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) })),
     );
-    const budget = { left: MAX_ROOM_READ_LENGTH };
-    const tools = takesTools ? [...this.roomToolsFor(roomId, bot, message, author.id, read, budget), ...appTools] : [];
+    const roomRead = nothingRead();
+    const tools = takesTools ? [...this.roomToolsFor(roomId, bot, message, author.id, read, roomRead), ...appTools] : [];
     const asked = loggedIn({ ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools }, access);
     const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(allOf(conversation))]);
-    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs), budget);
+    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs), roomRead);
   }
 
   /**
@@ -1989,11 +1989,11 @@ export class ChatRoom extends DurableObject<Env> {
       this.sayingWhile(bot, message, usingApp(tool), appTool(this.env, bot.id, tool, asked, { allows: this.allowsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) })),
     );
     // A call that began to wait before the room's tools shared what they read has all of it left.
-    const budget = { left: call.readLeft ?? MAX_ROOM_READ_LENGTH };
-    const tools = [...this.roomToolsFor(roomId, bot, message, call.asker.id, read, budget), ...appTools];
+    const roomRead = call.read ?? nothingRead();
+    const tools = [...this.roomToolsFor(roomId, bot, message, call.asker.id, read, roomRead), ...appTools];
     const paused = { ...call.paused, question: loggedIn(call.paused.question, access) };
     const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, paused, allowed, waitFor(paused.question)), this.peopleWhoWrote(allOf(conversation))]);
-    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools, budget);
+    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools, roomRead);
   }
 
   /**
@@ -2020,10 +2020,10 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * The tools that search and read room `roomId` for `bot`, @ember or an agent, as it answers `message`,
    * which `askerId` asked, as they'd read it, past `given`, what it was given with it, reading as much as
-   * `budget` has left, each of whose calls the room's typing line says, after the bot's name, while it runs.
+   * `read` has left, each of whose calls the room's typing line says, after the bot's name, while it runs.
    */
-  private roomToolsFor(roomId: RoomId, bot: User, message: Message, askerId: UserId, given: readonly Message[], budget: ReadBudget): EmberTool[] {
-    const reading = { env: this.env, roomId, askerId, question: message, given, reader: this.readerOf(roomId), budget };
+  private roomToolsFor(roomId: RoomId, bot: User, message: Message, askerId: UserId, given: readonly Message[], read: RoomRead): EmberTool[] {
+    const reading = { env: this.env, roomId, askerId, question: message, given, reader: this.readerOf(roomId), read };
     return roomTools(reading).map(({ tool, doing }) => this.sayingWhile(bot, message, doing, tool));
   }
 
@@ -2059,11 +2059,11 @@ export class ChatRoom extends DurableObject<Env> {
    * answer, ending with an ellipsis when the model was cut short, the pages it came from, and what
    * people wrote in what it read, `written`, or the note it posts when its model doesn't answer, saying
    * why, which the room logs, or the call it waits at, with the apps' tools it was `given` and what
-   * `budget` has left of the room for its calls to read.
+   * what its calls have `read` of the room.
    */
-  private outcomeOf(access: AssistantAccess, message: Message, answered: Answered | GatewayRefusal | Asking, written: string[], given: GivenTool[], budget: ReadBudget): Outcome {
+  private outcomeOf(access: AssistantAccess, message: Message, answered: Answered | GatewayRefusal | Asking, written: string[], given: GivenTool[], read: RoomRead): Outcome {
     const { bot, gateway, picked } = access;
-    if ("asks" in answered) return { asking: answered, given, readLeft: budget.left };
+    if ("asks" in answered) return { asking: answered, given, read };
     if (!("refusal" in answered)) {
       const text = answered.cut ? `${answered.text}\n\n…` : answered.text;
       return { text, ...(answered.sources && { sources: answered.sources }), written };
@@ -2083,7 +2083,7 @@ export class ChatRoom extends DurableObject<Env> {
     const { asks, paused } = outcome.asking;
     const tool = outcome.given.find(({ as }) => as === asks.name);
     if (!tool) return `${asks.name} asks first, and is no app's tool`;
-    const call: WaitingCall = { questionId: message.id, botId: access.bot.id, asker, tool, input: asks.input, tools: outcome.given, paused, readLeft: outcome.readLeft, askedAt: Date.now() };
+    const call: WaitingCall = { questionId: message.id, botId: access.bot.id, asker, tool, input: asks.input, tools: outcome.given, paused, read: outcome.read, askedAt: Date.now() };
     return fits(call) ? this.askFirst(roomId, access.bot, message, call) : this.postAnswer(roomId, access.bot, { text: tooMuchToWait(tool.appName) }, message, access.addresses);
   }
 

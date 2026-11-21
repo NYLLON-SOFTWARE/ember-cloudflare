@@ -3495,8 +3495,8 @@ const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
     AND ${askedBy("?3")}
   ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
 
-/** How many people of one name `peopleNamed` finds, as names aren't unique. */
-const NAMESAKES = 5;
+/** How many people of one name `peopleNamed` finds, and the room's search finds what they wrote, as names aren't unique. */
+export const NAMESAKES = 5;
 
 /** The first few people named ?1, by id, with ASCII letters in either case alike, as SQLite's NOCASE compares them. */
 const PEOPLE_NAMED = `SELECT id FROM users WHERE name = ?1 COLLATE NOCASE ORDER BY id LIMIT ${NAMESAKES}`;
