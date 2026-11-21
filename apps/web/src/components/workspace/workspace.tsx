@@ -9,7 +9,7 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@
 import { useAccount, useCamerasAllowed, useHuddleVideo, useScreensAllowed } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
-import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory, usePauseEnd } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -291,7 +291,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const directory = useDirectory();
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, askForYou, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -415,8 +415,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // any of their tabs: the huddle this tab is in, and the next it joins, plays only those.
   const soundsHeard = list?.huddleSounds ?? ALL_HUDDLE_SOUNDS;
   useEffect(() => hearSounds(soundsHeard), [soundsHeard]);
-  // An invitation's ring is one of them, which waits for the server's list to say they hear it.
-  const ringless = inAHuddle || !answered || !soundsHeard.ring;
+  // An invitation's ring is one of them, which waits for the server's list to say they hear it, and for
+  // the people directory to say whether they've paused their notifications, staying quiet while they
+  // have, and ringing as the pause ends. A directory that couldn't load leaves the ring to ring.
+  const paused = usePauseEnd(directory.people.get(me.id)) !== null;
+  const ringless = inAHuddle || !answered || !soundsHeard.ring || !directory.settled || paused;
   // The cameras turned on and the screens shared in this tab's huddles go out at the workspace's video
   // quality as it is then, which an administrator changes for everyone.
   const huddleVideo = useHuddleVideo();
@@ -784,6 +787,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
       openReports={openReports}
       onNewDirect={openNewDirect}
       searchInDrawer={settings !== null}
+      askForPause={askForYou}
+      onFailed={failed}
     />
   );
   const sidebar = (
@@ -885,6 +890,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             askForRoom={askForRoom}
             huddleSounds={huddlesOn && answered ? soundsHeard : null}
             askForHuddleSounds={askForHuddleSounds}
+            askForPause={askForYou}
             onSignOut={onSignOut}
             onDeleteAccount={onDeleteAccount}
             onFailed={failed}

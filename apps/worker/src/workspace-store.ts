@@ -356,6 +356,8 @@ export interface DirectoryEntry extends User {
    * agent anyone can ask, and for anyone else.
    */
   keptFor: KeptFor | null;
+  /** When the pause of their notifications ends, which may have passed, or null while they haven't paused them. */
+  pausedUntil: string | null;
 }
 
 /** Whom an AI agent that not everyone can ask is kept for (`AgentAccess`). */
@@ -1240,6 +1242,7 @@ interface DirectoryRow {
   updated_at: string;
   agent: number;
   agent_access: string | null;
+  notifications_paused_until: string | null;
 }
 
 /** The columns that say what avatar someone has uploaded (migrations/0032_avatars.sql). */
@@ -1314,6 +1317,7 @@ const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   updatedAt: row.updated_at,
   agent: row.agent === 1,
   keptFor: keptForIn(row.agent_access),
+  pausedUntil: row.notifications_paused_until,
 });
 
 interface BotRow extends DirectoryRow {
@@ -2066,6 +2070,12 @@ interface PastHuddleRow extends Omit<PastHuddle, "userIds"> {
 const blockedBy = (blocked: string) => `EXISTS (SELECT 1 FROM blocks WHERE blocks.user_id = memberships.user_id AND blocks.blocked_id = ${blocked})`;
 
 /**
+ * Whether the person `users` reads hasn't paused their notifications past `now`, a parameter, as an ISO
+ * time, which compares as the times it's given as do (migrations/0086_notifications_paused_until.sql).
+ */
+export const notPaused = (now: string) => `(users.notifications_paused_until IS NULL OR users.notifications_paused_until <= ${now})`;
+
+/**
  * Who of the people a JSON list ?2 names an invitation into room ?1's huddle by ?3 reaches: those in the
  * room, active, who hear its @mentions of them or more, since an invitation names them as a mention does,
  * and haven't blocked ?3.
@@ -2077,8 +2087,9 @@ export const HUDDLE_INVITEES = `SELECT memberships.user_id FROM memberships JOIN
 /**
  * Where an invitation into room ?1's huddle by ?2 is pushed: to the subscriptions of those of the
  * people a JSON list ?3 names whom it reaches, as `HUDDLE_INVITEES` has it, in the order they were
- * saved. Guests are left out unless ?4 says they can stay signed in. Each comes with the room, the name
- * of whoever invites and the count its push sets the badge to, as a message's does.
+ * saved. Guests are left out unless ?4 says they can stay signed in, and anyone whose notifications are
+ * paused past ?5, now (`notPaused`). Each comes with the room, the name of whoever invites and the count
+ * its push sets the badge to, as a message's does.
  */
 export const INVITATION_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -2088,7 +2099,8 @@ export const INVITATION_PUSHES = `SELECT push_subscriptions.id, push_subscriptio
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
   WHERE rooms.id = ?1 AND memberships.user_id IN (SELECT value FROM json_each(?3))
-    AND memberships.involvement IN ('everything', 'mentions') AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?4 = 1) AND NOT ${blockedBy("?2")}
+    AND memberships.involvement IN ('everything', 'mentions') AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?4 = 1) AND ${notPaused("?5")}
+    AND NOT ${blockedBy("?2")}
   ORDER BY push_subscriptions.id`;
 
 /** A room's huddle, as its row keeps it. */
@@ -2398,9 +2410,9 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  * `whom` picks: to the subscriptions of each but its author, those who have blocked its author and the
  * people a JSON list ?3 names, who are viewing it, or its thread for a reply sent only there, those at all
  * messages first, then those at @mentions, each in the order they were saved. Guests are left out unless
- * ?5 says they can stay signed in. Each comes with the room, its author's name and the count its push sets
- * the badge to: how many of its owner's conversations are marked unread. Nothing once the Workspace has
- * applied the message's event.
+ * ?5 says they can stay signed in, and anyone whose notifications are paused past ?6, now (`notPaused`).
+ * Each comes with the room, its author's name and the count its push sets the badge to: how many of its
+ * owner's conversations are marked unread. Nothing once the Workspace has applied the message's event.
  */
 const pushesOfMessage = (whom: string) => `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -2410,17 +2422,17 @@ const pushesOfMessage = (whom: string) => `SELECT push_subscriptions.id, push_su
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
   WHERE rooms.id = ?1 AND ?4 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?5 = 1)
-    AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
+    AND ${notPaused("?6")} AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
     AND ${whom}
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
 
 /**
  * Where a new message is pushed (`pushesOfMessage`): to those at all messages, when it's in the room's
- * timeline, as ?6 says, and those at @mentions or all messages whom it mentions, a JSON list ?7, or who
- * follow the thread it's a reply in, a JSON list ?8.
+ * timeline, as ?7 says, and those at @mentions or all messages whom it mentions, a JSON list ?8, or who
+ * follow the thread it's a reply in, a JSON list ?9.
  */
-export const MESSAGE_PUSHES = pushesOfMessage(`((memberships.involvement = 'everything' AND ?6 = 1) OR (memberships.involvement IN ('everything', 'mentions')
-      AND (memberships.user_id IN (SELECT value FROM json_each(?7)) OR memberships.user_id IN (SELECT value FROM json_each(?8)))))`);
+export const MESSAGE_PUSHES = pushesOfMessage(`((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
+      AND (memberships.user_id IN (SELECT value FROM json_each(?8)) OR memberships.user_id IN (SELECT value FROM json_each(?9)))))`);
 
 /**
  * Where a new message that notifies everyone in its room, as @channel does, and @everyone in an open
@@ -2431,12 +2443,19 @@ export const ROOM_MENTION_PUSHES = pushesOfMessage(`memberships.involvement IN (
 
 /**
  * The statement that finds where the new message of `event`, in room `roomId`, is pushed, with the people
- * a JSON list `seeing` names viewing it: `ROOM_MENTION_PUSHES` for one that notifies everyone in the room,
- * with @channel or @everyone, and `MESSAGE_PUSHES` for any other, which takes those @here notifies,
- * `activeIds`, as mentioned.
+ * a JSON list `seeing` names viewing it, as of `now`: `ROOM_MENTION_PUSHES` for one that notifies everyone
+ * in the room, with @channel or @everyone, and `MESSAGE_PUSHES` for any other, which takes those @here
+ * notifies, `activeIds`, as mentioned.
  */
-function messagePushesOf(roomId: RoomId, { seq, userId, threadOnly, message }: RoomEvent & { message: PushedMessage }, seeing: string, guests: boolean, activeIds: UserId[]): Statement {
-  const shared = [roomId, userId, seeing, seq, guests ? 1 : 0] as const;
+function messagePushesOf(
+  roomId: RoomId,
+  { seq, userId, threadOnly, message }: RoomEvent & { message: PushedMessage },
+  seeing: string,
+  guests: boolean,
+  activeIds: UserId[],
+  now: string,
+): Statement {
+  const shared = [roomId, userId, seeing, seq, guests ? 1 : 0, now] as const;
   if (notifiesEveryone(message)) return statement(ROOM_MENTION_PUSHES, ...shared);
   return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentionedBy(message, activeIds)), JSON.stringify(message.followerIds ?? []));
 }
@@ -2480,11 +2499,11 @@ const NOTIFIES_ROOM = `SELECT rooms.kind = 'open' AND users.guest = 0 AS everyon
     AND NOT (users.role = ${BOT} AND users.bot_token IS NULL)`;
 
 /**
- * Whether push subscription ?1 is still saved, for someone active. Its id is never another's, as
- * AUTOINCREMENT numbers them.
+ * Whether push subscription ?1 is still saved, for someone active who hasn't paused their notifications
+ * past ?2, now. Its id is never another's, as AUTOINCREMENT numbers them.
  */
 const PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
-  WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE}`;
+  WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE} AND ${notPaused("?2")}`;
 
 /** A subscription a push goes to, and the count it sets the badge to. */
 export interface DeliveryRow {
@@ -2767,6 +2786,9 @@ const turned = (on: boolean | undefined) => (on === undefined ? null : on ? 1 : 
 const SET_HUDDLE_SOUNDS = `UPDATE users SET huddle_music = coalesce(?2, huddle_music), huddle_chimes = coalesce(?3, huddle_chimes), huddle_ring = coalesce(?4, huddle_ring)
   WHERE id = ?1 AND deleted_at IS NULL RETURNING ${HUDDLE_SOUNDS}`;
 
+/** Pauses ?2's notifications until ?1, an ISO time, or resumes them at null. */
+const PAUSE_NOTIFICATIONS = `UPDATE users SET notifications_paused_until = ?1 WHERE id = ?2`;
+
 /**
  * The versions of ?'s stars and blocks, whether they're given the welcome card: whether they're an
  * active administrator who hasn't dismissed it, and which of a huddle's sounds they hear.
@@ -3047,7 +3069,7 @@ export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE
  * (migrations/0063_agent_access.sql).
  */
 const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, users.role, users.status, users.updated_at,
-  (users.role = ${BOT} AND users.bot_token IS NULL) AS agent, users.agent_access`;
+  (users.role = ${BOT} AND users.bot_token IS NULL) AS agent, users.agent_access, users.notifications_paused_until`;
 
 /** Everyone ?1 is told of, for the people directory: removed and banned people too, whose messages stay (`listedTo`). */
 const DIRECTORY = `SELECT ${DIRECTORY_COLUMNS} FROM users WHERE ${listedTo("?1")} ORDER BY id`;
@@ -3331,7 +3353,7 @@ const DEACTIVATE = `UPDATE users SET status = ${DEACTIVATED}, email_address = re
  */
 const DELETE_ACCOUNT = `UPDATE users SET name = ?1, status = ${DEACTIVATED}, role = ${MEMBER}, email_address = NULL, email_verified_at = NULL, password_digest = NULL, username = NULL, bio = NULL,
   avatar_key = NULL, avatar_variant = NULL, assistant_thinking = NULL, assistant_answer_length = NULL, assistant_model = NULL,
-  huddle_music = 1, huddle_chimes = 1, huddle_ring = 1, invitation_dismissed_at = NULL, deleted_at = ?2, updated_at = ?2 WHERE id = ?3`;
+  huddle_music = 1, huddle_chimes = 1, huddle_ring = 1, notifications_paused_until = NULL, invitation_dismissed_at = NULL, deleted_at = ?2, updated_at = ?2 WHERE id = ?3`;
 
 /**
  * Takes what the reports of someone, ?2, kept of them (reports/store.ts) once they've deleted their
@@ -5113,10 +5135,12 @@ export class WorkspaceStore {
 
   /**
    * The pushes of an invitation into room `roomId`'s huddle by `by`, to those of `userIds` it reaches
-   * who have saved a subscription, and to guests only if `guests` says they can stay signed in.
+   * who have saved a subscription and haven't paused their notifications, and to guests only if `guests`
+   * says they can stay signed in.
    */
   async invitationPushes(roomId: RoomId, by: UserId, userIds: UserId[], guests: boolean): Promise<InvitationPush[]> {
-    return invitationPushes(roomId, await this.db.all<InvitationPushRow>(INVITATION_PUSHES, roomId, by, JSON.stringify(userIds), guests ? 1 : 0));
+    const now = new Date().toISOString();
+    return invitationPushes(roomId, await this.db.all<InvitationPushRow>(INVITATION_PUSHES, roomId, by, JSON.stringify(userIds), guests ? 1 : 0, now));
   }
 
   /** The huddle going on in a room, or null when none is. */
@@ -5161,6 +5185,15 @@ export class WorkspaceStore {
   async setHuddleSounds(userId: UserId, changes: HuddleSoundChanges): Promise<HuddleSounds | null> {
     const [row] = await this.db.all<HuddleSoundsRow>(SET_HUDDLE_SOUNDS, userId, turned(changes.music), turned(changes.chimes), turned(changes.ring));
     return row ? huddleSoundsOf(row) : null;
+  }
+
+  /**
+   * Pauses `userId`'s notifications until `until`, an ISO time, or resumes them with null, answering them
+   * as the people directory lists them then, or null for nobody.
+   */
+  async pauseNotifications(userId: UserId, until: string | null): Promise<DirectoryEntry | null> {
+    const [, [row]] = (await this.db.batch([statement(PAUSE_NOTIFICATIONS, until, userId), statement(PERSON, userId)])) as [unknown, DirectoryRow[]];
+    return row ? directoryEntry(row) : null;
   }
 
   /** Records that someone has dismissed the welcome card, at `now`, unless they had already. */
@@ -5313,14 +5346,14 @@ export class WorkspaceStore {
    * room was last active. A reply sent only to its thread does none of that, and isn't pushed to those its
    * event's `viewerIds` say are viewing the thread, in place of those viewing the room. Those the Workspace
    * has applied before change nothing. Answers whose marks changed, in a DM whose counts did, and in a room
-   * whose mentions did, and how each is marked now, and, when a message has
-   * come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`, it answers each
-   * new message's pushes too, found just after its marks, so that a push's badge counts them and none of
-   * the events after it, and to guests only if `guests` says they can stay signed in, a message that
-   * notifies the room going to everyone in it for @channel and @everyone, as a mention of each of them,
-   * and to those of `activeIds` in it for @here. It answers the bots' webhooks each new message is
-   * delivered to, but for a bot's reply to one, which reaches the room as any message does but goes to
-   * no webhook.
+   * whose mentions did, and how each is marked now, and, when a message has come in a DM, when the latest
+   * did and everyone in the DM, to tell. With `pushing`, it answers each new message's pushes too, found
+   * just after its marks, so that a push's badge counts them and none of the events after it, to guests
+   * only if `guests` says they can stay signed in, and to nobody whose notifications are paused, a
+   * message that notifies the room going to everyone in it for @channel and @everyone, as a mention of
+   * each of them, and to those of `activeIds` in it for @here. It answers the bots' webhooks each new
+   * message is delivered to, but for a bot's reply to one, which reaches the room as any message does
+   * but goes to no webhook.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false, activeIds: UserId[] = []): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
@@ -5328,6 +5361,7 @@ export class WorkspaceStore {
     const message = events.findLast(isRoomMessage);
     // When the latest message came, which a clock behind can make earlier than one logged before it.
     const messageAt = message && events.reduce((latest, event) => (isRoomMessage(event) && event.at > latest ? event.at : latest), message.at);
+    const now = new Date().toISOString();
     const statements: Statement[] = [];
     const applied = events.map((event) => {
       const { seq, kind, userId, at } = event;
@@ -5337,7 +5371,7 @@ export class WorkspaceStore {
       const counting = mentionCountsOf(roomId, event, seeing, activeIds);
       const mentioned = counting && statements.push(counting) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
-      const pushes = pushing && event.message ? statements.push(messagePushesOf(roomId, { ...event, message: event.message }, seeing, guests, activeIds)) - 1 : null;
+      const pushes = pushing && event.message ? statements.push(messagePushesOf(roomId, { ...event, message: event.message }, seeing, guests, activeIds, now)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
@@ -5364,9 +5398,9 @@ export class WorkspaceStore {
     return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
   }
 
-  /** Whether push subscription `id` is still saved, for someone active. */
+  /** Whether push subscription `id` is still saved, for someone active whose notifications aren't paused (`PUSHABLE`). */
   async pushable(id: number): Promise<boolean> {
-    return (await this.db.all(PUSHABLE, id)).length > 0;
+    return (await this.db.all(PUSHABLE, id, new Date().toISOString())).length > 0;
   }
 
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */

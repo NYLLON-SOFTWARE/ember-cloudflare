@@ -1000,6 +1000,29 @@ describe("Who's active", () => {
     expect(presences()).toEqual(["away"]);
   });
 
+  it("marks someone who has paused their notifications with a half-moon in place of their dot, green while they're active, until the pause ends", () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const until = new Date(Date.now() + 60_000).toISOString();
+    const listed = (person: User, pausedUntil?: string): DirectoryUser => ({ ...person, bio: null, role: "member", status: "active", avatarUrl: `/users/${person.id}/avatar`, ...(pausedUntil && { pausedUntil }) });
+    const listing = [direct("d1", [ada!, grace!], false, at(3)), direct("d2", [ada!, linus!], false, at(2)), direct("d3", [ada!, alan!], false, at(1))];
+    renderSidebar({ rooms: listing }, EMBER, [listed(grace!, until), listed(linus!, until), listed(alan!)], [grace!.id]);
+    const [withGrace, withLinus, withAlan] = directRows();
+    const moon = (row: HTMLElement) => row.querySelector("[data-paused] svg");
+    expect(presences()).toEqual([null, null, "away"]);
+    expect(moon(withGrace!)).toHaveClass("iconoir-half-moon", "text-positive");
+    expect(withGrace!.querySelector("[data-paused]")).toHaveClass("absolute", "rounded-full", "bg-surface", "ring-2", "ring-surface");
+    expect(withGrace).toHaveAccessibleDescription("Active, notifications paused");
+    expect(moon(withLinus!)).toHaveClass("text-muted-foreground");
+    expect(withLinus).toHaveAccessibleDescription("Away, notifications paused");
+    expect(moon(withAlan!)).toBeNull();
+
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(presences()).toEqual(["active", "away", "away"]);
+    expect(moon(withGrace!)).toBeNull();
+    expect(withGrace).toHaveAccessibleDescription("Active");
+    vi.useRealTimers();
+  });
+
   it("marks nobody in a group DM, or in a DM with an AI agent or a bot, which have no presence", () => {
     const recap = agent("u8", "Recap");
     const bot: DirectoryUser = { id: "u9", name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: "/users/u9/avatar" };

@@ -43,6 +43,7 @@ import {
   parseRoomLayout,
   parseNewDirect,
   parseNewRoom,
+  parseNotificationsPause,
   parseProfileChanges,
   parseResendApiKey,
   parseRoleChange,
@@ -75,6 +76,7 @@ import {
   type MemberfulStatus,
   type NewJoinCode,
   type NewRoomForm,
+  type NotificationsPaused,
   type NotifiedCounts,
   type PersonAnswer,
   type ProfileAnswer,
@@ -1111,6 +1113,21 @@ async function changeHuddleSounds(request: Request, env: Env): Promise<Response>
 }
 
 /**
+ * `PUT /api/users/me/notifications-pause`, `{ until }`: pauses the signed-in person's notifications until
+ * `until`, an ISO time no more than a week on, or resumes them with null, as the rail's Pause
+ * notifications does, answering them as the people directory lists them then: 422 for a time that has
+ * passed or isn't one.
+ */
+async function pauseNotifications(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const pause = parseNotificationsPause(await jsonBodyOf(request), Date.now());
+  if (typeof pause === "string") return problem(422, pause);
+  const user = await workspace(env).pauseNotifications(credentials, pause.until);
+  return user ? json({ user } satisfies NotificationsPaused) : problem(401, "Not signed in");
+}
+
+/**
  * `GET /api/huddles`: the huddles that are over in the rooms the signed-in person is in and hasn't
  * hidden, the latest to have started first, which the Huddles page lists.
  */
@@ -1596,6 +1613,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me" && request.method === "DELETE") return () => deleteAccount(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
   if (pathname === "/api/users/me/huddle-sounds" && request.method === "PATCH") return () => changeHuddleSounds(request, env);
+  if (pathname === "/api/users/me/notifications-pause" && request.method === "PUT") return () => pauseNotifications(request, env);
   if (pathname === "/api/huddles" && request.method === "GET") return () => pastHuddles(request, env);
   const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
   if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);

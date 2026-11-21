@@ -3454,6 +3454,74 @@ describe("Huddles", () => {
       expect(invitation()).toBeInTheDocument();
     });
 
+    describe("while this person's notifications are paused", () => {
+      /** Ada as the people directory lists her, paused until `pausedUntil` if it's given. */
+      const listedAda = (pausedUntil?: string): DirectoryUser => ({ id: ada.id, name: ada.name, bio: null, role: "member", status: "active", avatarUrl: `/users/${ada.id}/avatar`, ...(pausedUntil && { pausedUntil }) });
+      /** The workspace on general's page, with Ada's DM with Grace among her rooms, once it lists Ada's notifications paused until `until`. */
+      async function pausedUntil(until: string) {
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => Response.json({ users: [listedAda(until)] }) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        expect(await screen.findByRole("button", { name: /^Notifications paused until/ })).toBeInTheDocument();
+      }
+
+      it("shows without its ring, and rings once they resume them, in any of their tabs", async () => {
+        await pausedUntil(new Date(Date.now() + 60 * 60_000).toISOString());
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        await workspaceSends({ type: "user.updated", user: listedAda() });
+        expect(ringForHuddle).toHaveBeenCalledTimes(1);
+        expect(invitation()).toBeInTheDocument();
+      });
+
+      it("stays quiet until the people directory has come, which says whether they've paused them, and rings then if they haven't", async () => {
+        let answer!: (response: Response) => void;
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => new Promise<Response>((resolve) => (answer = resolve)) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        await roomHeading();
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        await act(async () => answer(Response.json({ users: [listedAda()] })));
+        await waitFor(() => expect(ringForHuddle).toHaveBeenCalledTimes(1));
+      });
+
+      it("rings when the people directory couldn't load, which leaves whether they've paused them unknown", async () => {
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => Response.json({ error: "Workspace unavailable" }, { status: 503 }) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        await roomHeading();
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        await waitFor(() => expect(ringForHuddle).toHaveBeenCalledTimes(1));
+      });
+
+      it("stays quiet once the people directory comes, saying they've paused them", async () => {
+        let answer!: (response: Response) => void;
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => new Promise<Response>((resolve) => (answer = resolve)) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        await roomHeading();
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        await act(async () => answer(Response.json({ users: [listedAda(new Date(Date.now() + 60 * 60_000).toISOString())] })));
+        expect(await screen.findByRole("button", { name: /^Notifications paused until/ })).toBeInTheDocument();
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        expect(invitation()).toBeInTheDocument();
+      });
+
+      it("rings once the pause ends, while the invitation still shows", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+        const ends = Date.now() + INVITATION_RINGS_MS / 2;
+        await pausedUntil(new Date(ends).toISOString());
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        act(() => void vi.advanceTimersByTime(ends - Date.now() - 1));
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        act(() => void vi.advanceTimersByTime(1));
+        expect(ringForHuddle).toHaveBeenCalledTimes(1);
+        expect(invitation()).toBeInTheDocument();
+      });
+    });
+
     it("rings only once this person's rooms have come, which say whether they hear the ring", async () => {
       let answer!: (response: Response) => void;
       serveRooms(undefined, { "GET /api/sidebar": () => new Promise<Response>((resolve) => (answer = resolve)) });

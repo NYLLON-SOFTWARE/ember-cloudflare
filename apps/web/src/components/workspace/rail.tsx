@@ -1,12 +1,15 @@
 import { useContext, type MouseEvent } from "react";
-import type { Me, NavigationSlot } from "@ember/protocol";
+import type { DirectoryUser, Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
+import { usePausedUntil } from "@/hooks/use-directory";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
 import { NavigationIcon } from "./navigation-icon";
 import { opensNewDirect } from "./new-direct-dialog";
+import { PauseMenu } from "./pause-menu";
+import { PausedMark } from "./paused-mark";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { openReportsNamed } from "./settings-navigation";
 import { UserAvatar } from "./user-avatar";
@@ -98,6 +101,9 @@ interface Props {
    * alone, without the conversations or the search field atop them.
    */
   searchInDrawer?: boolean;
+  /** Called as Pause notifications pauses them, or resumes them, with what lists you in the people directory as the server answers. */
+  askForPause: () => (me: DirectoryUser) => void;
+  onFailed: (error: unknown) => void;
 }
 
 /**
@@ -106,10 +112,11 @@ interface Props {
  * out, which General, where it goes, tells of, or while reports are open, which Membership counts.
  * Search and the arrows that go back and forward are the top bar's, over it (top-bar.tsx), but for
  * Search where nothing else has it: on a phone in landscape, which has no top bar, and in the drawer
- * when it holds the rail alone.
+ * when it holds the rail alone. Your avatar has a half-moon while you've paused your notifications.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect, searchInDrawer = false }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect, searchInDrawer = false, askForPause, onFailed }: Props) {
   const { logo } = useAccount();
+  const paused = usePausedUntil(me.id) !== null;
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
   const notices = [newRelease !== null && `Ember ${newRelease} is available`, openReports > 0 && openReportsNamed(openReports)].filter((notice) => notice !== false);
@@ -156,6 +163,8 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
         current={marked === "workspace"}
         notice={notices.length > 0 ? notices.join(". ") : undefined}
       />
+      {/* The two round buttons and your avatar sit at the rail's foot, pushed there by Pause notifications' auto margin. */}
+      <PauseMenu meId={me.id} askForPause={askForPause} onFailed={onFailed} />
       <AppearanceMenu />
       {/* Your avatar, at 36px, links to your profile, where you log out. */}
       <PageLink
@@ -163,9 +172,10 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
         aria-label="Your profile"
         title={me.name}
         aria-current={marked === "profile" ? "page" : undefined}
-        className="flex shrink-0 rounded-full touch:p-1"
+        className="relative flex shrink-0 rounded-full touch:p-1"
       >
         <UserAvatar user={me} />
+        {paused && <PausedMark className="-right-1 -bottom-1 size-4 ring-2 ring-surface touch:right-0 touch:bottom-0" />}
       </PageLink>
     </nav>
   );
