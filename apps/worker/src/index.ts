@@ -40,6 +40,7 @@ import {
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
+  parseMembersChange,
   parseRoomLayout,
   parseNewDirect,
   parseNewRoom,
@@ -1373,6 +1374,24 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
 }
 
 /**
+ * Puts people in a private room, or takes them out, as /invite and /remove do, leaving everyone else as
+ * they are. As with changing a room, someone who can't change it hears so before anything they sent is
+ * checked.
+ */
+async function changeMembers(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseMembersChange(await jsonBodyOf(request));
+  // A change that doesn't parse changes nothing, but the room is still checked first.
+  const room = await workspace(env).changeMembers(credentials, roomId, typeof change === "string" ? { addedIds: [], removedIds: [] } : change);
+  if (!room) return problem(401, "Not signed in");
+  if (room === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
+  if (room === "open") return problem(409, "Everyone is in an open room, so nobody can be put in it or taken out");
+  return typeof change === "string" ? problem(422, change) : json({ room });
+}
+
+/**
  * Deletes a room or DM, as Delete on its settings page does, answering 204. As with changing a room,
  * someone who can't change it hears so, and anyone in a DM can delete it.
  */
@@ -1693,6 +1712,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
     return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
   const membership = pathname.match(/^\/api\/rooms\/([^/]+)\/membership$/);
   if (membership && request.method === "DELETE") return () => (isRoomId(membership[1]!) ? leaveRoom(request, env, membership[1]!) : problem(404, ROOM_NOT_FOUND));
+  const members = pathname.match(/^\/api\/rooms\/([^/]+)\/members$/);
+  if (members && request.method === "PATCH") return () => (isRoomId(members[1]!) ? changeMembers(request, env, members[1]!) : problem(404, ROOM_NOT_FOUND));
   const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
   if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
   // A file's key never needs percent-encoding either, so an encoded segment names no upload.

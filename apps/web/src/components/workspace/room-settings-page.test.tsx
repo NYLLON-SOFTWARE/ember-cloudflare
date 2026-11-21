@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
-import { ApiError } from "@/lib/api";
+import { ApiError, CONFIRM_LEAVE } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { HuddlesContext, type Huddles } from "./huddle-button";
 import { CHANNEL_MENTIONS_ALLOWED, CHANNEL_MENTIONS_NOT_ALLOWED, HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED } from "./room-form";
-import { CONFIRM_DELETE, CONFIRM_LEAVE, RoomSettingsPage } from "./room-settings-page";
+import { CONFIRM_DELETE, RoomSettingsPage } from "./room-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace = { id: "u2", name: "Grace Hopper" };

@@ -6,7 +6,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { LogOut, Trash } from "@/components/icons/iconoir";
-import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut, leaveRoom } from "@/lib/api";
+import { ApiError, changeRoom, CONFIRM_LEAVE, deleteRoom, fetchRoomSettings, isSignedOut, leaveRoom } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { HuddlesContext } from "./huddle-button";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
@@ -19,9 +19,6 @@ export const isMissing = (error: unknown) => error instanceof ApiError && error.
 
 /** What Delete asks first, in the browser's own dialog. */
 export const CONFIRM_DELETE = "Are you sure you want to delete this room and all messages in it? This can’t be undone.";
-
-/** What Leave asks first, in the browser's own dialog. */
-export const CONFIRM_LEAVE = "Are you sure you want to leave this room? Only someone in it who can change it can add you back.";
 
 const membersOf = (settings: RoomSettings) => new Set(settings.people.flatMap((person) => (person.member ? [person.id] : [])));
 

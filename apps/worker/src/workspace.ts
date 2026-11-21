@@ -53,6 +53,7 @@ import {
   type Invited,
   type Involvement,
   type Me,
+  type MembersChange,
   type NavigationIconChanges,
   type NavigationIcons,
   type NewBot,
@@ -5701,22 +5702,61 @@ export class Workspace extends DurableObject<Env> {
         // The database may have queued telling the search index who can read it, though its answer was lost.
         if (changes.kind) await this.wakeAt(now);
       }
-      this.tell(saved.removedIds, { type: "room.gone", roomId });
-      const section = saved.sectionChanged ? moved!.section : found.section;
-      this.tell(saved.roomChanged || saved.sectionChanged ? saved.memberIds : saved.addedIds, {
-        type: "room.saved",
-        room: changed,
-        ...((section || saved.sectionChanged) && { section }),
-      });
+      await this.tellOfChange(roomId, changed, saved, saved.sectionChanged ? moved!.section : found.section);
       await this.sectionMade(moved);
-      // Whoever it puts in has heard nothing of a huddle going on there.
-      const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
-      if (huddle) this.tell(saved.addedIds, { type: "room.huddle", roomId, huddle });
-      // The shared order their sidebars have leaves out the rooms they weren't in, so they load it
-      // again.
-      if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
       return changed;
     });
+  }
+
+  /**
+   * Puts the people `change` names in private room `roomId`, and takes those it names out, as the person
+   * `credentials` signs in, leaving everyone else as they are, and answers the room: "not found" as for
+   * its settings, "forbidden" unless they can change it, "open" for a room open to everyone, or null
+   * without a valid session. As with changing the room, whoever it takes out is told to reconnect, and
+   * finds it gone, and the people it puts in see it in their sidebars.
+   */
+  async changeMembers(credentials: Credentials, roomId: RoomId, change: MembersChange): Promise<SharedRoom | "not found" | "forbidden" | "open" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.closingSockets(async () => {
+      const found = await this.store.roomToChange(roomId, user.id);
+      if (!found) return "not found";
+      if (!found.canAdminister) return "forbidden";
+      if (found.room.kind !== "closed") return "open";
+      if (change.addedIds.length === 0 && change.removedIds.length === 0) return found.room;
+      const now = Date.now();
+      // As when signing out, until the database says it queued nothing.
+      let queued = change.removedIds.length > 0;
+      let saved: SavedRoomChange;
+      try {
+        saved = await this.store.changeMembers(roomId, change, CloseCode.Reconnect, now, new Date(now).toISOString());
+        queued = saved.removedIds.length > 0;
+      } finally {
+        if (queued) await this.revocationsQueued(now);
+      }
+      await this.tellOfChange(roomId, found.room, saved, found.section);
+      return found.room;
+    });
+  }
+
+  /**
+   * Tells whoever a change to room `roomId` took out that it's gone, and everyone in it, or only those it
+   * put in where only who's in it changed, that it's `room` now, in `section`: with any huddle going on
+   * there, which the people it put in have heard nothing of, and the shared order, which their sidebars
+   * have left it out of.
+   */
+  private async tellOfChange(roomId: RoomId, room: SharedRoom, saved: SavedRoomChange, section: Section | null): Promise<void> {
+    this.tell(saved.removedIds, { type: "room.gone", roomId });
+    this.tell(saved.roomChanged || saved.sectionChanged ? saved.memberIds : saved.addedIds, {
+      type: "room.saved",
+      room,
+      ...((section || saved.sectionChanged) && { section }),
+    });
+    // Whoever it puts in has heard nothing of a huddle going on there.
+    const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
+    if (huddle) this.tell(saved.addedIds, { type: "room.huddle", roomId, huddle });
+    // The shared order their sidebars have leaves out the rooms they weren't in, so they load it again.
+    if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
   }
 
   /**

@@ -864,7 +864,7 @@ test.describe("A huddle", () => {
     // Its composer is there to write in, and has left the focus on the huddle, which took it as it opened.
     await expect(replyBox(adasHuddle)).toBeVisible();
     await expect(adasHuddle).toBeFocused();
-    // The panel is narrower than a room's thread, so Also send to the room has a line of its own over the composer's buttons, and isn't cut short.
+    // As in a room's thread, Also send to the room has a line of its own over the composer's buttons, and isn't cut short.
     const alsoSend = threadOf(adasHuddle).getByRole("checkbox", { name: `Also send to #${room.name}` });
     expect(await alsoSend.evaluate((box) => box.nextElementSibling!.scrollWidth <= box.nextElementSibling!.clientWidth)).toBe(true);
 

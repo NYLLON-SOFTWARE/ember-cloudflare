@@ -71,6 +71,7 @@ import {
   parseInvitationRequest,
   parseEmailLinkSignUp,
   parseInvolvementChange,
+  parseMembersChange,
   parseNewDirect,
   parseNewRoom,
   parseOpenSignUp,
@@ -505,6 +506,24 @@ describe("Add and remove private room members", () => {
     for (const memberIds of [undefined, "u1", [1], [""], tooMany]) {
       expect(parseRoomChanges({ kind: "closed", memberIds }), JSON.stringify(memberIds)?.slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
     }
+  });
+
+  it("takes whom to put in a private room and take out of it, as /invite and /remove do, either of them left out for nobody", () => {
+    expect(parseMembersChange({ addedIds: ["u1", "u2"], removedIds: ["u3"] })).toEqual({ addedIds: ["u1", "u2"], removedIds: ["u3"] });
+    expect(parseMembersChange({ addedIds: ["u1"] })).toEqual({ addedIds: ["u1"], removedIds: [] });
+    expect(parseMembersChange({ removedIds: ["u3"] })).toEqual({ addedIds: [], removedIds: ["u3"] });
+    expect(parseMembersChange({})).toEqual({ addedIds: [], removedIds: [] });
+  });
+
+  it("refuses people to put in or take out that aren't listed as user ids, or that are both", () => {
+    const tooMany = Array.from({ length: MAX_LISTED_USERS + 1 }, (_, i) => `u${i}`);
+    for (const ids of [null, "u1", [1], [""], tooMany]) {
+      for (const change of [{ addedIds: ids }, { removedIds: ids }]) {
+        expect(parseMembersChange(change), JSON.stringify(change).slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
+      }
+    }
+    expect(parseMembersChange({ addedIds: ["u1", "u2"], removedIds: ["u2"] })).toBe("Nobody can be put in a room and taken out of it at once");
+    for (const data of [null, "u1", ["u1"]]) expect(parseMembersChange(data)).toBe("Expected a JSON object");
   });
 });
 

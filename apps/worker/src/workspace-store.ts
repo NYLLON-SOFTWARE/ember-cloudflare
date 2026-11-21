@@ -27,6 +27,7 @@ import {
   type EmailLinkKind,
   type Favorites,
   type Involvement,
+  type MembersChange,
   type NavigationIconChanges,
   type NavigationIcons,
   type PersonRole,
@@ -2215,6 +2216,15 @@ export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_i
   RETURNING id`;
 
 /**
+ * Queues closing the sockets of the people a JSON list names in a room, but anyone suspended whose
+ * membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`), whom taking them out of it takes out, answering a row
+ * for each.
+ */
+export const QUEUE_REVOCATIONS_OF_MEMBERS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
+  RETURNING id`;
+
+/**
  * Queues turning away, in a room that's open to everyone as it's made private, what the AI apps that
  * reach only open rooms were let send there (`OPEN_ROOMS_ONLY`), answering a row if it was open.
  */
@@ -3562,6 +3572,10 @@ const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_
 
 /** Takes everyone but the people a JSON list names and anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
 export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
+  RETURNING user_id`;
+
+/** Takes the people a JSON list names out of a room, but anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`), and answers whom. */
+export const REVOKE_ROOM_FROM_USERS = `DELETE FROM memberships WHERE room_id = ? AND user_id IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
   RETURNING user_id`;
 
 /** Who's in a room, which the memberships' key finds. */
@@ -6325,6 +6339,24 @@ export class WorkspaceStore {
       madePrivate: madePrivate!.length > 0,
       ranked: isRanked(rank!),
     };
+  }
+
+  /**
+   * Puts the people `addedIds` names in private room `roomId`, and takes those `removedIds` names out, but
+   * anyone suspended whose membership it keeps, in one transaction, leaving everyone else as they are, and
+   * queues closing the sockets there of whoever it takes out with `code`, due at `dueAt`. Answers whom it
+   * changed, who's in the room then, and whether the shared order ranks it.
+   */
+  async changeMembers(roomId: RoomId, { addedIds, removedIds }: MembersChange, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
+    const removing = JSON.stringify(removedIds);
+    const [, removed, added, after, rank] = (await this.db.batch([
+      statement(QUEUE_REVOCATIONS_OF_MEMBERS, code, dueAt, roomId, removing),
+      statement(REVOKE_ROOM_FROM_USERS, roomId, removing),
+      statement(GRANT_ROOM_TO_USERS, roomId, now, now, JSON.stringify(addedIds)),
+      statement(ROOM_MEMBERS, roomId),
+      statement(ROOM_RANKED, roomId),
+    ])) as UserIdRow[][];
+    return { roomChanged: false, sectionChanged: false, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: userIdsOf(removed!), madePrivate: false, ranked: isRanked(rank!) };
   }
 
   /** Whether anyone but `userId` who could open room `roomId` is in it. */

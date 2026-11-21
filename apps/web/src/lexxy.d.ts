@@ -35,6 +35,8 @@ declare module "@37signals/lexxy" {
     getLastChild(): LexicalNode | null;
     getChildAtIndex(index: number): LexicalNode | null;
     append(...nodes: LexicalNode[]): this;
+    /** Puts the cursor at its start, answering the selection. */
+    selectStart(): RangeSelection;
     /** Puts the cursor at its end, answering the selection. */
     selectEnd(): RangeSelection;
     select(anchorOffset?: number, focusOffset?: number): unknown;

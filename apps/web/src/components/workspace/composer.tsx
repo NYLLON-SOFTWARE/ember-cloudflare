@@ -1,13 +1,14 @@
 import { Suspense, useContext, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { AtSign, Page, Send, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
+import { AtSign, Page, Send, SlashSquare, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { RoomsContext } from "@/hooks/use-rooms";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
 import { breaksLine, hasTouchKeyboard, pressedAlone, sendsMessage, uploadsFiles, writesSnippet } from "@/lib/keyboard";
 import type { Typist } from "@/lib/room-state";
+import { bodyAfter, commandIn, isBlankBody, nameWritten, withShrug, type CommandRunner, type SlashCommand } from "@/lib/slash-commands";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { AttachMenu } from "./attach-menu";
@@ -105,6 +106,21 @@ function showDraft(key: string, lookAgain: () => void): () => void {
     if (composers.size === 0) showing.delete(key);
     for (const other of composers) other();
   };
+}
+
+/**
+ * Keeps `body` as the draft under `key` where there's none, as a command that didn't run is kept once its
+ * composer has gone, and has the composers showing it look again.
+ */
+function restoreDraft(key: string, body: string): void {
+  if (readDraft(key) !== undefined || !keepDraft(key, body)) return;
+  for (const lookAgain of showing.get(key) ?? []) lookAgain();
+}
+
+/** The command `body` starts with, once its name is written, as / no longer lists the commands, whose usage shows over the card. */
+function commandNamedIn(body: string | null): SlashCommand | null {
+  const written = body === null ? null : commandIn(body);
+  return written?.command && nameWritten(written) ? written.command : null;
 }
 
 /**
@@ -207,13 +223,12 @@ const noPreviews = (): DraftPreviews => ({ asking: null, asked: new Set(), added
  */
 function useLinkPreviews(opening: number) {
   const draft = useRef(noPreviews());
-  useEffect(
-    () => () => {
-      draft.current.asking?.request.abort();
-      draft.current = noPreviews();
-    },
-    [opening],
-  );
+  /** Forgets the draft's previews: as its editor goes or opens again, and as what's written goes otherwise than as a message, as a command's does. */
+  const dropped = () => {
+    draft.current.asking?.request.abort();
+    draft.current = noPreviews();
+  };
+  useEffect(() => dropped, [opening]);
 
   const pasted = async ({ url, insertBelowLink }: PastedLink) => {
     const previews = draft.current;
@@ -242,7 +257,7 @@ function useLinkPreviews(opening: number) {
     void pastedPreview.then((found) => found ?? typedLinkPreview(links, asked)).then((found) => found && addPreview(found));
   };
 
-  return { pasted, sent };
+  return { pasted, sent, dropped };
 }
 
 /** The preview of the first of a message's `links` to a web page whose preview wasn't `asked` for as it was pasted. */
@@ -331,6 +346,16 @@ function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
   );
 }
 
+/** The command being written, over the composer's card, as Slack shows it: its name, what it takes, and what it does. */
+function CommandUsage({ command: { name, usage, description } }: { command: SlashCommand }) {
+  return (
+    <p className="w-full px-3 text-[13px] leading-normal text-muted-foreground wrap-anywhere">
+      <strong className="font-semibold text-message-ink">/{name}</strong>
+      {usage && ` ${usage}`} <span className="ms-[1ch]">{description}</span>
+    </p>
+  );
+}
+
 /** Whether `target` is the page itself, as when nothing has focus, rather than anything on it. */
 function isPage(target: EventTarget | null): boolean {
   return target === document.body || target === document.getElementById("main-content");
@@ -374,6 +399,15 @@ interface Props {
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
+  /** The commands / lists, Slack's that Ember can do in the room. */
+  commands?: readonly SlashCommand[];
+  /**
+   * Runs a command written, but /shrug and /snippet, which the composer runs itself, settling with
+   * whether it ran, which empties the composer: one that didn't stays to be put right. A message it sends
+   * to a room asks first, by the composer, where it would notify six or more there. Without it, a message
+   * that starts with a / is sent as it is.
+   */
+  onCommand?: CommandRunner;
   /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
   autoFocus?: boolean;
   /** Whether the people @ lists show above the text with a mouse too, as on touch screens: for a composer with something under it that would cut the list off. */
@@ -398,14 +432,34 @@ export interface ComposerHandle {
 /**
  * The composer: a card with Slack's formatting row on top, then the editor, and below it Slack's buttons:
  * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
- * Mention someone, and a round Send button, grey until there's something to send. @ offers the room's
- * people to mention, and # the rooms you're in. Files picked, pasted or dropped, and snippets, wait
- * above the card to go with the next message. What's written is kept as a draft until it's sent. A
- * thread's has Also send to the room before Send. A message the room won't take for what it says, as one
- * with a word Blocked words keeps out, comes back to be changed, saying why above the card. One whose
- * @channel, @here or @everyone would notify a room of six or more asks first, as Slack's does.
+ * Mention someone, Run shortcut, which types / for the commands, and a round Send button, grey until
+ * there's something to send. @ offers the room's people to mention, # the rooms you're in, and a / that
+ * starts the message Slack's commands Ember can do, a message that starts with one running it. Files
+ * picked, pasted or dropped, and snippets, wait above the card to go with the next message. What's
+ * written is kept as a draft until it's sent. A thread's has Also send to the room before Send. A message
+ * the room won't take for what it says, as one with a word Blocked words keeps out, comes back to be
+ * changed, saying why above the card. One whose @channel, @here or @everyone would notify a room of six
+ * or more asks first, as Slack's does.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, mentionsAbove = false, ref }: Props) {
+export function Composer({
+  roomId,
+  roomName,
+  direct = false,
+  userId,
+  typing,
+  disabled,
+  deferEditor = false,
+  threadId,
+  onSend,
+  onSendFiles,
+  onTyping,
+  onEditLastMessage,
+  commands,
+  onCommand,
+  autoFocus = true,
+  mentionsAbove = false,
+  ref,
+}: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const formatting = useFormatting(editor);
@@ -437,6 +491,12 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   const wasBlank = useRef(!draft);
   // Whether Quote wrote what the editor opens with, before it showed, so it takes focus as Quote has it do.
   const replied = useRef(false);
+  // The command being written, whose usage shows over the card, as it does for a draft that opens with
+  // one, and what's said of one that isn't a command.
+  const [usage, setUsage] = useState(() => (onCommand ? commandNamedIn(draft ?? null) : null));
+  const [notACommand, setNotACommand] = useState<string | null>(null);
+  // Whether a command is running, which another waits for.
+  const running = useRef(false);
   // Why the room wouldn't take what's written here, which went back to be changed, until something's sent.
   const [refusal, setRefusal] = useState<{ key: string; why: string } | null>(null);
   const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct ? "" : "#"}${roomName}`;
@@ -466,6 +526,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     wasBlank.current = left === null;
     setBlank(left === null);
     setDraft(left ?? undefined);
+    setUsage(onCommand ? commandNamedIn(left) : null);
     setEditorReady(false);
     setReopened((times) => times + 1);
   });
@@ -508,13 +569,21 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     return () => document.removeEventListener("keydown", keyDown);
   }, []);
 
-  const changed = () => wrote(editor.current!.isBlank() ? null : editor.current!.value());
+  const changed = () => {
+    const body = editor.current!.isBlank() ? null : editor.current!.value();
+    wrote(body);
+    setNotACommand(null);
+    setUsage(onCommand ? commandNamedIn(body) : null);
+  };
 
-  // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
-  // written unless it's blank, and focuses the editor, on touch screens too. Before the editor shows, as
-  // its code loads, only the files go. Also send to the room is unticked once anything's gone, as Slack
-  // unticks it.
-  const send = () => {
+  // What's written, unless it's blank.
+  const whatsWritten = () => (editor.current && !editor.current.isBlank() ? editor.current.value() : null);
+
+  // This sends nothing while the room is disconnected, and otherwise sends the files picked, then `body`,
+  // what's written unless it's blank, and focuses the editor, on touch screens too. Before the editor
+  // shows, as its code loads, only the files go. Also send to the room is unticked once anything's gone,
+  // as Slack unticks it.
+  const send = (body = whatsWritten()) => {
     if (disabled) return;
     setRefusal(null);
     if (picked.files.length > 0) {
@@ -524,8 +593,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     }
     const written = editor.current;
     if (!written) return;
-    if (!written.isBlank()) {
-      const body = written.value();
+    if (body !== null) {
       // One the room won't take, as when it's too long, stays to be cut down.
       const addPreview = onSend(body, alsoSend);
       if (!addPreview) return;
@@ -546,12 +614,81 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     sendNow.current = send;
   });
 
-  // What's written that would notify a room of six or more waits, with the files picked, until its
-  // writer says to send it.
+  // What's written is done with, as a command that's run is: the room hears you've stopped typing, and a
+  // link's preview, asked for or added, goes with it, leaving the next message's links their own.
+  const doneWith = (written: RichTextEditorHandle) => {
+    written.clear();
+    wrote(null);
+    setUsage(null);
+    setRefusal(null);
+    linkPreviews.dropped();
+  };
+
+  // What's written, as it's to go: with ¯\_(ツ)_/¯ at its end while it's /shrug, and as it is while it's no
+  // command; or undefined, to send nothing, once it's become another command, which runs only as it's
+  // submitted, since the composer can still be written in while the room's counts come.
+  const toSend = () => {
+    const body = whatsWritten();
+    const typedIn = body !== null && onCommand ? commandIn(body) : null;
+    if (!typedIn) return body;
+    return typedIn.command?.name === "shrug" ? withShrug(bodyAfter(typedIn.markup, 1 + typedIn.typed.name.length)) : undefined;
+  };
+
+  // Sends what's written, and the files picked, asking first if it would notify a room of six or more,
+  // of what it says then: what goes is what's written once the counts come, or Send is pressed.
+  const sendWritten = () =>
+    notifyConfirm.confirm(
+      () => toSend() ?? "",
+      () => {
+        const body = toSend();
+        if (body !== undefined) sendNow.current(body);
+      },
+    );
+
+  // A command that didn't run is written again, to put right, unless something else has been written
+  // meanwhile: in the editor, or, where the composer has gone, as when its room was left meanwhile, as its
+  // draft, which it opens with.
+  const writeAgain = (markup: string) => {
+    const written = editor.current;
+    if (!written) restoreDraft(key, markup);
+    else if (written.isBlank()) written.replace(markup);
+  };
+
+  // Runs the command written, as Slack does: /shrug sends the message with ¯\_(ツ)_/¯ at its end, and the
+  // files picked, asking first as any message does if it would notify a room of six or more; /snippet
+  // opens Text snippet, leaving what follows it written; and the room runs the rest, one at a time, which
+  // empties the composer as it starts, as it may leave the room. One that doesn't run is written again. A
+  // / that names no command says so, and sends nothing.
+  const run = (written: RichTextEditorHandle, typedIn: NonNullable<ReturnType<typeof commandIn>>) => {
+    const { command, typed, markup } = typedIn;
+    if (!command) return setNotACommand(`/${typed.name} isn't a command. To send a message that starts with /, put a space before it.`);
+    if (command.name === "shrug") return sendWritten();
+    if (command.name === "snippet") {
+      const left = bodyAfter(markup, 1 + typed.name.length);
+      if (isBlankBody(left)) doneWith(written);
+      else written.replace(left);
+      return setWritingSnippet(true);
+    }
+    if (running.current) return;
+    running.current = true;
+    doneWith(written);
+    void onCommand!({ ...typedIn, command }, notifyConfirm.askToNotify)
+      .catch(() => false)
+      .then((ran) => {
+        running.current = false;
+        if (!ran) writeAgain(markup);
+      });
+  };
+
+  // This sends nothing while the room is disconnected, and otherwise runs the command written, or sends
+  // the files picked, then what's written unless it's blank: what would notify a room of six or more
+  // waits, with the files picked, until its writer says to send it.
   const submit = () => {
     if (disabled) return;
     const written = editor.current;
-    if (written && !written.isBlank()) notifyConfirm.confirm(() => editor.current?.value() ?? "", () => sendNow.current());
+    const command = written && onCommand && !written.isBlank() ? commandIn(written.value()) : null;
+    if (command) return run(written!, command);
+    if (written && !written.isBlank()) sendWritten();
     else send();
   };
 
@@ -599,8 +736,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
         {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
-        {/* The files picked, and those too large to send. */}
-        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0) && "pb-2")}>
+        {/* The files picked, those too large to send, and the command being written, or a / that names none. */}
+        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0 || usage || notACommand) && "pb-2")}>
           {picked.files.map(({ key, file }) => (
             <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
           ))}
@@ -609,6 +746,12 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
               {picked.errors.join(" ")}
             </p>
           )}
+          {notACommand && (
+            <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
+              {notACommand}
+            </p>
+          )}
+          {usage && <CommandUsage command={usage} />}
         </div>
         {refusal?.key === key && (
           <p role="alert" className="px-3 pb-2 text-[13px] leading-normal text-negative wrap-anywhere">
@@ -636,10 +779,14 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                   placeholder={placeholder}
                   rows={2}
                   initialValue={draft}
-                  // A room's composer offers @here, @channel and, in an open room, @everyone too, which notify
+                  // /invite and /msg are for people the room may not have, so @ offers everyone after them. A
+                  // room's composer offers @here, @channel and, in an open room, @everyone too, which notify
                   // nobody from a thread or a DM.
-                  mentionsFrom={mentionPromptSrc(roomId, threadId === undefined && !direct)}
+                  mentionsFrom={
+                    usage?.name === "invite" || usage?.name === "msg" ? mentionPromptSrc(null) : mentionPromptSrc(roomId, threadId === undefined && !direct)
+                  }
                   rooms={rooms}
+                  commands={onCommand && commands}
                   // Under the text on touch screens are the keyboard and the home indicator.
                   mentionsAbove={mentionsAbove || hasTouchKeyboard()}
                   // Opened again, it leaves focus where it is, with whatever is in front of it now.
@@ -655,7 +802,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
               )}
             </Suspense>
           </div>
-          <div className="flex flex-none items-center gap-0.5 @max-[20rem]:flex-wrap touch:@max-[28rem]:flex-wrap">
+          <div className="flex flex-none items-center gap-0.5 @max-[24rem]:flex-wrap touch:@max-[31rem]:flex-wrap">
             {/* Upload from your computer's, and Cmd or Ctrl+O's, file picker. */}
             <input
               ref={fileField}
@@ -712,12 +859,27 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                 <AtSign className="size-[18px] opacity-70" />
               </button>
             </ShortcutTooltip>
+            {onCommand && (
+              <ShortcutTooltip label="Run shortcut">
+                <button
+                  type="button"
+                  disabled={disabled || !editorReady}
+                  aria-label="Run shortcut"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => editor.current?.startCommand()}
+                  className={TOOL}
+                >
+                  <SlashSquare className="size-[18px] opacity-70" />
+                </button>
+              </ShortcutTooltip>
+            )}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. Where
-                the buttons would leave the label too little room, it takes a line of its own above them: for
-                fingers' bigger buttons that's as on a phone held upright, and otherwise as in a huddle's thread,
-                which is narrower than a room's. There the box sits over the middle of +. */}
+                the buttons would leave the label too little room, it takes a line of its own above them, with its
+                box over the middle of +: under 31rem for fingers' bigger buttons, as on a phone held upright, and
+                under 24rem otherwise, as in a thread beside its room, and a huddle's. A button added to the row
+                takes room from the label, so these grow with it. */}
             {threadId !== undefined && (
-              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[20rem]:order-first @max-[20rem]:mr-0 @max-[20rem]:ml-2 @max-[20rem]:min-h-7 @max-[20rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[28rem]:order-first touch:@max-[28rem]:mr-0 touch:@max-[28rem]:basis-full">
+              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[24rem]:order-first @max-[24rem]:mr-0 @max-[24rem]:ml-2 @max-[24rem]:min-h-7 @max-[24rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[31rem]:order-first touch:@max-[31rem]:mr-0 touch:@max-[31rem]:basis-full">
                 <input
                   type="checkbox"
                   checked={alsoSend}
