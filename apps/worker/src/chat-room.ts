@@ -43,6 +43,7 @@ import {
 } from "@ember/richtext";
 import {
   AGENT_NOTES,
+  allOf,
   AnswerError,
   answerOf,
   BLOCKED_ANSWER,
@@ -52,10 +53,12 @@ import {
   questionFor,
   readable,
   ROOM_MESSAGES_READ,
+  ROOM_MESSAGES_READ_BEFORE_THREAD,
   THREAD_REPLIES_READ,
   waitFor,
   writtenBy,
   type Answer,
+  type Conversation,
 } from "./assistant/answers";
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal, type Question } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
@@ -1953,7 +1956,7 @@ export class ChatRoom extends DurableObject<Env> {
     if (!gateway) return { text: NOTES["unopened token"] };
     const [conversation, takesTools] = await Promise.all([this.conversationOf(this.storeFor(roomId), message), takesEmbersTools(this.env, gateway.model)]);
     const where = { community, roomName, inThread: message.parentId !== undefined };
-    const read = readable(conversation, where.inThread).map(({ id }) => id);
+    const read = allOf(readable(conversation, where.inThread)).map(({ id }) => id);
     const given = takesTools ? givenTools(access.appTools) : [];
     const askedBy = { roomId, askerId: author.id };
     const appTools = given.map((tool) =>
@@ -1961,7 +1964,7 @@ export class ChatRoom extends DurableObject<Env> {
     );
     const tools = takesTools ? [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, author.id, read)), ...appTools] : [];
     const asked = loggedIn({ ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools }, access);
-    const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
+    const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(allOf(conversation))]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs));
   }
 
@@ -1978,14 +1981,14 @@ export class ChatRoom extends DurableObject<Env> {
     if (gateway.model !== call.paused.model || gateway.format !== call.paused.format) return { text: MODEL_CHANGED };
     const conversation = await this.conversationOf(this.storeFor(roomId), message);
     const inThread = message.parentId !== undefined;
-    const read = readable(conversation, inThread).map(({ id }) => id);
+    const read = allOf(readable(conversation, inThread)).map(({ id }) => id);
     const asked = { roomId, askerId: call.asker.id };
     const appTools = call.tools.map((tool) =>
       this.sayingWhile(bot, message, usingApp(tool), appTool(this.env, bot.id, tool, asked, { allows: this.allowsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) })),
     );
     const tools = [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, call.asker.id, read)), ...appTools];
     const paused = { ...call.paused, question: loggedIn(call.paused.question, access) };
-    const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, paused, allowed, waitFor(paused.question)), this.peopleWhoWrote(conversation)]);
+    const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, paused, allowed, waitFor(paused.question)), this.peopleWhoWrote(allOf(conversation))]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools);
   }
 
@@ -2283,12 +2286,17 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * The conversation @ember reads to answer `message`, oldest first, ending with it: the thread it's in,
-   * its first message and latest replies, or else the room's latest messages.
+   * its first message and latest replies, after the room's messages before it, or else the room's latest
+   * messages.
    */
-  private async conversationOf(store: MessageStore, message: Message): Promise<Message[]> {
-    if (message.parentId === undefined) return [...(await store.page(ROOM_MESSAGES_READ - 1, message.id)).messages, message];
-    const [parent, replies] = await Promise.all([store.find(message.parentId), store.repliesBefore(message.parentId, message.id, THREAD_REPLIES_READ - 1)]);
-    return [...(parent ? [parent] : []), ...replies.messages, message];
+  private async conversationOf(store: MessageStore, message: Message): Promise<Conversation<Message>> {
+    if (message.parentId === undefined) return { messages: [...(await store.page(ROOM_MESSAGES_READ - 1, message.id)).messages, message] };
+    const [parent, replies, before] = await Promise.all([
+      store.find(message.parentId),
+      store.repliesBefore(message.parentId, message.id, THREAD_REPLIES_READ - 1),
+      store.page(ROOM_MESSAGES_READ_BEFORE_THREAD, message.parentId),
+    ]);
+    return { messages: [...(parent ? [parent] : []), ...replies.messages, message], before: before.messages };
   }
 
   /**
