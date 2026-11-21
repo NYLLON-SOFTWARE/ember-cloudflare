@@ -14,7 +14,7 @@ import {
   type User,
   type UserId,
 } from "@ember/protocol";
-import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
+import { MENTION_CONTENT_TYPE, mentionSgid, ROOM_MENTION_CONTENT_TYPE } from "@ember/richtext";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatRoom } from "../src/chat-room";
@@ -91,6 +91,9 @@ const storedSearches = async (userId: UserId) =>
 
 /** A mention of `person`, as the composer writes one. */
 const mention = (person: Pick<User, "id">) => `<action-text-attachment sgid="${mentionSgid(person.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+
+/** A mention of room `roomId`, as a message keeps one. */
+const roomMention = (roomId: RoomId) => `<action-text-attachment sgid="${roomId}" content-type="${ROOM_MENTION_CONTENT_TYPE}"></action-text-attachment>`;
 
 /** Posts a reply to `parent` in its thread as `client`. */
 async function reply(client: Socket, parent: Pick<Message, "id">, body: string): Promise<Message> {
@@ -244,6 +247,17 @@ describe("Search messages", () => {
     expect(await found(ada.session, "span")).toEqual([]);
     expect(await found(ada.session, "strong")).toEqual([]);
     expect(await found(ada.session, "hovercraft full eels")).toEqual([message.id]);
+  });
+
+  it("finds a message by the name of an open room it mentions, but never by a private room's", async () => {
+    const room = await freshRoom("rooms");
+    const ada = await connect(room, "Ada");
+    const pond = await createRoom("Otter Pond");
+    const plans = await createRoom("Moonshot plans", { closedTo: [ada.me.id], as: ada.session });
+    const message = await post(ada, `<p>Ask in ${roomMention(pond.id)} or ${roomMention(plans.id)}</p>`);
+    await caughtUp(room);
+    expect(await found(ada.session, "otter")).toEqual([message.id]);
+    expect(await found(ada.session, "moonshot")).toEqual([]);
   });
 
   it("finds a file message by its file's name, its plain text, and answers it with its file", async () => {

@@ -1,6 +1,6 @@
 import type { Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
+import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, ROOM_MENTION_CONTENT_TYPE } from "@ember/richtext/dom";
 import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline, visitedLabel } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
@@ -147,16 +147,24 @@ describe("Quote a message", () => {
     return attachment.outerHTML;
   }
 
-  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace");
+  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace", () => "#private room");
 
   it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
     const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`, "", "");
     const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
-    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
+    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!, () => "#private room")).toBe(
       "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
         '<a href="https://example.com">https://example.com</a></p></blockquote>' +
         '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
     );
+  });
+
+  it("quotes each room it mentions as the quoting reader sees it, as text a link preview doesn't stand in for", () => {
+    const room = (roomId: string) => `<action-text-attachment content-type="${ROOM_MENTION_CONTENT_TYPE}" sgid="${roomId}"></action-text-attachment>`;
+    const shown: Record<string, string> = { r1: "#R&D", r2: "#private room" };
+    const quoted = (body: string) => replyQuote(displayBody(body, "", ""), "Ada", LINK, () => "Grace", (roomId) => shown[roomId]!);
+    expect(quoted(`<p>See ${room("r1")} or ${room("r2")}</p>`)).toBe(`<blockquote><p>See #R&amp;D or #private room</p></blockquote>${CITE}`);
+    expect(quoted(`<p>${room("r1")}</p>${preview({ href: "https://basecamp.com/", filename: "Basecamp" })}`)).toBe(`<blockquote><p>#R&amp;D</p></blockquote>${CITE}`);
   });
 
   it("leaves out the message's link previews", () => {

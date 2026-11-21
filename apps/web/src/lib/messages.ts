@@ -1,4 +1,4 @@
-import type { Message, UserId } from "@ember/protocol";
+import type { Message, RoomId, UserId } from "@ember/protocol";
 import { displayMarkup, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
 
 /**
@@ -121,17 +121,21 @@ export const newestWrittenBy = <T extends Message>(messages: T[], userId: UserId
 
 /**
  * What Quote writes in the composer (reply_controller.js): what the message shows but its link previews,
- * quoted, with each mention as the bare name `nameOf` gives, then its author with a link to it, and a line
- * to reply on.
+ * quoted, with each mention as the bare name `nameOf` gives, and each mention of a room as the text
+ * `roomTextOf` gives, then its author with a link to it, and a line to reply on.
  */
-export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string): string {
+export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string, roomTextOf: (roomId: RoomId) => string): string {
   const linkToOriginal: DisplayNode = { kind: "element", name: "a", attrs: { href: link }, children: [{ kind: "text", value: "#" }] };
   const quote: DisplayNode[] = [
     { kind: "element", name: "blockquote", attrs: {}, children: quoted(nodes) },
     { kind: "element", name: "cite", attrs: {}, children: [{ kind: "text", value: `${author} ` }, linkToOriginal] },
     { kind: "element", name: "p", attrs: {}, children: [{ kind: "element", name: "br", attrs: {}, children: [] }] },
   ];
-  return displayMarkup(quote, ({ userId }) => nameOf(userId));
+  return displayMarkup(
+    quote,
+    ({ userId }) => nameOf(userId),
+    ({ roomId }) => roomTextOf(roomId),
+  );
 }
 
 /**
@@ -154,10 +158,14 @@ function quoted(nodes: DisplayNode[]): DisplayNode[] {
   return link && !hasText(nodes) ? [{ kind: "text", value: link }] : nodes;
 }
 
-/** Whether there's text outside link previews, where a mention is the name it shows, and a special mention its own. */
+/** Whether there's text outside link previews, where a mention is the name it shows, and a special mention or a room's its own. */
 const hasText = (nodes: DisplayNode[]): boolean =>
   nodes.some(
-    (node) => node.kind === "mention" || node.kind === "special-mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)),
+    (node) =>
+      node.kind === "mention" ||
+      node.kind === "special-mention" ||
+      node.kind === "room-mention" ||
+      (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)),
   );
 
 /** The first link in a link preview, as `.og-embed a` finds it, by where it goes. */

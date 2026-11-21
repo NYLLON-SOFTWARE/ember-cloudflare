@@ -131,6 +131,7 @@ import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/block
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
 import type { HandledReports, NewReport, ReportOutcome, Reports, ReportSubject } from "@ember/protocol/reports";
+import { PRIVATE_ROOM_NAME, type MentionRoom } from "@ember/richtext";
 import type { Gateway } from "./assistant/gateway";
 import { modelsFileUrlOf, type KeptModelsFile, type KeptWorkersAiModels } from "./assistant/offered";
 import { providerMovesOf } from "./assistant/model-tests";
@@ -5902,6 +5903,15 @@ export class Workspace extends DurableObject<Env> {
    */
   async mentionedPeople(ids: UserId[]): Promise<User[]> {
     return this.store.peopleWithIds(ids);
+  }
+
+  /**
+   * The rooms of `ids` that exist, but DMs, for a room naming the rooms a message mentions in its plain
+   * text: an open room by its name, and a private one as "private room", since not everyone who reads
+   * the text, in a notification or a search, is in it.
+   */
+  async mentionedRooms(ids: RoomId[]): Promise<MentionRoom[]> {
+    return (await this.store.mentionedRooms(ids)).map(({ id, name }) => ({ id, name: name ?? PRIVATE_ROOM_NAME }));
   }
 
   /**

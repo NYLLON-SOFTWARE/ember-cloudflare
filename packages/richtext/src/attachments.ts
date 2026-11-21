@@ -8,6 +8,8 @@ import { InvalidComponentError, isHttp, parseUri } from "./uri";
 
 export const ATTACHMENT_TAG = "action-text-attachment";
 export const MENTION_CONTENT_TYPE = "application/vnd.campfire.mention";
+/** A room mention's content type, which Lexxy gives what the # prompt picks: `application/vnd.<namespace>.<prompt name>`. */
+export const ROOM_MENTION_CONTENT_TYPE = "application/vnd.campfire.room";
 export const OPENGRAPH_EMBED_CONTENT_TYPE = "application/vnd.actiontext.opengraph-embed";
 
 /** Who a mention names, as far as plain text needs to know. */
@@ -18,6 +20,21 @@ export interface MentionUser {
 
 /** Finds the user a mention's `sgid` names, or nothing when it names no one. */
 export type ResolveMention = (sgid: string) => MentionUser | undefined;
+
+/** A room a room mention names, as far as plain text needs to know: by the name it gives the room. */
+export interface MentionRoom {
+  id: string;
+  name: string;
+}
+
+/** Finds the room a room mention's `sgid` names, or nothing when it names none. */
+export type ResolveRoom = (sgid: string) => MentionRoom | undefined;
+
+/** Knows no room, as a body read without looking any up reads its room mentions: as rooms that aren't there. */
+export const noRooms: ResolveRoom = () => undefined;
+
+/** Whether an attachment is a room mention, whose sgid names a room, and never a person. */
+export const isRoomMention = (element: Element) => getAttr(element, "content-type") === ROOM_MENTION_CONTENT_TYPE;
 
 /**
  * Slack's special mentions, which name no one but notify a whole room, narrowest first: @here, everyone
@@ -46,6 +63,7 @@ export interface OpengraphEmbed {
 export type Attachable =
   | { kind: "mention"; user: MentionUser }
   | { kind: "special-mention"; mention: SpecialMention }
+  | { kind: "room-mention"; room: MentionRoom }
   | { kind: "opengraph-embed"; embed: OpengraphEmbed }
   /** `ActionText::Attachables::ContentAttachment` */
   | { kind: "content"; content: string }
@@ -67,19 +85,24 @@ const VIDEO_CONTENT_TYPE = /^video(\/.+|$)/m;
 
 /**
  * Campfire's `ActionText::Attachment.from_node` (lib/rails_ext/action_text_attachables.rb): a link
- * preview, else a mentioned user or, as Campfire has none, a special mention, else Action Text's own
- * attachables as Lexxy extends them. `host` is
- * the one the page is served from, which a preview's addresses mustn't name; plain text doesn't depend
- * on it. Throws `RenderError` where Ruby raises reading a preview's address.
+ * preview, else for a room mention, which Campfire has none of, the room `rooms` finds or nothing, else a
+ * mentioned user or, as Campfire has none, a special mention, else Action Text's own attachables as
+ * Lexxy extends them. `host` is the one the page is served from, which a preview's addresses mustn't
+ * name; plain text doesn't depend on it. Throws `RenderError` where Ruby raises reading a preview's
+ * address.
  */
-export function attachmentFromNode(parse: HtmlParser, element: Element, resolve: ResolveMention, host = ""): Attachment {
-  return { attachable: attachableFromNode(parse, element, resolve, host), caption: presence(getAttr(element, "caption")) };
+export function attachmentFromNode(parse: HtmlParser, element: Element, resolve: ResolveMention, host = "", rooms = noRooms): Attachment {
+  return { attachable: attachableFromNode(parse, element, resolve, host, rooms), caption: presence(getAttr(element, "caption")) };
 }
 
-function attachableFromNode(parse: HtmlParser, element: Element, resolve: ResolveMention, host: string): Attachable {
+function attachableFromNode(parse: HtmlParser, element: Element, resolve: ResolveMention, host: string, rooms: ResolveRoom): Attachable {
   const contentType = getAttr(element, "content-type");
   if (contentType !== undefined && OPENGRAPH_CONTENT_TYPE.test(contentType)) return { kind: "opengraph-embed", embed: opengraphEmbedFromNode(parse, element, host) };
   const sgid = getAttr(element, "sgid");
+  if (isRoomMention(element)) {
+    const room = sgid === undefined ? undefined : rooms(sgid);
+    return room ? { kind: "room-mention", room } : { kind: "missing" };
+  }
   const user = sgid === undefined ? undefined : resolve(sgid);
   if (user) return { kind: "mention", user };
   const special = sgid === undefined ? undefined : specialMentionOf(sgid);
@@ -193,7 +216,8 @@ const canonicalHost = (host: string) => host.toLowerCase().replace(/\.$/, "");
 
 /**
  * `Attachment#to_plain_text`: markup that replaces the attachment, parsed in its parent, or for a
- * content attachment, its content loaded as rich text.
+ * content attachment, its content loaded as rich text. A room's name, which Campfire has no mentions of,
+ * is read as text, where a person's is read as markup, as Rails reads it.
  */
 export function attachmentPlainText({ attachable, caption }: Attachment): string | { content: string } {
   switch (attachable.kind) {
@@ -201,6 +225,8 @@ export function attachmentPlainText({ attachable, caption }: Attachment): string
       return `@${attachable.user.name}`;
     case "special-mention":
       return `@${attachable.mention}`;
+    case "room-mention":
+      return `#${htmlEscape(attachable.room.name)}`;
     case "opengraph-embed":
       return "";
     case "content":

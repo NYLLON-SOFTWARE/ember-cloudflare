@@ -10,6 +10,7 @@ import { useAccount, useCamerasAllowed, useHuddleVideo, useScreensAllowed } from
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
 import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { RoomsContext, useRoomCards } from "@/hooks/use-rooms";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -313,6 +314,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const settings = useMemo<SettingsPlace | null>(() => section && { section, administrator, openReports, reportsHeard }, [section, administrator, openReports, reportsHeard]);
 
   const rooms = list?.rooms ?? null;
+  const roomCards = useRoomCards(rooms);
   const invitation = list?.invitation ?? null;
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
@@ -1142,15 +1144,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     <PeopleContext value={directory.people}>
       <DirectoryLoaded value={directory.loaded}>
         <ActivePeople value={active}>
-          <SettingsLayout value={settings}>
-            <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>
-                <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
-                </BlockingContext>
-              </HuddlesContext>
-            </OpenSearchContext>
-          </SettingsLayout>
+          <RoomsContext value={roomCards}>
+            <SettingsLayout value={settings}>
+              <OpenSearchContext value={openSearch}>
+                <HuddlesContext value={huddles}>
+                  <BlockingContext value={blocking}>
+                    <ReportingContext value={openReport}>{layout}</ReportingContext>
+                  </BlockingContext>
+                </HuddlesContext>
+              </OpenSearchContext>
+            </SettingsLayout>
+          </RoomsContext>
         </ActivePeople>
       </DirectoryLoaded>
     </PeopleContext>
