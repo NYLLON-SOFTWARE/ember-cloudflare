@@ -99,12 +99,12 @@ afterEach(() => {
 describe("A socket that shows a part of a room apart from its timeline", () => {
   it("opens one of the room's sockets, whose address says that it's apart from the timeline, and whether the tab is shown", () => {
     openApart({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&apart=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=5&apart=1");
 
     cleanup();
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     openApart({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=4&apart=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=5&apart=1");
   });
 
   it("is connecting until the room lets it in, and reconnecting from when its connection drops until the room lets it in again", () => {

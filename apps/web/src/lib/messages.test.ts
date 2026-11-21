@@ -1,4 +1,4 @@
-import type { Message } from "@ember/protocol";
+import type { EphemeralMessage, Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline, visitedLabel } from "./messages";
@@ -43,6 +43,23 @@ describe("Group messages by author", () => {
     const huddle: Message = { ...at("2026-10-12T09:01:00"), huddle: { startedAt: "2026-10-12T09:01:00.000Z" } };
     const items = timeline([at("2026-10-12T09:00:00"), huddle, at("2026-10-12T09:02:00")]);
     expect(items.map((i) => i.threaded)).toEqual([false, false, false]);
+  });
+
+  it("puts each message only you see after those that came before it, ahead of any still sending, and groups nothing under it, nor it under anything", () => {
+    const shownAlone = (iso: string, creatorId = "u1"): EphemeralMessage => ({ ...at(iso, creatorId), id: `e${iso}`, cards: [] });
+    const sending = { ...at("2026-10-12T09:00:30"), pending: true as const };
+    const items = timeline(
+      [at("2026-10-12T09:00:00"), at("2026-10-12T09:02:00"), at("2026-10-12T09:03:00", "u2"), sending],
+      [shownAlone("2026-10-12T09:01:00"), shownAlone("2026-10-12T09:04:00", "u2")],
+    );
+    expect(items.map(({ message, ephemeral = false, threaded }) => [message.id, ephemeral, threaded])).toEqual([
+      ["2026-10-12T09:00:00", false, false],
+      ["e2026-10-12T09:01:00", true, false],
+      ["2026-10-12T09:02:00", false, false],
+      ["2026-10-12T09:03:00", false, false],
+      ["e2026-10-12T09:04:00", true, false],
+      ["2026-10-12T09:00:30", false, false],
+    ]);
   });
 });
 

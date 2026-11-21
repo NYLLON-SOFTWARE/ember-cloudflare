@@ -99,9 +99,10 @@ Anyone in the room can click, and `user` says who did: a bot that should act onl
 checks that itself. Ember sends the button's `value` as the bot posted it, never as a browser says
 it. Buttons in blocks without a `block_id` may share an `action_id`, as they may in Slack: their
 values tell them apart, and the click has no `block_id`, where Slack would make one up. Each person
-can have three clicks waiting on a room's bots at a time. Ember has no messages only
-one person sees, so what a bot would send in Slack as an ephemeral message shows to the room; and
-Slack's menus, date pickers, inputs, `confirm` dialogs and legacy attachment actions aren't here yet.
+can have three clicks waiting on a room's bots at a time. Only the card of an agent's call of an
+app's tool is shown to one person alone, so what a bot would send in Slack as an ephemeral message
+shows to the room; and Slack's menus, date pickers, inputs, `confirm` dialogs and legacy attachment
+actions aren't here yet.
 
 Slack is a trademark of Slack Technologies, LLC. Ember is not created by, affiliated with, or
 supported by Slack Technologies, LLC.

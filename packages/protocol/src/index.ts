@@ -1850,6 +1850,27 @@ export interface ThreadSummary {
 export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
 
 /**
+ * A message only one person sees, as a Slack app's ephemeral message is: from @ember or an agent, the card
+ * of its call of a connected app's tool, which waits on whoever asked, and then what came of the call. The
+ * room keeps it only while the call waits, and sends it to that person's tabs alone, never to the room's
+ * timeline, its search or anyone's unread messages. A tab shows it until the room lets the tab in again,
+ * which brings it again while it waits.
+ */
+export interface EphemeralMessage {
+  id: string;
+  roomId: RoomId;
+  creator: User;
+  /** Its text as rich text, as a message's is, which a card's often leaves empty. */
+  body: string;
+  /** Its plain text, its cards' after its own. */
+  plainText: string;
+  cards: Card[];
+  createdAt: string;
+  /** The thread it's in, when the question it's about was asked in one. */
+  parentId?: string;
+}
+
+/**
  * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
  * answers each frame that would change messages or boosts with an `error`.
  */
@@ -1898,7 +1919,8 @@ export type ClientFrame =
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
   /**
-   * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
+   * A click on a button that acts, on one of the cards of a bot's message, or of a message only the tab's person
+   * sees (`EphemeralMessage`): the button `actionId` names there, in the
    * block `blockId` names when it has one, with the `value` it has, which tells apart two that share a name.
    * The room reports it to the bot, and answers `card.clicked`, or an `error`, with `clickId`, which the tab
    * makes up.
@@ -1930,14 +1952,17 @@ export type ServerFrame =
   /**
    * Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. Its
    * page is the newest, or the one around the message the socket's address names, if the room has it.
+   * `ephemeral` holds the messages only they see, the cards of the calls asked in the room's timeline that
+   * wait on them, if any do.
    */
-  | ({ type: "welcome"; you: User; present: User[]; seq: number } & TimelinePage)
+  | ({ type: "welcome"; you: User; present: User[]; seq: number; ephemeral?: EphemeralMessage[] } & TimelinePage)
   /**
    * Sent in place of a welcome to a tab that names the latest change it has seen, if the room still
    * keeps every change since: the messages changed after it, as they are now, oldest first, the ids of
    * those deleted, and who's here. A message both made and deleted since is among the deleted alone.
+   * `ephemeral` holds what a welcome's does.
    */
-  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number }
+  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number; ephemeral?: EphemeralMessage[] }
   /** A new message. Its author has stopped typing, too. */
   | { type: "message.created"; message: Message; seq: number }
   | { type: "message.updated"; message: Message; seq: number }
@@ -1965,13 +1990,19 @@ export type ServerFrame =
   | { type: "message.checked"; stored: string[]; missing: string[] }
   /**
    * Answers thread.open: the message, or null when the room doesn't have it or it's a reply, which has no
-   * thread, and its newest page of replies, oldest first, with whether it has older ones.
+   * thread, and its newest page of replies, oldest first, with whether it has older ones, and the cards
+   * of the calls asked in it that wait on whoever opened it, `ephemeral`, if any do.
    */
-  | { type: "thread.opened"; parentId: string; parent: Message | null; messages: Message[]; hasMore: boolean }
+  | { type: "thread.opened"; parentId: string; parent: Message | null; messages: Message[]; hasMore: boolean; ephemeral?: EphemeralMessage[] }
   /** Answers thread.before: the replies before `before`, oldest first, and whether there are older ones still. */
   | { type: "thread.history"; parentId: string; before: string; messages: Message[]; hasMore: boolean }
   /** Answers card.click once the bot has answered the click: what it does to the room, if anything, comes as any change does. */
   | { type: "card.clicked"; clickId: string }
+  /**
+   * A message only this socket's person sees, new, or changed in place, by its id, as a call's card is
+   * once it's answered. Those that still wait come again with a welcome, `resumed` or `thread.opened`.
+   */
+  | { type: "message.ephemeral"; message: EphemeralMessage }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
    * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
@@ -2089,10 +2120,11 @@ export type WorkspaceServerFrame =
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
  * tells a tab running an older app to reload, and refuses its messages and edits: before revision 2,
  * tabs sent a message's text rather than its markup, which the room would now read as markup, before
- * revision 3, an edit dropped the message's mentions, and before revision 4, tabs knew nothing of
- * threads, and showed every reply in the room.
+ * revision 3, an edit dropped the message's mentions, before revision 4, tabs knew nothing of
+ * threads, and showed every reply in the room, and before revision 5, they showed nothing of messages
+ * only their person sees, as the card of a call that waits on them is.
  */
-export const ROOM_PROTOCOL = 4;
+export const ROOM_PROTOCOL = 5;
 
 /** What a room socket's address tells the room about the tab opening it. */
 export interface RoomSocketParams {

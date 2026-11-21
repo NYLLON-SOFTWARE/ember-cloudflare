@@ -1,10 +1,11 @@
-import type { RoomId, User, UserId } from "@ember/protocol";
+import type { EphemeralMessage, RoomId, User, UserId } from "@ember/protocol";
 import type { PausedAnswer } from "../assistant/gateway";
 import { statement, type Db } from "../db";
 import type { GivenTool } from "./tools";
 
-// The calls of connected apps' tools that wait to be allowed in a room (migration 0057): each with its
-// model's answer as far as it got, which goes on once someone answers the card the room posted for it.
+// The calls of connected apps' tools that wait to be allowed in a room (migrations 0057 and 0084): each
+// with its model's answer as far as it got, which goes on once whoever asked answers the card the room
+// showed them alone, as a message only they see.
 
 /** How long a call waits to be allowed. After that its card says nobody did, and the room forgets it (`takeLate`). */
 export const CALL_WAITS_MS = 15 * 60_000;
@@ -12,7 +13,7 @@ export const CALL_WAITS_MS = 15 * 60_000;
 /** The most calls `takeLate` takes at once, each as much as `MAX_CALL_BYTES`. */
 const LATE_CALLS_TAKEN = 5;
 
-/** A call that waited too long, and the card it waited on. */
+/** A call that waited too long, and the card it waited on, by its id. */
 export interface LateCall {
   messageId: string;
   call: WaitingCall;
@@ -35,6 +36,12 @@ export interface WaitingCall {
   tools: GivenTool[];
   paused: PausedAnswer;
   askedAt: number;
+  /**
+   * The card only whoever asked sees, as the room showed it to them, which it shows each tab of theirs that
+   * opens the room while the call waits. A call that started to wait before there were such cards has none,
+   * and waits on a card that's a message in the room, as they all did then.
+   */
+  card?: EphemeralMessage;
 }
 
 /** Whether `call` is small enough to keep. */
@@ -48,7 +55,20 @@ export class WaitingCalls {
 
   /** Keeps `call`, which waits on the card `messageId`. */
   async keep(messageId: string, call: WaitingCall): Promise<void> {
-    await this.db.run(`INSERT INTO waiting_calls (room_id, message_id, call, asked_at) VALUES (?, ?, ?, ?)`, this.roomId, messageId, JSON.stringify(call), call.askedAt);
+    await this.db.run(
+      `INSERT INTO waiting_calls (room_id, message_id, call, asked_at, asker_id) VALUES (?, ?, ?, ?, ?)`,
+      this.roomId,
+      messageId,
+      JSON.stringify(call),
+      call.askedAt,
+      call.asker.id,
+    );
+  }
+
+  /** The cards of the calls that wait on `askerId` here, oldest first, as only they see them. */
+  async cardsFor(askerId: UserId): Promise<EphemeralMessage[]> {
+    const rows = await this.db.all<{ call: string }>(`SELECT call FROM waiting_calls WHERE room_id = ? AND asker_id = ? ORDER BY asked_at`, this.roomId, askerId);
+    return rows.flatMap(({ call }) => (JSON.parse(call) as WaitingCall).card ?? []);
   }
 
   /**

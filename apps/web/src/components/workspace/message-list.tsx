@@ -1,15 +1,15 @@
 import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { joinsWithLink, type Invitation, type Me, type Message, type User } from "@ember/protocol";
+import { joinsWithLink, type Invitation, type Me, type User } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { ScrollIntoViewContext } from "@/hooks/use-scroll-into-view";
 import { dropTarget } from "@/lib/drop-target";
-import { dateLabel, dateTimeLabel, sameDay, timeline } from "@/lib/messages";
+import { dateLabel, dateTimeLabel, sameDay, timeline, type TimelineItem } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { InvitationCard } from "./invitation-card";
-import { JoinedItem, MessageItem, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
+import { EphemeralItem, JoinedItem, MessageItem, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 
 /**
  * How near the end of the room's messages a reader can be and still be at it, which keeps them there as
@@ -185,12 +185,13 @@ export function MessageList({
   // Whether the timeline has drawn every message it holds: until it has, a page that fills it shows its newest
   // messages first, unless it's a permalink's, whose message goes in the middle.
   const [drawnAll, setDrawnAll] = useState(false);
-  const items = timeline(state.messages);
+  // Those only the reader sees show among the newest messages, which they came after, once the timeline holds them.
+  const items = timeline(state.messages, state.hasNewer ? [] : state.ephemeral);
   const newestFirst = !drawnAll && !state.focus?.messageId && items.length > FIRST_DRAWN;
-  const firstNew = newSince === null ? -1 : items.findIndex(({ message }) => message.createdAt >= newSince && message.creator.id !== me.id);
+  const firstNew = newSince === null ? -1 : items.findIndex(({ message, ephemeral }) => !ephemeral && message.createdAt >= newSince && message.creator.id !== me.id);
   // A page that doesn't reach back before `newSince` may have older new messages before it that aren't loaded yet,
   // whoever wrote its first one.
-  const newLineAt = firstNew === -1 || (state.hasMore && items[0]!.message.createdAt >= newSince!) ? null : items[firstNew]!.message;
+  const newLineAt = firstNew === -1 || (state.hasMore && state.messages[0]!.createdAt >= newSince!) ? null : items[firstNew]!.message;
 
   const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
 
@@ -245,7 +246,7 @@ export function MessageList({
     focused.current = state.focus;
     if (moved && state.focus) go(state.focus.messageId);
     else settle();
-  }, [state.messages, state.focus, drawnAll]);
+  }, [state.messages, state.ephemeral, state.focus, drawnAll]);
 
   // A page that showed its newest messages first draws the rest above them once they're on screen, or before the
   // view is painted where they don't fill it with room to spare, so that nothing shows above them meanwhile.
@@ -328,7 +329,9 @@ export function MessageList({
   // The line a DM started as someone joined opens with, once the room has said the timeline reaches back
   // to its start. It dates its day, which the first message then dates only if it came on another.
   const joinedLine = !thread && joined !== null && state.paged !== null && !state.hasMore ? joined : null;
-  const datedFirst = (message: Message) => joinedLine === null || message !== items[0]!.message || !sameDay(joinedLine.at, message.createdAt);
+  const datedFirst = (message: TimelineItem["message"]) => joinedLine === null || message !== items[0]!.message || !sameDay(joinedLine.at, message.createdAt);
+  // A thread's replies start under its message, without a day's heading between them.
+  const dated = ({ message, firstOfDay }: TimelineItem) => firstOfDay && (!thread || message !== items[0]!.message) && datedFirst(message);
 
   return (
     <div className="min-h-0 flex-1" {...dropTarget(onDropFiles)}>
@@ -370,16 +373,25 @@ export function MessageList({
                   </div>
                 )}
 
-                {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map(({ message, firstOfDay, threaded }) => {
+                {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map((item) => {
+                  const { message, threaded } = item;
+                  if (item.ephemeral) {
+                    const key = `ephemeral:${message.id}`;
+                    return (
+                      <div key={key} data-row={key}>
+                        {dated(item) && <DaySeparator at={message.createdAt} />}
+                        <EphemeralItem message={item.message} actions={actions} />
+                      </div>
+                    );
+                  }
                   // Stable from optimistic copy to stored message, and distinct across senders.
-                  const key = `${message.creator.id}:${message.clientMessageId}`;
+                  const key = `${message.creator.id}:${item.message.clientMessageId}`;
                   return (
                     <div key={key} data-row={key} data-message-id={message.id}>
-                      {/* A thread's replies start under its message, without a day's heading between them. */}
-                      {firstOfDay && (!thread || message !== items[0]!.message) && datedFirst(message) && <DaySeparator at={message.createdAt} />}
+                      {dated(item) && <DaySeparator at={message.createdAt} />}
                       {message === newLineAt && <NewSeparator />}
                       <MessageItem
-                        message={message}
+                        message={item.message}
                         me={me}
                         threaded={threaded}
                         editing={editing.has(message.id)}
