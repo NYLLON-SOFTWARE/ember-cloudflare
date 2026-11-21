@@ -53,6 +53,20 @@ describe("Initials avatars", () => {
     expect(result.current.loaded).toBe(true);
   });
 
+  it("has settled once a load has come or failed, though one that failed leaves it unloaded", async () => {
+    const failed = renderHook(() => useDirectory()).result;
+    expect(failed.current.settled).toBe(false);
+    server.down = true;
+    // Rejecting inside act would leave its update unrendered, as act renders only once its callback resolves.
+    await act(() => expect(failed.current.reload()).rejects.toThrow("Failed to fetch"));
+    expect(failed.current).toMatchObject({ loaded: false, settled: true });
+
+    server.down = false;
+    const came = renderHook(() => useDirectory()).result;
+    await reload(came);
+    expect(came.current).toMatchObject({ loaded: true, settled: true });
+  });
+
   it("keeps the people it has while the server says they're current, and takes them again when they change", async () => {
     const { result } = renderHook(() => useDirectory());
     await reload(result);

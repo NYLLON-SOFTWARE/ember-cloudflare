@@ -16,6 +16,7 @@ import {
   direct,
   freshDeploy,
   openWorkspaceSocket,
+  pauseNotifications,
   pushBrowser,
   roomStub,
   sharedD1,
@@ -482,6 +483,21 @@ describe("Pushing an invitation into a huddle", () => {
     expect(labelsOf(pushes)).toEqual(["grace"]);
   });
 
+  it("pushes nobody whose notifications are paused, though their tabs still hear it, until the pause ends", async () => {
+    const { ada } = await huddlesOn();
+    const [grace, linus] = [await signIn("Grace"), await signIn("Linus")];
+    const room = (await createRoom("Launch", { closedTo: [ada, grace, linus].map(idOf), as: ada })).id;
+    for (const session of [grace, linus]) await subscribe(session, session.user.name.toLowerCase());
+    await pauseNotifications(grace, 60 * 60_000);
+    const gracesTab = await openWorkspaceSocket(grace, { visible: false });
+
+    expect(labelsOf(await pushesOf(room, ada, grace, linus))).toEqual(["linus"]);
+    expect(await nextOfAnInvitation(gracesTab)).toEqual(invited(room, ada));
+
+    await workspaceSql("UPDATE users SET notifications_paused_until = ? WHERE id = ?", new Date(Date.now() - 1_000).toISOString(), grace.user.id);
+    expect(labelsOf(await pushesOf(room, ada, grace, linus))).toEqual(["grace", "linus"]);
+  });
+
   it("pushes nobody its invitation doesn't reach: nobody outside the room, with its notifications off, or who can no longer sign in", async () => {
     const { ada } = await huddlesOn();
     const [grace, linus, margaret, alan, barbara] = [await signIn("Grace"), await signIn("Linus"), await signIn("Margaret"), await signIn("Alan"), await signIn("Barbara")];
@@ -496,7 +512,7 @@ describe("Pushing an invitation into a huddle", () => {
     expect(labelsOf(await pushesOf(room, ada, ...named, "nobody-at-all"))).toEqual(["grace"]);
     // Nor does the search for their subscriptions find them, should one of them leave the room, turn
     // its notifications off or be banned once the Workspace has read whom the invitation reaches.
-    const found = (await workspaceSql(INVITATION_PUSHES, room, ada.user.id, JSON.stringify(named), 1)) as Array<{ endpoint: string }>;
+    const found = (await workspaceSql(INVITATION_PUSHES, room, ada.user.id, JSON.stringify(named), 1, new Date().toISOString())) as Array<{ endpoint: string }>;
     expect(found.map(({ endpoint }) => endpoint)).toEqual([`${PUSH_SERVICE}grace`]);
 
     // At @mentions, a room's starting level, an invitation is pushed as a mention of them would be.
@@ -571,9 +587,9 @@ describe("Pushing an invitation into a huddle", () => {
     // The room and whoever invites, the list Grace is named in, herself and her membership come to 7,
     // and her subscription to 3 and the conversations she's in, for its badge: nothing of the room's
     // other people.
-    expect(await rowsRead(INVITATION_PUSHES, room, ada.user.id, JSON.stringify([grace.user.id]), 1)).toBeLessThanOrEqual(7 + 3 + hers);
+    expect(await rowsRead(INVITATION_PUSHES, room, ada.user.id, JSON.stringify([grace.user.id]), 1, new Date().toISOString())).toBeLessThanOrEqual(7 + 3 + hers);
 
-    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${INVITATION_PUSHES}`, room, ada.user.id, "[]", 1)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
+    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${INVITATION_PUSHES}`, room, ada.user.id, "[]", 1, "2026-11-20T23:30:00.000Z")) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
     expect(plan).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(plan).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|inviters)\b/);
   });

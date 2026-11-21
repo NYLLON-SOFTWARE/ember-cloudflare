@@ -540,6 +540,17 @@ Objects, D1 or speed call for something else.
   switch names, keeps the rest, and returns all three, which the Workspace tells that person's
   tabs, one change at a time, so that the last a tab hears of is the last kept. Deleting an account
   puts all three back to 1, with the rest of the person's picks.
+- **A pause of someone's notifications is a column of the person.** `users.notifications_paused_until`
+  (workspace migration 0086) is when their pause ends, as an ISO 8601 time in UTC, which the browser
+  works out, since Ember keeps nobody's time zone, or null while they've paused none. The queries
+  that find a message's pushes, the room's for one that notifies it, and an invitation's into a
+  huddle each leave out whoever's pause ends after the time they bind, which ISO times in UTC let
+  SQLite compare as text, so a pause costs them no statement, and one that has passed needs no write
+  to end, nor keeps anything to send once it has. The people directory reads the column with the
+  rest of the person and lists it only while it's ahead, so their half-moon is in the list everyone
+  already loads, and one `UPDATE`, batched with reading the person back, saves a pause or ends it,
+  which the Workspace tells everyone's tabs as `user.updated`, as it does a rename. Deleting an
+  account clears it.
 - **Each group of people has one DM, found by its key.** Ember keeps each DM's members' ids, sorted,
   as a JSON array in `rooms.direct_key` (workspace migration 0016), under a unique index. Starting a
   DM is one batch: it adds the room unless the key has one (`ON CONFLICT DO NOTHING`), puts the

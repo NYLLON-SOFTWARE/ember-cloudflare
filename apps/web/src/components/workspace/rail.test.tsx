@@ -1,8 +1,10 @@
-import { avatarSvg, type Account } from "@ember/protocol";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { avatarSvg, type Account, type DirectoryUser } from "@ember/protocol";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
+import { PeopleContext, type People } from "@/hooks/use-directory";
+import { PAUSE_CHOICES, pauseEnd, pauseEndLabel } from "@/lib/notifications-pause";
 import { Rail, type Activity, type RailPage } from "./rail";
 import { OpenSearchContext } from "./search-box";
 
@@ -11,13 +13,13 @@ const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
 /** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
 const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} />
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} askForPause={() => () => {}} onFailed={() => {}} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
 
 describe("Rail", () => {
-  it("puts Home, DMs, Activity, Search, Workspace, appearance and your profile on the rail, leaving the arrows to the top bar", () => {
+  it("puts Home, DMs, Activity, Search, Workspace, Pause notifications, appearance and your profile on the rail, leaving the arrows to the top bar", () => {
     render(railAt("home"));
     const rail = screen.getByRole("navigation", { name: "Workspace" });
     expect([...rail.querySelectorAll("a, button")].map((item) => item.getAttribute("aria-label") ?? item.textContent)).toEqual([
@@ -27,6 +29,7 @@ describe("Rail", () => {
       "Activity",
       "Search",
       "Workspace",
+      "Pause notifications",
       "Appearance: System",
       "Your profile",
     ]);
@@ -73,7 +76,17 @@ describe("Rail", () => {
   it("marks Admin with a dot while reports are open too, saying how many", () => {
     const grace = { ...ada, administrator: true };
     const rail = (openReports: number, newRelease: string | null = null) => (
-      <Rail me={grace} workspaceName="Analytical Engines" current="home" activity={activityOff} newRelease={newRelease} openReports={openReports} onNewDirect={() => {}} />
+      <Rail
+        me={grace}
+        workspaceName="Analytical Engines"
+        current="home"
+        activity={activityOff}
+        newRelease={newRelease}
+        openReports={openReports}
+        onNewDirect={() => {}}
+        askForPause={() => () => {}}
+        onFailed={() => {}}
+      />
     );
     const { rerender } = render(rail(1));
     const admin = screen.getByRole("link", { name: "Admin" });
@@ -130,6 +143,7 @@ describe("Rail", () => {
       Activity: "iconoir-bell",
       Search: "iconoir-search",
       Workspace: "iconoir-box",
+      "Pause notifications": "iconoir-bell-off",
       "Appearance: System": "iconoir-computer",
       "Your profile": undefined,
     });
@@ -145,7 +159,7 @@ describe("Search box", () => {
   });
 
   it("has Search in the drawer too where the drawer holds the rail alone, with no search field", () => {
-    render(<Rail me={ada} workspaceName="Analytical Engines" current="workspace" activity={activityOff} newRelease={null} onNewDirect={() => {}} searchInDrawer />);
+    render(<Rail me={ada} workspaceName="Analytical Engines" current="workspace" activity={activityOff} newRelease={null} onNewDirect={() => {}} searchInDrawer askForPause={() => () => {}} onFailed={() => {}} />);
     expect(screen.getByRole("link", { name: "Search" })).toHaveClass("hidden", "md:no-top-bar:flex", "max-md:flex");
   });
 
@@ -279,5 +293,76 @@ describe("Navigation icons", () => {
     expect(icon("DMs")).toHaveClass("iconoir-multi-bubble", "size-[22px]");
     expect(icon("Activity")).toHaveClass("iconoir-bell");
     expect(icon("Admin")).toHaveClass("iconoir-box");
+  });
+});
+
+describe("Pause notifications", () => {
+  /** Ada as the people directory lists her, paused until `pausedUntil` if it's given. */
+  const listed = (pausedUntil?: string): DirectoryUser => ({ ...ada, bio: null, role: "member", status: "active", avatarUrl: "/users/t1/avatar?v=1", ...(pausedUntil && { pausedUntil }) });
+  /** The rail, with the people directory listing `people`, saying what's saved by `onPaused`. */
+  const railWith = (people: People, onPaused = vi.fn()) => (
+    <PeopleContext value={people}>
+      <Rail me={ada} workspaceName="Analytical Engines" current="home" activity={activityOff} newRelease={null} onNewDirect={() => {}} askForPause={() => onPaused} onFailed={() => {}} />
+    </PeopleContext>
+  );
+  /** Answers each pause with Ada paused as it asks. */
+  function pauses() {
+    const fetch = vi.fn(async (_path: string, init?: RequestInit) => Response.json({ user: listed((JSON.parse(init!.body as string) as { until: string | null }).until ?? undefined) }));
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+  /** When the pause each call asked for ends, in milliseconds since the epoch. */
+  const endsAsked = (fetch: ReturnType<typeof pauses>) => fetch.mock.calls.map(([, init]) => (JSON.parse(init!.body as string) as { until: string | null }).until);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("pauses them for 30 minutes, 1 hour, 2 hours or until 9 AM tomorrow, as its menu offers, giving you as the directory then lists you", async () => {
+    const fetch = pauses();
+    const onPaused = vi.fn();
+    render(railWith(new Map(), onPaused));
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Pause notifications" });
+    expect(button.querySelector("svg")).toHaveClass("iconoir-bell-off", "size-[18px]");
+
+    await user.click(button);
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["30 minutes", "1 hour", "2 hours", "Until tomorrow"]);
+    const asked = Date.now();
+    await user.click(screen.getByRole("menuitem", { name: "1 hour" }));
+    await waitFor(() => expect(onPaused).toHaveBeenCalledOnce());
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/users/me/notifications-pause", expect.objectContaining({ method: "PUT" }));
+    const [hour] = endsAsked(fetch);
+    expect(Date.parse(hour!) - asked).toBeGreaterThanOrEqual(60 * 60_000);
+    expect(Date.parse(hour!) - Date.now()).toBeLessThanOrEqual(60 * 60_000);
+    expect(onPaused).toHaveBeenCalledWith(listed(hour!));
+
+    await user.click(button);
+    await user.click(screen.getByRole("menuitem", { name: "Until tomorrow" }));
+    await waitFor(() => expect(onPaused).toHaveBeenCalledTimes(2));
+    expect(endsAsked(fetch)[1]).toBe(pauseEnd(PAUSE_CHOICES[3]!).toISOString());
+  });
+
+  it("says until when they're paused, with Resume notifications first, and marks your picture with a half-moon until the pause ends", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetch = pauses();
+    const until = new Date(Date.now() + 90_000).toISOString();
+    render(railWith(new Map([[ada.id, listed(until)]])));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const button = screen.getByRole("button", { name: `Notifications paused until ${pauseEndLabel(new Date(until))}` });
+    const moon = () => screen.getByRole("link", { name: "Your profile" }).querySelector("[data-paused] svg");
+    expect(moon()).toHaveClass("iconoir-half-moon", "text-foreground");
+
+    await user.click(button);
+    expect(screen.getByRole("menu")).toHaveTextContent(`Paused until ${pauseEndLabel(new Date(until))}`);
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Resume notifications", "30 minutes", "1 hour", "2 hours", "Until tomorrow"]);
+    await user.click(screen.getByRole("menuitem", { name: "Resume notifications" }));
+    await waitFor(() => expect(endsAsked(fetch)).toEqual([null]));
+
+    // The directory still lists the pause, which ends by itself.
+    act(() => vi.advanceTimersByTime(90_000));
+    expect(screen.getByRole("button", { name: "Pause notifications" })).toBeInTheDocument();
+    expect(moon()).toBeNull();
   });
 });

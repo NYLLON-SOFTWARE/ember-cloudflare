@@ -1177,3 +1177,33 @@ describe("Custom CSS", () => {
     expect(onAccountChanged).not.toHaveBeenCalled();
   });
 });
+
+describe("Pause notifications", () => {
+  it("lists this person in the people directory as the server answers a pause of theirs, unless the workspace socket has said what became of them since", async () => {
+    const update = vi.fn();
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { people: new Map(), reload: async () => {}, update, remove: () => {} }));
+    await settle();
+    socket().connect();
+    await settle();
+    const paused: DirectoryUser = { ...listed(ada, "member"), pausedUntil: "2026-10-15T13:00:00.000Z" };
+
+    // Ada pauses them, and her answer comes before the socket's word of it.
+    const saved = result.current.askForYou();
+    act(() => saved(paused));
+    expect(update).toHaveBeenLastCalledWith(paused);
+
+    // She pauses them again, and the socket brings that, then her resuming them in another tab just after, before her answer.
+    const answered = result.current.askForYou();
+    socket().receive({ type: "user.updated", user: paused });
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    update.mockClear();
+    act(() => answered(paused));
+    expect(update).not.toHaveBeenCalled();
+
+    // What the socket says of anyone else leaves an answer to take its place.
+    const later = result.current.askForYou();
+    socket().receive({ type: "user.updated", user: listed(grace, "administrator") });
+    act(() => later(listed(ada, "member")));
+    expect(update).toHaveBeenLastCalledWith(listed(ada, "member"));
+  });
+});

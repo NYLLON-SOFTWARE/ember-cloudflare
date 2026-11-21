@@ -569,6 +569,13 @@ export type WorkspaceSocket = Awaited<ReturnType<typeof openWorkspaceSocket>>;
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 const encoder = new TextEncoder();
 
+/** Pauses `session`'s notifications for `ms` from now, as the rail's Pause notifications does, or resumes them with null. */
+export async function pauseNotifications(session: Session, ms: number | null): Promise<void> {
+  const until = ms === null ? null : new Date(Date.now() + ms).toISOString();
+  const response = await api("/api/users/me/notifications-pause", { method: "PUT", headers: { Cookie: session.cookie }, body: JSON.stringify({ until }) });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
+
 /** A browser that has subscribed to pushes: its keys, as its subscription gives them, and what reads the pushes made for them. */
 export interface PushBrowser {
   p256dh: string;
