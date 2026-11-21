@@ -787,14 +787,22 @@ export function Composer({
   const schedulable = editorReady && !blank && picked.files.length === 0 && usage === null;
 
   // Schedules what's written for `at`, as a reply sent to the room too while Also send to the room is
-  // ticked. Once the room has it, the composer empties, as Send empties it, unless something else has been
-  // written meanwhile. One the room refuses stays, with why over the card, and a command isn't scheduled.
-  const scheduleWritten = async (at: Date) => {
+  // ticked, asking first, as Send does, if it would notify a room of six or more once it's sent. A command
+  // isn't scheduled.
+  const scheduleWritten = (at: Date) => {
     const written = editor.current;
     if (!scheduling || !written || written.isBlank()) return;
-    const body = written.value();
-    const typedIn = onCommand ? commandIn(body) : null;
+    const typedIn = onCommand ? commandIn(written.value()) : null;
     if (typedIn) return setNotACommand(typedIn.command ? `/${typedIn.command.name} can't be scheduled.` : isntACommand(typedIn.typed.name));
+    notifyConfirm.confirm(() => whatsWritten() ?? "", () => void scheduleNow(scheduling, at), "Schedule");
+  };
+
+  // Schedules what's written by now, unless it's been emptied, or become a command, while the room's counts
+  // came. Once the room has it, the composer empties, as Send empties it, unless something else has been
+  // written meanwhile. One the room refuses stays, with why over the card.
+  const scheduleNow = async (scheduling: ComposerScheduling, at: Date) => {
+    const body = whatsWritten();
+    if (body === null || (onCommand && commandIn(body))) return;
     const refusal = await scheduling.schedule(body, at, threadId === undefined ? undefined : { parentId: threadId, alsoSend });
     if (refusal !== null) return setNotScheduled(refusal);
     const stillWritten = editor.current;
@@ -1017,7 +1025,7 @@ export function Composer({
               clipsInRow={() => shownInRow(videoClipButton.current)}
               drafts={drafts}
               draftsInRow={() => shownInRow(draftsButton.current)}
-              schedule={scheduling && { schedulable, onSchedule: (at) => void scheduleWritten(at), onCustomTime: () => setPickingTime(true) }}
+              schedule={scheduling && { schedulable, onSchedule: scheduleWritten, onCustomTime: () => setPickingTime(true) }}
               scheduleInRow={() => shownInRow(scheduleButton.current)}
               onClosed={() => editor.current?.focus()}
               // Slack's + sits in a circle of its own.
@@ -1158,7 +1166,7 @@ export function Composer({
                   <ScheduleMenu
                     ref={scheduleButton}
                     disabled={disabled || !schedulable}
-                    onSchedule={(at) => void scheduleWritten(at)}
+                    onSchedule={scheduleWritten}
                     onCustomTime={() => setPickingTime(true)}
                     onClosed={() => editor.current?.focus()}
                     className={cn(
@@ -1181,7 +1189,7 @@ export function Composer({
       {notifyConfirm.dialog}
       {scheduling && (
         <>
-          <CustomTimeDialog open={pickingTime} onOpenChange={setPickingTime} onPick={(at) => void scheduleWritten(at)} onClosed={() => editor.current?.focus()} />
+          <CustomTimeDialog open={pickingTime} onOpenChange={setPickingTime} onPick={scheduleWritten} onClosed={() => editor.current?.focus()} />
           <ScheduledDialog
             open={listingScheduled}
             onOpenChange={setListingScheduled}

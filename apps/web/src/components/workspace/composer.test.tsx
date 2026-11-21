@@ -1263,6 +1263,28 @@ describe("Schedule for later", () => {
     await waitFor(() => expect(input).toHaveFocus());
   });
 
+  it("asks first, as Send does, before scheduling what would notify a room of six or more once it's sent, keeping it on Cancel", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ members: 6, mentions: { here: 2, channel: 5 } })));
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ scheduling });
+    await user.type(input, "@channel Standup");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    const asked = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    expect(scheduling.schedule).not.toHaveBeenCalled();
+    await user.click(within(asked).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(input).toHaveValue("@channel Standup");
+
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Notify 5 people?" })).getByRole("button", { name: "Schedule" }));
+    const channel = `<action-text-attachment sgid="channel" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith(`<p>${channel} Standup</p>`, new Date(2026, 10, 18, 9), undefined);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(scheduling.onScheduled).toHaveBeenCalledOnce();
+  });
+
   it("schedules a thread's reply, sent to the room too while Also send is ticked, which it unticks", async () => {
     const scheduling = schedulingWith();
     const { input, user } = await showComposer({ threadId: "m1", scheduling });
