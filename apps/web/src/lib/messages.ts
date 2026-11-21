@@ -64,6 +64,22 @@ export function huddleStartedLabel(date: Date, now = new Date()): string {
   return "on" in day ? day.on : `${day.near === "today" ? "Today" : "Yesterday"} at ${timeLabel(date)}`;
 }
 
+const minutesFormat = new Intl.NumberFormat(undefined, { style: "unit", unit: "minute", unitDisplay: "short" });
+const hoursFormat = new Intl.NumberFormat(undefined, { style: "unit", unit: "hour", unitDisplay: "short" });
+
+/**
+ * How long ago a page was shown, as the top bar's History says it, as of `now`: "Just now", "5 min" or
+ * "2 hr" today, "Yesterday", "Oct 12", or "Oct 12, 2025" in another year.
+ */
+export function visitedLabel(date: Date, now = new Date()): string {
+  const day = dayAsOf(date, now);
+  if ("on" in day) return day.on;
+  if (day.near === "yesterday") return "Yesterday";
+  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (minutes < 1) return "Just now";
+  return minutes < 60 ? minutesFormat.format(minutes) : hoursFormat.format(Math.floor(minutes / 60));
+}
+
 /** Whether two ISO times fall on the same day in the reader's time zone, as a timeline's separators tell days apart. */
 export const sameDay = (a: string, b: string) => dayFormat.format(new Date(a)) === dayFormat.format(new Date(b));
 
