@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
 import type { Locator } from "@playwright/test";
 import { ROOM_SOCKET } from "../../fixtures";
-import { expect, paste, test, type Member } from "./fixtures";
+import { expect, paste, recordsClips, test, type Member } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
@@ -17,6 +17,9 @@ const card = (member: Member) => member.page.locator("form.composer > div:has([r
 
 /** A button under the composer's text, by its name, found while a menu over the page hides it from the rest too. */
 const underText = (member: Member, name: string) => card(member).getByRole("button", { name, exact: true, includeHidden: true });
+
+/** The clips' buttons under the text, where the browser can record them. */
+const clipButtons = (browserName: string) => (recordsClips(browserName) ? ["Record video clip", "Record audio clip"] : []);
 
 /** Show formatting, under the text, which shows or hides the formatting row. */
 const showFormatting = (member: Member) => underText(member, "Show formatting");
@@ -91,7 +94,7 @@ async function openRoom(member: Member, name: string) {
 }
 
 test.describe("Composer", () => {
-  test("is a card at least 108px tall, with the formatting row and the text on top and Slack's buttons below, ending in a round Send", async ({ members }) => {
+  test("is a card at least 108px tall, with the formatting row and the text on top and Slack's buttons below, ending in a round Send", async ({ members, browserName }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const field = ada.composer();
     const send = underText(ada, "Send Message");
@@ -105,7 +108,7 @@ test.describe("Composer", () => {
     expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(fieldBox.y);
     expect(sendBox.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height);
     let left = 0;
-    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone", "Record video clip", "Record audio clip", "Run shortcut"]) {
+    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone", ...clipButtons(browserName), "Run shortcut"]) {
       const buttonBox = await box(underText(ada, name));
       expect(buttonBox.y, name).toBe(sendBox.y);
       expect(buttonBox.x, name).toBeGreaterThan(left);
@@ -693,7 +696,7 @@ test.describe("Formatting row", () => {
 });
 
 test.describe("Buttons under the text", () => {
-  test("names each in a tooltip, as Slack's do", async ({ members }) => {
+  test("names each in a tooltip, as Slack's do", async ({ members, browserName }) => {
     const ada = await members.signIn("Ada");
     // Once the text's ready, which Emoji, Mention someone and Run shortcut wait for.
     await expect(ada.composer()).toBeFocused();
@@ -702,8 +705,7 @@ test.describe("Buttons under the text", () => {
       ["Show formatting", "Hide formatting"],
       ["Emoji", "Emoji"],
       ["Mention someone", "Mention someone"],
-      ["Record video clip", "Record video clip"],
-      ["Record audio clip", "Record audio clip"],
+      ...clipButtons(browserName).map((name) => [name, name] as const),
       ["Run shortcut", "Run shortcut"],
       ["Send Message", "Send message"],
     ] as const;

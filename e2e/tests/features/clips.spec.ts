@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test";
-import { expect, test, type Member } from "./fixtures";
+import { expect, recordsClips, test, type Member } from "./fixtures";
 
 // Slack's clips: video and audio recorded from the composer, which go as files with the next message.
 
@@ -49,6 +49,8 @@ async function lengthOf(media: Locator): Promise<number | null> {
 const TWO_SECOND_LENGTHS = [2, 3];
 
 test.describe("Clips", () => {
+  test.skip(({ browserName }) => !recordsClips(browserName), "Playwright's WebKit for Linux has no MediaRecorder, so it records no clips, and offers none");
+
   test("records a video clip from the camera, as a mirror shows you, choosing its thumbnail, to go with the next message, which plays for everyone, saying how long it is", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const grace = await members.signIn("Grace");
