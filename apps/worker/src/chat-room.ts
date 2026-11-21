@@ -2524,13 +2524,18 @@ export class ChatRoom extends DurableObject<Env> {
     const due = await store.dueScheduled(isoNow());
     if (due.length > 0) this.blockedWords = await this.blockedWordsAt(Date.now());
     for (const scheduled of due) {
-      if (!(await workspace(this.env).isActiveMember(roomId, scheduled.creator.id)) || (await this.hasBlockedWord(await this.scheduledWritten(scheduled)))) {
+      const read = await this.readBody(scheduled.body);
+      const written = typeof read === "string" ? scheduled.plainText : read.written;
+      if (!(await workspace(this.env).isActiveMember(roomId, scheduled.creator.id)) || (await this.hasBlockedWord(written))) {
         await store.cancelScheduled(scheduled.id);
         this.sendTo(scheduled.creator.id, { type: "scheduled.cancelled", scheduledId: scheduled.id });
         continue;
       }
+      // Its special mentions notify as they would had it been sent now, as the Workspace says of its author now.
+      const specialMentions = typeof read === "string" ? [] : read.body.specialMentions;
+      const body = await this.notifying(roomId, scheduled.creator, { html: scheduled.body, plainText: scheduled.plainText, mentions: scheduled.mentions, specialMentions }, {});
       this.readers.clear();
-      const { message, seq } = await store.postScheduled(scheduled, sortableId(), isoNow());
+      const { message, seq } = await store.postScheduled(scheduled, body, sortableId(), isoNow());
       this.seenBy.set(message.id, viewersOf(this.ctx));
       this.broadcast({ type: "message.created", message, seq });
       this.sendTo(scheduled.creator.id, { type: "scheduled.sent", scheduledId: scheduled.id });
@@ -2541,12 +2546,6 @@ export class ChatRoom extends DurableObject<Env> {
     const next = await store.nextSendAt();
     if (next === null) await this.ctx.storage.delete(SCHEDULED_ROOM);
     else await this.wakeForScheduled(Date.parse(next));
-  }
-
-  /** What the writer of a waiting message wrote of it, which Blocked words checks, as `prepare` reads it. */
-  private async scheduledWritten(scheduled: ScheduledMessage): Promise<string> {
-    const read = await this.readBody(scheduled.body);
-    return typeof read === "string" ? scheduled.plainText : read.written;
   }
 
   /** Sets the alarm to post waiting messages by `time`, unless it's set for sooner. */

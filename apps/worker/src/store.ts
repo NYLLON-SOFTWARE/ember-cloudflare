@@ -989,22 +989,24 @@ export class MessageStore {
   }
 
   /**
-   * Posts waiting message `scheduled` as an ordinary message at `now`, dropping the waiting row in the
-   * same write. The room runs this one event at a time with cancel, so the row is still there.
+   * Posts waiting message `scheduled` as an ordinary message at `now`, with `body`'s text and whom it
+   * notifies, as the room decides at send time, dropping the waiting row in the same write. The room
+   * runs this one event at a time with cancel, so the row is still there.
    */
-  async postScheduled(scheduled: ScheduledMessage, messageId: string, now: string): Promise<{ message: Message; seq: number }> {
+  async postScheduled(scheduled: ScheduledMessage, body: Pick<StoredBody, "html" | "notifies">, messageId: string, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment, cards, parent_id, in_room)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 1)`,
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, notifies, created_at, updated_at, change_seq, attachment, cards, parent_id, in_room)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 1)`,
         messageId,
         this.roomId,
         scheduled.clientMessageId,
         scheduled.creator.id,
         scheduled.creator.name,
-        scheduled.body,
+        body.html,
         scheduled.plainText,
         JSON.stringify(scheduled.mentions),
+        body.notifies ?? null,
         now,
         now,
         seq,
@@ -1019,9 +1021,10 @@ export class MessageStore {
         clientMessageId: scheduled.clientMessageId,
         roomId: this.roomId,
         creator: scheduled.creator,
-        body: scheduled.body,
+        body: body.html,
         plainText: scheduled.plainText,
         mentions: scheduled.mentions,
+        ...(body.notifies && { notifies: body.notifies }),
         createdAt: now,
         updatedAt: now,
         editedAt: null,

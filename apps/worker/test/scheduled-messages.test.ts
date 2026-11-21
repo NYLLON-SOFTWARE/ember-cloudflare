@@ -8,6 +8,7 @@ import {
   type NewWorkspace,
   type RoomId,
 } from "@ember/protocol";
+import { MENTION_CONTENT_TYPE } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetNow, setNow } from "../src/clock";
@@ -76,6 +77,22 @@ describe("Schedule a message to send later", () => {
     expect(await ada.next("scheduled.sent")).toEqual({ type: "scheduled.sent", scheduledId: scheduled.id });
     expect((await connect(room, "Katherine")).welcome.messages).toEqual([message]);
     expect(await roomSql(room, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
+  });
+
+  it("notifies the room with a special mention it makes once it posts, as a message sent then would", async () => {
+    const clock = freezeClock();
+    const room = await freshRoom("mention later");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    const channel = `<action-text-attachment sgid="channel" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+
+    ada.send({ type: "message.schedule", clientMessageId: "c1", body: `<p>${channel} Standup</p>`, sendAt: clock.iso(clock.now() + 60_000) });
+    await ada.next("scheduled.created");
+    clock.advance(60_000);
+    await ring(room);
+    const { message } = await grace.next("message.created");
+    expect(message).toMatchObject({ plainText: "@channel Standup", notifies: "channel" });
+    expect(await roomSql(room, "SELECT notifies FROM messages WHERE room_id = ?", room)).toEqual([{ notifies: "channel" }]);
   });
 
   it("drops a waiting message when its author cancels it, so the clock advancing posts nothing", async () => {
