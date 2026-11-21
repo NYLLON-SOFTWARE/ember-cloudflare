@@ -93,11 +93,12 @@ function withChanges(people: People, changes: Change[]): People {
  * since has come or failed, `update` changes someone in, as the workspace socket or a change made
  * here says they are now, and `remove` takes someone out of, once the socket says this person is no
  * longer told of them. The people stay as they were when a load fails or the server says they haven't
- * changed. It has `loaded` once a load has come.
+ * changed. It has `loaded` once a load has come, and `settled` once one has come or failed.
  */
-export function useDirectory(): { people: People; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void; remove: (userId: UserId) => void } {
+export function useDirectory(): { people: People; loaded: boolean; settled: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void; remove: (userId: UserId) => void } {
   const [people, setPeople] = useState<People>(() => new Map());
   const [loaded, setLoaded] = useState(false);
+  const [settled, setSettled] = useState(false);
   const [directory] = useState(() => {
     // The last directory the server sent, which it says is still current rather than send again.
     let copy: DirectoryCopy | null = null;
@@ -113,6 +114,7 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
         setLoaded(true);
       } finally {
         changedSince = null;
+        setSettled(true);
       }
     });
     const make = (change: Change) => {
@@ -121,5 +123,5 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
     };
     return { reload: load, update: (user: DirectoryUser) => make(user), remove: (userId: UserId) => make(userId) };
   });
-  return { people, loaded, ...directory };
+  return { people, loaded, settled, ...directory };
 }

@@ -3486,6 +3486,15 @@ describe("Huddles", () => {
         await waitFor(() => expect(ringForHuddle).toHaveBeenCalledTimes(1));
       });
 
+      it("rings when the people directory couldn't load, which leaves whether they've paused them unknown", async () => {
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => Response.json({ error: "Workspace unavailable" }, { status: 503 }) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        await roomHeading();
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        await waitFor(() => expect(ringForHuddle).toHaveBeenCalledTimes(1));
+      });
+
       it("stays quiet once the people directory comes, saying they've paused them", async () => {
         let answer!: (response: Response) => void;
         serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => new Promise<Response>((resolve) => (answer = resolve)) });
