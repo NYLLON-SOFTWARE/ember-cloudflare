@@ -169,7 +169,8 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       const body = bodyAfter(markup, typed.name.length + 1, to.taken);
       const roomId = await to.roomId();
       if (isBlankBody(body)) {
-        navigate(roomPath(roomId));
+        // Unless another room's been opened while /msg asked for its DM.
+        if (open.current) navigate(roomPath(roomId));
         return true;
       }
       // As one written there would, it asks first where it would notify six or more in the room.

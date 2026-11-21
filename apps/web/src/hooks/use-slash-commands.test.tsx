@@ -358,6 +358,24 @@ describe("/ commands", () => {
     expect(flash).toHaveBeenLastCalledWith("alert", "Write /msg, then @someone or #room, then your message.");
   });
 
+  it("opens the DM /msg asks for with nothing to send, unless you've opened another room by the time it has it", async () => {
+    serve({ "POST /api/directs": { room: withGrace } });
+    expect(await runIn(general).run(written("", `<p>/msg ${mention(grace)}</p>`))).toBe(true);
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(roomPath(withGrace.id));
+
+    vi.mocked(navigate).mockClear();
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { run, answers, unmount } = runIn(general);
+    const ran = run(written("", `<p>/msg ${mention(grace)}</p>`));
+    unmount();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    answer(Response.json({ room: withGrace }));
+    expect(await ran).toBe(true);
+    expect(answers).toEqual([{ type: "saved", room: withGrace }]);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("asks first, as the composer asks of a message written in the room, before /msg's message notifies six or more there, keeping it to put right where it's not to go", async () => {
     serve({ "POST /api/directs": { room: withGrace } });
     const { run, onSend, askToNotify } = runIn(general);
