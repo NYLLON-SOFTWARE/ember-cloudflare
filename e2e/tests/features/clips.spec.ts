@@ -3,10 +3,14 @@ import { expect, test, type Member } from "./fixtures";
 
 // Slack's clips: video and audio recorded from the composer, which go as files with the next message.
 
-// A microphone that beeps and a camera with a made-up picture, which a page may use without asking anyone.
-test.use({
-  launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] },
-});
+// A microphone and a camera, which a page may use without asking anyone: Chromium's made-up ones, a
+// microphone that beeps and a camera with a made-up picture, or WebKit's, which a page gets once it's
+// granted them, as Chromium's switches would stop WebKit opening.
+test.use(
+  process.env.E2E_BROWSER === "webkit"
+    ? { permissions: ["camera", "microphone"] }
+    : { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] } },
+);
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
