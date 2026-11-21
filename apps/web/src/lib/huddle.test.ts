@@ -20,6 +20,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { audioEngine } from "@/test-audio-engine";
 import { ANSWER_TIMEOUT_MS, CAMERA_BITRATE, FULL_HD_CAMERA_BITRATE, joinHuddle, LARGE_CAMERA_BITRATE, LISTEN_AGAIN_MS, PUBLISH_AGAIN_MS, SCREEN_BITRATES, SMALL_CAMERA_BITRATE } from "./huddle";
+import { CHECKED_EVERY_MS, LARGER_AFTER_MS, SMALLER_EVERY_MS, STEADY_AFTER } from "./huddle-connection";
 import { CAMERA_WENT_OFF, NO_CAMERA, NO_OTHER_CAMERA, NO_OTHER_MICROPHONE, NO_OTHER_SPEAKER, NO_SCREEN, STILL_NO_MICROPHONE } from "./huddle-devices";
 import { NO_REACTIONS, REACTION_SHOWS_MS } from "./huddle-reactions";
 import { MUSIC_AFTER_MS } from "./huddle-sounds";
@@ -104,6 +105,9 @@ class FakeSocket {
 
 /** Stands in for a microphone's track, a camera's or a shared screen's, or one a connection receives. */
 class FakeTrack extends EventTarget {
+  static made = 0;
+  /** Which it is, as the browser's statistics name it. */
+  readonly id = `track-${++FakeTrack.made}`;
   enabled = true;
   readyState: MediaStreamTrackState = "live";
   contentHint = "";
@@ -199,12 +203,16 @@ class FakeConnection {
   static takingOneSize = false;
   /** Whether a connection can't be made by a relay's servers, as in a browser that can't make sense of one of them. */
   static refusingRelays = false;
+  /** How long round trips to the SFU take on every connection, in seconds, as the browser measures them. */
+  static roundTrip = 0.05;
 
   connectionState: RTCPeerConnectionState = "new";
   onconnectionstatechange: (() => void) | null = null;
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   transceivers: FakeTransceiver[] = [];
+  /** What else the browser measures of the connection, as its statistics have it. */
+  stats: Array<{ type: string; id: string } & Record<string, unknown>> = [];
 
   constructor(readonly configuration: RTCConfiguration) {
     if (FakeConnection.refusingRelays && configuration.iceServers?.some(({ username }) => username !== undefined)) throw new DOMException("Failed to parse the servers", "SyntaxError");
@@ -248,6 +256,14 @@ class FakeConnection {
 
   close() {
     this.connectionState = "closed";
+  }
+
+  async getStats() {
+    const pair = [
+      { type: "transport", id: "transport", selectedCandidatePairId: "pair" },
+      { type: "candidate-pair", id: "pair", currentRoundTripTime: FakeConnection.roundTrip },
+    ];
+    return new Map([...pair, ...this.stats].map((stat) => [stat.id, stat]));
   }
 
   /** Changes the connection's state, as the browser does once it has connected, or can't. */
@@ -434,6 +450,7 @@ beforeEach(() => {
   FakeConnection.keepingTracks = false;
   FakeConnection.takingOneSize = false;
   FakeConnection.refusingRelays = false;
+  FakeConnection.roundTrip = 0.05;
   microphone = new FakeStream([new FakeTrack("audio", "built-in")]);
   camera = new FakeStream([new FakeTrack("video", "front")]);
   display = new FakeStream([new FakeTrack("video")]);
@@ -466,7 +483,7 @@ describe("Joining a huddle", () => {
     joinHuddle({ roomId: "general", muted: false, microphone: microphone as unknown as MediaStream, camera: null, speakerId: "" });
 
     expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/huddle");
-    const joining = { roomId: "general", connected: false, you: null, people: [], muted: false, sticker: null, microphone: true, microphoneId: "built-in", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: true, thread: true };
+    const joining = { roomId: "general", connected: false, you: null, people: [], muted: false, sticker: null, unstable: false, microphone: true, microphoneId: "built-in", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: true, thread: true };
     expect(joinedHuddle()).toEqual(joining);
     expect(shown).toHaveBeenCalledTimes(1);
     // Nothing is asked of the room before it has said who the tab is.
@@ -3574,6 +3591,114 @@ describe("The sticker someone shows in a huddle", () => {
     showHuddleSticker("hand");
     expect(room.take()).toEqual([]);
     expect(joinedHuddle()).toBeNull();
+  });
+});
+
+describe("A huddle on an unstable connection", () => {
+  it("tells the room once round trips to the SFU are too slow, shows it on the tab's own person, and tells the room again once they're quick again", async () => {
+    const room = await joined([person(grace)]);
+    room.take();
+    FakeConnection.roundTrip = 1.5;
+    await wait(CHECKED_EVERY_MS * 2);
+    expect(room.take()).toEqual([{ type: "huddle.connection", unstable: true }]);
+    expect(joinedHuddle()).toMatchObject({ unstable: true, people: [person(grace), person(ada, { audio: false, unstable: true })] });
+
+    FakeConnection.roundTrip = 0.05;
+    await wait(CHECKED_EVERY_MS * (STEADY_AFTER - 1));
+    expect(room.take()).toEqual([]);
+    await wait(CHECKED_EVERY_MS);
+    expect(room.take()).toEqual([{ type: "huddle.connection", unstable: false }]);
+    expect(joinedHuddle()!.unstable).toBe(false);
+    // Whatever the room last said of the tab's own person.
+    room.receive({ type: "huddle.changed", person: person(ada, { audio: false, unstable: true }) });
+    expect(joinedHuddle()!.people).toStrictEqual([person(grace), person(ada, { audio: false })]);
+  });
+
+  it("is told to the room again as it lets the tab back in, which has it as steady", async () => {
+    const room = await joined();
+    FakeConnection.roundTrip = 1.5;
+    await wait(CHECKED_EVERY_MS * 2);
+    room.drop();
+    await wait(500);
+    socket().open();
+    expect((await welcomed()).take()).toContainEqual({ type: "huddle.connection", unstable: true });
+    expect(joinedHuddle()).toMatchObject({ connected: true, unstable: true, people: [person(ada, { audio: false, unstable: true })] });
+    // And not to a room that has it as unstable already.
+    socket().drop();
+    await wait(500);
+    socket().open();
+    expect((await welcomed([], { unstable: true })).take()).not.toContainEqual(expect.objectContaining({ type: "huddle.connection" }));
+  });
+
+  it("takes much lost of what the only other sends to be its own trouble, unless the room says their connection is unstable", async () => {
+    const room = await joined([person(grace, { unstable: true })]);
+    await publishedAndConnected();
+    await offeredRound(["0", grace]);
+    const receiving = connection();
+    const theirs = receiving.transceivers[0]!.receiver.track;
+    let [lost, received] = [0, 0];
+    /** Has the browser measure that a check's worth of her voice came, a tenth of it lost. */
+    const losing = async (checks: number) => {
+      for (let check = 0; check < checks; check++) {
+        [lost, received] = [lost + 10, received + 90];
+        receiving.stats = [{ type: "inbound-rtp", id: "theirs", trackIdentifier: theirs.id, packetsLost: lost, packetsReceived: received }];
+        await wait(CHECKED_EVERY_MS);
+      }
+    };
+    room.take();
+
+    await losing(6);
+    expect(joinedHuddle()!.unstable).toBe(false);
+    room.receive({ type: "huddle.changed", person: person(grace) });
+    await losing(2);
+    expect(joinedHuddle()!.unstable).toBe(false);
+    await losing(1);
+    expect(joinedHuddle()!.unstable).toBe(true);
+    expect(room.take()).toEqual([{ type: "huddle.connection", unstable: true }]);
+  });
+
+  it("asks for the cameras it watches a size smaller while it struggles to receive them, and larger once it's steady, back to the size its tiles show", async () => {
+    const room = await joined([person(grace, { audio: false, video: true })]);
+    await publishedAndConnected();
+    await watchedRound(["0", grace]);
+    room.take();
+    const asked = (size?: "medium" | "small") => ({ type: "huddle.listen", kind: "video", watch: [grace.id], ...(size && { size }) });
+
+    FakeConnection.roundTrip = 1.5;
+    await wait(CHECKED_EVERY_MS * 3);
+    // What it sends struggles a check sooner than what it receives does.
+    expect(room.take()).toEqual([{ type: "huddle.connection", unstable: true }, asked("medium")]);
+    room.receive({ type: "huddle.listening", kind: "video" });
+    await wait(SMALLER_EVERY_MS);
+    expect(room.take()).toEqual([asked("small")]);
+    room.receive({ type: "huddle.listening", kind: "video" });
+
+    FakeConnection.roundTrip = 0.05;
+    await wait(CHECKED_EVERY_MS * STEADY_AFTER);
+    expect(room.take()).toEqual([{ type: "huddle.connection", unstable: false }]);
+    await wait(LARGER_AFTER_MS[0]);
+    expect(room.take()).toEqual([asked("medium")]);
+    room.receive({ type: "huddle.listening", kind: "video" });
+    await wait(LARGER_AFTER_MS[0]);
+    expect(room.take()).toEqual([asked()]);
+    expect([...joinedHuddle()!.watched.keys()]).toEqual([grace.id]);
+  });
+
+  it("asks for them in the size its tiles show, or smaller while it struggles", async () => {
+    const room = await joined([person(grace, { audio: false, video: true })]);
+    await publishedAndConnected();
+    await watchedRound(["0", grace]);
+    FakeConnection.roundTrip = 1.5;
+    await wait(CHECKED_EVERY_MS * 3);
+    room.receive({ type: "huddle.listening", kind: "video" });
+    room.take();
+
+    // Smaller tiles take them smaller still, and larger tiles no larger than it asks for now.
+    takeCamerasIn("small");
+    expect(room.take()).toEqual([{ type: "huddle.listen", kind: "video", watch: [grace.id], size: "small" }]);
+    room.receive({ type: "huddle.listening", kind: "video" });
+    takeCamerasIn("large");
+    expect(room.take()).toEqual([{ type: "huddle.listen", kind: "video", watch: [grace.id], size: "medium" }]);
   });
 });
 

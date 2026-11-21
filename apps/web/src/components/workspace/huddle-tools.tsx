@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Ref } from "react";
 import type { Room, UserId } from "@ember/protocol";
-import { Emoji, MessageText, Microphone, MicrophoneMute, ModernTv, MoreVert, RotateCameraRight, UserPlus, VideoCamera, VideoCameraOff } from "@/components/icons/iconoir";
+import { Emoji, MessageText, Microphone, MicrophoneMute, ModernTv, MoreVert, RotateCameraRight, UserPlus, VideoCamera, VideoCameraOff, WifiWarning } from "@/components/icons/iconoir";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PopoverTrigger } from "@/components/ui/popover";
 import { useCamerasAllowed, useScreensAllowed } from "@/hooks/use-account";
@@ -41,6 +41,15 @@ export function useHuddleName(room: Room | null, meId: UserId): string {
 
 /** What a huddle says in place of who's in it, until the room has let the tab in, and while its connection to the room is down. */
 export const waitingToJoin = (huddle: JoinedHuddle) => (huddle.connected ? null : huddle.you ? "Reconnecting…" : "Connecting…");
+
+/** Whether a huddle says that the tab's connection is unstable: while the room has the tab in, and the tab finds it so. */
+export const isUnstable = (huddle: JoinedHuddle) => huddle.connected && huddle.unstable;
+
+/** What it says then, after the mark the others see on its person's tile. */
+export const UNSTABLE = "Your connection is unstable";
+
+/** That mark, Iconoir's wifi-warning, in a line of text, as tall as its letters are. */
+export const UnstableMark = () => <WifiWarning className="mr-1 inline-block size-[1.2em] align-[-0.25em] text-caution" />;
 
 interface ToolProps {
   huddle: JoinedHuddle;

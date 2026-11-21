@@ -70,8 +70,9 @@ import { acceptAnswer, closeTracks, publishTracks, pullTracks, resizeTracks, Sfu
 // pushed the invitation, which the room sends, as it sends its messages' pushes.
 //
 // The sticker someone shows is in their socket's attachment, as whether they're muted is, and the
-// others hear of it as of that. A reaction is kept nowhere: the room tells everyone in the huddle of
-// it as it comes, and it's gone.
+// others hear of it as of that. So is whether their connection is unstable, which their tab judges
+// and says, and the others' tabs mark on their tile. A reaction is kept nowhere: the room tells
+// everyone in the huddle of it as it comes, and it's gone.
 //
 // The room keeps a message of each huddle among its own (./message.ts), which it brings in step as
 // people join and leave: the huddle tells it that they have, and what it is now. The huddle gives the
@@ -293,6 +294,8 @@ export interface HuddleAttachment {
   muted: boolean;
   /** The sticker the person shows, while they show one. A tab they move to starts with none. */
   sticker?: HuddleSticker;
+  /** Set while the tab says its connection is unstable. A tab they move to starts steady, until it says otherwise. */
+  unstable?: true;
   /** The SFU app the tab's connections are with: a huddle runs through one. */
   appId: string;
   /** The pair that carries the voices: the tab's microphone, and everyone else's. */
@@ -355,13 +358,14 @@ const changeConnections = (ws: WebSocket, kind: HuddleTrackKind, changed: (conne
 /** Whether the others can receive what a tab publishes: its sending connection has connected. */
 const isConnected = (publishing: Publishing | undefined) => publishing?.connectedAt !== undefined;
 
-const personOf = ({ user, muted, sticker, publishing, cameras, screens }: HuddleAttachment): HuddlePerson => ({
+const personOf = ({ user, muted, sticker, unstable, publishing, cameras, screens }: HuddleAttachment): HuddlePerson => ({
   user,
   muted,
   audio: isConnected(publishing),
   video: isConnected(cameras?.publishing),
   screen: isConnected(screens?.publishing),
   ...(sticker && { sticker }),
+  ...(unstable && { unstable }),
 });
 
 const midsOf = (tracks: Array<{ mid: string }>) => tracks.map(({ mid }) => mid);
@@ -558,6 +562,8 @@ export class Huddle {
         return this.invite(ws, frame.userIds);
       case "huddle.sticker":
         return this.showSticker(ws, frame.sticker);
+      case "huddle.connection":
+        return this.showConnection(ws, frame.unstable);
       case "huddle.react":
         return this.react(ws, frame.emoji);
     }
@@ -688,6 +694,12 @@ export class Huddle {
   private showSticker(ws: WebSocket, sticker: HuddleSticker | null): void {
     if ((attachmentOf(ws).sticker ?? null) === sticker) return;
     this.broadcast({ type: "huddle.changed", person: personOf(change(ws, ({ sticker: _, ...attachment }) => ({ ...attachment, ...(sticker && { sticker }) }))) }, ws);
+  }
+
+  /** Tells the others that `ws`'s tab finds its connection unstable now, or steady again. */
+  private showConnection(ws: WebSocket, unstable: boolean): void {
+    if ((attachmentOf(ws).unstable ?? false) === unstable) return;
+    this.broadcast({ type: "huddle.changed", person: personOf(change(ws, ({ unstable: _, ...attachment }) => ({ ...attachment, ...(unstable && { unstable }) }))) }, ws);
   }
 
   /**

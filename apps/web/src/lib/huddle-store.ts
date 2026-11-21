@@ -18,6 +18,11 @@ export interface JoinedHuddle {
   muted: boolean;
   /** The sticker the tab's person shows on their tile, or null while they show none. */
   sticker: HuddleSticker | null;
+  /**
+   * Whether the tab finds its connection to the SFU unstable, as it last measured it: too much of what it
+   * sends or receives lost on the way, or round trips of a second or more (huddle-connection.ts).
+   */
+  unstable: boolean;
   /** Whether the tab has a microphone to unmute. Without one its person only listens. */
   microphone: boolean;
   /** That microphone, by its device's id: empty with none, and where the browser doesn't say which it is. */
