@@ -1,6 +1,6 @@
 import { useContext } from "react";
-import type { Favorites, Involvement, Me, Room, User, UserId } from "@ember/protocol";
-import { ChatBubbleEmpty, MoreHoriz, Search } from "@/components/icons/iconoir";
+import { roomTranscriptPath, type Favorites, type Involvement, type Me, type Room, type User, type UserId } from "@ember/protocol";
+import { ChatBubbleEmpty, Download, MoreHoriz, Search } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
@@ -45,11 +45,11 @@ interface Props {
 
 /**
  * The room header: the room's name, its star, who's here, the huddle button once huddles are on, Search,
- * which opens the search box in the room, the bell, which turns notifications on until they're on and
- * is then your notification level's, and its settings. A DM's has a chat bubble in place of the room's
- * icon, and no star, a huddle button only when it has someone in it to huddle with, which neither a
- * bot nor anyone who can no longer sign in is, and a DM with an AI agent alone the agent badge after its
- * name.
+ * which opens the search box in the room, Download transcript, the bell, which turns notifications on
+ * until they're on and is then your notification level's, and its settings. A DM's has a chat bubble in
+ * place of the room's icon, and no star, a huddle button only when it has someone in it to huddle with,
+ * which neither a bot nor anyone who can no longer sign in is, and a DM with an AI agent alone the agent
+ * badge after its name.
  */
 export function RoomHeader({ room, name, meId, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
@@ -100,7 +100,8 @@ export function RoomHeader({ room, name, meId, present, status, offline, favorit
       {/* The room's actions, 6px apart, and touching at 900px and below. */}
       <div className="flex shrink-0 items-center gap-1.5 max-md:gap-0">
         {huddles && <HuddleButton roomId={room.id} />}
-        {/* A phone under 430px wide has no room for both, and Search is in the drawer's rail too. */}
+        {/* A phone under 430px wide has no room for both, and Search is in the drawer's rail too. Download
+            transcript never fits there, and the room's settings have it. */}
         <PageLink
           href={SEARCHES_PATH}
           title="Search messages"
@@ -110,6 +111,10 @@ export function RoomHeader({ room, name, meId, present, status, offline, favorit
           <Search className="size-5" />
           <span className="sr-only">Search messages</span>
         </PageLink>
+        <a href={roomTranscriptPath(room.id)} download title="Download transcript" className={cn(HEADER_BUTTON, "max-[429px]:hidden")}>
+          <Download className="size-5" />
+          <span className="sr-only">Download transcript</span>
+        </a>
         <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>svg]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MoreHoriz className="size-5" />

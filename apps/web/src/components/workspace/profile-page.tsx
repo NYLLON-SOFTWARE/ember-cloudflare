@@ -49,6 +49,7 @@ import { PicturePicker } from "./picture-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { SingleSignOnConnection } from "./sso-connection";
+import { TranscriptDownload } from "./transcript-download";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
 import { YourApps } from "./your-apps";
 import { YourOutsideAi } from "./your-outside-ai";
@@ -470,6 +471,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         <PauseNotifications meId={me.id} askForPause={askForPause} onFailed={onFailed} />
         {huddleSounds && <HuddleSoundSwitches sounds={huddleSounds} askForSounds={askForHuddleSounds} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
+        <TranscriptDownload heading="Transcript" description="Download every room and DM you're in, as Markdown or JSON. Replies stay with the message they reply to." />
         <BlockedPeople />
         {transferId && <SignInLink transferId={transferId} mine />}
         {fields && <DeleteAccount name={savedName} hasPassword={hasPassword} onDelete={onDeleteAccount} onFailed={onFailed} />}

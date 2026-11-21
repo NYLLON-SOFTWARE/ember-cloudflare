@@ -9,6 +9,7 @@ import { membersShown, roomName } from "@/lib/directs";
 import type { RoomAnswer } from "@/lib/room-list";
 import { DeleteButton, isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
+import { TranscriptDownload } from "./transcript-download";
 import { AvatarLink } from "./user-avatar";
 
 /** What Delete Ping asks first, in the browser's own dialog. */
@@ -71,6 +72,13 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
           ))}
         </section>
         <DeleteButton label="Delete Ping" text="Ping" disabled={busy} onClick={remove} />
+      </Panel>
+      <Panel>
+        <TranscriptDownload
+          roomId={room.id}
+          heading="Transcript"
+          description="Download this ping's messages as Markdown or JSON. Replies stay with the message they reply to."
+        />
       </Panel>
     </SettingsPage>
   );

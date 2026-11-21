@@ -49,7 +49,8 @@ or a few words of your own, and edit or delete what you wrote.
 Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
 says whether you hear about every message, only mentions, or nothing. **Pause notifications** quiets
 them all for half an hour, a few hours or until tomorrow, with a half-moon on your picture meanwhile, as
-Slack's does. You see who's here and who's typing, as it happens.
+Slack's does. You see who's here and who's typing, as it happens. Download a transcript of a room or DM
+you're in, or of every conversation you're in, as Markdown or JSON.
 
 ![Ember's Launch room: a deploy bot's card, reactions, and a thread open beside the room](docs/screenshots/hero.png)
 
