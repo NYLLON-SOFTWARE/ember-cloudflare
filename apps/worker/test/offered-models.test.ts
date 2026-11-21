@@ -703,9 +703,9 @@ describe("Workers AI's models", () => {
       await post(client, `<p>${mention} hello?</p>`);
       await nextAnswer(client);
       client.close();
-      // The only tool it's given is the room's search, which Ember runs.
+      // The only tools it's given are those that read the room, which Ember runs.
       const given = requests.map(({ body }) => (body?.tools as Array<{ type: string; name?: string }> | undefined)?.map(({ type, name }) => [type, name]));
-      expect(given).toEqual([[["function", "search_messages"]]]);
+      expect(given).toEqual([[["function", "search_messages"], ["function", "read_room"], ["function", "read_thread"]]]);
     });
   });
 });

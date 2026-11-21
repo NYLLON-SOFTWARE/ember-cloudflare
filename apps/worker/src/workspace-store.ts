@@ -3495,6 +3495,12 @@ const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
     AND ${askedBy("?3")}
   ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
 
+/** How many people of one name `peopleNamed` finds, as names aren't unique. */
+const NAMESAKES = 5;
+
+/** The first few people named ?1, by id, with ASCII letters in either case alike, as SQLite's NOCASE compares them. */
+const PEOPLE_NAMED = `SELECT id FROM users WHERE name = ?1 COLLATE NOCASE ORDER BY id LIMIT ${NAMESAKES}`;
+
 /** Whether someone in a room can change it: administrators and the room's creator can. */
 const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer`;
 
@@ -5455,6 +5461,11 @@ export class WorkspaceStore {
       statement(NOTIFIED_ACTIVE_MEMBERS, roomId, userId, JSON.stringify(activeIds)),
     ])) as [[{ people: number }], [{ people: number }]];
     return { everyone: everyone!.people, active: active!.people };
+  }
+
+  /** The ids of the first few people named `name`, ignoring the case of ASCII letters (`PEOPLE_NAMED`). */
+  async peopleNamed(name: string): Promise<UserId[]> {
+    return (await this.db.all<{ id: UserId }>(PEOPLE_NAMED, name)).map(({ id }) => id);
   }
 
   /** The kind of room `roomId`, a DM's too, or null when there's no such room. */

@@ -530,9 +530,9 @@ test.describe("@ember", () => {
     await expect(answer).toContainText(`Ada Lovelace: The offsite is in ${word}`);
     await expect(answer).not.toContainText("I'll look.");
     await expect(answer.getByRole("heading", { level: 3 })).toHaveText(/^Ember Agent/);
-    // Its model was asked twice: with the tool, and again with its call and what the search found.
+    // Its model was asked twice: with the room's tools, and again with its call of the search and what it found.
     const [called, answered] = gateway.asked.slice(-2).map(({ body }) => body as { tools: Array<{ name: string }>; messages: Array<{ role: string; content: unknown }> });
-    expect(called!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    expect(called!.tools.map(({ name }) => name)).toEqual(["search_messages", "read_room", "read_thread"]);
     expect(answered!.messages.slice(called!.messages.length)).toEqual([
       { role: "assistant", content: [{ type: "text", text: "I'll look." }, { type: "tool_use", id: "toolu_e2e", name: "search_messages", input: { words: word } }] },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_e2e", content: expect.stringContaining(`Ada Lovelace: The offsite is in ${word}`) }] },

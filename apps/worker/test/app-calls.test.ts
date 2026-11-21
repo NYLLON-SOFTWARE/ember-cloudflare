@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fromApp, toolCallOf, toolCard, toolCards } from "../src/apps/cards";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
 import { CALL_NOT_ALLOWED_NOW, CALL_OUTCOMES, callCard, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW } from "../src/apps/tools";
-import { CALL_WAITS_MS } from "../src/apps/waiting-calls";
+import { CALL_WAITS_MS, type WaitingCall } from "../src/apps/waiting-calls";
+import { MAX_ROOM_READ_LENGTH, READ_ENOUGH } from "../src/assistant/room-tools";
 import { CALL_DECLINED } from "../src/assistant/tool-calls";
 import { slackMessage } from "../src/bots/slack";
 import type { Env } from "../src/env";
@@ -181,6 +182,8 @@ const ephemeralIn = (client: Pick<Client, "log">) => client.log.flatMap((frame) 
 const heardFromEmber = (client: Client) => client.log.some((frame) => frame.type === "message.created" && frame.message.creator.id === EMBER.id);
 
 const CALL: Turn = { calls: [{ name: "Tracker__create_issue", input: { title: "Login fails" } }] };
+/** The tools that read the room, which a model that takes Ember's tools is given first. */
+const ROOM_TOOLS = ["search_messages", "read_room", "read_thread"];
 const buttonsOf = (cards: Card[] | undefined) => (cards ?? []).flatMap(({ parts }) => parts).flatMap((part) => (part.kind === "buttons" ? part.buttons : []));
 const waiting = (room: RoomId) => roomSql(room, "SELECT message_id FROM waiting_calls WHERE room_id = ?", room);
 const calls = () => rpcs.filter(({ method }) => method === "tools/call");
@@ -198,9 +201,9 @@ describe("A call of a connected app's tool", () => {
       { text: "Allow once", action: { id: CALL_ACTIONS.allow, blockId: "ember.call" }, style: "primary" },
       { text: "Deny", action: { id: CALL_ACTIONS.deny, blockId: "ember.call" } },
     ]);
-    // The model was given the picked tool alone of the app's, beside the room's search, by its app's name and its own.
-    expect(asked[0]!.tools.map(({ name }) => name)).toEqual(["search_messages", "Tracker__create_issue"]);
-    const [, given] = asked[0]!.tools;
+    // The model was given the picked tool alone of the app's, after the room's own, by its app's name and its own.
+    expect(asked[0]!.tools.map(({ name }) => name)).toEqual([...ROOM_TOOLS, "Tracker__create_issue"]);
+    const given = asked[0]!.tools.at(-1);
     expect(given!.description).toBe(
       [
         "A tool of Tracker, an app this workspace's administrators connected. Each call waits until the person you're answering allows it, so call it only when they asked for what it does, with what they'd expect.",
@@ -229,6 +232,24 @@ describe("A call of a connected app's tool", () => {
     expect(JSON.stringify(asked)).not.toContain(MCP_TOKEN);
     expect(JSON.stringify(asked)).not.toContain("localhost");
     expect(await waiting(general)).toEqual([]);
+  });
+
+  it("leaves the answer as much of the room to read as it had left when it began to wait", async () => {
+    const { general, inGeneral } = await setUp();
+    await post(inGeneral, "<p>The login page hangs.</p>");
+    const reading = { calls: [{ name: "read_room", input: {} }] };
+    script = [reading, CALL, reading, { text: "I opened #12 for it." }];
+
+    const card = await ask(inGeneral);
+    const [read] = (asked[1]!.messages.at(-1)!.content as Array<{ content: string }>).map(({ content }) => content.split("\n\n"));
+    const [{ call }] = (await roomSql(general, "SELECT call FROM waiting_calls WHERE room_id = ?", general)) as [{ call: string }];
+    expect((JSON.parse(call) as WaitingCall).readLeft).toBe(MAX_ROOM_READ_LENGTH - read!.slice(1, -1).join("").length);
+
+    // With nothing left, the answer reads no more of the room once it goes on.
+    await roomSql(general, "UPDATE waiting_calls SET call = json_set(call, '$.readLeft', 0) WHERE room_id = ?", general);
+    click(inGeneral, card, "allow");
+    expect((await fromEmber(inGeneral)).plainText).toBe("I opened #12 for it.");
+    expect(told()).toEqual([[READ_ENOUGH, true]]);
   });
 
   it("isn't run when it's not allowed, which the model is told, and each call of an answer asks for itself", async () => {
@@ -511,7 +532,7 @@ describe("A call of a connected app's tool", () => {
     const apps = await offered(ada);
     expect(apps.map(({ tools }) => tools)).toEqual([[expect.objectContaining({ name: "create_issue", description: "Opens an issue, and emails everyone.", picked: false, changed: true })]]);
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
-    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(ROOM_TOOLS);
     await pick(ada, ["create_issue"]);
     script = [CALL, { text: "Now I could." }];
     click(inGeneral, await ask(inGeneral), "allow");
@@ -588,7 +609,7 @@ describe("A call of a connected app's tool", () => {
     const { apps } = (await (await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { headers: as(ada) })).json()) as AgentTools;
     expect(apps.map(({ tools }) => tools.map(({ name }) => name))).toEqual([["search_issues"]]);
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
-    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(ROOM_TOOLS);
   });
 
   it("isn't made of an app whose sign-in has ended, which the model is told, until an administrator signs in to it again", async () => {
@@ -620,7 +641,7 @@ describe("A call of a connected app's tool", () => {
     const { inGeneral, ada } = await setUp();
     await pick(ada, []);
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
-    expect(asked[0]!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    expect(asked[0]!.tools.map(({ name }) => name)).toEqual(ROOM_TOOLS);
   });
 });
 
@@ -687,7 +708,7 @@ describe("A call of a tool an administrator always allows an agent", () => {
 
     expect((await ask(inGeneral)).plainText).toBe("I opened #12 for it.");
     expect(await doneDoing(inGeneral)).toEqual(["is typing", "is using Tracker: create_issue", "is typing", "stopped"]);
-    expect(asked[0]!.tools[1]!.description).toBe(
+    expect(asked[0]!.tools[ROOM_TOOLS.length]!.description).toBe(
       [
         "A tool of Tracker, an app this workspace's administrators connected. Each call is made at once, with nobody asked, so call it only when the person you're answering asked for what it does, with what they'd expect.",
         "Tracker calls it: Create issue",
@@ -882,7 +903,7 @@ describe("A call of a tool an administrator always allows an agent", () => {
     expect(app.setAside).toEqual([{ name: "create_issue", gone: true, agents: [{ id: ASSISTANT_ID, name: "Ember" }] }]);
     // Its model is given none of them from then on.
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
-    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(ROOM_TOOLS);
   });
 
   it("asks first all the same in a DM or a private room, from which nothing goes to an app unless someone there allows it", async () => {
@@ -900,7 +921,7 @@ describe("A call of a tool an administrator always allows an agent", () => {
       script = [CALL, { text: "I opened #12 for it." }];
       const card = await asking();
       expect(buttonsOf(card.cards).map(({ text }) => text)).toEqual(["Allow once", "Deny"]);
-      expect(asked.at(-1)!.tools[1]!.description).toMatch(/^A tool of Tracker, an app this workspace's administrators connected\. Each call waits until the person you're answering allows it/);
+      expect(asked.at(-1)!.tools[ROOM_TOOLS.length]!.description).toMatch(/^A tool of Tracker, an app this workspace's administrators connected\. Each call waits until the person you're answering allows it/);
       expect(calls()).toEqual([]);
       expect(await waiting(room)).toEqual([{ message_id: card.id }]);
       click(client, card, "allow");
@@ -1260,7 +1281,7 @@ describe("A call of a tool of an app someone has signed in to themselves, in the
     const card = await askThere(inDm);
     expect(card.plainText).toContain(callNote({ appName: "Tracker", own: true }));
     expect(card.plainText).toContain("It goes to Tracker as you, with the sign-in you made to it yourself.");
-    expect(asked[0]!.tools[1]!.description).toContain("which the person you're answering has signed in to themselves: here, a call of it is made as them.");
+    expect(asked[0]!.tools[ROOM_TOOLS.length]!.description).toContain("which the person you're answering has signed in to themselves: here, a call of it is made as them.");
     expect(calls()).toEqual([]);
     click(inDm, card, "allow");
     expect((await fromEmber(inDm)).plainText).toBe("Opened it as you.");
@@ -1269,7 +1290,7 @@ describe("A call of a tool of an app someone has signed in to themselves, in the
     const there = await connect(general, grace);
     const shared = await ask(there);
     expect(shared.plainText).toContain(callNote({ appName: "Tracker" }));
-    expect(asked.at(-1)!.tools[1]!.description).not.toContain("signed in to themselves");
+    expect(asked.at(-1)!.tools[ROOM_TOOLS.length]!.description).not.toContain("signed in to themselves");
     click(there, shared, "allow");
     expect((await fromEmber(there)).plainText).toBe("Opened it.");
     expect(tokens()).toEqual([`Bearer ${GRACES_TOKEN}`, `Bearer ${MCP_TOKEN}`]);
