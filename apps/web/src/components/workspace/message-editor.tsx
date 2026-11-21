@@ -3,6 +3,7 @@ import type { Message } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
 import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
 import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { RoomsContext } from "@/hooks/use-rooms";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
@@ -37,15 +38,16 @@ export interface MessageEditorHandle {
  * text in Lexxy, with the composer's formatting row above the text on wide screens with a mouse, ruled
  * off from it across the field, and round Save changes and Delete message buttons under it, beside a
  * button that closes it. Ctrl or Cmd+Enter saves, Escape closes it, and Enter starts a new paragraph.
- * The formatting keys format, as they do in the composer, and @ offers the room's people, as its @ does.
- * It takes no files and tells no one you're typing.
+ * The formatting keys format, as they do in the composer, and @ offers the room's people, and # the rooms
+ * you're in, as the composer's do. It takes no files and tells no one you're typing.
  */
 export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
   const formatting = useFormatting(editor);
   const people = useContext(PeopleContext);
-  // The editable body: its mentions as the editor draws them, of the people as they are now, and its link previews
+  const rooms = useContext(RoomsContext);
+  // The editable body: its mentions as the editor draws them, of the people and rooms as they are now, and its link previews
   // as the message shows them here. It drops a mention of no one, and a message from before messages named the
   // people they mention knows them only from the directory, so for such a message the editor waits for the
   // directory to load, when it lists everyone.
@@ -58,6 +60,7 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
         return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
       },
       location.hostname,
+      (roomId) => rooms?.get(roomId),
     );
   const [editable, setEditable] = useState(() => (knowsMentions ? editableNow() : null));
   if (editable === null && knowsMentions) setEditable(editableNow());
@@ -115,6 +118,7 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
                   rows={1}
                   initialValue={editable}
                   mentionsFrom={mentionPromptSrc(message.roomId)}
+                  rooms={rooms}
                   autoFocus
                   onFormatChange={formatting.setFormat}
                   onKeyDown={formatting.keyDown}

@@ -1,8 +1,9 @@
-import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useContext, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { AtSign, Page, Send, SlashSquare, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
+import { RoomsContext } from "@/hooks/use-rooms";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
 import { breaksLine, hasTouchKeyboard, pressedAlone, sendsMessage, uploadsFiles, writesSnippet } from "@/lib/keyboard";
@@ -432,13 +433,13 @@ export interface ComposerHandle {
  * The composer: a card with Slack's formatting row on top, then the editor, and below it Slack's buttons:
  * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
  * Mention someone, Run shortcut, which types / for the commands, and a round Send button, grey until
- * there's something to send. @ offers the room's people to mention, and a / that starts the message
- * Slack's commands Ember can do, a message that starts with one running it. Files picked, pasted or
- * dropped, and snippets, wait above the card to go with the next message. What's written is kept as a
- * draft until it's sent. A thread's has Also send to the room before Send. A message the room won't take
- * for what it says, as one with a word Blocked words keeps out, comes back to be changed, saying why
- * above the card. One whose @channel, @here or @everyone would notify a room of six or more asks first,
- * as Slack's does.
+ * there's something to send. @ offers the room's people to mention, # the rooms you're in, and a / that
+ * starts the message Slack's commands Ember can do, a message that starts with one running it. Files
+ * picked, pasted or dropped, and snippets, wait above the card to go with the next message. What's
+ * written is kept as a draft until it's sent. A thread's has Also send to the room before Send. A message
+ * the room won't take for what it says, as one with a word Blocked words keeps out, comes back to be
+ * changed, saying why above the card. One whose @channel, @here or @everyone would notify a room of six
+ * or more asks first, as Slack's does.
  */
 export function Composer({
   roomId,
@@ -462,6 +463,7 @@ export function Composer({
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const formatting = useFormatting(editor);
+  const rooms = useContext(RoomsContext);
   const [formattingShown, showFormatting] = useFormattingShown();
   const [alsoSend, setAlsoSend] = useState(false);
   const key = draftKey(userId, roomId, threadId);
@@ -783,6 +785,7 @@ export function Composer({
                   mentionsFrom={
                     usage?.name === "invite" || usage?.name === "msg" ? mentionPromptSrc(null) : mentionPromptSrc(roomId, threadId === undefined && !direct)
                   }
+                  rooms={rooms}
                   commands={onCommand && commands}
                   // Under the text on touch screens are the keyboard and the home indicator.
                   mentionsAbove={mentionsAbove || hasTouchKeyboard()}

@@ -283,6 +283,52 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
   white-space: nowrap;
 }
 
+/*
+ * A room where the # prompt lists a person's avatar: its icon, painted in the text color as the sidebar
+ * paints it, through the icon's file, which is kept in forced colors, or else a #.
+ */
+.autocompletable__room {
+  flex-shrink: 0;
+  inline-size: var(--avatar-size);
+  text-align: center;
+}
+
+.autocompletable__room--icon {
+  aspect-ratio: 1;
+  background-color: currentColor;
+  forced-color-adjust: none;
+  mask: var(--room-icon) center / contain no-repeat;
+}
+
+/*
+ * A room mention in the editor, as the message will show it to whoever's writing: the room's name after
+ * a #, in semibold, in the color of a link. A room they're not in, as one in a message they edit can be,
+ * is Iconoir's lock, then "private room", in the muted color, as the project's owner picked.
+ */
+.room-mention {
+  color: var(--link);
+  font-weight: 600;
+}
+
+.room-mention.room-mention--private {
+  color: var(--message-muted);
+  white-space: nowrap;
+
+  &::before {
+    --iconoir: url("../icons/iconoir/lock.svg");
+
+    background-color: currentColor;
+    block-size: 1em;
+    content: "";
+    display: inline-block;
+    forced-color-adjust: none;
+    inline-size: 1em;
+    margin-inline-end: 0.25em;
+    mask: var(--iconoir) center / contain no-repeat;
+    vertical-align: -0.125em;
+  }
+}
+
 :is(.mention, .autocomplete__item) .avatar {
   aspect-ratio: 1;
   background-color: var(--background);

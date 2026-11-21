@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
+import { RoomsContext, type Rooms } from "@/hooks/use-rooms";
 import type { Typist } from "@/lib/room-state";
 import { SHRUG, SLASH_COMMANDS, type CommandRunner, type WrittenCommand } from "@/lib/slash-commands";
 import { createRef, type ReactNode } from "react";
@@ -42,6 +43,7 @@ async function showComposer({
   mentionsAbove = false,
   warns = true,
   onCommand = undefined as CommandRunner | undefined,
+  rooms = null as Rooms | null,
 } = {}) {
   // Hears a link's preview that comes once the message has gone.
   const addPreview = vi.fn((_preview: LinkPreview) => {});
@@ -51,23 +53,25 @@ async function showComposer({
   const composer = createRef<ComposerHandle>();
   const view = render(
     <Warning on={warns}>
-      <Composer
-        ref={composer}
-        roomId={roomId}
-        roomName="general"
-        direct={direct}
-        userId="u1"
-        typing={typing}
-        disabled={disabled}
-        threadId={threadId}
-        onSend={onSend}
-        onSendFiles={onSendFiles}
-        onTyping={onTyping}
-        autoFocus={autoFocus}
-        mentionsAbove={mentionsAbove}
-        commands={onCommand && SLASH_COMMANDS}
-        onCommand={onCommand}
-      />
+      <RoomsContext value={rooms}>
+        <Composer
+          ref={composer}
+          roomId={roomId}
+          roomName="general"
+          direct={direct}
+          userId="u1"
+          typing={typing}
+          disabled={disabled}
+          threadId={threadId}
+          onSend={onSend}
+          onSendFiles={onSendFiles}
+          onTyping={onTyping}
+          autoFocus={autoFocus}
+          mentionsAbove={mentionsAbove}
+          commands={onCommand && SLASH_COMMANDS}
+          onCommand={onCommand}
+        />
+      </RoomsContext>
     </Warning>,
   );
   // The editor loads as the first composer shows.
@@ -126,6 +130,19 @@ describe("Composer", () => {
       view.unmount();
     }
     expect(asked).toEqual(["/api/autocompletable/users?room_id=r1&special_mentions=1", "/api/autocompletable/users?room_id=r1", "/api/autocompletable/users?room_id=r1"]);
+  });
+
+  it("offers the rooms you're in from #, in a room's composer, a thread's and a DM's, and none until they've loaded", async () => {
+    const rooms: Rooms = new Map([
+      ["r1", { id: "r1", kind: "open", name: "general", icon: null }],
+      ["r2", { id: "r2", kind: "closed", name: "Plans", icon: "rocket" }],
+    ]);
+    for (const props of [{}, { threadId: "m1" }, { direct: true }]) {
+      const { input, view } = await showComposer({ ...props, rooms });
+      expect(input).toHaveAttribute("data-rooms", "r1 r2");
+      view.unmount();
+    }
+    expect((await showComposer()).input).toHaveAttribute("data-rooms", "");
   });
 
   it("lists them above the text with a mouse only where it's asked to, as where something under the composer would cut the list off", async () => {

@@ -228,6 +228,12 @@ Objects, D1 or speed call for something else.
   when a message's text last changed. Room migration 0012 turned the plain-text bodies from before
   it into the paragraph Lexxy sends for typed text, in SQL, and set `edited_at` from `updated_at`
   for the messages already edited.
+- **A room mention keeps only the room's id.** A room picked after # is an attachment of
+  `application/vnd.campfire.room` whose sgid is the room's id, with no name in it, so a rename shows
+  at once and no message stores a private room's name. Its plain text says `#name` for an open room
+  and `#private room` for a private one, whoever wrote it, since notifications and search reach
+  people who aren't in the room, and the Worker reads no private room's name for it
+  (`MENTIONED_ROOMS`). Each client names the rooms its sidebar lists, and no others.
 - **A message keeps whom it notified.** Slack's @here, @channel and @everyone mention no one: each is
   an attachment whose sgid is its name, which no user id can be, as a bot's Slack payload makes one
   of its text's `<!here>`, `<!channel>` or `<!everyone>`. As a message is written its room asks

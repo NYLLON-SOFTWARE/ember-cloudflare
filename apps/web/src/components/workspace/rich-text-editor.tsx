@@ -1,6 +1,18 @@
-import { configure, Extension, Lexical, type ElementNode, type LexicalEditor, type LexicalNode, type RangeSelection } from "@37signals/lexxy";
-import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
+import {
+  $isCustomActionTextAttachmentNode,
+  configure,
+  CustomActionTextAttachmentNode,
+  Extension,
+  Lexical,
+  type ElementNode,
+  type LexicalEditor,
+  type LexicalNode,
+  type RangeSelection,
+} from "@37signals/lexxy";
+import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, ROOM_MENTION_CONTENT_TYPE, roomMentionContent } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
+import { roomIconUrl } from "@/components/icons/room-icon";
+import type { RoomCard, Rooms } from "@/hooks/use-rooms";
 import { sameFormat, type FormattingCommand, type LinkDraft, type TextFormat } from "@/lib/formatting";
 import type { SlashCommand } from "@/lib/slash-commands";
 import { registerQuoteLines } from "./quote-lines";
@@ -77,17 +89,34 @@ configure({
   default: { toolbar: false, headings: ["h1", "h2", "h3"] },
 });
 
+/** A `<lexxy-prompt>`, as far as this uses it. */
+type LexxyPrompt = HTMLElement & {
+  /** Its list, from when it first opens. */
+  readonly popoverElement?: HTMLElement | null;
+  /**
+   * Where it finds what it lists, while it's connected: for a prompt of `<lexxy-prompt-item>`s, such as the #
+   * prompt, the items it held as it connected, which Lexxy reads only then.
+   */
+  readonly source?: { inlinePromptItemElements?: Element[] } | null;
+};
+
 /**
  * The @ prompt: typing @ lists the people `src` answers with as prompt items, those whose names hold
  * what follows the @, which Lexxy adds as `filter`. Lexxy opens the list under the cursor where it fits
  * the window, or else above it, or always above it with `above`.
  */
-function mentionPrompt(src: string, above: boolean): HTMLElement {
-  const prompt = document.createElement("lexxy-prompt");
-  const attributes = { trigger: "@", name: "mention", src, "remote-filtering": "true", "empty-results": "No matches" };
-  for (const [name, value] of Object.entries(attributes)) prompt.setAttribute(name, value);
-  if (above) prompt.setAttribute("vertical-direction", "top");
-  return prompt;
+function mentionPrompt(src: string, above: boolean): LexxyPrompt {
+  return lexxyPrompt({ trigger: "@", name: "mention", src, "remote-filtering": "true", "empty-results": "No matches" }, above);
+}
+
+/**
+ * The # prompt: typing # lists the rooms `offerRooms` gives it whose names have a word starting with what
+ * follows the #, spaces and all, since a room's name can have them, as Slack's # lists channels. Picking one
+ * writes a mention of it, which Lexxy gives the `room` prompt's content type, ROOM_MENTION_CONTENT_TYPE. Its
+ * list opens where the @ prompt's does, and closes once it lists nothing (`closeListOnNoMatch`).
+ */
+function roomPrompt(above: boolean): LexxyPrompt {
+  return lexxyPrompt({ trigger: "#", name: "room", "supports-space-in-searches": "", "empty-results": "No matches" }, above);
 }
 
 /**
@@ -96,20 +125,55 @@ function mentionPrompt(src: string, above: boolean): HTMLElement {
  * list is. Picking one, with Enter, Tab or a click, writes its name after the /, and a space, while a
  * space typed ends the name as it's written.
  */
-function commandPrompt(commands: readonly SlashCommand[]): HTMLElement {
-  const prompt = document.createElement("lexxy-prompt");
-  const attributes = { trigger: "/", name: "command", "only-at": "^", "insert-editable-text": "", "vertical-direction": "top", "empty-results": "No matching commands" };
-  for (const [name, value] of Object.entries(attributes)) prompt.setAttribute(name, value);
+function commandPrompt(commands: readonly SlashCommand[]): LexxyPrompt {
+  const prompt = lexxyPrompt({ trigger: "/", name: "command", "only-at": "^", "insert-editable-text": "", "empty-results": "No matching commands" }, true);
   prompt.append(...commands.map(commandItem));
   return prompt;
 }
 
+/** A `<lexxy-prompt>` of `attributes`, whose list shows above the text, even where there's room below it, with `above`. */
+function lexxyPrompt(attributes: Record<string, string>, above: boolean): LexxyPrompt {
+  const element = document.createElement("lexxy-prompt");
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+  if (above) element.setAttribute("vertical-direction", "top");
+  return element;
+}
+
+/**
+ * Has the # prompt list `rooms`, in their order, from the next time it opens its list or narrows it.
+ * Lexxy reads a prompt's items only as it connects, so once it has, they're given to what it lists from.
+ */
+function offerRooms(prompt: LexxyPrompt, rooms: Rooms | null) {
+  const items = [...(rooms?.values() ?? [])].map(roomPromptItem);
+  prompt.replaceChildren(...items);
+  if (prompt.source) prompt.source.inlinePromptItemElements = items;
+}
+
+/**
+ * A room as the # prompt lists it, where the @ prompt lists someone's avatar and name: its icon, or a #, as
+ * the sidebar shows it, then its name, and the mention picking it writes.
+ */
+function roomPromptItem(room: RoomCard): HTMLElement {
+  const icon = Object.assign(document.createElement("span"), { className: "autocompletable__room" });
+  icon.setAttribute("aria-hidden", "true");
+  if (room.icon) {
+    icon.classList.add("autocompletable__room--icon");
+    icon.style.setProperty("--room-icon", `url("${roomIconUrl(room.icon)}")`);
+  } else {
+    icon.textContent = "#";
+  }
+  const name = Object.assign(document.createElement("span"), { className: "autocompletable__name", textContent: room.name });
+  const row = Object.assign(document.createElement("span"), { className: "autocomplete__item" });
+  row.append(icon, name);
+  const item = document.createElement("lexxy-prompt-item");
+  item.setAttribute("search", room.name);
+  item.setAttribute("sgid", room.id);
+  item.append(template("menu", row), template("editor", roomMentionContent(room)));
+  return item;
+}
+
 /** A command as the / prompt lists it: its name and what it takes, over what it does. */
 function commandItem({ name, usage, description }: SlashCommand): HTMLElement {
-  const item = document.createElement("lexxy-prompt-item");
-  item.setAttribute("search", name);
-  const menu = document.createElement("template");
-  menu.setAttribute("type", "menu");
   const row = document.createElement("span");
   row.className = "command";
   row.dataset.command = name;
@@ -121,22 +185,133 @@ function commandItem({ name, usage, description }: SlashCommand): HTMLElement {
   if (usage) title.append(" ", Object.assign(document.createElement("span"), { className: "command__usage", textContent: usage }));
   // The space reads between them, though the grid shows none.
   row.append(title, " ", Object.assign(document.createElement("span"), { className: "command__description", textContent: description }));
-  menu.content.append(row);
-  const editor = document.createElement("template");
-  editor.setAttribute("type", "editor");
-  editor.content.append(`/${name}`);
-  item.append(menu, editor);
+  const item = document.createElement("lexxy-prompt-item");
+  item.setAttribute("search", name);
+  item.append(template("menu", row), template("editor", document.createTextNode(`/${name}`)));
   return item;
+}
+
+/** A prompt item's `<template>` of `type`, holding `content`, a node or markup. */
+function template(type: "menu" | "editor", content: Node | string): HTMLTemplateElement {
+  const element = document.createElement("template");
+  element.setAttribute("type", type);
+  if (typeof content === "string") element.innerHTML = content;
+  else element.content.append(content);
+  return element;
 }
 
 /** The class Lexxy gives a prompt's list while it shows. */
 const LIST_SHOWN = "lexxy-prompt-menu--visible";
 
+/** The class Lexxy gives a prompt's list while it says it found nothing, its `empty-results`. */
+const LIST_EMPTY = "lexxy-prompt-menu--empty";
+
+/**
+ * Calls `heard` with each record of a change to the class or `data-anchored` of a list `lexxy`'s prompts
+ * add to it, which each does as it first opens its list, and with the record of its adding.
+ */
+function followLists(lexxy: LexxyEditor, heard: (record: MutationRecord, list: Element) => void): MutationObserver {
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "attributes") heard(record, record.target as Element);
+      for (const added of record.addedNodes) {
+        if (!(added instanceof Element) || !added.classList.contains("lexxy-prompt-menu")) continue;
+        heard(record, added);
+        observer.observe(added, { attributeFilter: ["class", "data-anchored"], attributeOldValue: true });
+      }
+    }
+  });
+  observer.observe(lexxy, { childList: true });
+  return observer;
+}
+
 /** Marks the `lexxy:change` that has a prompt look again at what's typed, which changes nothing written. */
 const LOOK_AGAIN = Symbol("look again");
 
-/** What starts what a list lists for: a / for the commands, which are written into it, and otherwise an @ for the people. */
-const triggerOf = (list: Element) => (list.querySelector("[data-command]") ? "/" : "@");
+/**
+ * Has `lexxy`'s prompt `prompt` list what it finds for what's typed after its trigger as the list shows,
+ * when that's changed since the prompt read it. Lexxy (0.9.24, and still 1.0.1) hears what's typed only
+ * once the list shows, a frame or a fetch after it reads what's typed, so a quick "@ka" would list
+ * everyone, and a quick "#ra" every room, until the next key. Lexxy reads what's typed as it adds the
+ * list to the editor, and as it unpins the list (`data-anchored`) to open it again. Until the list shows,
+ * the prompt hasn't said which list is its own, so what's typed is kept for each. Where `ended` says
+ * what's typed by then has ended what the list is for, the list closes as it shows instead, as the
+ * commands' list, which shows a frame after the /, does where a space or another / typed before then, as
+ * quick typing or a busy page has it, has ended the name, as it would have for that key had it shown,
+ * rather than staying open until the next key.
+ */
+function lookAgainAsListShows(lexxy: LexxyEditor, prompt: LexxyPrompt, ended = () => false): MutationObserver {
+  const trigger = prompt.getAttribute("trigger")!;
+  const typed = () => lexxy.contents.textBackUntil(trigger);
+  const asked = new WeakMap<Element, string>();
+  return followLists(lexxy, ({ type, attributeName, oldValue }, list) => {
+    if (type === "childList" || (attributeName === "data-anchored" && !list.hasAttribute("data-anchored"))) {
+      asked.set(list, typed());
+    } else if (attributeName === "class" && list === prompt.popoverElement && list.classList.contains(LIST_SHOWN) && !oldValue?.includes(LIST_SHOWN)) {
+      if (ended()) closePrompt(lexxy);
+      else if (typed() !== asked.get(list)) lexxy.dispatchEvent(new CustomEvent("lexxy:change", { detail: LOOK_AGAIN }));
+    }
+  });
+}
+
+/**
+ * Closes the list of `lexxy`'s prompt `prompt` once it finds nothing for what's typed, as Slack's # list
+ * does, while it's the only list open and the text has focus, rather than leaving it to take the next Enter
+ * or Tab, as Lexxy does, so a # before anything but a room, as in "#1", is only text. The list closes as Tab
+ * closes one that lists nothing: Lexxy (0.9.24) closes its lists only as a key is pressed for them.
+ */
+function closeListOnNoMatch(lexxy: LexxyEditor, prompt: LexxyPrompt): MutationObserver {
+  return followLists(lexxy, (_, list) => {
+    const open = lexxy.querySelectorAll(`.lexxy-prompt-menu.${LIST_SHOWN}`);
+    if (list !== prompt.popoverElement || !list.classList.contains(LIST_EMPTY) || open.length !== 1 || open[0] !== list || !hasFocus(lexxy)) return;
+    lexxy.editor.dispatchCommand(Lexical.KEY_TAB_COMMAND, new KeyboardEvent("keydown", { key: "Tab" }));
+  });
+}
+
+/** The editors whose room mentions `showRoomsAsTheyAre` is changing, which changes nobody's writing. */
+const showingRooms = new WeakSet<HTMLElement>();
+
+/**
+ * Shows each room `lexxy`'s text mentions as `rooms` has it now: by its name as it is, or as a private
+ * room once it's left, rather than as it was when it was picked, or when the draft it's in was kept. What's
+ * sent names the rooms as they are anyway, so this tells nobody of a change, as the room would hear you
+ * typing, and leaves undo and the cursor as they were.
+ */
+function showRoomsAsTheyAre(lexxy: LexxyEditor, rooms: Rooms) {
+  const shown = (mention: CustomActionTextAttachmentNode) => roomMentionContent(rooms.get(mention.sgid));
+  const stale = lexxy.editor.getEditorState().read(() => $roomMentions().filter((mention) => mention.innerHtml !== shown(mention)).map((mention) => mention.getKey()));
+  if (stale.length === 0) return;
+  // Lexical puts the page's selection where its own is after a change, which would take focus to the text.
+  const tags = hasFocus(lexxy) ? [Lexical.HISTORY_MERGE_TAG] : [Lexical.HISTORY_MERGE_TAG, Lexical.SKIP_DOM_SELECTION_TAG];
+  showingRooms.add(lexxy);
+  try {
+    // Lexxy draws an attachment once, so each is shown again as a new one in its place.
+    lexxy.editor.update(
+      () => {
+        for (const mention of stale.map((key) => Lexical.$getNodeByKey(key))) {
+          if (!$isCustomActionTextAttachmentNode(mention)) continue;
+          const { tagName, sgid, contentType } = mention;
+          mention.replace(new CustomActionTextAttachmentNode({ tagName, sgid, contentType, innerHtml: shown(mention) }));
+        }
+      },
+      { discrete: true, tag: tags },
+    );
+  } finally {
+    showingRooms.delete(lexxy);
+  }
+}
+
+/** The mentions of rooms in the editor's text, in order, in a read or an update of it. */
+function $roomMentions(): CustomActionTextAttachmentNode[] {
+  const found: CustomActionTextAttachmentNode[] = [];
+  const visit = (node: LexicalNode) => {
+    if ($isCustomActionTextAttachmentNode(node)) {
+      if (node.contentType === ROOM_MENTION_CONTENT_TYPE) found.push(node);
+    } else if (Lexical.$isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  visit(Lexical.$getRoot());
+  return found;
+}
 
 /** What's written between the / that starts the message and the cursor, where nothing's selected. */
 function commandNameWritten(lexxy: LexxyEditor): string {
@@ -149,51 +324,9 @@ function commandNameWritten(lexxy: LexxyEditor): string {
   });
 }
 
-/**
- * Has `lexxy`'s prompts list what's typed after their @ or / as the list shows, when that's changed since
- * the prompt asked for the list. Lexxy (0.9.24, and still 1.0.1) hears what's typed only once the list
- * shows, so a quick "@ka" would list everyone until the next key. Lexxy reads what's typed as it adds a
- * list to the editor, and as it unpins the list (`data-anchored`) to open it again. The commands' list,
- * which shows a frame after the /, closes as it shows where a space or another / typed before then, as
- * quick typing or a busy page has it, has ended the name, as it would have for that key had it shown,
- * rather than staying open until the next key.
- */
-function lookAgainAsListShows(lexxy: LexxyEditor): MutationObserver {
-  const typed = (trigger: string) => lexxy.contents.textBackUntil(trigger);
-  // What each list was asked for, by the list.
-  const asked = new WeakMap<Element, { trigger: string; typed: string }>();
-  const observer = new MutationObserver((records) => {
-    for (const { type, target, addedNodes, attributeName, oldValue } of records) {
-      if (type === "childList") {
-        for (const added of addedNodes) {
-          if (!(added instanceof Element && added.classList.contains("lexxy-prompt-menu"))) continue;
-          const trigger = triggerOf(added);
-          asked.set(added, { trigger, typed: typed(trigger) });
-          observer.observe(added, { attributeFilter: ["class", "data-anchored"], attributeOldValue: true });
-        }
-        continue;
-      }
-      const list = target as Element;
-      const prompt = asked.get(list);
-      if (!prompt) continue;
-      if (attributeName === "data-anchored") {
-        if (!list.hasAttribute("data-anchored")) prompt.typed = typed(prompt.trigger);
-      } else if (list.classList.contains(LIST_SHOWN) && !oldValue?.includes(LIST_SHOWN)) {
-        if (prompt.trigger === "/" && endsCommandName(commandNameWritten(lexxy))) closePrompt(lexxy);
-        else if (typed(prompt.trigger) !== prompt.typed) lexxy.dispatchEvent(new CustomEvent("lexxy:change", { detail: LOOK_AGAIN }));
-      }
-    }
-  });
-  observer.observe(lexxy, { childList: true });
-  return observer;
-}
-
-/** The / prompt, which keeps its list as `popoverElement` once it's first shown. */
-type CommandPrompt = HTMLElement & { popoverElement?: HTMLElement | null };
-
 /** The / prompt's list while it shows. */
 function shownCommands(lexxy: LexxyEditor): HTMLElement | null {
-  const list = lexxy.querySelector<CommandPrompt>('lexxy-prompt[name="command"]')?.popoverElement;
+  const list = lexxy.querySelector<LexxyPrompt>('lexxy-prompt[name="command"]')?.popoverElement;
   return list?.classList.contains(LIST_SHOWN) ? list : null;
 }
 
@@ -417,7 +550,12 @@ interface Props {
   initialValue?: string;
   /** Where its @ prompt asks for the people it offers (`mentionPromptSrc`). Without it, @ is just @. */
   mentionsFrom?: string;
-  /** Whether the people @ lists show above the text even where there's room below it. */
+  /**
+   * The rooms its # prompt offers, which it follows as they change: those whoever's writing is in, or null
+   * while they're loading, when it offers none. Without them, as it opens, # is just #.
+   */
+  rooms?: Rooms | null;
+  /** Whether the people @ lists, and the rooms # does, show above the text even where there's room below it; # reads it as it opens. */
   mentionsAbove?: boolean;
   /** The commands a message can start with, which a / at its start lists. Without them, / is just /. */
   commands?: readonly SlashCommand[];
@@ -449,6 +587,7 @@ export default function RichTextEditor({
   rows,
   initialValue,
   mentionsFrom,
+  rooms,
   mentionsAbove = false,
   commands,
   autoFocus = false,
@@ -461,6 +600,9 @@ export default function RichTextEditor({
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<LexxyEditor>(null);
+  // Whether the editor's ready, from when Lexxy has read what it opens with until it goes.
+  const initialized = useRef(false);
+  const roomsPrompt = useRef<LexxyPrompt>(null);
 
   useImperativeHandle(ref, () => ({
     value: () => editor.current?.value ?? "",
@@ -556,6 +698,7 @@ export default function RichTextEditor({
   const keyPressed = useEffectEvent((event: KeyboardEvent) => onKeyDown?.(event));
   const linkPasted = useEffectEvent((link: PastedLink) => onLinkPasted?.(link));
   const ready = useEffectEvent((lexxy: LexxyEditor) => {
+    if (rooms) showRoomsAsTheyAre(lexxy, rooms);
     onReady?.();
     if (!(typeof autoFocus === "function" ? autoFocus() : autoFocus)) return;
     lexxy.focus();
@@ -578,12 +721,12 @@ export default function RichTextEditor({
     const lexxy = document.createElement("lexxy-editor") as LexxyEditor;
     lexxy.className = "lexxy-content";
     lexxy.setAttribute("rows", String(rows));
-    // Mentions and link previews, which only the composer adds, but every editor keeps.
-    lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
+    // Mentions of people and rooms, and link previews, which only the composer adds, but every editor keeps.
+    lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${ROOM_MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
     // Read as the editor connects, without telling anyone it changed.
     if (initialValue) lexxy.setAttribute("value", initialValue);
     lexxy.addEventListener("lexxy:change", (event) => {
-      if ((event as CustomEvent).detail !== LOOK_AGAIN) changed();
+      if ((event as CustomEvent).detail !== LOOK_AGAIN && !showingRooms.has(lexxy)) changed();
     });
     let unfollow: (() => void) | undefined;
     let unkeep: (() => void) | undefined;
@@ -592,6 +735,7 @@ export default function RichTextEditor({
       () => {
         unfollow = followFormat(lexxy);
         unkeep = keepSelectionWhileAway(lexxy);
+        initialized.current = true;
         ready(lexxy);
       },
       { once: true },
@@ -620,15 +764,23 @@ export default function RichTextEditor({
       },
       { capture: true },
     );
-    const prompting = lookAgainAsListShows(lexxy);
+    // Inside the editor, which finds it there as it connects, and the rooms it offers later.
+    const following: MutationObserver[] = [];
+    if (rooms !== undefined) {
+      roomsPrompt.current = roomPrompt(mentionsAbove);
+      lexxy.append(roomsPrompt.current);
+      following.push(lookAgainAsListShows(lexxy, roomsPrompt.current), closeListOnNoMatch(lexxy, roomsPrompt.current));
+    }
     editor.current = lexxy;
     host.current!.append(lexxy);
     return () => {
-      prompting.disconnect();
+      for (const observer of following) observer.disconnect();
       unfollow?.();
       unkeep?.();
       lexxy.remove();
       editor.current = null;
+      initialized.current = false;
+      roomsPrompt.current = null;
     };
   }, []);
 
@@ -636,19 +788,34 @@ export default function RichTextEditor({
   // connects, so asking elsewhere takes another prompt.
   useEffect(() => {
     if (!mentionsFrom) return;
+    const lexxy = editor.current!;
     const prompt = mentionPrompt(mentionsFrom, mentionsAbove);
-    editor.current!.append(prompt);
-    return () => prompt.remove();
+    lexxy.append(prompt);
+    const following = lookAgainAsListShows(lexxy, prompt);
+    return () => {
+      following.disconnect();
+      prompt.remove();
+    };
   }, [mentionsFrom, mentionsAbove]);
+
+  useEffect(() => {
+    if (roomsPrompt.current) offerRooms(roomsPrompt.current, rooms ?? null);
+    if (rooms && initialized.current) showRoomsAsTheyAre(editor.current!, rooms);
+  }, [rooms]);
 
   // The / prompt lists the commands there are now. Lexxy reads a prompt's items as it connects, so other
   // commands, as their names tell, take another prompt.
   const commandNames = commands?.map(({ name }) => name).join(" ") ?? "";
   useEffect(() => {
     if (!commands?.length) return;
+    const lexxy = editor.current!;
     const prompt = commandPrompt(commands);
-    editor.current!.append(prompt);
-    return () => prompt.remove();
+    lexxy.append(prompt);
+    const following = lookAgainAsListShows(lexxy, prompt, () => endsCommandName(commandNameWritten(lexxy)));
+    return () => {
+      following.disconnect();
+      prompt.remove();
+    };
   }, [commandNames]);
 
   // Lexxy copies its label and placeholder to its contenteditable only as it connects.
