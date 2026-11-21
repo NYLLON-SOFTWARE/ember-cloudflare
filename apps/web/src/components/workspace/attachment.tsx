@@ -21,14 +21,15 @@ const FOLDED = "max-h-[calc(5lh+2em+2px)] overflow-y-hidden after:sticky after:-
 
 /**
  * A file message's file:
- * an SVG of up to 5 MiB shows above its card, a video plays in place, a text file of up to 64 KiB, as a
- * snippet is, shows its text above its card, a picture shows its thumbnail, or without one, as a bot's has
- * none, itself if it's a picture every browser shows of up to 5 MiB and 250 megapixels, and every other
- * file shows its card.
+ * an SVG of up to 5 MiB shows above its card, a video or a recording of sound, as a clip is, plays in
+ * place, a text file of up to 64 KiB, as a snippet is, shows its text above its card, a picture shows its
+ * thumbnail, or without one, as a bot's has none, itself if it's a picture every browser shows of up to
+ * 5 MiB and 250 megapixels, and every other file shows its card.
  */
 export function Attachment({ file }: { file: StoredFile }) {
   if (file.contentType === "image/svg+xml" && file.byteSize <= MAX_PREVIEW_SIZE) return <SvgPreview file={file} />;
   if (file.contentType.startsWith("video")) return <VideoPreview file={file} />;
+  if (file.contentType.startsWith("audio")) return <AudioPreview file={file} />;
   if (showsText(file)) return <TextPreview file={file} />;
   const picture = file.previewUrl ?? (showsItself(file) && file.byteSize <= MAX_PREVIEW_SIZE ? file.url : null);
   return picture ? <PicturePreview file={file} src={picture} /> : <FileCard file={file} />;
@@ -109,6 +110,14 @@ function VideoPreview({ file }: { file: StoredFile }) {
       />
     </div>
   );
+}
+
+/**
+ * A recording of sound, as an audio clip is, which plays in place, loading only how long it is until it's played. It's
+ * named for its file. Its width is a length, which a follow-up's column fits, as it can't fit a percentage.
+ */
+function AudioPreview({ file }: { file: StoredFile }) {
+  return <audio src={file.url} controls preload="metadata" aria-label={file.name} className="block w-[360px] max-w-full" />;
 }
 
 /**

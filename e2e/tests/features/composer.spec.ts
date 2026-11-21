@@ -105,7 +105,7 @@ test.describe("Composer", () => {
     expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(fieldBox.y);
     expect(sendBox.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height);
     let left = 0;
-    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone", "Run shortcut"]) {
+    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone", "Record video clip", "Record audio clip", "Run shortcut"]) {
       const buttonBox = await box(underText(ada, name));
       expect(buttonBox.y, name).toBe(sendBox.y);
       expect(buttonBox.x, name).toBeGreaterThan(left);
@@ -702,6 +702,8 @@ test.describe("Buttons under the text", () => {
       ["Show formatting", "Hide formatting"],
       ["Emoji", "Emoji"],
       ["Mention someone", "Mention someone"],
+      ["Record video clip", "Record video clip"],
+      ["Record audio clip", "Record audio clip"],
       ["Run shortcut", "Run shortcut"],
       ["Send Message", "Send message"],
     ] as const;

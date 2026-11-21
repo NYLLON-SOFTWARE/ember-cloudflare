@@ -1,10 +1,13 @@
-import { Suspense, useContext, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { lazy, Suspense, useContext, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { flushSync } from "react-dom";
 import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { AtSign, Page, Send, SlashSquare, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
+import { AtSign, Microphone, Page, Send, SlashSquare, TextSquare, VideoCamera, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { RoomsContext } from "@/hooks/use-rooms";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
+import { recordsClips, type ClipKind } from "@/lib/clips";
+import { previewOf } from "@/lib/previews";
 import { dropTarget } from "@/lib/drop-target";
 import { breaksLine, hasTouchKeyboard, pressedAlone, sendsMessage, uploadsFiles, writesSnippet } from "@/lib/keyboard";
 import type { Typist } from "@/lib/room-state";
@@ -18,6 +21,10 @@ import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolb
 import { useNotifyConfirm } from "./notify-confirm";
 import { ShortcutTooltip } from "./shortcut-tooltip";
 import { SnippetDialog } from "./snippet-dialog";
+
+// The clips' recorders, which load with the pages few visits need (pages.ts), whose huddles' cameras they share.
+const VideoClipDialog = lazy(() => import("./pages").then((pages) => ({ default: pages.VideoClipDialog })));
+const AudioClipRecorder = lazy(() => import("./pages").then((pages) => ({ default: pages.AudioClipRecorder })));
 
 /**
  * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
@@ -58,6 +65,9 @@ const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center 
 
 /** A button under the text but Send and Slack's +, square, and lit on hover. */
 const TOOL = cn(BUTTON, "rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover aria-expanded:bg-hover");
+
+/** Record video clip and Record audio clip, which give way on touch screens, and in a card narrower than the row's eight buttons, 270px. */
+const CLIP_BUTTON = "touch:hidden @max-[17rem]:hidden";
 
 /**
  * Where what someone has written in a room, or in one of its threads, and not yet sent is kept in this
@@ -305,24 +315,31 @@ function splitName(name: string): [string, string] {
 }
 
 /**
- * The address of a picture's thumbnail, which is let go once its chip goes.
+ * The address of a picture's thumbnail, or of a video's poster once it's taken, the one its message will show, as
+ * a clip's is from where its thumbnail was chosen. It's let go once its chip goes.
  */
 function useThumbnail(file: File): string | undefined {
   const [thumbnail, setThumbnail] = useState<string>();
   useLayoutEffect(() => {
-    if (!isImage(file)) return;
-    const url = URL.createObjectURL(file);
-    setThumbnail(url);
-    return () => URL.revokeObjectURL(url);
+    let url: string | undefined;
+    let gone = false;
+    const show = (picture: Blob) => {
+      if (!gone) setThumbnail((url = URL.createObjectURL(picture)));
+    };
+    if (file.type.startsWith("image/")) show(file);
+    else if (file.type.startsWith("video/")) void previewOf(file).then((poster) => poster && show(poster));
+    return () => {
+      gone = true;
+      if (url) URL.revokeObjectURL(url);
+    };
   }, [file]);
   return thumbnail;
 }
 
-const isImage = (file: File) => file.type.startsWith("image/");
-
 /**
- * A file picked to send, styled by Campfire's composer.css: a picture's thumbnail, or a file icon, over
- * its name and a circled ×. Pressing it takes the file back out, which it says to screen readers too.
+ * A file picked to send, styled by Campfire's composer.css: a picture's thumbnail, or a video's poster, as
+ * Slack shows a clip, or a file icon, over its name and a circled ×. Pressing it takes the file back out,
+ * which it says to screen readers too.
  */
 function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
   const thumbnail = useThumbnail(file);
@@ -330,7 +347,7 @@ function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
   const tile = "aspect-[5/4] w-full shrink-0 rounded-[1em] border border-muted-foreground";
   return (
     <button type="button" aria-label={`Remove ${file.name}`} onClick={onRemove} className="flex w-[100px] cursor-pointer flex-col items-center rounded-[1em]">
-      {isImage(file) ? (
+      {thumbnail ? (
         <img src={thumbnail} alt="" className={cn(tile, "object-cover")} />
       ) : (
         <span className={cn(tile, "flex items-center justify-center")}>
@@ -432,14 +449,15 @@ export interface ComposerHandle {
 /**
  * The composer: a card with Slack's formatting row on top, then the editor, and below it Slack's buttons:
  * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
- * Mention someone, Run shortcut, which types / for the commands, and a round Send button, grey until
- * there's something to send. @ offers the room's people to mention, # the rooms you're in, and a / that
- * starts the message Slack's commands Ember can do, a message that starts with one running it. Files
- * picked, pasted or dropped, and snippets, wait above the card to go with the next message. What's
- * written is kept as a draft until it's sent. A thread's has Also send to the room before Send. A message
- * the room won't take for what it says, as one with a word Blocked words keeps out, comes back to be
- * changed, saying why above the card. One whose @channel, @here or @everyone would notify a room of six
- * or more asks first, as Slack's does.
+ * Mention someone, Record video clip and Record audio clip, which are in + where the row has no room for
+ * them, as on touch screens, as in Slack's apps, Run shortcut, which types / for the commands, and a round
+ * Send button, grey until there's something to send. @ offers the room's people to mention, # the rooms
+ * you're in, and a / that starts the message Slack's commands Ember can do, a message that starts with one
+ * running it. Files picked, pasted or dropped, snippets and clips wait above the card to go with the next
+ * message. What's written is kept as a draft until it's sent. A thread's has Also send to the room before
+ * Send. A message the room won't take for what it says, as one with a word Blocked words keeps out, comes
+ * back to be changed, saying why above the card. One whose @channel, @here or @everyone would notify a
+ * room of six or more asks first, as Slack's does.
  */
 export function Composer({
   roomId,
@@ -483,10 +501,14 @@ export function Composer({
   // Whether nothing's written, which, with no files picked, leaves Send grey, as Slack's is.
   const [blank, setBlank] = useState(!draft);
   const [writingSnippet, setWritingSnippet] = useState(false);
+  // The clip being recorded: a video clip in its dialog, or an audio clip over the card. Where the browser can't record one, there are no buttons for them.
+  const [recordingClip, setRecordingClip] = useState<ClipKind | null>(null);
+  const [clips] = useState(recordsClips);
   // Whether the editor can be written in, which Emoji and Mention someone wait for, since what they wrote before
   // would be lost.
   const [editorReady, setEditorReady] = useState(false);
   const fileField = useRef<HTMLInputElement>(null);
+  const videoClipButton = useRef<HTMLButtonElement>(null);
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
   // Whether Quote wrote what the editor opens with, before it showed, so it takes focus as Quote has it do.
@@ -692,6 +714,12 @@ export function Composer({
     else send();
   };
 
+  // Puts focus back in the text as the clip's recorder goes, once the recorder, which kept the text from it, has gone.
+  const closeClip = () => {
+    flushSync(() => setRecordingClip(null));
+    editor.current?.focus();
+  };
+
   const keyDown = (event: KeyboardEvent) => {
     if (formatting.keyDown(event)) return;
     // Slack's keys for the + menu's two: Cmd or Ctrl+O picks files, and with Shift, Enter writes a snippet.
@@ -758,7 +786,18 @@ export function Composer({
             {refusal.why}
           </p>
         )}
-        <div className="@container flex min-h-[108px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 max-md:min-h-[100px] max-md:p-2.5">
+        <div
+          className={cn(
+            "@container relative flex min-h-[108px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 max-md:min-h-[100px] max-md:p-2.5",
+            // An audio clip being recorded takes the card's place, keeping what's under it, out of sight and reach.
+            recordingClip === "audio" && "[&>:not([data-clip-recorder])]:invisible",
+          )}
+        >
+          {recordingClip === "audio" && (
+            <Suspense fallback={null}>
+              <AudioClipRecorder onRecorded={(clip) => picked.add([clip])} onClose={closeClip} />
+            </Suspense>
+          )}
           {formattingShown && (
             <FormattingToolbar
               formatting={formatting}
@@ -802,7 +841,7 @@ export function Composer({
               )}
             </Suspense>
           </div>
-          <div className="flex flex-none items-center gap-0.5 @max-[24rem]:flex-wrap touch:@max-[31rem]:flex-wrap">
+          <div className="flex flex-none items-center gap-0.5 @max-[29rem]:flex-wrap touch:@max-[31rem]:flex-wrap">
             {/* Upload from your computer's, and Cmd or Ctrl+O's, file picker. */}
             <input
               ref={fileField}
@@ -820,6 +859,8 @@ export function Composer({
               disabled={disabled}
               onUpload={() => fileField.current?.click()}
               onSnippet={() => setWritingSnippet(true)}
+              onRecordClip={clips ? setRecordingClip : undefined}
+              clipsInRow={() => !!videoClipButton.current && getComputedStyle(videoClipButton.current).display !== "none"}
               onClosed={() => editor.current?.focus()}
               // Slack's + sits in a circle of its own.
               className={cn(BUTTON, "rounded-full bg-hover hover:not-active:brightness-95 aria-expanded:brightness-95")}
@@ -859,6 +900,29 @@ export function Composer({
                 <AtSign className="size-[18px] opacity-70" />
               </button>
             </ShortcutTooltip>
+            {/* The row has no room for these on touch screens, nor in a composer too narrow for its eight buttons,
+                where + has them, as Slack's apps' + does. */}
+            {clips && (
+              <>
+                <ShortcutTooltip label="Record video clip">
+                  <button
+                    ref={videoClipButton}
+                    type="button"
+                    disabled={disabled}
+                    aria-label="Record video clip"
+                    onClick={() => setRecordingClip("video")}
+                    className={cn(TOOL, CLIP_BUTTON)}
+                  >
+                    <VideoCamera className="size-[18px] opacity-70" />
+                  </button>
+                </ShortcutTooltip>
+                <ShortcutTooltip label="Record audio clip">
+                  <button type="button" disabled={disabled} aria-label="Record audio clip" onClick={() => setRecordingClip("audio")} className={cn(TOOL, CLIP_BUTTON)}>
+                    <Microphone className="size-[18px] opacity-70" />
+                  </button>
+                </ShortcutTooltip>
+              </>
+            )}
             {onCommand && (
               <ShortcutTooltip label="Run shortcut">
                 <button
@@ -876,10 +940,10 @@ export function Composer({
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. Where
                 the buttons would leave the label too little room, it takes a line of its own above them, with its
                 box over the middle of +: under 31rem for fingers' bigger buttons, as on a phone held upright, and
-                under 24rem otherwise, as in a thread beside its room, and a huddle's. A button added to the row
-                takes room from the label, so these grow with it. */}
+                under 29rem otherwise, with the clips' two more, as in a thread beside its room, and a huddle's. A
+                button added to the row takes room from the label, so these grow with it. */}
             {threadId !== undefined && (
-              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[24rem]:order-first @max-[24rem]:mr-0 @max-[24rem]:ml-2 @max-[24rem]:min-h-7 @max-[24rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[31rem]:order-first touch:@max-[31rem]:mr-0 touch:@max-[31rem]:basis-full">
+              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted @max-[29rem]:order-first @max-[29rem]:mr-0 @max-[29rem]:ml-2 @max-[29rem]:min-h-7 @max-[29rem]:basis-full touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm touch:@max-[31rem]:order-first touch:@max-[31rem]:mr-0 touch:@max-[31rem]:basis-full">
                 <input
                   type="checkbox"
                   checked={alsoSend}
@@ -924,6 +988,11 @@ export function Composer({
       <LinkDialog formatting={formatting} />
       <SnippetDialog open={writingSnippet} onOpenChange={setWritingSnippet} onCreate={(file) => picked.add([file])} onClosed={() => editor.current?.focus()} />
       {notifyConfirm.dialog}
+      {recordingClip === "video" && (
+        <Suspense fallback={null}>
+          <VideoClipDialog onRecorded={(clip) => picked.add([clip])} onClose={closeClip} />
+        </Suspense>
+      )}
     </footer>
   );
 }
