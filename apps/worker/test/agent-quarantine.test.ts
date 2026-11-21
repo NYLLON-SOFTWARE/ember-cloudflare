@@ -6,7 +6,7 @@ import { api, connect, cookieOf, createRoom, direct, freshDeploy, post, roomSql,
 
 // What @ember and the AI agents read stays in the conversation they're asked in. Neither can be asked
 // in a DM or a private room it isn't in, and each reads only the room it's asked in, by what it's given
-// and by the room's search, so that what's said in a DM or a private room never reaches another room,
+// and by the room's tools, so that what's said in a DM or a private room never reaches another room,
 // or anyone who isn't in it. A question asked in one where an agent is isn't kept in AI Gateway's logs,
 // which the account's administrators read. A fake AI Gateway stands behind `fetch`, whose model is Claude.
 
@@ -29,15 +29,27 @@ interface Asked {
   logsKeep: string | null;
 }
 
-/** What the model does in a turn of an answer with Ember's tools: searches the room for `words`, or answers, once what it waits for `first`, if anything, has happened. */
-type Turn = ({ search: string } | { text: string }) & { first?: () => Promise<void> };
+/** A call of one of the room's tools, by its name, with what it's called with. */
+interface ToolCall {
+  name: string;
+  input: Record<string, unknown>;
+}
+
+/**
+ * What the model does in a turn of an answer with Ember's tools: searches the room for `words`, makes
+ * another call of the room's tools, or answers, once what it waits for `first`, if anything, has happened.
+ */
+type Turn = ({ search: string } | { call: ToolCall } | { text: string }) & { first?: () => Promise<void> };
+
+/** The call the model makes in a turn that makes one. */
+const callIn = (turn: { search: string } | { call: ToolCall }): ToolCall => ("search" in turn ? { name: "search_messages", input: { words: turn.search } } : turn.call);
 
 let asked: Asked[];
 let script: Turn[];
 
 /** Claude's answer for `turn`, the `nth` its model was asked for. */
 function turnIn(turn: Turn, nth: number): Response {
-  const content = "text" in turn ? [{ type: "text", text: turn.text }] : [{ type: "tool_use", id: `call_${nth}`, name: "search_messages", input: { words: turn.search } }];
+  const content = "text" in turn ? [{ type: "text", text: turn.text }] : [{ type: "tool_use", id: `call_${nth}`, ...callIn(turn) }];
   return Response.json({ type: "message", role: "assistant", content, stop_reason: "text" in turn ? "end_turn" : "tool_use", usage: { input_tokens: 1_000, output_tokens: 50 } });
 }
 
@@ -172,6 +184,30 @@ describe("What an agent reads", () => {
     expect(asked).toHaveLength(3);
     // Each search was made, and found nothing of the DM or the private room.
     expect(asked[2]!.body).toContain('"tool_result"');
+    for (const { body } of asked) {
+      expect(body).not.toContain("tangerine.");
+      expect(body).not.toContain("forty thousand");
+    }
+  });
+});
+
+describe("What an agent reads by a message's id", () => {
+  it("is nothing of another room's, as the pages and threads of the room it's asked in have none of their messages", async () => {
+    const { grace, general, dm, leads } = await setUp();
+    const idOf = async (room: RoomId, said: string) => ((await roomSql(room, "SELECT id FROM messages WHERE room_id = ? AND plain_text = ?", room, said)) as [{ id: string }])[0].id;
+    const [inDm, inLeads] = [await idOf(dm, SAID_IN_DM), await idOf(leads, SAID_IN_PRIVATE)];
+    const inGeneral = await connect(general, grace);
+    script = [
+      { call: { name: "read_room", input: { after: inDm } } },
+      { call: { name: "read_room", input: { before: inLeads } } },
+      { call: { name: "read_thread", input: { message_id: inDm } } },
+      { text: "I found nothing about that here." },
+    ];
+
+    await post(inGeneral, `<p>${mention(EMBER)} what did we just say?</p>`);
+    expect((await nextFrom(inGeneral, EMBER)).plainText).toBe("I found nothing about that here.");
+    const results = asked.slice(1).map(({ body }) => (JSON.parse(body) as { messages: Array<{ content: unknown }> }).messages.at(-1)!.content);
+    expect(results).toEqual([1, 2, 3].map((n) => [{ type: "tool_result", tool_use_id: `call_${n}`, content: "The room has no message with that id.", is_error: true }]));
     for (const { body } of asked) {
       expect(body).not.toContain("tangerine.");
       expect(body).not.toContain("forty thousand");

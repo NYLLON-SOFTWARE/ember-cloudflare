@@ -1,5 +1,6 @@
 import type { EphemeralMessage, RoomId, User, UserId } from "@ember/protocol";
 import type { PausedAnswer } from "../assistant/gateway";
+import type { RoomRead } from "../assistant/room-tools";
 import { statement, type Db } from "../db";
 import type { GivenTool } from "./tools";
 
@@ -25,7 +26,8 @@ const MAX_CALL_BYTES = 1_000_000;
 /**
  * A call that waits: the message asked and the bot that answers it, who asked, by their name then, the
  * tool, as the card shows it, and what it's called with, every app's tool the model was given, by the
- * names it calls them, its answer as it waits, and when the card was posted.
+ * names it calls them, its answer as it waits, what it has read of the room, and when the card was
+ * posted.
  */
 export interface WaitingCall {
   questionId: string;
@@ -35,6 +37,11 @@ export interface WaitingCall {
   input: Record<string, unknown>;
   tools: GivenTool[];
   paused: PausedAnswer;
+  /**
+   * What the answer's calls of the room's tools have read (`RoomRead`): how much more they may, and who
+   * wrote what they did, which it goes on with. A call that began to wait before they shared it has none.
+   */
+  read?: RoomRead;
   askedAt: number;
   /**
    * The card only whoever asked sees, as the room showed it to them, which it shows each tab of theirs that

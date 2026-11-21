@@ -62,7 +62,7 @@ import {
 } from "./assistant/answers";
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal, type Question } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
-import { roomSearch } from "./assistant/room-search";
+import { nothingRead, roomTools, type RoomRead, type RoomReader } from "./assistant/room-tools";
 import { ToolError, type EmberTool } from "./assistant/tool-calls";
 import { saidCard, toolCallOf, toolCards, type CardCall } from "./apps/cards";
 import {
@@ -289,8 +289,6 @@ const typistOf = (bot: User, threadId: string | undefined) => `${bot.id} ${threa
 
 /** What the room's typing line says an answerer is doing, after its name, while a call of an app's tool it's making runs. */
 const usingApp = ({ appName, name }: GivenTool) => `is using ${appName}: ${name}`;
-/** What it says while the answerer searches the room. */
-const SEARCHING_ROOM = "is searching this room";
 
 /** Why the room posts nothing for a question for @ember: Ember AI was turned off, or @ember taken out of the room. */
 const ASSISTANT_GONE = "Ember AI has been turned off, or @ember is no longer in the room";
@@ -318,8 +316,11 @@ interface Said extends Pick<Answered, "text" | "sources"> {
   written?: string[];
 }
 
-/** What a question comes to: what its answerer says, or the call of an app's tool its answer waits at, with the apps' tools its model was given. */
-type Outcome = Said | { asking: Asking; given: GivenTool[] };
+/**
+ * What a question comes to: what its answerer says, or the call of an app's tool its answer waits at, with
+ * the apps' tools its model was given and what its calls have read of the room.
+ */
+type Outcome = Said | { asking: Asking; given: GivenTool[]; read: RoomRead };
 
 /** What the room tells whoever clicks a call's card that isn't waiting any more, as someone answered it first. */
 const CALL_ANSWERED = "Someone has answered that already";
@@ -798,9 +799,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * A page of the room's messages for an AI app that reads it as someone in it (`outside/tools`): the
-   * page `cursor` names, or null when the cursor isn't one of them. The room isn't counted, as it is for
-   * a bot, since on D1 counting reads a row for every message.
+   * A page of the room's messages for an AI app that reads it as someone in it (`outside/tools`), or for
+   * @ember and the agents (`roomTools`): the page `cursor` names, or null when the cursor isn't one of
+   * them. The room isn't counted, as it is for a bot, since on D1 counting reads a row for every message.
    */
   async outsidePage(roomId: RoomId, cursor: PageCursor): Promise<Omit<TimelinePage, "around"> | null> {
     return this.serially(() => this.storeFor(roomId).pageAt(cursor, HISTORY_PAGE_SIZE));
@@ -1947,33 +1948,34 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * What the bot `access` finds, @ember or an agent, says to `message`, `question`'s message, with what
    * it reads of the conversation, as its instructions say, using the web as Search the web lets it, and
-   * searching the room for what was written before that, and the connected apps' tools picked for it,
-   * where its model takes Ember's tools: its answer in Markdown, at its levels, @ember's the asker's,
-   * with the model they picked, if they did (`outcomeOf`), or the call of an app's tool it waits at.
+   * searching and reading the room past that, and the connected apps' tools picked for it, where its
+   * model takes Ember's tools: its answer in Markdown, at its levels, @ember's the asker's, with the model
+   * they picked, if they did (`outcomeOf`), or the call of an app's tool it waits at.
    */
   private async saidTo(roomId: RoomId, access: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<Outcome> {
     const { bot, gateway, instructions, promptTemplate, community, levels, webTools, webSearchOn } = access;
     if (!gateway) return { text: NOTES["unopened token"] };
     const [conversation, takesTools] = await Promise.all([this.conversationOf(this.storeFor(roomId), message), takesEmbersTools(this.env, gateway.model)]);
     const where = { community, roomName, inThread: message.parentId !== undefined };
-    const read = allOf(readable(conversation, where.inThread)).map(({ id }) => id);
+    const read = allOf(readable(conversation, where.inThread));
     const given = takesTools ? givenTools(access.appTools) : [];
     const askedBy = { roomId, askerId: author.id };
     const appTools = given.map((tool) =>
       this.sayingWhile(bot, message, usingApp(tool), appTool(this.env, bot.id, tool, askedBy, { described: tool, allows: this.allowsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) })),
     );
-    const tools = takesTools ? [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, author.id, read)), ...appTools] : [];
+    const roomRead = nothingRead();
+    const tools = takesTools ? [...this.roomToolsFor(roomId, bot, message, author.id, read, roomRead), ...appTools] : [];
     const asked = loggedIn({ ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools }, access);
     const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(allOf(conversation))]);
-    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs));
+    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs), roomRead);
   }
 
   /**
    * What the bot `access` finds says to `message` once the call its answer waited at, `call`, is
    * `allowed` or isn't: as `saidTo` answers, going on from where its model stopped, with the room's
-   * search and the apps' tools the model was given then, each called only while it's still picked for
-   * the bot, and without asking first where its calls of it are always allowed by now. A model changed
-   * since can't go on from another's answer, which the bot says.
+   * tools, reading what was left for them to read, and the apps' tools the model was given then, each
+   * called only while it's still picked for the bot, and without asking first where its calls of it are
+   * always allowed by now. A model changed since can't go on from another's answer, which the bot says.
    */
   private async wentOn(roomId: RoomId, access: AssistantAccess, message: Message, call: WaitingCall, allowed: boolean): Promise<Outcome> {
     const { bot, gateway } = access;
@@ -1981,15 +1983,17 @@ export class ChatRoom extends DurableObject<Env> {
     if (gateway.model !== call.paused.model || gateway.format !== call.paused.format) return { text: MODEL_CHANGED };
     const conversation = await this.conversationOf(this.storeFor(roomId), message);
     const inThread = message.parentId !== undefined;
-    const read = allOf(readable(conversation, inThread)).map(({ id }) => id);
+    const read = allOf(readable(conversation, inThread));
     const asked = { roomId, askerId: call.asker.id };
     const appTools = call.tools.map((tool) =>
       this.sayingWhile(bot, message, usingApp(tool), appTool(this.env, bot.id, tool, asked, { allows: this.allowsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) })),
     );
-    const tools = [this.sayingWhile(bot, message, SEARCHING_ROOM, roomSearch(this.env, roomId, call.asker.id, read)), ...appTools];
+    // A call that began to wait before the room's tools shared what they read has all of it left.
+    const roomRead = call.read ?? nothingRead();
+    const tools = [...this.roomToolsFor(roomId, bot, message, call.asker.id, read, roomRead), ...appTools];
     const paused = { ...call.paused, question: loggedIn(call.paused.question, access) };
     const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, paused, allowed, waitFor(paused.question)), this.peopleWhoWrote(allOf(conversation))]);
-    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools);
+    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools, roomRead);
   }
 
   /**
@@ -2014,6 +2018,26 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * The tools that search and read room `roomId` for `bot`, @ember or an agent, as it answers `message`,
+   * which `askerId` asked, as they'd read it, past `given`, what it was given with it, reading as much as
+   * `read` has left, each of whose calls the room's typing line says, after the bot's name, while it runs.
+   */
+  private roomToolsFor(roomId: RoomId, bot: User, message: Message, askerId: UserId, given: readonly Message[], read: RoomRead): EmberTool[] {
+    const reading = { env: this.env, roomId, askerId, question: message, given, reader: this.readerOf(roomId), read };
+    return roomTools(reading).map(({ tool, doing }) => this.sayingWhile(bot, message, doing, tool));
+  }
+
+  /** What reads room `roomId` for the tools of @ember and the agents, a page at a time, as it reads itself for bots and AI apps. */
+  private readerOf(roomId: RoomId): RoomReader {
+    const reading = <T>(read: (store: MessageStore) => Promise<T>) => this.serially(() => read(this.storeFor(roomId)));
+    return {
+      page: (cursor) => this.outsidePage(roomId, cursor),
+      find: (id) => reading((store) => store.find(id)),
+      replies: (parentId, before) => reading((store) => (before === undefined ? store.thread(parentId, HISTORY_PAGE_SIZE) : store.repliesBefore(parentId, before, HISTORY_PAGE_SIZE))),
+    };
+  }
+
+  /**
    * `tool`, whose every call has the room's typing line say, after the name of `bot`, who's typing as it
    * answers `message`, that it's `doing` it, while it runs.
    */
@@ -2034,11 +2058,12 @@ export class ChatRoom extends DurableObject<Env> {
    * What `answered`, which the model of the bot `access` finds came to for `message`, has it say: its
    * answer, ending with an ellipsis when the model was cut short, the pages it came from, and what
    * people wrote in what it read, `written`, or the note it posts when its model doesn't answer, saying
-   * why, which the room logs, or the call it waits at, with the apps' tools it was `given`.
+   * why, which the room logs, or the call it waits at, with the apps' tools it was `given` and what
+   * what its calls have `read` of the room.
    */
-  private outcomeOf(access: AssistantAccess, message: Message, answered: Answered | GatewayRefusal | Asking, written: string[], given: GivenTool[]): Outcome {
+  private outcomeOf(access: AssistantAccess, message: Message, answered: Answered | GatewayRefusal | Asking, written: string[], given: GivenTool[], read: RoomRead): Outcome {
     const { bot, gateway, picked } = access;
-    if ("asks" in answered) return { asking: answered, given };
+    if ("asks" in answered) return { asking: answered, given, read };
     if (!("refusal" in answered)) {
       const text = answered.cut ? `${answered.text}\n\n…` : answered.text;
       return { text, ...(answered.sources && { sources: answered.sources }), written };
@@ -2058,7 +2083,7 @@ export class ChatRoom extends DurableObject<Env> {
     const { asks, paused } = outcome.asking;
     const tool = outcome.given.find(({ as }) => as === asks.name);
     if (!tool) return `${asks.name} asks first, and is no app's tool`;
-    const call: WaitingCall = { questionId: message.id, botId: access.bot.id, asker, tool, input: asks.input, tools: outcome.given, paused, askedAt: Date.now() };
+    const call: WaitingCall = { questionId: message.id, botId: access.bot.id, asker, tool, input: asks.input, tools: outcome.given, paused, read: outcome.read, askedAt: Date.now() };
     return fits(call) ? this.askFirst(roomId, access.bot, message, call) : this.postAnswer(roomId, access.bot, { text: tooMuchToWait(tool.appName) }, message, access.addresses);
   }
 
