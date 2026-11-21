@@ -163,11 +163,15 @@ export {
   type WorkspacePage,
 } from "./pages.ts";
 export {
+  LONGEST_PAUSE_MS,
   MAX_PUSH_ENDPOINT_LENGTH,
   MAX_PUSH_KEY_LENGTH,
   MAX_PUSH_SUBSCRIPTIONS,
+  parseNotificationsPause,
   parsePushSubscription,
   signOutEndpointOf,
+  type NotificationsPause,
+  type NotificationsPaused,
   type PushSubscriptionKeys,
   type PushSubscriptions,
   type PushSubscriptionSave,
@@ -265,6 +269,12 @@ export interface DirectoryUser extends User {
    * direct messages reach is listed to administrators alone.
    */
   adminsOnly?: true;
+  /**
+   * When the pause of their notifications ends, as Slack's Do Not Disturb, until which nothing is pushed
+   * to them and no invitation into a huddle rings for them, and a half-moon on their picture says so.
+   * Left out while they haven't paused them, and once the pause has ended.
+   */
+  pausedUntil?: string;
 }
 
 /**
@@ -566,7 +576,7 @@ export interface SavedRoomLayout {
  * The rail's buttons, the top bar's search field, and the appearance modes, whose icons an administrator
  * can choose in Community settings.
  */
-export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "light", "dark", "system"] as const;
+export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "pause", "light", "dark", "system"] as const;
 export type NavigationSlot = (typeof NAVIGATION_SLOTS)[number];
 
 /**
@@ -579,6 +589,7 @@ export const DEFAULT_NAVIGATION_ICONS = {
   activity: "iconoir:regular:bell",
   search: "iconoir:regular:search",
   admin: "iconoir:regular:box",
+  pause: "iconoir:regular:bell-off",
   light: "iconoir:regular:sun-light",
   dark: "iconoir:regular:half-moon",
   system: "iconoir:regular:computer",

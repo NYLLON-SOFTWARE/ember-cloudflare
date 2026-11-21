@@ -42,13 +42,15 @@ Rooms for every project, private rooms for the few who need them, and DMs with o
 Reply in a thread to keep a room on topic, and tick **Also send to the room** when everyone should see
 the answer. Mention people, or the whole room with @channel and @here, and everyone with @everyone in
 an open room, which ask first in a room of six or more, as Slack's do, and which administrators can keep
-to themselves or turn off in a room. Quote a message, react with any emoji or a few words of your own,
-and edit or delete what you wrote.
+to themselves or turn off in a room. Link a room with #, as Slack links a channel: anyone who isn't in a
+private room sees a lock and "private room" in place of its name. Quote a message, react with any emoji
+or a few words of your own, and edit or delete what you wrote.
 
 Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
-says whether you hear about every message, only mentions, or nothing. You see who's here and who's
-typing, as it happens. Download a transcript of a room or DM you're in, or of every conversation
-you're in, as Markdown or JSON.
+says whether you hear about every message, only mentions, or nothing. **Pause notifications** quiets
+them all for half an hour, a few hours or until tomorrow, with a half-moon on your picture meanwhile, as
+Slack's does. You see who's here and who's typing, as it happens. Download a transcript of a room or DM
+you're in, or of every conversation you're in, as Markdown or JSON.
 
 ![Ember's Launch room: a deploy bot's card, reactions, and a thread open beside the room](docs/screenshots/hero.png)
 
@@ -152,7 +154,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 |---|---|---|
 | **Rooms, private rooms and DMs** | ✅ | ✅ |
 | **Threads** | ✅ with Also send to the room | ✅ with Also send to the channel |
-| **Mentions, quotes, reactions and edits** | ✅ @channel, @here and @everyone as well, and react with any emoji or a few words | ✅ plus custom emoji |
+| **Mentions, quotes, reactions and edits** | ✅ @channel, @here and @everyone as well, #rooms, and react with any emoji or a few words | ✅ plus custom emoji |
 | **Rich text, code blocks and link previews** | ✅ | ✅ |
 | **Files** | ✅ up to 250 MB each | ✅ up to 1 GB each |
 | **Search** | ✅ every message in your rooms and DMs, with Slack's filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |

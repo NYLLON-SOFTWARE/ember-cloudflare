@@ -4,7 +4,7 @@ import { ChatPlusIn, Headset, NavArrowDown, NavArrowRight, StarSolid } from "@/c
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { PeopleContext, useNameOf, usePresenceOf, type Presence } from "@/hooks/use-directory";
+import { PeopleContext, useNameOf, usePausedUntil, usePresenceOf, type Presence } from "@/hooks/use-directory";
 import { useFoldedSections } from "@/hooks/use-folded-sections";
 import { HUDDLES_PATH, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
 import { NavigationIcon } from "./navigation-icon";
 import { opensNewDirect } from "./new-direct-dialog";
+import { PausedMark } from "./paused-mark";
 import { OpenSearchContext } from "./search-box";
 import { UserAvatar } from "./user-avatar";
 
@@ -414,11 +415,12 @@ interface DirectRowProps {
 }
 
 /**
- * A DM's row: the avatar of the one other person in it, with whether they're active or away, or of up
- * to four in a group, at 24px or 14px each, then their names, or yours in a DM with yourself, and the
- * agent badge in a DM with an AI agent alone. It ends with who's in its huddle while one is going on, as
- * a room's does, and one marked unread with how many messages it counts, or a dot for one the server
- * didn't count. Its presence and count are said to screen readers too.
+ * A DM's row: the avatar of the one other person in it, with whether they're active or away, and a
+ * half-moon for the dot while they've paused their notifications, or of up to four in a group, at 24px or
+ * 14px each, then their names, or yours in a DM with yourself, and the agent badge in a DM with an AI
+ * agent alone. It ends with who's in its huddle while one is going on, as a room's does, and one marked
+ * unread with how many messages it counts, or a dot for one the server didn't count. Its presence, pause
+ * and count are said to screen readers too.
  */
 function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
@@ -427,11 +429,14 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
   const wordsId = useId();
   const members = membersShown(room, meId);
   // An AI agent has no presence, though @ember's isn't listed as a bot until the directory has loaded.
-  const presence = members.length === 1 && !isWithAgent(room) ? presenceOf(members[0]!) : null;
+  const alone = members.length === 1 && !isWithAgent(room) ? members[0]! : undefined;
+  const presence = alone ? presenceOf(alone) : null;
+  const paused = usePausedUntil(alone?.id) !== null;
+  const presenceWords = presenceWordsOf(presence, paused);
   const count = unreadId ? room.unreadCount : undefined;
   // The words for its presence, who's in its huddle, and its count, which come with its mark.
   const [presenceId, inHuddleId, countId] = [`${wordsId}-presence`, `${wordsId}-huddle`, `${wordsId}-count`];
-  const described = [presence && presenceId, huddle && inHuddleId, count === undefined ? unreadId : countId].filter(Boolean).join(" ");
+  const described = [presenceWords && presenceId, huddle && inHuddleId, count === undefined ? unreadId : countId].filter(Boolean).join(" ");
   return (
     <>
       <a
@@ -452,7 +457,14 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
           members.map((member) => (
             <span key={member.id} className="relative shrink-0">
               <UserAvatar user={member} className="size-6" />
-              {presence && <PresenceDot presence={presence} />}
+              {paused ? (
+                <PausedMark
+                  presence={presence}
+                  className="-right-1 -bottom-1 size-3.5 ring-2 ring-surface group-hover:ring-hover group-aria-[current=page]:ring-hover"
+                />
+              ) : (
+                presence && <PresenceDot presence={presence} />
+              )}
             </span>
           ))
         )}
@@ -465,9 +477,9 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
         {count !== undefined ? <UnreadCount count={count} /> : unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}
       </a>
       {/* Outside the row, so they're no part of its text. */}
-      {presence && (
+      {presenceWords && (
         <span id={presenceId} hidden>
-          {presence === "active" ? "Active" : "Away"}
+          {presenceWords}
         </span>
       )}
       {count !== undefined && (
@@ -477,6 +489,13 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
       )}
     </>
   );
+}
+
+/** What a DM's row says of its person's presence, and of their pause, as its dot or half-moon shows them. */
+function presenceWordsOf(presence: Presence | null, paused: boolean): string | null {
+  const words = presence && (presence === "active" ? "Active" : "Away");
+  if (!paused) return words;
+  return words ? `${words}, notifications paused` : "Notifications paused";
 }
 
 /**

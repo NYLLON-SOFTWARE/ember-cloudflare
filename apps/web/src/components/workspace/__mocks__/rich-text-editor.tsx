@@ -50,7 +50,8 @@ const attachmentMarkup = ({ contentType, html }: Attachment) =>
  * link only the text, which it marks `data-linked` with the address. It lists nobody for an @, though
  * @here, @channel and @everyone typed as words are written as the mentions picked from the list, and is
  * marked `data-mentions-from` with where the list would ask for them and `data-mentions-above` where
- * the list is to show above the text. The browser tests in e2e/ write in Lexxy itself.
+ * the list is to show above the text. Nor does it list rooms for a #, marking itself `data-rooms` with
+ * the ids of the rooms the list would offer, in order. The browser tests in e2e/ write in Lexxy itself.
  */
 export default function RichTextEditor({
   label,
@@ -58,6 +59,7 @@ export default function RichTextEditor({
   rows,
   initialValue,
   mentionsFrom,
+  rooms,
   mentionsAbove,
   autoFocus,
   onChange,
@@ -173,6 +175,7 @@ export default function RichTextEditor({
         placeholder={placeholder}
         rows={rows}
         data-mentions-from={mentionsFrom}
+        data-rooms={rooms === undefined ? undefined : [...(rooms?.keys() ?? [])].join(" ")}
         data-mentions-above={mentionsAbove || undefined}
         defaultValue={initialValue && writtenBody(initialValue).plainText}
         onChange={() => onChange?.()}

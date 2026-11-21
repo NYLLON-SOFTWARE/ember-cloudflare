@@ -131,6 +131,7 @@ import { blockedWordsCheck, type BlockedWordsCheck } from "@ember/protocol/block
 import { hearsAllHuddleSounds, type HuddleSoundChanges, type HuddleSounds, type PastHuddle } from "@ember/protocol/huddles";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
 import type { HandledReports, NewReport, ReportOutcome, Reports, ReportSubject } from "@ember/protocol/reports";
+import { PRIVATE_ROOM_NAME, type MentionRoom } from "@ember/richtext";
 import type { Gateway } from "./assistant/gateway";
 import { modelsFileUrlOf, type KeptModelsFile, type KeptWorkersAiModels } from "./assistant/offered";
 import { providerMovesOf } from "./assistant/model-tests";
@@ -3690,6 +3691,25 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Pauses the notifications of the person `credentials` signs in until `until`, an ISO time, or resumes
+   * them with null, as Slack's Do Not Disturb does: nothing is pushed to them, nor does an invitation into
+   * a huddle ring for them, until then. Everyone's tabs hear of it as the people directory lists them, as
+   * theirs do. Answers them as it lists them then, or null without a valid session. It's one change at a
+   * time, so that the last a tab hears of is the last kept.
+   */
+  async pauseNotifications(credentials: Credentials, until: string | null): Promise<DirectoryUser | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      const person = await this.store.pauseNotifications(user.id, until);
+      if (!person) return null;
+      const listed = await this.directoryUser(person);
+      this.broadcast({ type: "user.updated", user: listed });
+      return listed;
+    });
+  }
+
+  /**
    * Dismisses the welcome card for the person `credentials` signs in, for good: their sidebar, on any
    * device, has no invitation from then on, and every tab of theirs hears so. Only administrators are
    * shown the card, but anyone may dismiss it, since that changes nothing but what they're shown.
@@ -4273,7 +4293,7 @@ export class Workspace extends DurableObject<Env> {
   private async deactivate({ id, name, username, bio, role, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
     const removedAt = new Date(now).toISOString();
-    const removed = await this.directoryUser({ id, name, username, bio, role, status: "deactivated", updatedAt: removedAt, agent, keptFor });
+    const removed = await this.directoryUser({ id, name, username, bio, role, status: "deactivated", updatedAt: removedAt, agent, keptFor, pausedUntil: null });
     // As when resetting a password, until the database says it queued nothing.
     let queued = true;
     try {
@@ -4354,7 +4374,7 @@ export class Workspace extends DurableObject<Env> {
         }
         if (person.accounts.length > 0) await this.forgetUnlinked();
         for (const { userId, blocks } of deletion.blockers) this.tell([userId], { type: "blocks.changed", blocks });
-        const deleted = { id: person.id, name: DELETED_PERSON_NAME, username: null, bio: null, role: "member", status: "deactivated", updatedAt: deletedAt, agent: false, keptFor: null } as const;
+        const deleted = { id: person.id, name: DELETED_PERSON_NAME, username: null, bio: null, role: "member", status: "deactivated", updatedAt: deletedAt, agent: false, keptFor: null, pausedUntil: null } as const;
         this.broadcast({ type: "user.updated", user: await this.directoryUser(deleted) });
         // As many reports are open as before, but a Reports list loads them again on hearing so.
         if (deletion.reportsCleared) this.tellOpenReports(await this.reports.openByAdministrator());
@@ -5433,8 +5453,8 @@ export class Workspace extends DurableObject<Env> {
    * Someone as the people directory lists them, with their avatar's address, and nothing else known of
    * them, such as their email address, whatever `person` brings.
    */
-  private async directoryUser({ id, name, username, bio, role, status, updatedAt, agent, keptFor }: DirectoryEntry): Promise<DirectoryUser> {
-    return (await directoryOf([{ id, name, username, bio, role, status, updatedAt, agent, keptFor }], this.env.SESSION_SECRET))[0]!;
+  private async directoryUser({ id, name, username, bio, role, status, updatedAt, agent, keptFor, pausedUntil }: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([{ id, name, username, bio, role, status, updatedAt, agent, keptFor, pausedUntil }], this.env.SESSION_SECRET))[0]!;
   }
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
@@ -5825,7 +5845,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Whether push subscription `id` is still saved, for someone still active, as a room asks just before
-   * sending a push that waited its turn, so that one banned, removed or suspended meanwhile gets none.
+   * sending a push that waited its turn, so that one banned, removed or suspended meanwhile gets none,
+   * nor one who has paused their notifications since.
    */
   async pushable(id: number): Promise<boolean> {
     return this.store.pushable(id);
@@ -5923,6 +5944,15 @@ export class Workspace extends DurableObject<Env> {
    */
   async mentionedPeople(ids: UserId[]): Promise<User[]> {
     return this.store.peopleWithIds(ids);
+  }
+
+  /**
+   * The rooms of `ids` that exist, but DMs, for a room naming the rooms a message mentions in its plain
+   * text: an open room by its name, and a private one as "private room", since not everyone who reads
+   * the text, in a notification or a search, is in it.
+   */
+  async mentionedRooms(ids: RoomId[]): Promise<MentionRoom[]> {
+    return (await this.store.mentionedRooms(ids)).map(({ id, name }) => ({ id, name: name ?? PRIVATE_ROOM_NAME }));
   }
 
   /**

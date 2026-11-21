@@ -16,6 +16,7 @@ import {
   freshDeploy,
   freshRoom,
   openWorkspaceSocket,
+  pauseNotifications,
   post,
   pushBrowser,
   recordedImage,
@@ -197,6 +198,26 @@ describe("Who gets a push", () => {
     }
   });
 
+  it("pushes nobody whose notifications are paused, mentioned, at all messages or in a DM, while others are pushed, until the pause ends or they resume them", async () => {
+    const room = await freshRoom("Designers");
+    const [ada, grace, lin, joan] = await people("Ada", "Grace", "Lin", "Joan");
+    for (const [session, label] of [[grace, "grace"], [lin, "lin"], [joan, "joan"]] as const) await subscribe(session, label);
+    for (const session of [lin, joan]) await involve(session, room, "everything");
+    const dm = await direct(ada, grace);
+    await pauseNotifications(grace, 60 * 60_000);
+    await pauseNotifications(lin, 30 * 60_000);
+
+    expect(labelsOf(await pushesFor(room, [message(ada, "Hey @Grace", grace)]))).toEqual(["joan"]);
+    expect(labelsOf(await pushesFor(room, [notifying("channel", ada, "Standup @channel")]))).toEqual(["joan"]);
+    expect(await pushesFor(dm.id, [message(ada, "Lunch?")])).toEqual([]);
+
+    // A pause that has ended pauses nothing, though it's still kept.
+    await workspaceSql("UPDATE users SET notifications_paused_until = ? WHERE id = ?", new Date(Date.now() - 1_000).toISOString(), lin.user.id);
+    await pauseNotifications(grace, null);
+    expect(labelsOf(await pushesFor(room, [message(ada, "Hey @Grace", grace)]))).toEqual(["lin", "joan", "grace"]);
+    expect(labelsOf(await pushesFor(dm.id, [message(ada, "Lunch?")]))).toEqual(["grace"]);
+  });
+
   it("pushes each message once, however often its room sends it", async () => {
     const room = await freshRoom("Designers");
     const [ada, grace] = await people("Ada", "Grace");
@@ -268,7 +289,7 @@ describe("Who gets a push", () => {
     await connect(room, "Ada");
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", 1, 1, 1, "[]", "[]"));
+    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", 1, 1, "2026-11-20T23:30:00.000Z", 1, "[]", "[]"));
     expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
@@ -327,7 +348,7 @@ describe("Who @channel, @here and @everyone push", () => {
     const room = await freshRoom("plans");
     // Which makes the room's tables, on Durable Object SQLite.
     await connect(room, "Ada");
-    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${ROOM_MENTION_PUSHES}`, room, "someone", "[]", 1, 1)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
+    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${ROOM_MENTION_PUSHES}`, room, "someone", "[]", 1, 1, "2026-11-20T23:30:00.000Z")) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
     expect(plan).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(plan).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
   });
@@ -484,6 +505,38 @@ describe("Who gets a push", () => {
       await post(adaThere, "<p>After the ban</p>");
       await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
       expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "Ada: After the ban" } });
+    });
+
+    it("sends no push that waited its turn to someone who has paused their notifications meanwhile", async () => {
+      const pushed = pushServices();
+      const room = await freshRoom("Designers");
+      const [kevin] = await people("Kevin");
+      await subscribe(kevin, "kevin");
+      await involve(kevin, room, "everything");
+      const ada = await connect(room, "Ada", { visible: true });
+      // The Workspace answers whether Kevin's push may go once the test lets it.
+      let asked = false;
+      const answers: boolean[] = [];
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const pushable = store.pushable.bind(store);
+        store.pushable = async (id) => {
+          store.pushable = pushable;
+          asked = true;
+          await released;
+          answers.push(await pushable(id));
+          return answers.at(-1)!;
+        };
+      });
+
+      await post(ada, "<p>Before the pause</p>");
+      await vi.waitFor(() => expect(asked).toBe(true), { timeout: 5_000 });
+      await pauseNotifications(kevin, 60 * 60_000);
+      release();
+      await vi.waitFor(() => expect(answers).toEqual([false]), { timeout: 5_000 });
+      expect(pushed).toEqual([]);
     });
 
     it("pushes a message sent to the room with @channel to everyone in it at @mentions, saying so as the message does", async () => {

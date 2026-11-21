@@ -1,6 +1,6 @@
 import type { EphemeralMessage, Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
+import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, ROOM_MENTION_CONTENT_TYPE, roomMentionContent, type MentionRoom } from "@ember/richtext/dom";
 import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline, visitedLabel } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
@@ -164,16 +164,38 @@ describe("Quote a message", () => {
     return attachment.outerHTML;
   }
 
-  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace");
+  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace", () => undefined);
 
   it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
     const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`, "", "");
     const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
-    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
+    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!, () => undefined)).toBe(
       "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
         '<a href="https://example.com">https://example.com</a></p></blockquote>' +
         '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
     );
+  });
+
+  it("keeps each room it mentions, as the quoting reader sees it or as a private room, where no link preview stands in for it", () => {
+    const room = (roomId: string) => `<action-text-attachment content-type="${ROOM_MENTION_CONTENT_TYPE}" sgid="${roomId}"></action-text-attachment>`;
+    const rooms: Record<string, MentionRoom> = { r1: { id: "r1", name: "R&D" } };
+    const quoted = (body: string) => replyQuote(displayBody(body, "", ""), "Ada", LINK, () => "Grace", (roomId) => rooms[roomId]);
+    /** The quote with each mention in it as a #, and the mentions, each by its sgid and content. */
+    const read = (quote: string) => [
+      quote.replaceAll(/<action-text-attachment [^>]+><\/action-text-attachment>/g, "#"),
+      [...new DOMParser().parseFromString(quote, "text/html").querySelectorAll("action-text-attachment")].map((mention) => [mention.getAttribute("sgid"), mention.getAttribute("content")]),
+    ];
+    expect(read(quoted(`<p>See ${room("r1")} or ${room("r2")}</p>`))).toEqual([
+      `<blockquote><p>See # or #</p></blockquote>${CITE}`,
+      [
+        ["r1", roomMentionContent(rooms.r1)],
+        ["r2", roomMentionContent(undefined)],
+      ],
+    ]);
+    expect(read(quoted(`<p>${room("r1")}</p>${preview({ href: "https://basecamp.com/", filename: "Basecamp" })}`))).toEqual([
+      `<blockquote><p>#</p></blockquote>${CITE}`,
+      [["r1", roomMentionContent(rooms.r1)]],
+    ]);
   });
 
   it("leaves out the message's link previews", () => {
