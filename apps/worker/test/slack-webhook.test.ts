@@ -96,11 +96,13 @@ describe("Slack-compatible webhooks", () => {
       ["<!here|here> Standup in 5", `<p>${stored("here")} Standup in 5</p>`, "here"],
       ["Deploy *failed* <!channel>", `<p>Deploy <strong>failed</strong> ${stored("channel")}</p>`, "channel"],
       ["<!everyone|@everyone> Lunch is here", `<p>${stored("everyone")} Lunch is here</p>`, "everyone"],
+      // With nothing else to say, as Slack takes it too.
+      ["<!channel>", `<p>${stored("channel")}</p>`, "channel"],
     ] as const) {
       expect(await answerTo(bot.key, general, { text })).toEqual(OK);
       expect((await inRoom.next("message.created")).message).toMatchObject({ body, notifies });
     }
-    expect(await notifiedIn(general)).toEqual(["here", "channel", "everyone"]);
+    expect(await notifiedIn(general)).toEqual(["here", "channel", "everyone", "channel"]);
   });
 
   it("keeps them as the text they show, notifying nobody with them, where the room or the workspace's limits keep them from the bot, as from a member", async () => {
@@ -115,12 +117,13 @@ describe("Slack-compatible webhooks", () => {
 
     await change(`/api/rooms/${general}`, { channelMentions: false });
     expect(await sent("<!channel> Deploy failed")).toMatchObject({ body: "<p>@channel Deploy failed</p>", plainText: "@channel Deploy failed" });
+    expect(await sent("<!here> <!channel>")).toMatchObject({ body: "<p>@here @channel</p>", plainText: "@here @channel" });
     await change(`/api/rooms/${general}`, { channelMentions: true });
     await change("/api/account", { settings: { restrictChannelMentions: true } });
     expect(await sent("<!here> <!everyone> Deploy failed")).toMatchObject({ body: `<p>@here ${stored("everyone")} Deploy failed</p>`, notifies: "everyone" });
     await change("/api/account", { settings: { restrictEveryoneMention: true } });
     expect((await sent("<!everyone> Deploy failed")).body).toBe("<p>@everyone Deploy failed</p>");
-    expect(await notifiedIn(general)).toEqual([null, "everyone", null]);
+    expect(await notifiedIn(general)).toEqual([null, null, "everyone", null]);
   });
 
   it("keeps the <!here> and <!channel> of its attachments and blocks as text, notifying nobody, as only the text it shows can notify", async () => {

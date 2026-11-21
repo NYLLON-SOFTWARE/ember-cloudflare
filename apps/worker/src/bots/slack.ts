@@ -487,8 +487,11 @@ function styled(html: string, style: unknown): string {
   return styledHtml;
 }
 
-/** Whether markup shows anything: text beside its tags that isn't all space. */
-const shows = (html: string) => html.replace(/<[^>]*>/g, "").trim() !== "";
+/**
+ * Whether markup shows anything: text beside its tags that isn't all space, or an attachment, as a special
+ * mention is, which shows as @here or its kin with no text of its own.
+ */
+const shows = (html: string) => html.includes("<action-text-attachment") || html.replace(/<[^>]*>/g, "").trim() !== "";
 
 const isObject = (value: unknown): value is SlackPayload => typeof value === "object" && value !== null && !Array.isArray(value);
 
