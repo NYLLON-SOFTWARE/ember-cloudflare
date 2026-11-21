@@ -7,7 +7,7 @@ import { useIsSpeaking } from "@/hooks/use-huddle";
 import { inTheHuddle, sharingScreens } from "@/lib/huddle-people";
 import { openHuddle, type JoinedHuddle } from "@/lib/huddle-store";
 import { cn } from "@/lib/utils";
-import { CameraTool, LeaveButton, MicrophoneTool, RaiseHandTool, ScreenTool, TOOL, TOOL_OFF, useHuddleName, waitingToJoin } from "./huddle-tools";
+import { CameraTool, isUnstable, LeaveButton, MicrophoneTool, RaiseHandTool, ScreenTool, TOOL, TOOL_OFF, UNSTABLE, UnstableMark, useHuddleName, waitingToJoin } from "./huddle-tools";
 import { UserAvatar } from "./user-avatar";
 
 /** How many of the huddle's faces the bar shows. */
@@ -31,8 +31,9 @@ interface Props {
  * page shows above it, as Slack's is. The huddle's name and who's in it, which open it, their faces, the
  * microphone, the camera, the screen, Raise hand and the button that opens it, which phones leave to the
  * huddle opened, and Leave, in red and in words, last. A screen someone shares shows only in the huddle
- * opened, so the bar says who shares one in place of who's in it. Stickers and reactions show only
- * there too, and the bar says nothing of them.
+ * opened, so the bar says who shares one in place of who's in it, and while the tab finds its connection
+ * unstable, it says so in place of either. Stickers and reactions show only there too, and the bar says
+ * nothing of them.
  */
 export function HuddleBar({ huddle, room, meId }: Props) {
   const nameOf = useNameOf();
@@ -63,7 +64,15 @@ export function HuddleBar({ huddle, room, meId }: Props) {
           {/* The space parts the two lines for screen readers, which hear the button as one. */}
           <span className="block truncate text-[15px] leading-5 font-semibold">{name}</span>{" "}
           <span aria-live="polite" className="block truncate text-xs leading-4 text-muted-foreground">
-            {waitingToJoin(huddle) ?? sharing ?? inTheHuddle(others)}
+            {waitingToJoin(huddle) ??
+              (isUnstable(huddle) ? (
+                <span className="text-foreground">
+                  <UnstableMark />
+                  {UNSTABLE}
+                </span>
+              ) : (
+                (sharing ?? inTheHuddle(others))
+              ))}
           </span>
         </span>
       </button>

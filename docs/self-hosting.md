@@ -1401,6 +1401,16 @@ and Firefox send a camera in one size, 640 by 360 at up to 500 kbps, which every
 browser is sent the others' cameras only while you have the huddle open, and a camera's picture
 isn't kept in step with its person's voice, which travels apart from it.
 
+Every couple of seconds your browser measures its connections to the SFU. Once much of what you
+receive or send is lost on the way, or round trips to the SFU take a second or more, the huddle says
+"Your connection is unstable" beside how many are in it, or on its bar, and the others see a wifi
+mark with a warning on your tile, until ten seconds go by without trouble. While what you receive
+struggles, your browser asks for the others' cameras a size smaller, and smaller again every six
+seconds, and ten seconds after it has steadied, a size larger, and so on back to the size your
+tiles show, waiting longer each time a larger size brings trouble back soon after. What your browser
+sends it adapts of itself. Much lost of one person's while the others' comes through is their
+trouble, which their own browser finds, and it isn't taken for yours.
+
 Share screen, beside the camera, has your browser ask which screen, window or tab to share, and
 shares it until you stop it there or in your browser. Two people can share at once, as in Slack's
 huddles, and a third is told so before their browser asks them anything. Everyone else sees a shared

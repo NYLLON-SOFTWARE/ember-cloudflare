@@ -20,6 +20,7 @@ import {
 } from "@ember/protocol/huddles";
 import { socketUrl } from "./api";
 import { keepScreenAwake } from "./huddle-awake";
+import { smallerOf, watchConnection } from "./huddle-connection";
 import {
   CAMERA_HEIGHTS,
   CAMERA_WENT_OFF,
@@ -68,6 +69,11 @@ import { reconnectingSocket } from "./reconnecting-socket";
 // the workspace's video quality has it at most, and each tab that watches is sent the one it says its
 // tiles show as well as a larger would, on its own screen: the small one for small tiles, so that a
 // huddle of many costs each of them, and Cloudflare's bill, a small picture apiece.
+//
+// Every couple of seconds the tab measures its connections (huddle-connection.ts). Once too much of
+// what they carry is lost, or round trips to the SFU take a second or more, its connection is unstable,
+// which it tells its person and the room, whose others see it on its person's tile. While what it
+// receives struggles, it asks for cameras a size smaller than its tiles show, and larger once it's steady.
 //
 // Where an administrator has given huddles a relay, the room's welcome has the servers the connections
 // go by, Cloudflare's TURN service among them, which carries them on a network that blocks the way to
@@ -273,11 +279,11 @@ function voicesThrough(speaker: HuddleSpeaker, speaking: HuddleSpeaking) {
 /** Whether the tab's person is the only one in its huddle, as far as the room has said. */
 const isAlone = ({ connected, you, people }: JoinedHuddle) => connected && people.every(({ user }) => user.id === you?.id);
 
-/** The tab's own `person` as the tab has them, whatever the room last said: as muted as it is, and showing the sticker it shows. */
-function asTheTabHas(person: HuddlePerson, { muted, sticker }: JoinedHuddle): HuddlePerson {
-  if (person.muted === muted && (person.sticker ?? null) === sticker) return person;
-  const { sticker: _, ...rest } = person;
-  return { ...rest, muted, ...(sticker && { sticker }) };
+/** The tab's own `person` as the tab has them, whatever the room last said: as muted as it is, showing the sticker it shows, and with the connection it finds it has. */
+function asTheTabHas(person: HuddlePerson, { muted, sticker, unstable }: JoinedHuddle): HuddlePerson {
+  if (person.muted === muted && (person.sticker ?? null) === sticker && (person.unstable ?? false) === unstable) return person;
+  const { sticker: _, unstable: __, ...rest } = person;
+  return { ...rest, muted, ...(sticker && { sticker }), ...(unstable && { unstable }) };
 }
 
 /** What each of a tab's connections to the SFU has of the huddle it's part of. */
@@ -463,6 +469,8 @@ function sendingConnection({ kind, vital, track, sends }: Sent, { send, rejoin, 
     published,
     swap,
     close,
+    /** The connection there is now, if any, which the tab measures. */
+    connection: () => connection,
     /** The room couldn't publish what it was asked to: the SFU refused, or couldn't be reached, unless the room `refused` it itself. */
     failed(refused = false) {
       const answered = unanswered;
@@ -495,6 +503,8 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, size, pl
   let connection: RTCPeerConnection | null = null;
   /** Whom the tab has been offered, and so receives. */
   const heard = new Set<UserId>();
+  /** Whose each track the connection plays is, by the track's id, which the browser's statistics name it by. */
+  const owners = new Map<string, UserId>();
   /** The size the tab last asked the room for them in. */
   let askedSize: CameraSizeName = "large";
   /** The round under way: whether it has brought an offer, and whether the tab has given up the connection it asked on meanwhile. */
@@ -607,7 +617,9 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, size, pl
    */
   function playFrom(from: RTCPeerConnection, { mid, userId }: OfferedHuddleTrack) {
     const theirs = from.getTransceivers().find((transceiver) => transceiver.mid === mid)?.receiver.track;
-    if (theirs && heard.has(userId)) play(userId, theirs);
+    if (!theirs || !heard.has(userId)) return;
+    owners.set(theirs.id, userId);
+    play(userId, theirs);
   }
 
   /**
@@ -644,6 +656,7 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, size, pl
   /** Stops receiving `userId`, who left, or can't be received for the moment: what the tab had of them carries nothing more. */
   function forget(userId: UserId) {
     heard.delete(userId);
+    for (const [trackId, owner] of owners) if (owner === userId) owners.delete(trackId);
     stop(userId);
   }
 
@@ -670,6 +683,9 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, size, pl
       endRound();
     },
     startOver: wait.startOver,
+    /** The connection there is now, if any, which the tab measures, and whose each track it plays is. */
+    connection: () => connection,
+    whose: (trackId: string) => owners.get(trackId),
   };
 }
 
@@ -686,6 +702,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
     people: [],
     muted: muted || !track,
     sticker: null,
+    unstable: false,
     microphone: track !== null,
     microphoneId: microphoneOf(voice),
     speakerId,
@@ -706,6 +723,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
   let choosingScreen = false;
   /** The size of a camera the huddle, opened, last showed people's tiles as well in as a larger would: large until it has tiles. */
   let cameraSize: CameraSizeName = "large";
+  /** The largest size the tab asks for cameras in while it struggles to receive them, or null for whatever size its tiles show them in. */
+  let cameraCap: CameraSizeName | null = null;
 
   const letScreenSleep = keepScreenAwake();
   const speaker = huddleSpeaker(speakerId);
@@ -756,8 +775,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
         receivable: () => receivable(kind),
         wanted: () => (huddle.open ? receivable(kind).slice(0, SHOWN[kind].most) : []),
         byName: true,
-        // Only cameras come in sizes.
-        ...(kind === "video" && { size: () => cameraSize }),
+        // Only cameras come in sizes, of which the tab asks for a smaller one while it struggles to receive them.
+        ...(kind === "video" && { size: () => smallerOf(cameraSize, cameraCap) }),
         ...pictures(kind),
       },
       huddled,
@@ -772,6 +791,24 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
     video: watching("video"),
     screen: watching("screen"),
   };
+  const stopMeasuring = watchConnection(
+    {
+      receiving: HUDDLE_TRACK_KINDS.map((kind) => receiving[kind]),
+      sending: HUDDLE_TRACK_KINDS.map((kind) => sending[kind]),
+      others: () => huddle.people.filter(({ user }) => user.id !== huddle.you?.id),
+      shown: () => cameraSize,
+    },
+    {
+      unstable(unstable) {
+        socket.send({ type: "huddle.connection", unstable });
+        show({ unstable });
+      },
+      capped(cap) {
+        cameraCap = cap;
+        receiving.video.listen();
+      },
+    },
+  );
 
   const controls: HuddleControls = {
     leave() {
@@ -1020,6 +1057,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
   function stop() {
     over = true;
     socket.close();
+    stopMeasuring();
     hangUp();
     letScreenSleep();
     voices.stopAll();
@@ -1090,6 +1128,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
         if (mine && mine.muted !== huddle.muted) socket.send({ type: "huddle.mute", muted: huddle.muted });
         // And the room knows of no sticker a tab showed before it joined again.
         if (mine && (mine.sticker ?? null) !== huddle.sticker) socket.send({ type: "huddle.sticker", sticker: huddle.sticker });
+        // Nor that the tab finds its connection unstable.
+        if (mine && (mine.unstable ?? false) !== huddle.unstable) socket.send({ type: "huddle.connection", unstable: huddle.unstable });
         // Let in, and not let back in after the tab's connection to the room dropped.
         if (!huddle.you) {
           sounds.joined();

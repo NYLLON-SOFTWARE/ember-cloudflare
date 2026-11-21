@@ -193,11 +193,13 @@ describe("A room's huddle", () => {
     const phone = await welcomed(room, ada);
     const onPhone = await publishing(sfu, phone);
     phone.send({ type: "huddle.sticker", sticker: "hand" });
+    phone.send({ type: "huddle.connection", unstable: true });
     await reached(phone);
     const graces = await welcomed(room, grace);
 
     const laptop = await joinHuddle(room, ada, { muted: true });
-    // In her place still, ahead of Grace, with nothing published from this tab yet, nor the sticker the other showed.
+    // In her place still, ahead of Grace, with nothing published from this tab yet, nor the sticker the
+    // other showed, nor its connection's trouble, which this tab says for itself.
     expect((await laptop.next("huddle.welcome")).people).toEqual([person(ada, { muted: true }), person(grace)]);
     expect(await phone.closed).toMatchObject({ code: HuddleCloseCode.Moved, reason: "Moved" });
     expect(await graces.next("huddle.changed")).toEqual({ type: "huddle.changed", person: person(ada, { muted: true }) });
@@ -368,6 +370,40 @@ describe("A room's huddle", () => {
     expect((await remembered(room)).map(({ sticker }) => sticker)).toEqual([undefined, "done", undefined]);
   });
 
+  it("tells the others when someone's tab finds its connection unstable, or steady again, and welcomes whoever joins with it", async () => {
+    const { ada } = await huddlesOn();
+    const room = await freshRoom("unstable");
+    const [grace, linus] = [await signIn("Grace"), await signIn("Linus")];
+    const adas = await welcomed(room, ada);
+    const graces = await welcomed(room, grace);
+
+    adas.send({ type: "huddle.connection", unstable: true });
+    expect(await graces.next("huddle.changed")).toEqual({ type: "huddle.changed", person: person(ada, { unstable: true }) });
+    // Said again, it's nothing new, and neither is a steady connection that was never otherwise.
+    adas.send({ type: "huddle.connection", unstable: true });
+    graces.send({ type: "huddle.connection", unstable: false });
+    await reached(adas, graces);
+    expect([adas.pending("huddle.changed"), graces.pending("huddle.changed")]).toEqual([[], []]);
+    // Whatever else of someone changes, it stays.
+    adas.send({ type: "huddle.sticker", sticker: "brb" });
+    expect(await graces.next("huddle.changed")).toEqual({ type: "huddle.changed", person: person(ada, { sticker: "brb", unstable: true }) });
+
+    // The room keeps it while it hibernates, and welcomes whoever joins with it.
+    await evictDurableObject(roomStub(room));
+    const linuses = await joinHuddle(room, linus);
+    expect((await linuses.next("huddle.welcome")).people).toEqual([person(ada, { sticker: "brb", unstable: true }), person(grace), person(linus)]);
+
+    adas.send({ type: "huddle.connection", unstable: false });
+    expect([await graces.next("huddle.changed"), await linuses.next("huddle.changed")]).toEqual([
+      { type: "huddle.changed", person: person(ada, { sticker: "brb" }) },
+      { type: "huddle.changed", person: person(ada, { sticker: "brb" }) },
+    ]);
+    await reached(adas);
+    // Their own tab hears of none of it: it knows.
+    expect(adas.log.map(({ type }) => type)).toEqual(["huddle.welcome", "huddle.joined", "pong", "huddle.joined", "pong"]);
+    expect((await remembered(room)).map(({ unstable }) => unstable)).toEqual([undefined, undefined, undefined]);
+  });
+
   it("tells everyone in a huddle when someone reacts with an emoji, their own tab too, and of only so many of one tab's in ten seconds", async () => {
     const { ada } = await huddlesOn();
     const room = await freshRoom("reactions");
@@ -421,6 +457,8 @@ describe("A room's huddle", () => {
       { type: "huddle.answer" },
       { type: "huddle.sticker" },
       { type: "huddle.sticker", sticker: "wave" },
+      { type: "huddle.connection" },
+      { type: "huddle.connection", unstable: "yes" },
       { type: "huddle.react" },
       { type: "huddle.react", emoji: "hello" },
       { type: "huddle.react", emoji: "\u{1F389}\u{1F389}" },

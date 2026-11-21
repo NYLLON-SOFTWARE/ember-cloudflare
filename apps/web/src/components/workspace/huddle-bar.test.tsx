@@ -22,6 +22,7 @@ const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
   people: [inHuddle(sam), inHuddle(ada)],
   muted: false,
   sticker: null,
+  unstable: false,
   microphone: true,
   microphoneId: "",
   speakerId: "",
@@ -136,6 +137,18 @@ describe("The huddle bar", () => {
     rerender(<HuddleBar huddle={huddle({ connected: false })} room={general} meId="ada" />);
     expect(state()).toHaveTextContent("Reconnecting…");
     expect(state()).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("says that the tab's connection is unstable in place of who's in it or shares a screen, after the mark the others see on its person's tile", () => {
+    const { rerender } = renderBar(huddle({ unstable: true, people: [{ ...inHuddle(sam), screen: true }, inHuddle(ada)] }));
+    expect(state()).toHaveTextContent(/^Your connection is unstable$/);
+    expect(state()!.querySelector("svg")).toHaveClass("iconoir-wifi-warning", "text-caution");
+    expect(screen.getByRole("button", { name: "Huddle in general Your connection is unstable" })).toHaveAttribute("title", "Open huddle");
+    // Reconnecting says more.
+    rerender(<HuddleBar huddle={huddle({ unstable: true, connected: false })} room={general} meId="ada" />);
+    expect(state()).toHaveTextContent(/^Reconnecting…$/);
+    rerender(<HuddleBar huddle={huddle()} room={general} meId="ada" />);
+    expect(state()).toHaveTextContent(/^Sam and you are in the huddle$/);
   });
 
   it("is just Huddle once its room isn't among this person's", () => {

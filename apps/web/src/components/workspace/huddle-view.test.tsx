@@ -39,6 +39,7 @@ const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
   people: [inHuddle(sam), inHuddle(ada)],
   muted: false,
   sticker: null,
+  unstable: false,
   microphone: true,
   microphoneId: "",
   speakerId: "",
@@ -281,6 +282,22 @@ describe("The huddle opened", () => {
     expect(count()).toHaveAttribute("aria-live", "polite");
   });
 
+  it("says beside the count that the tab's connection is unstable, in a word on a phone, after the mark the others see on its person's tile", () => {
+    const { rerender } = renderView(huddle({ unstable: true }));
+    const warning = () => opened().querySelectorAll<HTMLElement>("header [aria-live]")[1]!;
+    expect(count()).toHaveTextContent(/^2 people$/);
+    expect(within(warning()).getByText("Your connection is unstable")).toHaveClass("max-md:hidden");
+    expect(within(warning()).getByText("Unstable")).toHaveClass("md:hidden");
+    expect(warning().querySelector("svg")).toHaveClass("iconoir-wifi-warning", "text-caution");
+    expect(warning()).toHaveAttribute("aria-live", "polite");
+    // Nothing once it's steady, nor while the tab reconnects, which says more.
+    rerender(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
+    expect(warning()).toBeEmptyDOMElement();
+    rerender(<HuddleView huddle={huddle({ unstable: true, connected: false })} room={general} me={me} onFailed={failed} />);
+    expect(warning()).toBeEmptyDOMElement();
+    expect(count()).toHaveTextContent("Reconnecting…");
+  });
+
   it("is just Huddle once its room isn't among this person's", () => {
     renderView(huddle(), null);
     expect(opened()).toHaveAccessibleName("Huddle");
@@ -333,6 +350,16 @@ describe("The tiles of a huddle", () => {
     expect(within(first!).getByRole("img", { name: "Muted" })).toBeInTheDocument();
     expect(within(second!).getByRole("img", { name: "Muted" })).toBeInTheDocument();
     expect(within(third!).queryByRole("img", { name: "Muted" })).not.toBeInTheDocument();
+  });
+
+  it("marks whoever has an unstable connection, you among them, before whether they're muted", () => {
+    renderView(huddle({ unstable: true, people: [inHuddle(sam, { unstable: true, muted: true }), inHuddle(ada, { unstable: true }), inHuddle(priya)] }));
+    const [first, second, third] = tiles();
+    const marks = (tile: HTMLElement | undefined) => within(tile!).queryAllByRole("img").filter((mark) => mark.tagName === "svg").map((mark) => mark.getAttribute("aria-label"));
+    expect(marks(first)).toEqual(["Unstable connection", "Muted"]);
+    expect(within(first!).getByRole("img", { name: "Unstable connection" })).toHaveClass("iconoir-wifi-warning", "text-caution");
+    expect(marks(second)).toEqual(["Unstable connection"]);
+    expect(marks(third)).toEqual([]);
   });
 
   it("rings whoever is speaking in green, over their picture, which it says for those who can't see it, but nobody who's muted", () => {
