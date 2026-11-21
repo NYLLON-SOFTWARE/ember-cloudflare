@@ -13,7 +13,7 @@ const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
 /** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
 const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} onPaused={() => {}} onFailed={() => {}} />
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} askForPause={() => () => {}} onFailed={() => {}} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -84,7 +84,7 @@ describe("Rail", () => {
         newRelease={newRelease}
         openReports={openReports}
         onNewDirect={() => {}}
-        onPaused={() => {}}
+        askForPause={() => () => {}}
         onFailed={() => {}}
       />
     );
@@ -159,7 +159,7 @@ describe("Search box", () => {
   });
 
   it("has Search in the drawer too where the drawer holds the rail alone, with no search field", () => {
-    render(<Rail me={ada} workspaceName="Analytical Engines" current="workspace" activity={activityOff} newRelease={null} onNewDirect={() => {}} searchInDrawer onPaused={() => {}} onFailed={() => {}} />);
+    render(<Rail me={ada} workspaceName="Analytical Engines" current="workspace" activity={activityOff} newRelease={null} onNewDirect={() => {}} searchInDrawer askForPause={() => () => {}} onFailed={() => {}} />);
     expect(screen.getByRole("link", { name: "Search" })).toHaveClass("hidden", "md:no-top-bar:flex", "max-md:flex");
   });
 
@@ -302,7 +302,7 @@ describe("Pause notifications", () => {
   /** The rail, with the people directory listing `people`, saying what's saved by `onPaused`. */
   const railWith = (people: People, onPaused = vi.fn()) => (
     <PeopleContext value={people}>
-      <Rail me={ada} workspaceName="Analytical Engines" current="home" activity={activityOff} newRelease={null} onNewDirect={() => {}} onPaused={onPaused} onFailed={() => {}} />
+      <Rail me={ada} workspaceName="Analytical Engines" current="home" activity={activityOff} newRelease={null} onNewDirect={() => {}} askForPause={() => onPaused} onFailed={() => {}} />
     </PeopleContext>
   );
   /** Answers each pause with Ada paused as it asks. */

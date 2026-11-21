@@ -101,8 +101,8 @@ interface Props {
    * alone, without the conversations or the search field atop them.
    */
   searchInDrawer?: boolean;
-  /** Called with you as the people directory lists you once Pause notifications has paused them, or resumed them. */
-  onPaused: (me: DirectoryUser) => void;
+  /** Called as Pause notifications pauses them, or resumes them, with what lists you in the people directory as the server answers. */
+  askForPause: () => (me: DirectoryUser) => void;
   onFailed: (error: unknown) => void;
 }
 
@@ -114,7 +114,7 @@ interface Props {
  * Search where nothing else has it: on a phone in landscape, which has no top bar, and in the drawer
  * when it holds the rail alone. Your avatar has a half-moon while you've paused your notifications.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect, searchInDrawer = false, onPaused, onFailed }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect, searchInDrawer = false, askForPause, onFailed }: Props) {
   const { logo } = useAccount();
   const paused = usePausedUntil(me.id) !== null;
   const openSearch = useContext(OpenSearchContext);
@@ -164,7 +164,7 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
         notice={notices.length > 0 ? notices.join(". ") : undefined}
       />
       {/* The two round buttons and your avatar sit at the rail's foot, pushed there by Pause notifications' auto margin. */}
-      <PauseMenu meId={me.id} onPaused={onPaused} onFailed={onFailed} />
+      <PauseMenu meId={me.id} askForPause={askForPause} onFailed={onFailed} />
       <AppearanceMenu />
       {/* Your avatar, at 36px, links to your profile, where you log out. */}
       <PageLink

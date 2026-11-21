@@ -137,7 +137,7 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
                   askForRoom={() => answered}
                   huddleSounds={huddleSounds}
                   askForHuddleSounds={() => soundsAnswered}
-                  onPaused={onPaused}
+                  askForPause={() => onPaused}
                   onSignOut={onSignOut}
                   onDeleteAccount={onDeleteAccount}
                   onFailed={onFailed}

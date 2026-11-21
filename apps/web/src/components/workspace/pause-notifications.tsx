@@ -7,8 +7,8 @@ const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
 interface Props {
   meId: UserId;
-  /** Called with you as the people directory lists you once a pause, or resuming, is saved. */
-  onPaused: (me: DirectoryUser) => void;
+  /** Called as a pause, or resuming, is saved, with what lists you in the people directory as the server answers. */
+  askForPause: () => (me: DirectoryUser) => void;
   onFailed: (error: unknown) => void;
 }
 

@@ -291,7 +291,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const directory = useDirectory();
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, askForYou, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -787,7 +787,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
       openReports={openReports}
       onNewDirect={openNewDirect}
       searchInDrawer={settings !== null}
-      onPaused={directory.update}
+      askForPause={askForYou}
       onFailed={failed}
     />
   );
@@ -890,7 +890,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             askForRoom={askForRoom}
             huddleSounds={huddlesOn && answered ? soundsHeard : null}
             askForHuddleSounds={askForHuddleSounds}
-            onPaused={directory.update}
+            askForPause={askForYou}
             onSignOut={onSignOut}
             onDeleteAccount={onDeleteAccount}
             onFailed={failed}

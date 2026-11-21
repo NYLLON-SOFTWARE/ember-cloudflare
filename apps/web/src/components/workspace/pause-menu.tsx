@@ -7,8 +7,8 @@ import { NavigationIcon } from "./navigation-icon";
 
 interface Props {
   meId: UserId;
-  /** Called with you as the people directory lists you once a pause, or resuming, is saved. */
-  onPaused: (me: DirectoryUser) => void;
+  /** Called as a pause, or resuming, is saved, with what lists you in the people directory as the server answers. */
+  askForPause: () => (me: DirectoryUser) => void;
   onFailed: (error: unknown) => void;
 }
 
@@ -16,12 +16,13 @@ interface Props {
  * When your pause of your notifications ends, as "tomorrow at 9:00 AM", or null while they aren't paused,
  * and what pauses them until a time, or resumes them with null, wherever you're signed in.
  */
-export function usePauseOf({ meId, onPaused, onFailed }: Props) {
+export function usePauseOf({ meId, askForPause, onFailed }: Props) {
   const pausedUntil = usePausedUntil(meId);
   const until = pausedUntil && pauseEndLabel(new Date(pausedUntil));
   const pause = async (end: Date | null) => {
+    const paused = askForPause();
     try {
-      onPaused(await pauseNotifications(end?.toISOString() ?? null));
+      paused(await pauseNotifications(end?.toISOString() ?? null));
     } catch (error) {
       onFailed(error);
     }
