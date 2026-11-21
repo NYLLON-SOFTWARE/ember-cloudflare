@@ -9,7 +9,7 @@ import type { RoomFrames } from "@/hooks/use-room";
 import { roomPath, useVisit } from "@/hooks/use-route";
 import { useThread } from "@/hooks/use-thread";
 import { isPending, type ConnectionStatus } from "@/lib/room-state";
-import type { SlashCommand, WrittenCommand } from "@/lib/slash-commands";
+import type { CommandRunner, SlashCommand } from "@/lib/slash-commands";
 import { cn } from "@/lib/utils";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
@@ -39,7 +39,7 @@ interface Props {
   onDismissRoomNotice: () => void;
   /** The commands / lists, which run as the room's composer runs them. */
   commands?: readonly SlashCommand[];
-  onCommand?: (written: WrittenCommand) => Promise<boolean>;
+  onCommand?: CommandRunner;
 }
 
 /**
@@ -137,7 +137,7 @@ interface RepliesProps {
   mentionsAbove?: boolean;
   /** The commands / lists, which run as the room's composer runs them. Without them, as in a huddle's thread, a / is just a /. */
   commands?: readonly SlashCommand[];
-  onCommand?: (written: WrittenCommand) => Promise<boolean>;
+  onCommand?: CommandRunner;
 }
 
 /**

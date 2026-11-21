@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { Typist } from "@/lib/room-state";
-import { SHRUG, SLASH_COMMANDS, type WrittenCommand } from "@/lib/slash-commands";
+import { SHRUG, SLASH_COMMANDS, type CommandRunner, type WrittenCommand } from "@/lib/slash-commands";
 import { createRef, type ReactNode } from "react";
 import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
@@ -41,7 +41,7 @@ async function showComposer({
   autoFocus = true,
   mentionsAbove = false,
   warns = true,
-  onCommand = undefined as ((written: WrittenCommand) => Promise<boolean>) | undefined,
+  onCommand = undefined as CommandRunner | undefined,
 } = {}) {
   // Hears a link's preview that comes once the message has gone.
   const addPreview = vi.fn((_preview: LinkPreview) => {});
@@ -605,6 +605,67 @@ describe("Ask before notifying a room", () => {
     expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "agenda.txt" }), expect.objectContaining({ name: "slides.pdf" })], false);
     expect(chips()).toEqual([]);
   });
+
+  it("asks of /shrug's message as what's written reads when the room's counts come, written over while they were on their way, and sends that", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { onSend, input, user } = await showComposer({ onCommand: vi.fn(async () => true) });
+    await user.type(input, "/shrug @here Lunch?{Enter}");
+    await user.clear(input);
+    await user.type(input, "/shrug @channel Lunch?");
+    answer(Response.json(six));
+    const dialog = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    await user.click(within(dialog).getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(`<p>${special("channel")} Lunch? ${SHRUG}</p>`, false);
+    expect(input).toHaveValue("");
+
+    // Written over as a message by then, it goes as one, without asking where it's lost its mention.
+    await user.type(input, "/shrug @channel Standup{Enter}");
+    await user.clear(input);
+    await user.type(input, "Standup");
+    answer(Response.json(six));
+    await waitFor(() => expect(onSend).toHaveBeenLastCalledWith("<p>Standup</p>", false));
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  /** Runs a command as /msg does, sending `body` to #design, which it says whether to send. */
+  function sendsToDesign(body: string) {
+    const asked: Promise<boolean>[] = [];
+    const onCommand = vi.fn<CommandRunner>((_written, askToNotify) => asked[asked.push(askToNotify({ id: "r2", name: "design" }, body)) - 1]!);
+    return { onCommand, asked };
+  }
+
+  it("asks of a message a command sends to a room, of that room, settling with whether it's to go: one that's not is written again", async () => {
+    const fetch = counts(six);
+    const { onCommand, asked } = sendsToDesign(`<p>${special("channel")} See the brief</p>`);
+    const { input, user } = await showComposer({ onCommand });
+    await user.type(input, "/msg #design @channel See the brief{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    expect(dialog).toHaveAccessibleDescription("@channel notifies everyone in #design.");
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/rooms/r2/notified"]);
+    expect(input).toHaveValue("");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(await asked[0]).toBe(false);
+    await waitFor(() => expect(input).toHaveValue("/msg #design @channel See the brief"));
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    expect(input).toHaveFocus();
+
+    await user.type(input, "{Enter}");
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Send" }));
+    expect(await asked[1]).toBe(true);
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps a command's message as its draft where the composer goes as it asks, as when its room's been left", async () => {
+    counts(six);
+    const { onCommand, asked } = sendsToDesign(`<p>${special("channel")} See the brief</p>`);
+    const { input, user, view } = await showComposer({ onCommand });
+    await user.type(input, "/msg #design @channel See the brief{Enter}");
+    await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    view.unmount();
+    expect(await asked[0]).toBe(false);
+    await waitFor(() => expect(localStorage.getItem("composer-draft-u1-r1")).toBe(`<p>/msg #design ${special("channel")} See the brief</p>`));
+  });
 });
 
 /** A file named `name` of `size` bytes, as the browser gives it, which says it's that size without holding them. */
@@ -866,7 +927,7 @@ describe("/ commands", () => {
     const { input, onSend, onTyping, user } = await showComposer({ onCommand });
     await user.type(input, "/MUTE  #design{Enter}");
     expect(onSend).not.toHaveBeenCalled();
-    expect(onCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ command: SLASH_COMMANDS.find(({ name }) => name === "mute"), typed: { name: "MUTE", argument: "#design" } }));
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ command: SLASH_COMMANDS.find(({ name }) => name === "mute"), typed: { name: "MUTE", argument: "#design" } }), expect.any(Function));
     expect(input).toHaveValue("");
     expect(onTyping).toHaveBeenLastCalledWith(false);
     expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();

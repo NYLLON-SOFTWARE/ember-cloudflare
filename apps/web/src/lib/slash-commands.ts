@@ -1,4 +1,4 @@
-import type { DirectoryUser, Room, SharedRoom, User } from "@ember/protocol";
+import type { DirectoryUser, Room, RoomId, SharedRoom, User } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, writtenBody } from "@ember/richtext/dom";
 
 // The commands a message can start with, after a /: Slack's own, those Ember has the means for, under
@@ -78,6 +78,16 @@ export interface WrittenCommand {
   plainText: string;
   mentions: User[];
 }
+
+/**
+ * Settles with whether a message `body`, which a command sends, is to go to the room `to`, which it does
+ * at once, unless it would notify six or more there: then once its writer says to send it, as the
+ * composer asks of a message written there.
+ */
+export type AskToNotify = (to: { id: RoomId; name: string }, body: string) => Promise<boolean>;
+
+/** Runs a command written, settling with whether it ran: one that didn't is written again, to put right. */
+export type CommandRunner = (written: WrittenCommand, askToNotify: AskToNotify) => Promise<boolean>;
 
 /**
  * Whether `markup` starts with a /, as a command does: as the first character of its text, which a space

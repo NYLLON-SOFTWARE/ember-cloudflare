@@ -7,7 +7,7 @@ import { OpenSearchContext } from "@/components/workspace/search-box";
 import { CONFIRM_LEAVE } from "@/lib/api";
 import type { SentAway } from "@/lib/outbox";
 import type { RoomAnswer } from "@/lib/room-list";
-import { commandIn, type WrittenCommand } from "@/lib/slash-commands";
+import { commandIn, type AskToNotify, type WrittenCommand } from "@/lib/slash-commands";
 import { AccountContext } from "./use-account";
 import { PeopleContext } from "./use-directory";
 import { navigate, NEW_DIRECT_PATH, roomPath, roomSettingsPath } from "./use-route";
@@ -82,6 +82,8 @@ function serve(answers: Record<string, unknown>) {
 function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = true } = {}) {
   const answers: RoomAnswer[] = [];
   const callbacks = { onFailed: vi.fn(), onOpenDirects: vi.fn(), onOpenShortcuts: vi.fn(), onSend: vi.fn(() => true), openSearch: vi.fn() };
+  // The composer's ask before a message notifies a room of six or more, which here says to send it.
+  const askToNotify = vi.fn<AskToNotify>(async () => true);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AccountContext value={{ ...account, huddles }}>
       <PeopleContext value={new Map([ada, grace, linus].map((p) => [p.id, p]))}>
@@ -104,7 +106,7 @@ function runIn(room: Room, { involvement = "mentions" as Involvement, huddles = 
       }),
     { wrapper },
   );
-  return { ...callbacks, answers, unmount, run: (command: WrittenCommand) => result.current.run(command), commands: () => result.current.commands.map(({ name }) => name) };
+  return { ...callbacks, askToNotify, answers, unmount, run: (command: WrittenCommand) => result.current.run(command, askToNotify), commands: () => result.current.commands.map(({ name }) => name) };
 }
 
 const settingsOf = (room: SharedRoom, members: DirectoryUser[], canAdminister = true, people = [ada, grace, linus]): RoomSettings => ({
@@ -354,5 +356,27 @@ describe("/ commands", () => {
     expect(navigate).toHaveBeenLastCalledWith(roomPath(design.id));
     expect(await run(written("/msg hello"))).toBe(false);
     expect(flash).toHaveBeenLastCalledWith("alert", "Write /msg, then @someone or #room, then your message.");
+  });
+
+  it("asks first, as the composer asks of a message written in the room, before /msg's message notifies six or more there, keeping it to put right where it's not to go", async () => {
+    serve({ "POST /api/directs": { room: withGrace } });
+    const { run, onSend, askToNotify } = runIn(general);
+    await run(written("/msg #design @channel see the brief"));
+    expect(askToNotify).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: design.id, name: design.name }), "<p>@channel see the brief</p>");
+    expect(sendAway).toHaveBeenCalledOnce();
+
+    askToNotify.mockResolvedValueOnce(false);
+    expect(await run(written("/msg #design @here lunch?"))).toBe(false);
+    askToNotify.mockResolvedValueOnce(false);
+    expect(await run(written("/msg #general @here lunch?"))).toBe(false);
+    expect(askToNotify).toHaveBeenLastCalledWith(expect.objectContaining({ id: general.id, name: general.name }), "<p>@here lunch?</p>");
+    expect(sendAway).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(flash).toHaveBeenCalledOnce();
+
+    // Nor does it ask of a DM, as the DM's composer doesn't.
+    await run(written("", `<p>/msg ${mention(grace)} @here lunch?</p>`));
+    expect(askToNotify).toHaveBeenCalledTimes(3);
+    expect(sendAway).toHaveBeenCalledTimes(2);
   });
 });

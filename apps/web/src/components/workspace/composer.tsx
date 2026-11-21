@@ -7,7 +7,7 @@ import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
 import { breaksLine, hasTouchKeyboard, pressedAlone, sendsMessage, uploadsFiles, writesSnippet } from "@/lib/keyboard";
 import type { Typist } from "@/lib/room-state";
-import { bodyAfter, commandIn, isBlankBody, nameWritten, withShrug, type SlashCommand, type WrittenCommand } from "@/lib/slash-commands";
+import { bodyAfter, commandIn, isBlankBody, nameWritten, withShrug, type CommandRunner, type SlashCommand } from "@/lib/slash-commands";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { AttachMenu } from "./attach-menu";
@@ -403,10 +403,11 @@ interface Props {
   commands?: readonly SlashCommand[];
   /**
    * Runs a command written, but /shrug and /snippet, which the composer runs itself, settling with
-   * whether it ran, which empties the composer: one that didn't stays to be put right. Without it, a
-   * message that starts with a / is sent as it is.
+   * whether it ran, which empties the composer: one that didn't stays to be put right. A message it sends
+   * to a room asks first, by the composer, where it would notify six or more there. Without it, a message
+   * that starts with a / is sent as it is.
    */
-  onCommand?: (written: WrittenCommand) => Promise<boolean>;
+  onCommand?: CommandRunner;
   /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
   autoFocus?: boolean;
   /** Whether the people @ lists show above the text with a mouse too, as on touch screens: for a composer with something under it that would cut the list off. */
@@ -620,6 +621,15 @@ export function Composer({
     setRefusal(null);
   };
 
+  // What /shrug sends, from what's written by then, as it can change while the room's counts come: the
+  // message with ¯\_(ツ)_/¯ at its end, while it's still /shrug, and otherwise what's written, as any
+  // message written over meanwhile goes.
+  const shrugged = () => {
+    const body = whatsWritten();
+    const typedIn = body === null ? null : commandIn(body);
+    return typedIn?.command?.name === "shrug" ? withShrug(bodyAfter(typedIn.markup, 1 + typedIn.typed.name.length)) : body;
+  };
+
   // A command that didn't run is written again, to put right, unless something else has been written
   // meanwhile: in the editor, or, where the composer has gone, as when its room was left meanwhile, as its
   // draft, which it opens with.
@@ -637,13 +647,9 @@ export function Composer({
   const run = (written: RichTextEditorHandle, typedIn: NonNullable<ReturnType<typeof commandIn>>) => {
     const { command, typed, markup } = typedIn;
     if (!command) return setNotACommand(`/${typed.name} isn't a command. To send a message that starts with /, put a space before it.`);
-    const rest = () => bodyAfter(markup, 1 + typed.name.length);
-    if (command.name === "shrug") {
-      const shrugged = withShrug(rest());
-      return notifyConfirm.confirm(() => shrugged, () => sendNow.current(shrugged));
-    }
+    if (command.name === "shrug") return notifyConfirm.confirm(() => shrugged() ?? "", () => sendNow.current(shrugged()));
     if (command.name === "snippet") {
-      const left = rest();
+      const left = bodyAfter(markup, 1 + typed.name.length);
       if (isBlankBody(left)) doneWith(written);
       else written.replace(left);
       return setWritingSnippet(true);
@@ -651,7 +657,7 @@ export function Composer({
     if (running.current) return;
     running.current = true;
     doneWith(written);
-    void onCommand!({ ...typedIn, command })
+    void onCommand!({ ...typedIn, command }, notifyConfirm.askToNotify)
       .catch(() => false)
       .then((ran) => {
         running.current = false;

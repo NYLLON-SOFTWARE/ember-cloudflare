@@ -10,7 +10,7 @@ import { roomName, toSentence } from "@/lib/directs";
 import { hasHuddles } from "@/lib/huddle-people";
 import { sendAway } from "@/lib/outbox";
 import type { RoomAnswer } from "@/lib/room-list";
-import { bodyAfter, commandsIn, isBlankBody, mentionAfter, personNamedIn, roomNamedIn, type CommandName, type SlashCommand, type Taken, type WrittenCommand } from "@/lib/slash-commands";
+import { bodyAfter, commandsIn, isBlankBody, mentionAfter, personNamedIn, roomNamedIn, type CommandName, type CommandRunner, type SlashCommand, type Taken } from "@/lib/slash-commands";
 import { useAccount } from "./use-account";
 import { PeopleContext, useNameOf } from "./use-directory";
 import { isTooLong, pendingMessage } from "./use-room";
@@ -34,14 +34,13 @@ interface Options {
   onSend: (body: string) => boolean;
 }
 
-/** Runs a command, settling with whether it ran: one that didn't is written again, to put right. */
-type Runner = (written: WrittenCommand) => Promise<boolean>;
-
 /** What /msg sends to, and how it's named after the command. */
 interface Recipient {
   roomId: () => Promise<RoomId>;
   name: string;
   taken: Taken;
+  /** The room, unless it's a DM, whose people a message to it can notify. */
+  room?: SharedRoom;
 }
 
 /**
@@ -52,7 +51,7 @@ interface Recipient {
  */
 export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onFailed, onOpenDirects, onOpenShortcuts, onSend }: Options): {
   commands: SlashCommand[];
-  run: Runner;
+  run: CommandRunner;
 } {
   const flash = useFlash();
   const people = useContext(PeopleContext);
@@ -99,7 +98,7 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
   /** The room `argument` names after a #, or this one, where it names none; undefined where it names one that isn't this person's. */
   const roomIn = (argument: string): Room | undefined => (argument === "" ? room : roomNamedIn(argument, shared)?.named);
 
-  const runners: Record<Exclude<CommandName, "shrug" | "snippet">, Runner> = {
+  const runners: Record<Exclude<CommandName, "shrug" | "snippet">, CommandRunner> = {
     darkmode: async () => {
       chooseAppearance(document.documentElement.classList.contains("dark") ? "light" : "dark");
       return true;
@@ -164,7 +163,7 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       if (open.current) navigate("/");
       return true;
     },
-    msg: async ({ typed, markup, mentions }) => {
+    msg: async ({ typed, markup, mentions }, askToNotify) => {
       const to = recipientOf(typed.name.length + 1, typed.argument, markup, mentions);
       if (!to) return refuse("Write /msg, then @someone or #room, then your message.");
       const body = bodyAfter(markup, typed.name.length + 1, to.taken);
@@ -173,6 +172,8 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
         navigate(roomPath(roomId));
         return true;
       }
+      // As one written there would, it asks first where it would notify six or more in the room.
+      if (to.room && !(await askToNotify(to.room, body))) return false;
       // Written here, while the room's view is open to show it; once it's gone, it goes as to any other room.
       if (roomId === room.id && open.current) return onSend(body);
       const { plainText, mentions: mentioned } = writtenBody(body);
@@ -263,15 +264,15 @@ export function useSlashCommands({ room, me, involvement, rooms, askForRoom, onF
       };
     }
     const to = roomNamedIn(argument, shared)?.named;
-    return to ? { name: `#${to.name}`, taken: to.name.length + 1, roomId: async () => to.id } : null;
+    return to ? { name: `#${to.name}`, taken: to.name.length + 1, roomId: async () => to.id, room: to } : null;
   }
 
   return {
     commands: commandsIn(room, huddles),
-    run: async (written) => {
+    run: async (written, askToNotify) => {
       const runner = runners[written.command.name as keyof typeof runners];
       try {
-        return await runner(written);
+        return await runner(written, askToNotify);
       } catch (error) {
         onFailed(error);
         return false;
