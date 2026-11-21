@@ -845,8 +845,10 @@ question, @ember's note says they can pick another.
 
 Mention @ember in a room or a thread, or write to it in a DM, and it answers there: in the thread when
 it's asked in one, typing while its model answers. It reads the thread, its first message and latest 50
-replies, or else the room's latest 20 messages, each after its writer's name, at most about 40,000
-characters of them, and sends them through AI Gateway to the model, whose provider reads them. Its
+replies, after the room's 10 messages before it, which show what led to the thread, such as the
+question an answer it's under was asked, or else the room's latest 20 messages, each after its writer's
+name, at most about 40,000 characters of them, a thread's own first, and sends them through AI Gateway
+to the model, whose provider reads them. Its
 answer is a message of its own, in Markdown: links, bold, strikethrough, lists, quotes, code blocks and
 tables show as they do in people's messages, as do emoji, which it's told to write as themselves rather
 than by names such as :tada:, the pictures it links to show in a card under it, and its first web link
