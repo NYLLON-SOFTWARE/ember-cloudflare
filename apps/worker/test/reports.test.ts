@@ -25,7 +25,7 @@ import {
 import { PUSHES_AT_ONCE } from "../src/at-once";
 import { MIGRATIONS } from "../src/migrations";
 import { CLEAR_REPORTS_OF, OPEN_REPORTS_OF_ADMINISTRATOR } from "../src/workspace-store";
-import { api, connect, createRoom, direct, freshDeploy, openWorkspaceSocket, post, pushBrowser, roomSql, signIn, upload, workspaceSql, type PushBrowser, type Session, type WorkspaceSocket } from "./support";
+import { api, connect, createRoom, direct, freshDeploy, openWorkspaceSocket, pauseNotifications, post, pushBrowser, roomSql, signIn, upload, workspaceSql, type PushBrowser, type Session, type WorkspaceSocket } from "./support";
 
 // Report a message, in its More actions, or someone, on their page, which Apple asks of every app where
 // people post: the workspace's administrators hear of it, see what was reported as it was then, and delete
@@ -488,6 +488,39 @@ describe("Who hears of a report", () => {
     expect(pushed.toSorted()).toEqual([...adas, "sam"]);
   });
 
+  it("pushes a report to no administrator whose notifications are paused as it's made, or by the time its turn comes, until the pause ends", async () => {
+    const [ada, priya, sam, kay, grace, linus] = await people("Ada", "Priya", "Sam", "Kay", "Grace", "Linus");
+    await administrators(ada, priya, sam, kay);
+    // Ada's pushes, as many as go at once, wait for the push service, so the rest wait their turn.
+    const adas = Array.from({ length: PUSHES_AT_ONCE }, (_, index) => `ada${index}`);
+    for (const label of adas) await subscribe(ada, label);
+    for (const [label, session] of [["priya", priya], ["sam", sam], ["kay", kay]] as const) await subscribe(session, label);
+    await pauseNotifications(sam, 60 * 60_000);
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const pushed: string[] = [];
+    const sent = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const label = (input instanceof Request ? input.url : String(input)).slice(PUSH_SERVICE.length);
+      if (label.startsWith("ada")) await answered;
+      pushed.push(label);
+      return new Response(null, { status: 201 });
+    });
+
+    await reported(reportPerson(linus, grace.user.id));
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(PUSHES_AT_ONCE));
+    await pauseNotifications(priya, 30 * 60_000);
+    answer();
+    await vi.waitFor(() => expect(pushed).toContain("kay"));
+    expect(pushed.toSorted()).toEqual([...adas, "kay"]);
+
+    // Once Sam's pause has ended, the next report reaches him.
+    pushed.length = 0;
+    await workspaceSql("UPDATE users SET notifications_paused_until = ? WHERE id = ?", new Date(Date.now() - 1_000).toISOString(), sam.user.id);
+    await reported(reportPerson(linus, ada.user.id));
+    await vi.waitFor(() => expect(pushed).toContain("kay"));
+    expect(pushed.toSorted()).toEqual(["kay", "sam"]);
+  });
+
   it("forgets a subscription its push service says is gone, failing nothing for whoever reported", async () => {
     const logs = vi.spyOn(console, "log").mockImplementation(() => {});
     const pushed = pushServices((endpoint) => (endpoint.endsWith("/gone") ? 410 : 201));
@@ -642,12 +675,12 @@ describe("Handling a report", () => {
           [KEEP_PERSON_REPORT, "r", "a", "b", "{}", "spam", "", "now"],
           [OPEN_REPORTS_BY_ADMINISTRATOR],
           [OPEN_REPORTS_OF_ADMINISTRATOR, "a"],
-          [REPORT_PUSHES, "a", "b"],
+          [REPORT_PUSHES, "a", "b", "now"],
           [OPEN_REPORTS, "a"],
           [HANDLED_REPORTS, "a"],
           [CLOSE_MESSAGE_REPORTS, "room", "m", "a", "now"],
           [CLOSE_PERSON_REPORTS, "b", "a", "now", "removed"],
-          [REPORT_PUSHABLE, 1, "a"],
+          [REPORT_PUSHABLE, 1, "a", "now"],
           [CLEAR_REPORTS_OF, "Deleted person", "b"],
         ] as const
       ).map(async ([query, ...params]) => ((await workspaceSql(`EXPLAIN QUERY PLAN ${query}`, ...params)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ")),

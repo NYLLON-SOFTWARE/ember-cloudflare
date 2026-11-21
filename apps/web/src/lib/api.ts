@@ -62,6 +62,8 @@ import {
   type NewRoomForm,
   type NewBot,
   type NewWorkspace,
+  type NotificationsPause,
+  type NotificationsPaused,
   type NotifiedCounts,
   type OpenSignUp,
   type PastHuddle,
@@ -949,6 +951,14 @@ export async function changeYourAssistant(changes: YourAssistantChanges): Promis
  */
 export async function changeHuddleSounds(changes: HuddleSoundChanges): Promise<HuddleSounds> {
   return (await request<HuddleSoundsChanged>("/api/users/me/huddle-sounds", { method: "PATCH", body: JSON.stringify(changes) })).sounds;
+}
+
+/**
+ * Pauses this person's notifications until `until`, an ISO time, or resumes them with null, wherever
+ * they're signed in, answering them as the people directory lists them then.
+ */
+export async function pauseNotifications(until: string | null): Promise<DirectoryUser> {
+  return (await request<NotificationsPaused>("/api/users/me/notifications-pause", { method: "PUT", body: JSON.stringify({ until } satisfies NotificationsPause) })).user;
 }
 
 /**
