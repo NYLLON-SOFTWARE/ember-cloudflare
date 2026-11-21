@@ -1,6 +1,6 @@
 import type { Locator } from "@playwright/test";
-import { editorField } from "../../fixtures";
-import { expect, startDirect, test, type Member } from "./fixtures";
+import { cookieHeader, editorField } from "../../fixtures";
+import { expect, startDirect, test, unique, type Member } from "./fixtures";
 
 // Slack's Manage drafts, the pencil beside Send: the conversation's drafts, the one written ticked, any of
 // which it opens again, and Save as draft, which puts what's written aside to write another.
@@ -103,6 +103,29 @@ test.describe("Manage drafts", () => {
     await ada.composer().fill("Just between us");
     await underText(ada.composer(), "Manage drafts").click();
     await expect(drafts(ada, "conversation")).toHaveText(["Just between us"]);
+  });
+
+  test("opens a draft with the rooms it mentions by their names as they are now", async ({ members, request, rooms, session }) => {
+    const ada = await members.signIn("Ada");
+    const field = ada.composer();
+    await field.pressSequentially("Over in #rand");
+    await expect(ada.page.getByRole("listbox").getByRole("option")).toHaveText(["#random"]);
+    await field.press("Tab");
+    await expect(ada.page.getByRole("listbox")).toBeHidden();
+    await expect(field.getByText("#random", { exact: true })).toBeVisible();
+    await underText(field, "Manage drafts").click();
+    await saveAsDraft(ada).click();
+    await expect(field).toHaveText("");
+
+    // Renamed while the draft is put aside, which the sidebar shows once the page has heard.
+    const renamed = unique("Rumpus");
+    const response = await request.patch(`/api/rooms/${rooms.random.id}`, { data: { name: renamed }, headers: { Cookie: cookieHeader(session) } });
+    expect(response.status(), await response.text()).toBe(200);
+    await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: renamed, exact: true })).toBeVisible();
+    await underText(field, "Manage drafts").click();
+    await drafts(ada, "room").filter({ hasText: "Over in" }).click();
+    await expect(field.getByText(`#${renamed}`, { exact: true })).toBeVisible();
+    await expect(field).not.toContainText("#random");
   });
 
   test("is in + where the composer has no room for it beside Send, as in a narrow window", async ({ members }) => {

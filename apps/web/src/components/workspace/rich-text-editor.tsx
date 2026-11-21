@@ -647,11 +647,13 @@ export default function RichTextEditor({
     isBlank: () => editor.current?.isBlank ?? true,
     hasOpenPrompt: () => editor.current?.hasOpenPrompt ?? false,
     focus: () => editor.current?.focus(),
-    // Campfire's composer_controller.js#replaceMessageContent, for what Quote writes.
+    // Campfire's composer_controller.js#replaceMessageContent, for what Quote writes, and a draft opened, whose
+    // rooms show as they are now, as those of the draft the editor opens with do.
     replace: (markup) => {
       const lexxy = editor.current;
       if (!lexxy) return;
       lexxy.value = markup;
+      if (rooms) showRoomsAsTheyAre(lexxy, rooms);
       lexxy.focus();
       lexxy.selection.placeCursorAtTheEnd();
     },
