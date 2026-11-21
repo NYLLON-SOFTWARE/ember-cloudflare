@@ -37,6 +37,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "pending_identities",
     "pending_picture_deletions",
     "pending_purges",
+    "pending_readers",
     "pending_reindexes",
     "pending_revocations",
     "push_subscriptions",
@@ -44,6 +45,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "reports",
     "rooms",
     "searches",
+    "sections",
     "session_addresses",
     "sessions",
     "users",
@@ -59,8 +61,11 @@ const SEARCH_TABLES = [
   "search_index_data",
   "search_index_docsize",
   "search_index_idx",
+  "search_keys",
   "search_mentions",
   "search_messages",
+  "search_readers",
+  "search_rekeys",
   "search_rooms",
 ];
 
@@ -407,7 +412,7 @@ describe("Durable Object SQLite or D1", () => {
       }
       /** The numbers of general's messages that meet `filters`, newest first. */
       const numbers = (filters: Partial<IndexSearch> = {}) => {
-        const { sql: query, values } = searchStatement({ terms: "", roomIds: ["general"], sort: "newest", after: null, ...filters });
+        const { sql: query, values } = searchStatement({ words: [], roomIds: ["general"], searcherId: "ada", sort: "newest", after: null, ...filters }, []);
         return sql
           .exec<{ number: number }>(query, ...values)
           .toArray()

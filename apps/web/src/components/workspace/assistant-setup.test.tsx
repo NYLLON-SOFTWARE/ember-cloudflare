@@ -307,6 +307,20 @@ describe("Set up Ember AI", () => {
     expect(await listedMenu()).toHaveValue(SUGGESTED_MODEL);
   });
 
+  it("keeps the API token out of its field's value attribute, where custom CSS could read it, also once it's back on its field", async () => {
+    serve();
+    const { user } = showSetup();
+    await dialog("Set up Ember AI");
+    await user.type(apiTokenField(), API_TOKEN);
+    expect(apiTokenField()).not.toHaveAttribute("value");
+    await user.type(accountIdField(), ACCOUNT_ID);
+    await user.click(button("Continue"));
+    await listedMenu();
+    await user.click(button("Back"));
+    expect(apiTokenField()).toHaveValue(API_TOKEN);
+    expect(apiTokenField()).not.toHaveAttribute("value");
+  });
+
   it("says on the model menu why AI Gateway didn't take the model, until another's chosen", async () => {
     serve(() => Response.json({ error: "AI Gateway didn't take that model.", field: "model" }, { status: 422 }));
     const { user, onFailed } = showSetup();

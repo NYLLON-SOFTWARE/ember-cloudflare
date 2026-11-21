@@ -74,7 +74,7 @@ const going = (startedAt: string, ...userIds: string[]): LiveHuddle => ({ starte
 
 /** The huddle this tab is in, in room `roomId`. */
 const joined = (roomId: string): JoinedHuddle => ({ roomId, connected: true, you: ada!, people: [], muted: false, sticker: null, microphone: true, microphoneId: "", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: false, thread: true });
-const controls = () => ({ leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setSmall: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(), setSticker: vi.fn(), react: vi.fn() });
+const controls = () => ({ leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setCameraSize: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(), setSticker: vi.fn(), react: vi.fn() });
 
 interface Shown {
   /** The rooms and DMs the sidebar lists, or null until they've come: General, Design and Ada's DM with Grace, unless given. */

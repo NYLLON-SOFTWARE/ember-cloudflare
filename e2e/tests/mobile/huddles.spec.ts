@@ -116,7 +116,7 @@ async function standInHuddleMessage(page: Page, room: TestRoom, starter: User, h
 /** Has `room`'s settings answer the page that `members` are in the room and `others`, whom they list as well, aren't. */
 async function listRoomPeople(page: Page, room: TestRoom, members: User[], others: User[] = []): Promise<void> {
   const people = [...members.map((user) => ({ ...user, member: true })), ...others.map((user) => ({ ...user, member: false }))];
-  await page.route(`**/api/rooms/${room.id}/settings`, (route) => route.fulfill({ json: { room: { ...room, kind: "open", icon: null }, canAdminister: false, canChangeHuddles: false, people } satisfies RoomSettings }));
+  await page.route(`**/api/rooms/${room.id}/settings`, (route) => route.fulfill({ json: { room: { ...room, kind: "open", icon: null }, canAdminister: false, canChangeHuddles: false, canChangeChannelMentions: false, people, section: null, sections: [] } satisfies RoomSettings }));
 }
 
 /** The button Invite people opens from in the huddle `page` has opened: More, or its own where the huddle is beside the sidebar, as on the largest phone held on its side. */
@@ -921,7 +921,7 @@ test("a room's settings fit the phone with an administrator's Huddles switch, on
   await expect(allow).toBeChecked();
 
   const people = [{ id: session.user.id, name: session.user.name, member: true }];
-  await page.route(`**/api/rooms/${room.id}/settings`, (route) => route.fulfill({ json: { room: { ...room, kind: "open", icon: null, huddles: false }, canAdminister: false, canChangeHuddles: false, people } satisfies RoomSettings }));
+  await page.route(`**/api/rooms/${room.id}/settings`, (route) => route.fulfill({ json: { room: { ...room, kind: "open", icon: null, huddles: false }, canAdminister: false, canChangeHuddles: false, canChangeChannelMentions: false, people, section: null, sections: [] } satisfies RoomSettings }));
   await page.reload();
   const none = page.getByText("Members can't start or join huddles in this room.", { exact: true });
   await expect(none).toBeVisible();

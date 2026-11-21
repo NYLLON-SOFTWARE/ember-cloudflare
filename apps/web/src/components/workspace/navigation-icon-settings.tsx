@@ -37,10 +37,10 @@ interface Props {
 }
 
 /**
- * A picker for each of the rail's buttons and the appearance modes, two to a row, or one on screens up
- * to 600px wide, which open one dialog of icons. The project's owner moved them to Custom styles, so
- * they're a section of their own, which its own Save changes saves, saying "Changes saved." as General's
- * does.
+ * A picker for each of the rail's buttons, the top bar's search field and the appearance modes, two to
+ * a row, or one on screens up to 600px wide, which open one dialog of icons. The project's owner moved
+ * them to Custom styles, so they're a section of their own, which its own Save changes saves, saying
+ * "Changes saved." as General's does.
  */
 export function NavigationIconSettings({ askForAccount, onFailed, loading = false, catalogUrl }: Props) {
   const { navigationIcons } = useAccount();

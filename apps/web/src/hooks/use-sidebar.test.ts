@@ -12,7 +12,7 @@ const NOON = "2026-10-15T12:00:00.000Z";
 const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false, involvement: "mentions" } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
 const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } });
-const ember: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+const ember: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" };
 /** Someone as the directory lists them. */
 const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
 
@@ -346,6 +346,18 @@ describe("Unread rooms", () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true, unreadSince: NOON }]);
+  });
+
+  it("counts the mentions in a room marked unread, as the workspace socket says, until it's read", async () => {
+    server.sidebar = unstarred([design]);
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON });
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON, mentions: 1 });
+    expect(result.current.list?.rooms).toEqual([{ ...design, unread: true, unreadSince: NOON, mentionCount: 1 }]);
+    socket().receive({ type: "room.read", roomId: design.id });
+    expect(result.current.list?.rooms).toEqual([design]);
   });
 
   it("counts the messages that have come in a DM since it was marked unread, as the workspace socket says, until it's read", async () => {
@@ -921,6 +933,37 @@ describe("Shared room order", () => {
     expect(onReload).toHaveBeenCalledTimes(2);
 
     await wait(RELOAD_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+  });
+
+  it("puts a room the workspace socket brings in its section at once, loading the rooms again a while after for a section the list hasn't", async () => {
+    const engineering = { id: "s1", name: "Engineering" };
+    server.change({ ...unstarred([design, general]), sections: [{ ...engineering, roomIds: [design.id] }] });
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+    const room = { id: general.id, name: "general", kind: "open" as const, icon: null };
+
+    socket().receive({ type: "room.saved", room, section: engineering });
+    expect(result.current.list?.sections).toEqual([{ ...engineering, roomIds: [design.id, general.id] }]);
+    socket().receive({ type: "room.saved", room: { ...design, name: "Design" } });
+    expect(result.current.list?.sections).toEqual([{ ...engineering, roomIds: [design.id, general.id] }]);
+    socket().receive({ type: "room.saved", room, section: null });
+    expect(result.current.list?.sections).toEqual([{ ...engineering, roomIds: [design.id] }]);
+    await wait(RELOAD_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+
+    // A section the list hasn't, made since, which it shows after the others until it loads again.
+    const sales = { id: "s2", name: "Sales" };
+    socket().receive({ type: "room.saved", room, section: sales });
+    expect(result.current.list?.sections).toEqual([
+      { ...engineering, roomIds: [design.id] },
+      { ...sales, roomIds: [general.id] },
+    ]);
+    await wait(RELOAD_SPREAD_MS / 2);
     await settle();
     expect(sidebarRequests()).toHaveLength(3);
   });

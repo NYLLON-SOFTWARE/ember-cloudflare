@@ -189,6 +189,13 @@ describe("How mentions look", () => {
     expect(mention(new Map(), []).innerHTML).toBe("<p>Hi ☒!</p>");
     expect(mention(new Map(), [{ id: grace.id, name: "" }]).innerHTML).toBe("<p>Hi ☒!</p>");
   });
+
+  it("shows @here and @channel by their names, in semibold as a person's name is in a mention of them", () => {
+    const special = (name: string) => `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${name}"></action-text-attachment>`;
+    expect(mention(new Map(), [], `<p>${special("here")} and ${special("channel")}: standup!</p>`).innerHTML).toBe(
+      '<p><span class="font-semibold">@here</span> and <span class="font-semibold">@channel</span>: standup!</p>',
+    );
+  });
 });
 
 describe("Avatars open people's pages", () => {

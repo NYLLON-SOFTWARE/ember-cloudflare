@@ -417,6 +417,25 @@ test.describe("Ember AI", () => {
 });
 
 test.describe("@ember", () => {
+  test("someone asks @ember from the top bar's end, while Ember AI is on, which opens their DM with it", async ({ page, request }) => {
+    await useOwnAddress(page);
+    await page.goto("/");
+    await signInAsAdministrator(page);
+    const bar = page.getByRole("banner");
+    await expect(bar.getByRole("button", { name: /^Search / })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Ask @ember" })).toHaveCount(0);
+
+    await setUpAssistant(request);
+    await page.reload();
+    const ask = bar.getByRole("button", { name: "Ask @ember" });
+    // @ember's own picture, which is Ember's flame until an administrator uploads another.
+    await expect(ask.locator("img")).toBeVisible();
+    await ask.click();
+    await expect(page).toHaveURL(/\/rooms\/[^/]+$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Ember");
+    await expect(page.getByRole("region", { name: "DMs" }).locator("a[aria-current=page]")).toHaveAccessibleName(/Ember/);
+  });
+
   test("someone mentions @ember in a room, sees it typing, and reads its answer there", async ({ page, request }) => {
     await setUpAssistant(request);
     await useOwnAddress(page);

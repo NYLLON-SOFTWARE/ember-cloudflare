@@ -62,7 +62,7 @@ function Tools({ joined }: { joined: JoinedHuddle }) {
 
 /** The huddle's reactions and stickers, closed, with what the huddle's controls were asked. */
 function renderTools(joined: JoinedHuddle = huddle()) {
-  const controls = { leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setSmall: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(() => true), setSticker: vi.fn(), react: vi.fn() };
+  const controls = { leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setCameraSize: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(() => true), setSticker: vi.fn(), react: vi.fn() };
   act(() => showHuddle(joined, controls));
   const user = userEvent.setup();
   const view = render(<Tools joined={joined} />);

@@ -60,6 +60,8 @@ export function MessageBody({ nodes, mentions, emoji = false, trailing, classNam
 function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLink = false, matches: Matches | null = null): ReactNode {
   if (node.kind === "text") return markedRanges(node.value, matches?.get(node));
   if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions, inLink });
+  // @here, @channel or @everyone, in semibold as a person's name is in a mention of them.
+  if (node.kind === "special-mention") return createElement("span", { className: "font-semibold" }, `@${node.mention}`);
   if (node.kind === "preview") return createElement(LinkPreview, { preview: node, mentions, inLink });
   const shown = TABLE_PARTS.has(node.name) ? node.children.filter((child) => child.kind !== "text" || child.value.trim() !== "") : node.children;
   const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a", matches));

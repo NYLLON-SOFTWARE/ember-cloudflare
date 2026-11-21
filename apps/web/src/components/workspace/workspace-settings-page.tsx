@@ -5,6 +5,7 @@ import {
   MAX_LOGO_SIZE,
   MAX_TAGLINE_LENGTH,
   type Account,
+  type AccountChanges,
   type AccountSettings,
   type DirectoryUser,
   type EmailInvitation,
@@ -13,9 +14,12 @@ import {
   type PersonRole,
   type ReleaseCheck,
   type RoomId,
+  type SavedRoomLayout,
   type SidebarRoom,
+  type SidebarSection,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import type { HuddleVideoQuality } from "@ember/protocol/huddles";
 import type { MemberfulSaved } from "@ember/protocol/memberful";
 import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
@@ -44,7 +48,7 @@ import { CustomDomainSettings } from "./custom-domain-settings";
 import { EmberVersion } from "./ember-version";
 import { EmailSettings, sendsEmail } from "./email-settings";
 import { EmailSetup } from "./email-setup";
-import { HuddleRelay, HuddlesSettings, HuddleSwitches } from "./huddles-settings";
+import { HuddleRelay, HuddlesSettings, HuddleSwitches, HuddleVideo } from "./huddles-settings";
 import { HuddlesSetup } from "./huddles-setup";
 import { InviteByEmail } from "./invite-by-email";
 import { InviteLink } from "./invite-link";
@@ -55,12 +59,26 @@ import { ReportsList } from "./reports-list";
 import { PicturePicker } from "./picture-picker";
 import { RelaySetup } from "./relay-setup";
 import { RoomOrder } from "./room-order";
+import { SectionNameDialog } from "./section-name-dialog";
 import { SettingsLayout, workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE, TITLE_LINK } from "./settings-page";
 import { SsoSetup } from "./sso-setup";
 import { TurnstileSettings } from "./turnstile-settings";
 import { TurnstileSetup } from "./turnstile-setup";
 import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
+
+/** The settings Room order and permissions' switches keep to administrators. */
+type Restriction = "restrictRoomCreation" | "restrictChannelMentions" | "restrictEveryoneMention";
+
+/** Room order and permissions' switches, in order, each by the setting it saves and what it says. */
+const RESTRICTIONS: { setting: Restriction; label: string }[] = [
+  { setting: "restrictRoomCreation", label: "Must be admin to create new rooms" },
+  { setting: "restrictChannelMentions", label: "Must be admin to use @channel and @here" },
+  { setting: "restrictEveryoneMention", label: "Must be admin to use @everyone" },
+];
+
+/** What General's switch for the composer's question before a room-wide mention says, as Slack's warning. */
+const WARN_BEFORE_NOTIFYING = "Warn before notifying a room of six or more";
 
 interface Props {
   me: Me;
@@ -83,8 +101,12 @@ interface Props {
   rooms: SidebarRoom[] | null;
   /** The ones of them the shared order ranks, in its order. */
   sharedOrder: RoomId[];
-  /** Called with the rooms of theirs the shared order ranks, as the server answers them, once they save it. */
-  onSharedOrderSaved: (sharedOrder: RoomId[]) => void;
+  /** The sidebar's sections, in order, each with which of `rooms` are in it: for an administrator, every section. */
+  sections: SidebarSection[];
+  /** Called with the layout as the server answers it, once they save the order. */
+  onSharedOrderSaved: (layout: SavedRoomLayout) => void;
+  /** Called once a section is made, renamed or deleted, for the sidebar to load again, settling once it has or failed. */
+  onSectionsChanged: () => Promise<void>;
   /** Called with null when the session has expired. */
   onSessionChanged: (me: Me | null) => void;
   /** For an administrator, the release this Ember is and the newest one, once the Worker has said, or else null. */
@@ -105,8 +127,9 @@ interface Props {
  *   The rail's icons are in Custom styles (`NavigationIconSettings`), where the project's owner moved
  *   them.
  * - Rooms and permissions: New room, which members don't get while only administrators can create
- *   rooms, then for administrators, the switch that says so, and the rooms' order for everyone, each
- *   linking to its settings.
+ *   rooms, and for administrators, New section, then the switch that says so, the switches that keep
+ *   @channel and @here, and @everyone, to administrators, as Slack's settings do, and the rooms' order for
+ *   everyone, in their sections, each room linking to its settings.
  * - Membership: for administrators, the Reports list first, then who can join, with switches for Open,
  *   the join link, which they can regenerate, Memberful and single sign-on, which Set up single sign-on
  *   sets up, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
@@ -131,7 +154,9 @@ export function WorkspaceSettingsPage({
   onFailed,
   rooms,
   sharedOrder,
+  sections,
   onSharedOrderSaved,
+  onSectionsChanged,
   onSessionChanged,
   release,
   onCheckForUpdates,
@@ -150,10 +175,12 @@ export function WorkspaceSettingsPage({
   const [pickedLogo, setPickedLogo] = useState<string | null>(null);
   const [savingLogo, setSavingLogo] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  // Where the Hide translation buttons switch was moved to, until Save changes saves it with the name.
+  // Where the Hide translation buttons and Warn before notifying switches were moved to, until Save
+  // changes saves them with the name.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
-  // Where Must be admin to create new rooms was moved to, while that's saved.
-  const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
+  const [warning, setWarning] = useState<boolean | null>(null);
+  // Where each of Room order and permissions' switches was moved to, while that's saved.
+  const [restricting, setRestricting] = useState<Partial<Record<Restriction, boolean>>>({});
   // Set up email, while it's open, with what to go on to once it closes with Ember able to send email.
   const [emailSetup, setEmailSetup] = useState<{ then?: () => void } | null>(null);
   const [settingUpTurnstile, setSettingUpTurnstile] = useState(false);
@@ -164,6 +191,7 @@ export function WorkspaceSettingsPage({
   // Set up single sign-on, while it's open, with what to go on to once it closes with the provider saved.
   const [ssoSetup, setSsoSetup] = useState<{ then?: () => void } | null>(null);
   const [settingUpRelay, setSettingUpRelay] = useState(false);
+  const [makingSection, setMakingSection] = useState(false);
   const account = useAccount();
   const name = typedName ?? account.name;
   const tagline = typedTagline ?? account.tagline;
@@ -246,20 +274,23 @@ export function WorkspaceSettingsPage({
     );
   }, [ssoOn, ssoUnknown, mounted, onFailed]);
 
-  // The name, the tagline and, if it was moved, the translation buttons' switch, sent together.
+  // The name, the tagline and whichever of the switches below them were moved, sent together.
   const save = (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     const answered = askForAccount();
     const sent = { name, tagline };
     const hideTranslationButtons = hidingTranslations;
-    changeAccount({ ...sent, ...(hideTranslationButtons !== null && { settings: { hideTranslationButtons } }) }).then(
+    const warnBeforeNotifying = warning;
+    const moved = { ...(hideTranslationButtons !== null && { hideTranslationButtons }), ...(warnBeforeNotifying !== null && { warnBeforeNotifying }) };
+    changeAccount({ ...sent, ...(Object.keys(moved).length > 0 && { settings: moved }) }).then(
       (account) => {
         answered(account);
         if (!mounted.current) return;
         setSaving(false);
-        // Unless it's been moved again since.
+        // Unless they've been moved again since.
         setHidingTranslations((hiding) => (hiding === hideTranslationButtons ? null : hiding));
+        setWarning((warn) => (warn === warnBeforeNotifying ? null : warn));
         setSettings((settings) => settings && { ...settings, account });
         // Each shows as it's kept, the tagline with no space at its ends, unless it's been typed over since.
         setTypedName((typed) => (typed === sent.name ? null : typed));
@@ -306,10 +337,12 @@ export function WorkspaceSettingsPage({
     );
   }
 
-  // A switch saves at once, with no notice after, then `settled` is called.
-  const saveSwitch = (settings: AccountSettings, settled: () => void) => {
+  // A switch saves at once, with no notice after, then `settled` is called, as does huddles' video quality.
+  const saveSwitch = (settings: AccountSettings, settled: () => void) => saveAtOnce({ settings }, settled);
+  const saveHuddleVideo = (huddleVideo: HuddleVideoQuality, settled: () => void) => saveAtOnce({ huddleVideo }, settled);
+  const saveAtOnce = (changes: AccountChanges, settled: () => void) => {
     const answered = askForAccount();
-    changeAccount({ settings }).then(
+    changeAccount(changes).then(
       (account) => {
         answered(account);
         if (mounted.current) settled();
@@ -355,10 +388,10 @@ export function WorkspaceSettingsPage({
       },
     );
   };
-  const switchRoomCreation = (restrict: boolean) => {
-    if (restrictingCreation !== null) return;
-    setRestrictingCreation(restrict);
-    saveSwitch({ restrictRoomCreation: restrict }, () => setRestrictingCreation(null));
+  const switchRestriction = (setting: Restriction, restrict: boolean) => {
+    if (restricting[setting] !== undefined) return;
+    setRestricting((moved) => ({ ...moved, [setting]: restrict }));
+    saveSwitch({ [setting]: restrict }, () => setRestricting(({ [setting]: _, ...moved }) => moved));
   };
   const sharedRooms = useMemo(() => rooms && apart(rooms).shared, [rooms]);
 
@@ -497,19 +530,35 @@ export function WorkspaceSettingsPage({
                     Shown under the community name in the sidebar, up to {MAX_TAGLINE_LENGTH} characters. Leave it empty for none.
                   </p>
                 </Field>
-                <div id="localization-settings" className="mt-1 flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
-                  <div className="min-w-0 flex-1 text-start">
-                    <div>Hide translation buttons</div>
-                    <p id="localization-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
-                      Hide language help throughout the app for everyone.
-                    </p>
+                <div className="mt-1 flex flex-col gap-3">
+                  <div id="localization-settings" className="flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
+                    <div className="min-w-0 flex-1 text-start">
+                      <div>Hide translation buttons</div>
+                      <p id="localization-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
+                        Hide language help throughout the app for everyone.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={hidingTranslations ?? account.hideTranslationButtons}
+                      onCheckedChange={setHidingTranslations}
+                      aria-label="Hide translation buttons"
+                      aria-describedby="localization-description"
+                    />
                   </div>
-                  <Switch
-                    checked={hidingTranslations ?? account.hideTranslationButtons}
-                    onCheckedChange={setHidingTranslations}
-                    aria-label="Hide translation buttons"
-                    aria-describedby="localization-description"
-                  />
+                  <div id="mention-warning-settings" className="flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
+                    <div className="min-w-0 flex-1 text-start">
+                      <div>{WARN_BEFORE_NOTIFYING}</div>
+                      <p id="mention-warning-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
+                        Ask people to confirm before @channel, @here or @everyone notifies a room of six or more.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={warning ?? account.warnBeforeNotifying}
+                      onCheckedChange={setWarning}
+                      aria-label={WARN_BEFORE_NOTIFYING}
+                      aria-describedby="mention-warning-description"
+                    />
+                  </div>
                 </div>
                 {/* On a page of community settings, as wide as it needs, but at least 126px, at the form's end. */}
                 <SubmitButton disabled={saving} className="w-auto min-w-[126px] self-end">
@@ -533,27 +582,46 @@ export function WorkspaceSettingsPage({
           <h2 id="channel-settings-heading" className={TITLE}>
             Room order and permissions
           </h2>
-          {(me.administrator || !account.restrictRoomCreation) && (
-            <PageLink href={newRoomPath("open")} className={TITLE_LINK}>
-              <Plus className="size-[18px]" />
-              <span>New room</span>
-            </PageLink>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {settings?.canAdminister && (
+              <button type="button" onClick={() => setMakingSection(true)} className={cn(TITLE_LINK, "cursor-pointer")}>
+                <Plus className="size-[18px]" />
+                <span>New section</span>
+              </button>
+            )}
+            {(me.administrator || !account.restrictRoomCreation) && (
+              <PageLink href={newRoomPath("open")} className={TITLE_LINK}>
+                <Plus className="size-[18px]" />
+                <span>New room</span>
+              </PageLink>
+            )}
+          </div>
         </div>
         {settings?.canAdminister ? (
           <>
-            <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-5">
-              <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
-                <Crown className="size-[18px]" />
-                Must be admin to create new rooms
-              </div>
-              <Switch
-                checked={restrictingCreation ?? account.restrictRoomCreation}
-                onCheckedChange={switchRoomCreation}
-                aria-label="Must be admin to create new rooms"
-              />
+            <div className="flex flex-col gap-4 border-t pt-5">
+              {RESTRICTIONS.map(({ setting, label }) => (
+                <div key={setting} className="flex items-center gap-x-[1ch] gap-y-4">
+                  <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
+                    <Crown className="size-[18px] shrink-0" />
+                    {label}
+                  </div>
+                  <Switch checked={restricting[setting] ?? account[setting]} onCheckedChange={(restrict) => switchRestriction(setting, restrict)} aria-label={label} />
+                </div>
+              ))}
             </div>
-            {sharedRooms && <RoomOrder rooms={sharedRooms} sharedOrder={sharedOrder} onSaved={onSharedOrderSaved} onSessionChanged={onSessionChanged} />}
+            {sharedRooms && (
+              <RoomOrder
+                rooms={sharedRooms}
+                sharedOrder={sharedOrder}
+                sections={sections}
+                onSaved={onSharedOrderSaved}
+                onSectionsChanged={onSectionsChanged}
+                onFailed={onFailed}
+                onSessionChanged={onSessionChanged}
+              />
+            )}
+            {makingSection && <SectionNameDialog section={null} onSaved={() => void onSectionsChanged()} onClose={() => setMakingSection(false)} onFailed={onFailed} />}
           </>
         ) : (
           settings && <p className="text-muted-foreground">Community admins manage room order and permissions.</p>
@@ -709,6 +777,7 @@ export function WorkspaceSettingsPage({
             <>
               <HuddlesSettings huddles={settings.huddles} onSetUp={() => setSettingUpHuddles(true)} onStopped={() => showHuddles(null)} onFailed={onFailed} />
               {settings.huddles !== null && <HuddleSwitches saveSwitch={saveSwitch} />}
+              {settings.huddles !== null && <HuddleVideo save={saveHuddleVideo} />}
               {settings.huddles !== null && <HuddleRelay relayKeyId={settings.huddles.relayKeyId} onSetUp={() => setSettingUpRelay(true)} onStopped={showHuddles} onFailed={onFailed} />}
               {settingUpRelay && settings.huddles !== null && (
                 <RelaySetup

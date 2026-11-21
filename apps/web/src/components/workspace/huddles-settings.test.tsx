@@ -3,10 +3,23 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountSettings, WorkspaceSettings } from "@ember/protocol";
-import { HUDDLES_FORBIDDEN } from "@ember/protocol/huddles";
+import { HUDDLES_FORBIDDEN, type HuddleVideoQuality } from "@ember/protocol/huddles";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
-import { CAMERAS_EXPLAINED, CONFIRM_STOP_HUDDLES, CONFIRM_STOP_RELAY, HuddleRelay, HUDDLES_EXPLAINED, HuddlesSettings, HuddleSwitches, RELAY_EXPLAINED, RELAY_TITLE, SCREENS_EXPLAINED } from "./huddles-settings";
+import {
+  CAMERAS_EXPLAINED,
+  CONFIRM_STOP_HUDDLES,
+  CONFIRM_STOP_RELAY,
+  HuddleRelay,
+  HUDDLES_EXPLAINED,
+  HuddlesSettings,
+  HuddleSwitches,
+  HuddleVideo,
+  RELAY_EXPLAINED,
+  RELAY_TITLE,
+  SCREENS_EXPLAINED,
+  VIDEO_EXPLAINED,
+} from "./huddles-settings";
 
 const APP_ID = "2a95132c15732412d22c1476fa83f27a";
 
@@ -257,5 +270,83 @@ describe.each([
     // The page's alerts say why, and the workspace still says it's on.
     act(() => settled[0]!());
     expect(itsSwitch()).toBeChecked();
+  });
+});
+
+describe("Video quality in huddles", () => {
+  /** The workspace as it is where huddles send video at `quality`. */
+  function Workspace({ quality, children }: { quality: HuddleVideoQuality; children: ReactNode }) {
+    return <AccountContext value={{ ...useAccount(), huddleVideo: quality }}>{children}</AccountContext>;
+  }
+
+  /** The card, for a workspace whose huddles send video at `quality`, with what it saved and the calls that settle each save. */
+  function showQualities(quality: HuddleVideoQuality = "hd") {
+    const settled: Array<() => void> = [];
+    const save = vi.fn((_: HuddleVideoQuality, done: () => void) => void settled.push(done));
+    const card = (shown: HuddleVideoQuality) => (
+      <Workspace quality={shown}>
+        <HuddleVideo save={save} />
+      </Workspace>
+    );
+    const { rerender } = render(card(quality));
+    return { save, settled, user: userEvent.setup(), show: (shown: HuddleVideoQuality) => rerender(card(shown)) };
+  }
+
+  const videoCard = () => screen.getByRole("region", { name: "Video quality" });
+  const qualities = () => within(screen.getByRole("group", { name: "Video quality" })).getAllByRole("radio");
+  const quality = (name: string) => screen.getByRole("radio", { name });
+  const saved = (save: ReturnType<typeof showQualities>["save"]) => save.mock.calls.map(([chosen]) => chosen);
+
+  it("offers Standard, HD and Full HD, each with what it sends, the workspace's checked", () => {
+    showQualities();
+    expect(within(videoCard()).getByRole("heading", { level: 2, name: "Video quality" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Video quality" })).toHaveAccessibleDescription(VIDEO_EXPLAINED);
+    expect(VIDEO_EXPLAINED).toBe(
+      "How sharp cameras and shared screens look in huddles. Sharper video sends more data, which Cloudflare's Realtime SFU charges for past 1,000 GB a month. Safari and Firefox send cameras at Standard. A change applies to cameras and screens turned on after it.",
+    );
+    expect(qualities()).toEqual([quality("Standard"), quality("HD"), quality("Full HD")]);
+    expect(qualities().map((radio) => radio.getAttribute("value"))).toEqual(["standard", "hd", "full-hd"]);
+    expect(quality("Standard")).toHaveAccessibleDescription("Cameras at up to 360p and screens at up to 1080p. Five people on camera for an hour are sent up to about 5 GB.");
+    expect(quality("HD")).toHaveAccessibleDescription("Cameras at up to 720p and screens at up to 1440p. Five people on camera for an hour are sent up to about 14 GB.");
+    expect(quality("Full HD")).toHaveAccessibleDescription("Cameras at up to 1080p and screens at up to 1440p. Five people on camera for an hour are sent up to about 27 GB.");
+    expect(qualities().filter((radio) => (radio as HTMLInputElement).checked)).toEqual([quality("HD")]);
+  });
+
+  it("saves the quality chosen at once, checked until that's saved, with none other chosen meanwhile", async () => {
+    const { save, settled, user, show } = showQualities();
+    await user.click(quality("Full HD"));
+    expect(saved(save)).toEqual(["full-hd"]);
+    expect(quality("Full HD")).toBeChecked();
+    for (const radio of qualities()) expect(radio).toBeDisabled();
+
+    // Saved, it's as the workspace says, which by then says Full HD.
+    show("full-hd");
+    act(() => settled[0]!());
+    expect(quality("Full HD")).toBeChecked();
+    for (const radio of qualities()) expect(radio).toBeEnabled();
+    await user.click(quality("Standard"));
+    expect(saved(save)).toEqual(["full-hd", "standard"]);
+    expect(quality("Standard")).toBeChecked();
+  });
+
+  it("goes back to the workspace's when saving it fails", async () => {
+    const { settled, user } = showQualities("standard");
+    await user.click(quality("HD"));
+    expect(quality("HD")).toBeChecked();
+    // The page's alerts say why, and the workspace still says Standard.
+    act(() => settled[0]!());
+    expect(quality("Standard")).toBeChecked();
+  });
+
+  it("has HD checked under a workspace that says nothing of video quality, as one told of by an older Worker does", () => {
+    function Unsaid({ children }: { children: ReactNode }) {
+      return <AccountContext value={{ ...useAccount(), huddleVideo: undefined as unknown as HuddleVideoQuality }}>{children}</AccountContext>;
+    }
+    render(
+      <Unsaid>
+        <HuddleVideo save={vi.fn()} />
+      </Unsaid>,
+    );
+    expect(quality("HD")).toBeChecked();
   });
 });
