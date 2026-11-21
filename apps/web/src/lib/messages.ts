@@ -1,5 +1,5 @@
 import type { EphemeralMessage, Message, RoomId, UserId } from "@ember/protocol";
-import { displayMarkup, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
+import { displayMarkup, roomMentionContent, type DisplayElement, type DisplayNode, type DisplayPreview, type MentionRoom } from "@ember/richtext/dom";
 import { isPending } from "./room-state";
 
 /**
@@ -146,10 +146,12 @@ export const newestWrittenBy = <T extends Message>(messages: T[], userId: UserId
 
 /**
  * What Quote writes in the composer (reply_controller.js): what the message shows but its link previews,
- * quoted, with each mention as the bare name `nameOf` gives, and each mention of a room as the text
- * `roomTextOf` gives, then its author with a link to it, and a line to reply on.
+ * quoted, with each mention as the bare name `nameOf` gives, then its author with a link to it, and a line
+ * to reply on. Each mention of a room stays one, shown as the room `roomOf` finds, the quoting reader's,
+ * or as a private room where it finds none, as the edit box shows it, so the reply names a private room
+ * only to those in it.
  */
-export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string, roomTextOf: (roomId: RoomId) => string): string {
+export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string, roomOf: (roomId: RoomId) => MentionRoom | undefined): string {
   const linkToOriginal: DisplayNode = { kind: "element", name: "a", attrs: { href: link }, children: [{ kind: "text", value: "#" }] };
   const quote: DisplayNode[] = [
     { kind: "element", name: "blockquote", attrs: {}, children: quoted(nodes) },
@@ -159,7 +161,7 @@ export function replyQuote(nodes: DisplayNode[], author: string, link: string, n
   return displayMarkup(
     quote,
     ({ userId }) => nameOf(userId),
-    ({ roomId }) => roomTextOf(roomId),
+    ({ roomId }) => roomMentionContent(roomOf(roomId)),
   );
 }
 

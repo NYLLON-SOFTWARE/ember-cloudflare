@@ -133,6 +133,33 @@ test.describe("#-mention rooms", () => {
     await expect(seen).toHaveText(/Details in\s*private room/);
   });
 
+  test("keeps the rooms a message mentions in a quote of it, which names a private room to nobody outside it", async ({ members, request }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace", { serverRooms: true });
+    const name = unique("Plans");
+    const plans = await createPrivateRoom(request, grace.session, name);
+    await expect(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link").filter({ hasText: name })).toBeVisible();
+    await grace.composer().pressSequentially(`Notes in #${name}`);
+    await expect(offered(grace)).toHaveText([`#${name}`]);
+    await grace.composer().press("Tab");
+    await listClosed(grace);
+    await grace.composer().press("Enter");
+
+    await grace.actions("Notes in");
+    await grace.message("Notes in").getByRole("button", { name: "Message options" }).click();
+    await grace.message("Notes in").getByRole("group", { name: "More actions" }).getByRole("button", { name: "Quote" }).click();
+    await expect(grace.composer().locator("blockquote").getByText(`#${name}`, { exact: true })).toBeVisible();
+    await grace.page.keyboard.type("Agreed");
+    await grace.page.keyboard.press("Enter");
+
+    const quoted = (member: Member) => member.message("Agreed").locator("blockquote");
+    await expect(quoted(grace).getByRole("link")).toHaveText(`#${name}`);
+    await expect(quoted(grace).getByRole("link")).toHaveAttribute("href", `/rooms/${plans.id}`);
+    await expect(quoted(ada)).toHaveText(/Notes in\s*private room/);
+    await expect(ada.message("Agreed")).not.toContainText(name);
+    await expect(quoted(ada).locator("svg.iconoir-lock")).toBeVisible();
+  });
+
   test("keeps a message's room mentions through an edit, and offers rooms from # in the edit box too", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.composer().pressSequentially("Meet in #rand");
@@ -153,6 +180,36 @@ test.describe("#-mention rooms", () => {
     await expect(linksIn(ada.message("Meet in"))).toHaveText(["#random", "#general"]);
     await ada.page.reload();
     await expect(linksIn(ada.message("Meet in"))).toHaveText(["#random", "#general"]);
+  });
+
+  test("shows a room in what's written by its name as it is, renamed as it's written and in a draft kept before", async ({ members, request, rooms, session }) => {
+    const ada = await members.signIn("Ada");
+    await ada.composer().pressSequentially("Over in #rand");
+    await expect(offered(ada)).toHaveText(["#random"]);
+    await ada.composer().press("Tab");
+    await listClosed(ada);
+    await ada.page.keyboard.type("now");
+
+    const renamed = unique("Rumpus");
+    await changeRoom(request, session, rooms.random, { name: renamed });
+    await expect(ada.composer().getByText(`#${renamed}`, { exact: true })).toBeVisible();
+    await expect(ada.composer()).not.toContainText("#random");
+    // The cursor stays where it was.
+    await ada.page.keyboard.type(" please");
+
+    // Renamed again with nothing typed since, the draft still has the name before.
+    const again = unique("Racket");
+    await changeRoom(request, session, rooms.random, { name: again });
+    await expect(ada.composer().getByText(`#${again}`, { exact: true })).toBeVisible();
+    await ada.page.reload();
+    await ada.connected();
+    await expect(ada.composer().getByText(`#${again}`, { exact: true })).toBeVisible();
+    await expect(ada.composer()).not.toContainText(renamed);
+
+    await ada.composer().press("Enter");
+    const sent = ada.message("Over in");
+    await expect(sent).toContainText(`Over in #${again} now please`);
+    await expect(linksIn(sent)).toHaveText(`#${again}`);
   });
 });
 

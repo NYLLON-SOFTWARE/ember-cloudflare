@@ -1114,10 +1114,17 @@ describe("Quote a message", () => {
     expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Thanks Grace Hopper!<\/p><\/blockquote><cite>Ada King <a /);
   });
 
-  it("quotes the rooms the message mentions as you see them, by name or as a private room", async () => {
+  it("quotes the rooms the message mentions as mentions of them, shown as you see them, by name or as a private room", async () => {
     const { editors, user } = show(roomsMessage(), { me: grace, rooms: OTTER_POND });
     await pressAction(user, "Quote", "Ada");
-    expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>See #Otter Pond and #private room<\/p><\/blockquote><cite>Ada <a /);
+    const quote = editors.reply.mock.lastCall![0];
+    expect(quote).toMatch(/^<blockquote><p>See <action-text-attachment [^>]+><\/action-text-attachment> and <action-text-attachment [^>]+><\/action-text-attachment><\/p><\/blockquote><cite>Ada <a /);
+    const mentions = new DOMParser().parseFromString(quote, "text/html").querySelectorAll(`action-text-attachment[content-type="${ROOM_MENTION_CONTENT_TYPE}"]`);
+    const shown = (content: string | null) => new DOMParser().parseFromString(content ?? "", "text/html").body.textContent;
+    expect([...mentions].map((mention) => [mention.getAttribute("sgid"), shown(mention.getAttribute("content"))])).toEqual([
+      ["otters", "#Otter Pond"],
+      ["secret", "private room"],
+    ]);
   });
 
   it("quotes from More actions with a mouse, whose bar has Reply in thread in its place", async () => {

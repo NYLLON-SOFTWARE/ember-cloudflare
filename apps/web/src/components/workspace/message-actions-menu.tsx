@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
-import { PRIVATE_ROOM_NAME, type DisplayNode } from "@ember/richtext/dom";
+import type { DisplayNode } from "@ember/richtext/dom";
 import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash, TriangleFlag, UserXmark } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
@@ -655,7 +655,7 @@ function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButton
     onClick?.(event);
     const link = new URL(permalinkOf(message), document.baseURI).href;
     const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
-    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned, (roomId) => `#${rooms?.get(roomId)?.name ?? PRIVATE_ROOM_NAME}`));
+    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned, (roomId) => rooms?.get(roomId)));
   };
   return <button type="button" onClick={quote} {...props} />;
 }

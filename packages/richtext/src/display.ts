@@ -18,7 +18,7 @@ import { sanitizeContentAttribute } from "./content";
 import { BODY, type HtmlParser } from "./markup";
 import { userIdFromSgid } from "./mentions";
 import { removeSoloUnfurledLinkText } from "./previews";
-import { PRIVATE_ROOM_NAME } from "./room-mentions";
+import { roomMentionContent } from "./room-mentions";
 import { truncate } from "./ruby";
 import { AUTO_LINK, scrub, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
@@ -168,26 +168,37 @@ function displayedPreview(parse: HtmlParser, attachment: Element, host: string):
 }
 
 /**
- * The markup of what a message shows, with each mention as the text `mention` gives for it, each room
- * mention as the text `roomMention` does, which unless it's given names no room, each special mention as
- * its plain text, and without its previews, as Reply quotes a message (reply_controller.js).
+ * The markup of what a message shows, with each mention as the text `mention` gives for it, each special
+ * mention as its plain text, and without its previews, as Reply quotes a message (reply_controller.js).
+ * A room mention stays one, as the editor writes it, shown by the content `roomContent` gives, which
+ * unless it's given shows a private room: it notifies nobody, as a mention of someone would again, and
+ * whoever reads the reply sees the room as they can, so that it names a private room to nobody outside it.
  */
-export function displayMarkup(nodes: DisplayNode[], mention: MentionText<DisplayMention>, roomMention: MentionText<DisplayRoomMention> = privateRoomText): string {
-  return toHtml(createFragment(nodes.flatMap((node) => treeOf(node, mention, roomMention))), { escapeAttributeBrackets: true });
+export function displayMarkup(nodes: DisplayNode[], mention: MentionText<DisplayMention>, roomContent: MentionText<DisplayRoomMention> = privateRoomContent): string {
+  return toHtml(createFragment(nodes.flatMap((node) => treeOf(node, mention, roomContent))), { escapeAttributeBrackets: true });
 }
 
-/** The text a mention is written as. */
+/** The text a mention is written as, or the markup a room mention shows in the editor by. */
 type MentionText<T extends DisplayNode> = (node: T) => string;
 
-const privateRoomText = () => `#${PRIVATE_ROOM_NAME}`;
+const privateRoomContent = () => roomMentionContent(undefined);
 
-function treeOf(node: DisplayNode, mention: MentionText<DisplayMention>, roomMention: MentionText<DisplayRoomMention>): Node[] {
+function treeOf(node: DisplayNode, mention: MentionText<DisplayMention>, roomContent: MentionText<DisplayRoomMention>): Node[] {
   if (node.kind === "text") return [createText(node.value)];
   if (node.kind === "mention") return [createText(mention(node))];
   if (node.kind === "special-mention") return [createText(`@${node.mention}`)];
-  if (node.kind === "room-mention") return [createText(roomMention(node))];
+  if (node.kind === "room-mention") return [roomMentionAttachment(node.roomId, roomContent(node))];
   if (node.kind === "preview") return [];
   const element = createElement(node.name, Object.entries(node.attrs).map(([name, value]) => ({ name, value })));
-  for (const child of node.children) for (const tree of treeOf(child, mention, roomMention)) append(element, tree);
+  for (const child of node.children) for (const tree of treeOf(child, mention, roomContent)) append(element, tree);
   return [element];
+}
+
+/** A mention of the room `roomId` as the editor writes one, with the `content` it shows by there. */
+function roomMentionAttachment(roomId: string, content: string): Element {
+  return createElement(ATTACHMENT_TAG, [
+    { name: "content-type", value: ROOM_MENTION_CONTENT_TYPE },
+    { name: "sgid", value: roomId },
+    { name: "content", value: content },
+  ]);
 }

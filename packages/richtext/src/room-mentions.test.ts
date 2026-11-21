@@ -7,6 +7,7 @@ import { editableBody, mentionsIn, mentionSgid, roomIdsIn, specialMentionsAsText
 import { parseHtml } from "./parse";
 import { PRIVATE_ROOM_NAME, roomMentionContent, writtenRooms } from "./room-mentions";
 import { testUserId, testUsers } from "./testing/users";
+import { toHtml } from "./serialize";
 import { getAttr } from "./tree";
 
 const { resolve } = testUsers("David", "Jason");
@@ -23,6 +24,8 @@ const attributeValue = (value: string) => value.replaceAll("&", "&amp;").replace
 const roomMention = (sgid: string, content?: string) =>
   `<action-text-attachment content-type="${ROOM_MENTION_CONTENT_TYPE}" sgid="${sgid}"${content === undefined ? "" : ` content="${attributeValue(content)}"`}></action-text-attachment>`;
 const written = (n: number) => roomMention(roomId(n), roomMentionContent(ROOMS.get(roomId(n))));
+/** `markup` as markup is written out, its attributes' brackets escaped. */
+const serialized = (markup: string) => toHtml(parseHtml(markup), { escapeAttributeBrackets: true });
 const contentAttachment = (content: string) => `<action-text-attachment content-type="text/html" content="${attributeValue(content)}"></action-text-attachment>`;
 
 describe("Room mentions", () => {
@@ -69,9 +72,14 @@ describe("Room mentions", () => {
         ],
       },
     ]);
-    // A quote writes each as the quoting reader sees it, and names no room unless it's told to
-    expect(displayMarkup(nodes, () => "", ({ roomId }) => `#${rooms(roomId)!.name}`)).toBe("<p><strong>#All Talk</strong> and #R&amp;D &lt;team&gt;</p>");
-    expect(displayMarkup(nodes, () => "")).toBe(`<p><strong>#${PRIVATE_ROOM_NAME}</strong> and #${PRIVATE_ROOM_NAME}</p>`);
+    // A quote keeps each one, shown in the editor as the quoting reader sees it, and as a private room
+    // unless it's told otherwise, so its readers see the room as they can, and its text names none
+    const quoted = displayMarkup(nodes, () => "", ({ roomId }) => roomMentionContent(rooms(roomId)));
+    expect(quoted).toBe(serialized(`<p><strong>${written(1)}</strong> and ${written(2)}</p>`));
+    const privateRoom = (n: number) => roomMention(roomId(n), roomMentionContent(undefined));
+    expect(displayMarkup(nodes, () => "")).toBe(serialized(`<p><strong>${privateRoom(1)}</strong> and ${privateRoom(2)}</p>`));
+    const sent = prepareBody(parseHtml, quoted, resolve, (sgid) => ({ id: sgid, name: PRIVATE_ROOM_NAME }));
+    expect(sent).toMatchObject({ html: stored.html, plainText: `#${PRIVATE_ROOM_NAME} and #${PRIVATE_ROOM_NAME}` });
   });
 
   it("open for editing as the editor's writer sees the room, or as a private room, never dropped", () => {

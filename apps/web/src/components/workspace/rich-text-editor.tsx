@@ -1,4 +1,14 @@
-import { configure, Extension, Lexical, type ElementNode, type LexicalEditor, type RangeSelection } from "@37signals/lexxy";
+import {
+  $isCustomActionTextAttachmentNode,
+  configure,
+  CustomActionTextAttachmentNode,
+  Extension,
+  Lexical,
+  type ElementNode,
+  type LexicalEditor,
+  type LexicalNode,
+  type RangeSelection,
+} from "@37signals/lexxy";
 import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, ROOM_MENTION_CONTENT_TYPE, roomMentionContent } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import { roomIconUrl } from "@/components/icons/room-icon";
@@ -219,6 +229,51 @@ function closeListOnNoMatch(lexxy: LexxyEditor, prompt: LexxyPrompt): MutationOb
     if (list !== prompt.popoverElement || !list.classList.contains(LIST_EMPTY) || open.length !== 1 || open[0] !== list || !hasFocus(lexxy)) return;
     lexxy.editor.dispatchCommand(Lexical.KEY_TAB_COMMAND, new KeyboardEvent("keydown", { key: "Tab" }));
   });
+}
+
+/** The editors whose room mentions `showRoomsAsTheyAre` is changing, which changes nobody's writing. */
+const showingRooms = new WeakSet<HTMLElement>();
+
+/**
+ * Shows each room `lexxy`'s text mentions as `rooms` has it now: by its name as it is, or as a private
+ * room once it's left, rather than as it was when it was picked, or when the draft it's in was kept. What's
+ * sent names the rooms as they are anyway, so this tells nobody of a change, as the room would hear you
+ * typing, and leaves undo and the cursor as they were.
+ */
+function showRoomsAsTheyAre(lexxy: LexxyEditor, rooms: Rooms) {
+  const shown = (mention: CustomActionTextAttachmentNode) => roomMentionContent(rooms.get(mention.sgid));
+  const stale = lexxy.editor.getEditorState().read(() => $roomMentions().filter((mention) => mention.innerHtml !== shown(mention)).map((mention) => mention.getKey()));
+  if (stale.length === 0) return;
+  // Lexical puts the page's selection where its own is after a change, which would take focus to the text.
+  const tags = hasFocus(lexxy) ? [Lexical.HISTORY_MERGE_TAG] : [Lexical.HISTORY_MERGE_TAG, Lexical.SKIP_DOM_SELECTION_TAG];
+  showingRooms.add(lexxy);
+  try {
+    // Lexxy draws an attachment once, so each is shown again as a new one in its place.
+    lexxy.editor.update(
+      () => {
+        for (const mention of stale.map((key) => Lexical.$getNodeByKey(key))) {
+          if (!$isCustomActionTextAttachmentNode(mention)) continue;
+          const { tagName, sgid, contentType } = mention;
+          mention.replace(new CustomActionTextAttachmentNode({ tagName, sgid, contentType, innerHtml: shown(mention) }));
+        }
+      },
+      { discrete: true, tag: tags },
+    );
+  } finally {
+    showingRooms.delete(lexxy);
+  }
+}
+
+/** The mentions of rooms in the editor's text, in order, in a read or an update of it. */
+function $roomMentions(): CustomActionTextAttachmentNode[] {
+  const found: CustomActionTextAttachmentNode[] = [];
+  const visit = (node: LexicalNode) => {
+    if ($isCustomActionTextAttachmentNode(node)) {
+      if (node.contentType === ROOM_MENTION_CONTENT_TYPE) found.push(node);
+    } else if (Lexical.$isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  visit(Lexical.$getRoot());
+  return found;
 }
 
 /** A `<lexxy-editor>`, as far as this uses it. */
@@ -453,6 +508,8 @@ export default function RichTextEditor({
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<LexxyEditor>(null);
+  // Whether the editor's ready, from when Lexxy has read what it opens with until it goes.
+  const initialized = useRef(false);
   const roomsPrompt = useRef<LexxyPrompt>(null);
 
   useImperativeHandle(ref, () => ({
@@ -530,6 +587,7 @@ export default function RichTextEditor({
   const keyPressed = useEffectEvent((event: KeyboardEvent) => onKeyDown?.(event));
   const linkPasted = useEffectEvent((link: PastedLink) => onLinkPasted?.(link));
   const ready = useEffectEvent((lexxy: LexxyEditor) => {
+    if (rooms) showRoomsAsTheyAre(lexxy, rooms);
     onReady?.();
     if (!(typeof autoFocus === "function" ? autoFocus() : autoFocus)) return;
     lexxy.focus();
@@ -557,7 +615,7 @@ export default function RichTextEditor({
     // Read as the editor connects, without telling anyone it changed.
     if (initialValue) lexxy.setAttribute("value", initialValue);
     lexxy.addEventListener("lexxy:change", (event) => {
-      if ((event as CustomEvent).detail !== LOOK_AGAIN) changed();
+      if ((event as CustomEvent).detail !== LOOK_AGAIN && !showingRooms.has(lexxy)) changed();
     });
     let unfollow: (() => void) | undefined;
     let unkeep: (() => void) | undefined;
@@ -566,6 +624,7 @@ export default function RichTextEditor({
       () => {
         unfollow = followFormat(lexxy);
         unkeep = keepSelectionWhileAway(lexxy);
+        initialized.current = true;
         ready(lexxy);
       },
       { once: true },
@@ -596,12 +655,14 @@ export default function RichTextEditor({
       unkeep?.();
       lexxy.remove();
       editor.current = null;
+      initialized.current = false;
       roomsPrompt.current = null;
     };
   }, []);
 
   useEffect(() => {
     if (roomsPrompt.current) offerRooms(roomsPrompt.current, rooms ?? null);
+    if (rooms && initialized.current) showRoomsAsTheyAre(editor.current!, rooms);
   }, [rooms]);
 
   // Lexxy copies its label and placeholder to its contenteditable only as it connects.
