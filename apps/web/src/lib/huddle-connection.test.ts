@@ -61,6 +61,8 @@ class Sending extends Measured {
 
 let receiving: Receiving;
 let sending: Sending;
+/** Everyone else in the huddle, and who of them say their own connection is unstable. */
+let others: UserId[];
 let troubled: UserId[];
 let shown: CameraSizeName;
 const judged = { unstable: vi.fn<(unstable: boolean) => void>(), capped: vi.fn<(cap: CameraSizeName | null) => void>() };
@@ -82,15 +84,18 @@ async function check(times = 1, between = () => {}) {
 /** Has the tab receive Grace, Linus and Katherine, losing as much of each as `lost` says, and the rest whole. */
 const receive = (lost: Partial<Record<"grace" | "linus" | "katherine", number>>) => () => receiving.receive({ grace: 0, linus: 0, katherine: 0, ...lost });
 
+const inTheHuddle = () => others.map((id) => ({ user: { id }, ...(troubled.includes(id) && { unstable: true as const }) }));
+
 beforeEach(() => {
   vi.useFakeTimers();
   receiving = new Receiving();
   sending = new Sending();
+  others = ["grace" as UserId, "linus" as UserId, "katherine" as UserId];
   troubled = [];
   shown = "large";
   judged.unstable.mockClear();
   judged.capped.mockClear();
-  stop = watchConnection({ receiving: [receiving], sending: [sending], troubled: () => troubled, shown: () => shown }, judged);
+  stop = watchConnection({ receiving: [receiving], sending: [sending], others: inTheHuddle, shown: () => shown }, judged);
 });
 
 afterEach(() => {
@@ -121,6 +126,7 @@ describe("A tab's connection to the SFU", () => {
     // Three people, two of whom lose much: and of four, half.
     await check(3, receive({ grace: 0.3, linus: 0.3 }));
     expect(isUnstable()).toBe(true);
+    others = [...others, "margaret" as UserId];
     await check(STEADY_AFTER, () => receiving.receive({ grace: 0, linus: 0, katherine: 0, margaret: 0 }));
     expect(isUnstable()).toBe(false);
     await check(3, () => receiving.receive({ grace: 0.3, linus: 0.3, katherine: 0, margaret: 0 }));
@@ -134,9 +140,10 @@ describe("A tab's connection to the SFU", () => {
   });
 
   it("forgets what the checks before found lost once someone says their connection is unstable, which may have been theirs", async () => {
+    others = ["grace" as UserId, "linus" as UserId];
     const both = () => receiving.receive({ grace: 0.3, linus: 0.3 });
     await check(3, both);
-    // Grace says so first, and what's lost of Linus's alone would be the tab's, were he the only other.
+    // Grace says so first, and what's lost of Linus's alone would be the tab's, now he's the only other who doesn't.
     troubled = ["grace" as UserId];
     await check(2, both);
     troubled = ["grace" as UserId, "linus" as UserId];
@@ -145,11 +152,30 @@ describe("A tab's connection to the SFU", () => {
   });
 
   it("takes much lost of what the one other there is sends to be its own trouble, unless they say it's theirs", async () => {
+    others = ["grace" as UserId];
     await check(4, () => receiving.receive({ grace: 0.3 }));
     expect(isUnstable()).toBe(true);
     troubled = ["grace" as UserId];
     await check(STEADY_AFTER, () => receiving.receive({ grace: 0.3 }));
     expect(isUnstable()).toBe(false);
+
+    // And of what Linus sends, once he's there too, while she still says so: he's the one other who doesn't.
+    others = ["grace" as UserId, "linus" as UserId];
+    await check(4, () => receiving.receive({ grace: 0.3, linus: 0.3 }));
+    expect(isUnstable()).toBe(true);
+  });
+
+  it("doesn't take much lost of what one person sends to be its own trouble while there are others, who send too little to tell or nothing", async () => {
+    await check(6, () => {
+      receiving.receive({ grace: 0.3 });
+      receiving.receive({ linus: 0 }, LEAST_PACKETS - 2);
+    });
+    expect(isUnstable()).toBe(false);
+
+    // Until Grace is the only one left.
+    others = ["grace" as UserId];
+    await check(3, () => receiving.receive({ grace: 0.3 }));
+    expect(isUnstable()).toBe(true);
   });
 
   it("counts only those it received enough packets of in a check to tell", async () => {
@@ -204,7 +230,7 @@ describe("A tab's connection to the SFU", () => {
       }
     })();
     stop();
-    stop = watchConnection({ receiving: [], sending: [firefox], troubled: () => [], shown: () => shown }, judged);
+    stop = watchConnection({ receiving: [], sending: [firefox], others: () => [], shown: () => shown }, judged);
     await check(4);
     expect(isUnstable()).toBe(false);
     firefox.roundTrip = 2;
@@ -218,7 +244,7 @@ describe("A tab's connection to the SFU", () => {
     sending.report(0.5);
     await check(6, receive({ grace: 0.5, linus: 0.5 }));
     stop();
-    stop = watchConnection({ receiving: [{ connection: () => null, whose: () => undefined }], sending: [{ connection: () => null }], troubled: () => [], shown: () => shown }, judged);
+    stop = watchConnection({ receiving: [{ connection: () => null, whose: () => undefined }], sending: [{ connection: () => null }], others: () => [], shown: () => shown }, judged);
     await check(6);
     expect(judged.unstable).not.toHaveBeenCalled();
   });

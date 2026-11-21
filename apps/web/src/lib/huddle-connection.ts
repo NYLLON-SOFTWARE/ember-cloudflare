@@ -81,8 +81,8 @@ export interface MeasuredReceiving {
 export interface Measured {
   receiving: MeasuredReceiving[];
   sending: Array<{ connection(): RTCPeerConnection | null }>;
-  /** Whoever else in the huddle says their own connection is unstable. */
-  troubled(): UserId[];
+  /** Everyone else in the huddle, `unstable` while they say their own connection is. */
+  others(): ReadonlyArray<{ user: { id: UserId }; unstable?: true }>;
   /** The size the tab's tiles show cameras in. */
   shown(): CameraSizeName;
 }
@@ -123,9 +123,11 @@ const isTooMuch = ({ lost, received }: Count) => lost / (lost + received) >= LOS
 /**
  * Whether a check finds trouble with what the tab receives, by what it lost of each person's, `received`,
  * and how long round trips took: much of what two people send, and of half of those it can tell of, or
- * of the one other there is, but nobody who says their connection is unstable, whose trouble is theirs.
+ * of what the one other there is sends. Those in `troubled` say their connection is unstable, and are
+ * left out, as their trouble is theirs; `untroubled` is how many others there are who don't, some of
+ * whom may send too little to tell, or nothing.
  */
-function isReceivingTroubled(received: Array<{ people: Map<UserId, Count>; roundTrip: number }>, troubled: ReadonlySet<UserId>): boolean {
+function isReceivingTroubled(received: Array<{ people: Map<UserId, Count>; roundTrip: number }>, troubled: ReadonlySet<UserId>, untroubled: number): boolean {
   if (received.some(({ roundTrip }) => roundTrip >= SLOW_ROUND_TRIP_S)) return true;
   const everyone = new Map<UserId, Count>();
   for (const [userId, { lost, received: got }] of received.flatMap(({ people }) => [...people])) {
@@ -134,7 +136,7 @@ function isReceivingTroubled(received: Array<{ people: Map<UserId, Count>; round
   }
   const counted = [...everyone].filter(([userId, { lost, received: got }]) => !troubled.has(userId) && lost + got >= LEAST_PACKETS).map(([, count]) => count);
   const lossy = counted.filter(isTooMuch).length;
-  return lossy * 2 >= counted.length && (lossy >= 2 || (lossy === 1 && counted.length === 1));
+  return lossy * 2 >= counted.length && (lossy >= 2 || (lossy === 1 && untroubled === 1));
 }
 
 /** Whether what a tab sends, or receives, struggles: once `troubled` of the last `of` checks find trouble, until `STEADY_AFTER` in a row find none. */
@@ -252,13 +254,14 @@ export function watchConnection(measured: Measured, judged: Judged): () => void 
 
   async function check() {
     const now = Date.now();
-    const troubled = new Set(measured.troubled());
+    const others = measured.others();
+    const troubled = new Set(others.flatMap(({ user, unstable }) => (unstable ? [user.id] : [])));
     // Someone who says now that their connection is unstable may be why so much of theirs was lost before they did.
     if ([...troubled].some((userId) => !troubledBefore.has(userId))) receiving.forget();
     troubledBefore = troubled;
     const [received, sent] = await Promise.all([Promise.all(measured.receiving.map(receivedOn)), Promise.all(measured.sending.map(({ connection }) => isSendingTroubled(connection(), now)))]);
     if (stopped) return;
-    const receivingTroubled = isReceivingTroubled(received, troubled);
+    const receivingTroubled = isReceivingTroubled(received, troubled, others.length - troubled.size);
     const receivingStruggles = receiving.check(receivingTroubled);
     const sendingStruggles = sending.check(sent.includes(true));
     const isUnstable = receivingStruggles || sendingStruggles;

@@ -795,7 +795,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
     {
       receiving: HUDDLE_TRACK_KINDS.map((kind) => receiving[kind]),
       sending: HUDDLE_TRACK_KINDS.map((kind) => sending[kind]),
-      troubled: () => huddle.people.filter(({ user, unstable }) => unstable && user.id !== huddle.you?.id).map(({ user }) => user.id),
+      others: () => huddle.people.filter(({ user }) => user.id !== huddle.you?.id),
       shown: () => cameraSize,
     },
     {
