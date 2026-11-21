@@ -1549,6 +1549,12 @@ describe("Highlight mentions of you", () => {
   ])("leaves %s alone", (_, mentions) => {
     expect(highlight(show(message({ creator: grace, plainText: "Thanks @Ada", mentions })).article)).toBeNull();
   });
+
+  it.each(["here", "channel", "everyone"] as const)("highlights a message that notified the room with @%s, as Slack does for everyone it notified", (notifies) => {
+    expect(highlight(show(message({ creator: grace, plainText: `Standup @${notifies}`, notifies })).article)).not.toBeNull();
+    // As a message whose @here, written in a thread or a DM, notified nobody isn't.
+    expect(highlight(show(message({ creator: grace, plainText: `Standup @${notifies}` })).article)).toBeNull();
+  });
 });
 
 describe("How mentions look", () => {
@@ -1573,6 +1579,11 @@ describe("How mentions look", () => {
     const body = `<p>Thanks ${mention(hopper.id)} and ${mention("fedcba9876543210")}!</p>`;
     render(editing(message({ body, plainText: "Thanks @Grace and !", mentions: [hopper] }), new Map([[hopper.id, listed]])));
     expect(await editBox()).toHaveValue("Thanks @Grace Hopper and !");
+  });
+
+  it("edits a message with @here and @channel as they show", async () => {
+    render(editing(message({ body: `<p>Standup ${mention("here")} ${mention("channel")}</p>`, plainText: "Standup @here @channel", notifies: "channel" }), new Map()));
+    expect(await editBox()).toHaveValue("Standup @here @channel");
   });
 
   it("waits for the people directory to edit a message from before messages named the people they mention", async () => {

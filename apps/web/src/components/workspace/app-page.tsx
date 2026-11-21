@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_SIGNED_IN_PATH, type Me } from "@ember/protocol";
 import {
+  APP_TOKEN_STAYS,
   APPS_FORBIDDEN,
   MAX_APP_CLIENT_ID_LENGTH,
   MAX_APP_CLIENT_SECRET_LENGTH,
@@ -25,6 +26,7 @@ import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { agentSettingsPath, appSettingsPath, navigate } from "@/hooks/use-route";
+import { useSecretField } from "@/hooks/use-secret-field";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, beginAppSignIn, beginNewAppSignIn, changeApp, connectApp, disconnectApp, fetchApp, fetchApps, isSignedOut, readAppTools } from "@/lib/api";
 import { dateTimeLabel } from "@/lib/messages";
@@ -495,7 +497,7 @@ function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onS
         </SignedIn>
       ) : (
         <>
-          <Token saved={saved} fields={fields} onChange={onChange} refusal={refusal} busy={busy} offersSignIn={offersSignIn && !asksClient && !moved} onSignIn={onSignIn} />
+          <Token saved={saved} moved={moved} fields={fields} onChange={onChange} refusal={refusal} busy={busy} offersSignIn={offersSignIn && !asksClient && !moved} onSignIn={onSignIn} />
           {offersSignIn && moved && <p className={NOTE}>{SIGN_IN_STAYS}</p>}
           {client}
           {asksClient && !moved && (
@@ -513,30 +515,38 @@ function AppForm({ saved, fields, onChange, refusal, busy, working, canSave, onS
   );
 }
 
-/** The token's field: what it's for, or why it was refused, Send no token for an app that has one, and Sign in, once the server asks for a sign-in. */
-function Token({ saved, fields, onChange, refusal, busy, offersSignIn, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "offersSignIn" | "onSignIn">) {
-  const keepsToken = saved?.hasToken === true;
+/**
+ * The token's field: what it's for, or why it was refused, Send no token for an app that has one, and
+ * Sign in, once the server asks for a sign-in. While the form has another address than the app's
+ * (`moved`), the token the app has isn't kept, as Ember sends it only to the address it was given for.
+ * Once Send no token is checked, the field reads as it will after the save, with none.
+ */
+function Token({ saved, moved, fields, onChange, refusal, busy, offersSignIn, onSignIn }: Pick<FormProps, "saved" | "fields" | "onChange" | "refusal" | "busy" | "offersSignIn" | "onSignIn"> & { moved: boolean }) {
+  const field = useSecretField(fields.token);
+  const hasToken = saved?.hasToken === true;
+  const keepsToken = hasToken && !fields.noToken;
+  const asksAgain = keepsToken && moved;
   return (
     <Field id="app_token" label="Token">
       <Input
         id="app_token"
         readOnly={busy}
         type="password"
-        placeholder={keepsToken ? "Unchanged" : "None"}
+        placeholder={asksAgain ? "Type it again" : keepsToken ? "Unchanged" : "None"}
         maxLength={MAX_APP_TOKEN_LENGTH}
         autoComplete="off"
         data-1p-ignore
         disabled={fields.noToken}
         aria-invalid={refusal?.field === "token" ? true : undefined}
         aria-describedby={refusal?.field === "token" ? "app_token-refusal" : "app_token-description"}
-        value={fields.token}
+        ref={field}
         onChange={(event) => onChange({ ...fields, token: event.target.value })}
         className={FIELD_INPUT}
       />
       <Under id="app_token" field="token" refusal={refusal}>
-        {keepsToken ? TOKEN_KEPT : TOKEN_EXPLAINED}
+        {asksAgain ? APP_TOKEN_STAYS : keepsToken ? TOKEN_KEPT : TOKEN_EXPLAINED}
       </Under>
-      {keepsToken && (
+      {hasToken && (
         <label className="flex min-h-9 cursor-pointer items-center gap-[1ch] text-[0.9em]">
           <input
             type="checkbox"
@@ -564,6 +574,7 @@ function Token({ saved, fields, onChange, refusal, busy, offersSignIn, onSignIn 
  * stays while the ID does. Enter in either begins the sign-in, as they're what it's begun with.
  */
 function Client({ kept, fields, onChange, refusal, busy, onSignIn }: Pick<FormProps, "fields" | "onChange" | "refusal" | "busy" | "onSignIn"> & { kept: string | null }) {
+  const secretField = useSecretField(fields.clientSecret);
   const keepsSecret = kept !== null && fields.clientId.trim() === kept;
   const signInOnEnter = (event: KeyboardEvent) => {
     if (event.key !== "Enter") return;
@@ -607,7 +618,7 @@ function Client({ kept, fields, onChange, refusal, busy, onSignIn }: Pick<FormPr
           data-1p-ignore
           aria-invalid={refusal?.field === "clientSecret" ? true : undefined}
           aria-describedby={refusal?.field === "clientSecret" ? "app_client_secret-refusal" : "app_client_secret-description"}
-          value={fields.clientSecret}
+          ref={secretField}
           onChange={(event) => onChange({ ...fields, clientSecret: event.target.value })}
           onKeyDown={signInOnEnter}
           className={FIELD_INPUT}

@@ -19,6 +19,12 @@ keeps its [buttons that act](#buttons-that-act) too; menus, and whatever else on
 answer, are left out. Mentions of Slack's people and channels show as text and notify nobody, and a
 payload can't change the bot's name, avatar or room.
 
+The text's `<!here>`, `<!channel>` and `<!everyone>`, with a label or without, notify the room as
+Slack's do, as @here, @channel and @everyone written in the room would: a bot may use them as a member
+may, so not where an administrator has kept them to administrators or turned them off in the room,
+and then they show as text. In attachments and blocks they show as text and notify nobody, as do the
+cards in @ember's and the AI agents' answers, which never notify anyone.
+
 Status pages on Atlassian Statuspage, such as githubstatus.com, can post there too: give the address
 as the webhook in the page's Subscribe to updates dialog. Their webhooks send Statuspage's own JSON
 rather than Slack's, which the address recognizes. An incident shows as a card of its name, linked to
@@ -99,9 +105,10 @@ Anyone in the room can click, and `user` says who did: a bot that should act onl
 checks that itself. Ember sends the button's `value` as the bot posted it, never as a browser says
 it. Buttons in blocks without a `block_id` may share an `action_id`, as they may in Slack: their
 values tell them apart, and the click has no `block_id`, where Slack would make one up. Each person
-can have three clicks waiting on a room's bots at a time. Ember has no messages only
-one person sees, so what a bot would send in Slack as an ephemeral message shows to the room; and
-Slack's menus, date pickers, inputs, `confirm` dialogs and legacy attachment actions aren't here yet.
+can have three clicks waiting on a room's bots at a time. Only the card of an agent's call of an
+app's tool is shown to one person alone, so what a bot would send in Slack as an ephemeral message
+shows to the room; and Slack's menus, date pickers, inputs, `confirm` dialogs and legacy attachment
+actions aren't here yet.
 
 Slack is a trademark of Slack Technologies, LLC. Ember is not created by, affiliated with, or
 supported by Slack Technologies, LLC.

@@ -112,7 +112,7 @@ describe("A huddle's thread", () => {
   it("asks the room for the thread of the huddle's message, on a socket of its own that's apart from the room's timeline", () => {
     showThread();
     expect(FakeSocket.all).toHaveLength(1);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&apart=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=5&apart=1");
     expect(socket().sent).toEqual([{ type: "thread.open", parentId: "h1" }]);
   });
 
@@ -131,7 +131,7 @@ describe("A huddle's thread", () => {
 
   it("says that the thread stays in the direct message, in one's huddle", () => {
     showThread(direct);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/direct-1/socket?visible=1&protocol=4&apart=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/direct-1/socket?visible=1&protocol=5&apart=1");
     opened();
     expect(within(panel()).getByText("Messages, files and links sent here reach everyone in the huddle, and stay as a thread in this direct message once it ends.")).toBeInTheDocument();
   });

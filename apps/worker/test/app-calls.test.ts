@@ -1,22 +1,23 @@
-import { ASSISTANT_ID, type Card, type Me, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
+import { ASSISTANT_ID, type Card, type EphemeralMessage, type Me, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
 import type { AgentAnswer, NewAgent } from "@ember/protocol/agents";
-import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type CallDecision, type ToolPick } from "@ember/protocol/apps";
+import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type AppId, type CallDecision, type ToolPick } from "@ember/protocol/apps";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fromApp, toolCallOf, toolCard, toolCards } from "../src/apps/cards";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
-import { CALL_NOT_ALLOWED_NOW, CALL_OUTCOMES, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW } from "../src/apps/tools";
+import { CALL_NOT_ALLOWED_NOW, CALL_OUTCOMES, callCard, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW } from "../src/apps/tools";
 import { CALL_WAITS_MS } from "../src/apps/waiting-calls";
 import { CALL_DECLINED } from "../src/assistant/tool-calls";
+import { slackMessage } from "../src/bots/slack";
 import type { Env } from "../src/env";
 import { seal } from "../src/sealed";
-import { api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, roomStub, shown, startDirect, workspaceSql, workspaceStub, type Client, type Session } from "./support";
+import { api, connect, cookieOf, createRoom, freshDeploy, post, reconnect, roomSql, roomStub, shown, startDirect, workspaceSql, workspaceStub, type Client, type Session } from "./support";
 
 // Calls of connected apps' tools: @ember or an agent calls one picked for it, the room asks first on a
-// card, and the call runs, and the answer goes on, once whoever asked or an administrator allows it,
-// or at once, said beside the agent's typing, where an administrator has the agent's calls of the tool
-// always allowed. A fake MCP server and a fake AI Gateway stand behind `fetch`.
+// card only whoever asked sees, and the call runs, and the answer goes on, once they allow it, or at once,
+// said beside the agent's typing, where an administrator has the agent's calls of the tool always
+// allowed. A fake MCP server and a fake AI Gateway stand behind `fetch`.
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
@@ -141,18 +142,21 @@ async function join(name: string): Promise<Session> {
   return { user: shown(((await response.json()) as { user: Me }).user), cookie: cookieOf(response) };
 }
 
+/** What @ember posts: a message in the room, or one only whoever asked sees, as the card of a call that waits on them. */
+type Posted = Message | EphemeralMessage;
+
 /** Asks @ember `question` in the room `client` is in, answering what it posts next: its answer, or the card for a call. */
-async function ask(client: Client, question = "open an issue for the login bug"): Promise<Message> {
+async function ask(client: Client, question = "open an issue for the login bug"): Promise<Posted> {
   const mention = `<action-text-attachment sgid="${mentionSgid(EMBER.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
   await post(client, `<p>${mention} ${question}</p>`);
   return fromEmber(client);
 }
 
-/** The next message @ember posts in the room `client` is in. */
-async function fromEmber(client: Client): Promise<Message> {
+/** The next message @ember posts that `client` hears of, in the room or for them alone, passing over changes to cards it has heard of. */
+async function fromEmber(client: Client): Promise<Posted> {
   for (;;) {
-    const { message } = await client.next("message.created");
-    if (message.creator.id === EMBER.id) return message;
+    const frame = await client.next("message.created", "message.ephemeral");
+    if (frame.message.creator.id === EMBER.id && (frame.type === "message.created" || ephemeralIn(client).find(({ id }) => id === frame.message.id) === frame.message)) return frame.message;
   }
 }
 
@@ -164,12 +168,17 @@ function click(client: Client, card: Pick<Message, "id">, decision: CallDecision
 }
 
 /** The card `client` hears has changed, once it has. */
-async function changed(client: Client, card: Pick<Message, "id">): Promise<Message> {
+async function changed(client: Client, card: Pick<Message, "id">): Promise<Posted> {
   for (;;) {
-    const { message } = await client.next("message.updated");
+    const { message } = await client.next("message.updated", "message.ephemeral");
     if (message.id === card.id) return message;
   }
 }
+
+/** The cards of calls `client` has heard of that only its person sees, as they came, with what opened the room or a thread too. */
+const ephemeralIn = (client: Pick<Client, "log">) => client.log.flatMap((frame) => (frame.type === "message.ephemeral" ? [frame.message] : "ephemeral" in frame ? (frame.ephemeral ?? []) : []));
+/** Whether `client` has heard of a message @ember posted in the room. */
+const heardFromEmber = (client: Client) => client.log.some((frame) => frame.type === "message.created" && frame.message.creator.id === EMBER.id);
 
 const CALL: Turn = { calls: [{ name: "Tracker__create_issue", input: { title: "Login fails" } }] };
 const buttonsOf = (cards: Card[] | undefined) => (cards ?? []).flatMap(({ parts }) => parts).flatMap((part) => (part.kind === "buttons" ? part.buttons : []));
@@ -184,9 +193,7 @@ describe("A call of a connected app's tool", () => {
     script = [CALL, { text: "I opened #12 for it." }];
 
     const card = await ask(inGeneral);
-    expect(card.plainText).toBe(
-      ["Ember wants to use Tracker", 'create_issue, with:\n{\n  "title": "Login fails"\n}', "Ada Lovelace or an administrator can allow this call. It goes to Tracker with the token an administrator connected it with.", "Allow once · Deny"].join("\n"),
-    );
+    expect(card.plainText).toBe(["Ember wants to use Tracker", "create_issue, with:\nTitle: Login fails", "It goes to Tracker with the token an administrator connected it with.", "Allow once · Deny"].join("\n"));
     expect(buttonsOf(card.cards)).toEqual([
       { text: "Allow once", action: { id: CALL_ACTIONS.allow, blockId: "ember.call" }, style: "primary" },
       { text: "Deny", action: { id: CALL_ACTIONS.deny, blockId: "ember.call" } },
@@ -210,7 +217,7 @@ describe("A call of a connected app's tool", () => {
     const clickId = click(inGeneral, card, "allow");
     const allowed = await changed(inGeneral, card);
     expect(buttonsOf(allowed.cards)).toEqual([]);
-    expect(allowed.plainText).toBe(["Ember wants to use Tracker", 'create_issue, with:\n{\n  "title": "Login fails"\n}', CALL_OUTCOMES.allow(ada.user.name)].join("\n"));
+    expect(allowed.plainText).toBe(["Ember wants to use Tracker", "create_issue, with:\nTitle: Login fails", CALL_OUTCOMES.allow("you")].join("\n"));
     expect(await inGeneral.next("card.clicked")).toEqual({ type: "card.clicked", clickId });
 
     const answer = await fromEmber(inGeneral);
@@ -230,10 +237,10 @@ describe("A call of a connected app's tool", () => {
 
     const first = await ask(inGeneral);
     click(inGeneral, first, "deny");
-    expect((await changed(inGeneral, first)).plainText).toContain(CALL_OUTCOMES.deny(ada.user.name));
+    expect((await changed(inGeneral, first)).plainText).toContain(CALL_OUTCOMES.deny("you"));
     // The second call of the same turn asks on a card of its own, the model not asked meanwhile.
     const second = await fromEmber(inGeneral);
-    expect(second.plainText).toContain('"title": "Logout fails"');
+    expect(second.plainText).toContain("Title: Logout fails");
     expect(asked).toHaveLength(1);
     expect(calls()).toEqual([]);
     expect(await waiting(general)).toEqual([{ message_id: second.id }]);
@@ -247,28 +254,95 @@ describe("A call of a connected app's tool", () => {
     ]);
   });
 
-  it("is answered by whoever asked or an administrator, and by nobody else in the room", async () => {
+  it("is shown to whoever asked alone, on each of their sockets in the room, those they open while it waits too, and answered by them alone", async () => {
     const { general, inGeneral } = await setUp();
     const [grace, hal] = [await join("Grace Hopper"), await join("Hal Abelson")];
     const [graceThere, halThere] = [await connect(general, grace), await connect(general, hal)];
-    script = [CALL, { text: "Done." }, CALL, { text: "Done again." }];
+    script = [CALL, { text: "Done." }];
 
     const card = await ask(graceThere);
-    expect(card.plainText).toContain("Grace Hopper or an administrator can allow this call.");
-    const refused = click(halThere, card, "allow");
-    expect(await halThere.next("error")).toMatchObject({ clickId: refused, message: "Only Grace Hopper or an administrator can answer that" });
+    expect(card.plainText).toContain(callNote({ appName: "Tracker" }));
+    // A tab of hers that opens the room while it waits is shown it with its welcome, but for one too old
+    // to know of it, which is told to reload, and nobody else hears of it.
+    const graceAgain = await connect(general, grace);
+    expect(graceAgain.welcome.ephemeral).toEqual([card]);
+    const graceOutdated = await connect(general, grace, "outdated");
+    await graceOutdated.next("error");
+    expect(await roomSql(general, "SELECT count(*) AS posted FROM messages WHERE creator_id = ?", EMBER.id)).toEqual([{ posted: 0 }]);
+    expect([ephemeralIn(halThere), ephemeralIn(inGeneral), heardFromEmber(halThere), heardFromEmber(inGeneral)]).toEqual([[], [], false, false]);
+
+    // Nobody else answers it, not even an administrator, who can't see it.
+    const refused = [click(halThere, card, "allow"), click(inGeneral, card, "allow")];
+    expect(await halThere.next("error")).toMatchObject({ clickId: refused[0], message: "Only Grace Hopper can answer that" });
+    expect(await inGeneral.next("error")).toMatchObject({ clickId: refused[1], message: "Only Grace Hopper can answer that" });
     expect(calls()).toEqual([]);
     expect(await waiting(general)).toEqual([{ message_id: card.id }]);
 
-    click(graceThere, card, "allow");
-    expect((await fromEmber(graceThere)).plainText).toBe("Done.");
+    click(graceAgain, card, "allow");
+    for (const tab of [graceThere, graceAgain]) expect((await changed(tab, card)).plainText).toContain(CALL_OUTCOMES.allow("you"));
+    // The answer goes to the room, as ever.
+    for (const tab of [graceThere, halThere, inGeneral, graceOutdated]) expect((await fromEmber(tab)).plainText).toBe("Done.");
+    expect(calls()).toHaveLength(1);
+    expect([ephemeralIn(halThere), ephemeralIn(inGeneral), ephemeralIn(graceOutdated)]).toEqual([[], [], []]);
+    // A tab opened once it's answered isn't shown it, nor one opened again with what changed since, nor after.
+    const graceLater = await connect(general, grace);
+    const graceBack = await reconnect(general, grace, graceAgain.welcome.seq);
+    expect(graceBack.opening.type).toBe("resumed");
+    await post(graceLater, "<p>Thanks!</p>");
+    expect([ephemeralIn(graceLater), ephemeralIn(graceBack)]).toEqual([[], []]);
+  });
 
-    // An administrator answers one someone else asked for.
-    const next = await ask(graceThere);
-    click(inGeneral, next, "allow");
-    expect((await changed(graceThere, next)).plainText).toContain(CALL_OUTCOMES.allow("Ada Lovelace"));
-    expect((await fromEmber(graceThere)).plainText).toBe("Done again.");
-    expect(calls()).toHaveLength(2);
+  it("comes again with what catches up a tab of theirs that opens the room again", async () => {
+    const { general, inGeneral, ada } = await setUp();
+    script = [CALL, { text: "Done." }];
+    const card = await ask(inGeneral);
+    const back = await reconnect(general, ada, inGeneral.welcome.seq);
+    expect(back.opening).toMatchObject({ type: "resumed", ephemeral: [card] });
+  });
+
+  it("asked for in a thread, is shown in it: after the thread opens, rather than the room's welcome", async () => {
+    const { general, inGeneral, ada } = await setUp();
+    script = [CALL, { text: "I opened #12 for it." }];
+    const parent = await post(inGeneral, "<p>The login fails.</p>");
+    const mention = `<action-text-attachment sgid="${mentionSgid(EMBER.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+    inGeneral.send({ type: "message.create", clientMessageId: crypto.randomUUID(), body: `<p>${mention} open an issue for it</p>`, parentId: parent.id });
+    const card = await fromEmber(inGeneral);
+    expect(card).toMatchObject({ parentId: parent.id });
+    expect(card.plainText).toContain("Allow once");
+
+    const again = await connect(general, ada);
+    again.send({ type: "thread.open", parentId: parent.id });
+    expect((await again.next("thread.opened")).ephemeral).toEqual([card]);
+    // The room's welcome didn't bring it.
+    expect(again.log.filter((frame) => frame.type === "welcome" || frame.type === "message.ephemeral")).toEqual([again.welcome]);
+
+    click(again, card, "allow");
+    expect(await fromEmber(again)).toMatchObject({ plainText: "I opened #12 for it.", parentId: parent.id });
+  });
+
+  it("still waits on a card that's a message in the room, for a call that started to wait before cards were only the asker's, which an administrator answers too", async () => {
+    const { general, inGeneral } = await setUp();
+    const grace = await join("Grace Hopper");
+    const graceThere = await connect(general, grace);
+    script = [CALL, { text: "Done." }];
+    const card = (await ask(graceThere)) as EphemeralMessage;
+    const question = graceThere.log.flatMap((frame) => (frame.type === "message.created" && frame.message.creator.id === grace.user.id ? [frame.message] : []))[0]!;
+
+    // As such a call was kept: its card posted to the room as @ember's reply, and the call kept by that message's id, with no card of its own.
+    type Room = { postCallCard(room: RoomId, bot: User, message: Message, cardFor: () => ReturnType<typeof slackMessage>): Promise<string | null> };
+    const [{ call }] = (await roomSql(general, "SELECT call FROM waiting_calls WHERE room_id = ?", general)) as [{ call: string }];
+    const { tool, input } = JSON.parse(call) as { tool: Parameters<typeof callCard>[1]; input: Record<string, unknown> };
+    const legacyCard = slackMessage(callCard(card.creator.name, tool, input), true);
+    expect(await runInDurableObject(roomStub(general), (room) => (room as unknown as Room).postCallCard(general, card.creator, question, () => legacyCard))).toBeNull();
+    const posted = (await fromEmber(graceThere)) as Message;
+    await roomSql(general, "UPDATE waiting_calls SET message_id = ?, asker_id = NULL, call = json_remove(call, '$.card') WHERE room_id = ?", posted.id, general);
+
+    click(inGeneral, posted, "allow");
+    const allowed = (await changed(graceThere, posted)) as Message;
+    expect(allowed.plainText).toContain(CALL_OUTCOMES.allow("Ada Lovelace"));
+    expect(allowed.editedAt).toBeNull();
+    expect((await fromEmber(graceThere)).plainText).toBe("Done.");
+    expect(calls()).toHaveLength(1);
   });
 
   /** Has the calls that wait in `room` have waited `ms` longer than they have. */
@@ -375,7 +449,7 @@ describe("A call of a connected app's tool", () => {
     // Its card is as it was, and allows it once there's a turn.
     await queueIsFull(undefined);
     click(inGeneral, card, "allow");
-    expect((await changed(inGeneral, card)).plainText).toContain(CALL_OUTCOMES.allow(ada.user.name));
+    expect((await changed(inGeneral, card)).plainText).toContain(CALL_OUTCOMES.allow("you"));
     expect((await fromEmber(inGeneral)).plainText).toBe("I opened #12 for it.");
     expect(calls()).toHaveLength(1);
     expect(await waiting(general)).toEqual([]);
@@ -386,7 +460,7 @@ describe("A call of a connected app's tool", () => {
     script = [{ calls: [{ name: "Tracker__create_issue", input: { title: ":tada: Login &amp; logout <b>fail</b>" } }] }, { text: "Opened." }];
 
     const card = await ask(inGeneral);
-    expect(card.plainText).toContain('"title": ":tada: Login &amp; logout <b>fail</b>"');
+    expect(card.plainText).toContain("Title: :tada: Login &amp; logout <b>fail</b>");
     expect(card.body).not.toContain("🎉");
     click(inGeneral, card, "allow");
     expect((await fromEmber(inGeneral)).plainText).toBe("Opened.");
@@ -537,7 +611,7 @@ describe("A call of a connected app's tool", () => {
     const card = await ask(inGeneral);
     expect(asked).toHaveLength(2);
     expect((asked[1]!.messages.at(-1)!.content as Array<{ content: string; is_error?: boolean }>).map(({ content, is_error }) => [content, is_error])).toEqual([[TOO_LONG_TO_SHOW, true]]);
-    expect(card.plainText).toContain(`"title": "${longest}"`);
+    expect(card.plainText).toContain(`Title:\n\n“${longest}”`);
     expect(await waiting(general)).toEqual([{ message_id: card.id }]);
     expect(calls()).toEqual([]);
   });
@@ -547,6 +621,45 @@ describe("A call of a connected app's tool", () => {
     await pick(ada, []);
     expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
     expect(asked[0]!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+  });
+});
+
+describe("A call's card", () => {
+  const ISSUE_WRITE = { as: "GitHub__issue_write", appId: "app_github" as AppId, appName: "GitHub", name: "issue_write", fingerprint: "fingerprint" };
+  /** The markup of the card of a call of `issue_write` with `input` that shows what it's called with: the tool, then each rich text block. */
+  const shownWith = (input: Record<string, unknown>) => {
+    const shown = slackMessage(callCard("Bugs", ISSUE_WRITE, input));
+    if (typeof shown === "string") throw new Error(shown);
+    return shown.cards[0]!.parts.flatMap((part) => (part.kind === "section" || part.kind === "text" ? [part.html ?? ""] : []));
+  };
+
+  it("shows each field by its label, short ones a line each, then longer text quoted with its line breaks, and no JSON", () => {
+    const body = "## What happened\nExport does nothing.\n\n## Steps to reproduce\n1. Open a room in Safari\n2. Click Export";
+    expect(shownWith({ method: "create", owner: "NYLLON-SOFTWARE", repo: "ember-cloudflare", title: "Export does nothing in Safari", body })).toEqual([
+      "<p>issue_write, with:</p>",
+      "<p><strong>Method:</strong> create<br><strong>Owner:</strong> NYLLON-SOFTWARE<br><strong>Repo:</strong> ember-cloudflare<br><strong>Title:</strong> Export does nothing in Safari</p>",
+      "<p><strong>Body:</strong></p><blockquote><p>## What happened<br>Export does nothing.<br><br>## Steps to reproduce<br>1. Open a room in Safari<br>2. Click Export</p></blockquote>",
+    ]);
+  });
+
+  it("labels fields in words, and shows numbers, true and false, nothing, and short lists on their lines, and other lists and objects as JSON", () => {
+    expect(shownWith({ issue_number: 42, perPage: 10, locked: false, milestone: null, state_reason: "", labels: ["bug", "safari"], assignees: [], fields: [{ id: 7, value: "P1" }], tags: ["needs triage, maybe"] })).toEqual([
+      "<p>issue_write, with:</p>",
+      "<p><strong>Issue number:</strong> 42<br><strong>Per page:</strong> 10<br><strong>Locked:</strong> false<br><strong>Milestone:</strong> <em>none</em><br><strong>State reason:</strong> <em>empty</em><br><strong>Labels:</strong> bug, safari<br><strong>Assignees:</strong> <em>none</em></p>",
+      '<p><strong>Fields:</strong></p><pre>[\n  {\n    "id": 7,\n    "value": "P1"\n  }\n]</pre><p><strong>Tags:</strong></p><pre>[\n  "needs triage, maybe"\n]</pre>',
+    ]);
+  });
+
+  it("shows each carriage return in text as the line break it is, not as a space", () => {
+    expect(shownWith({ body: "First\rSecond\r\nThird" })).toEqual(["<p>issue_write, with:</p>", "<p><strong>Body:</strong></p><blockquote><p>First<br>Second<br>Third</p></blockquote>"]);
+  });
+
+  it("shows text as it's written, so that a link, a mention or an emoji's name in it doesn't become one", () => {
+    expect(shownWith({ title: "<https://example.com|GitHub> <@U123> :tada: *bold*" })).toEqual(["<p>issue_write, with:</p>", "<p><strong>Title:</strong> &lt;https://example.com|GitHub&gt; &lt;@U123&gt; :tada: *bold*</p>"]);
+  });
+
+  it("says when it's called with nothing", () => {
+    expect(shownWith({})).toEqual(["<p>issue_write, with nothing</p>"]);
   });
 });
 
@@ -942,7 +1055,8 @@ describe("A card a connected app's tool answers a call with", () => {
     const all = await setUp();
     await pick(all.ada, ["create_issue", "close_issue"], { always: ["create_issue"] });
     script = [CALL, { text: "It's open." }];
-    const card = await ask(all.inGeneral);
+    // A tool's card is a message in the room, for anyone there to click.
+    const card = (await ask(all.inGeneral)) as Message;
     await fromEmber(all.inGeneral);
     return { ...all, card };
   }
@@ -1132,7 +1246,7 @@ describe("A call of a tool of an app someone has signed in to themselves, in the
   }
 
   /** Asks @ember in the direct conversation `client` is in, where it answers whatever is written: what it posts next. */
-  async function askThere(client: Client): Promise<Message> {
+  async function askThere(client: Client): Promise<Posted> {
     await post(client, "<p>open an issue for the login bug</p>");
     return fromEmber(client);
   }
@@ -1144,8 +1258,8 @@ describe("A call of a tool of an app someone has signed in to themselves, in the
     script = [CALL, { text: "Opened it as you." }, CALL, { text: "Opened it." }];
 
     const card = await askThere(inDm);
-    expect(card.plainText).toContain(callNote("Grace Hopper", { appName: "Tracker", own: true }));
-    expect(card.plainText).toContain("It goes to Tracker as Grace Hopper");
+    expect(card.plainText).toContain(callNote({ appName: "Tracker", own: true }));
+    expect(card.plainText).toContain("It goes to Tracker as you, with the sign-in you made to it yourself.");
     expect(asked[0]!.tools[1]!.description).toContain("which the person you're answering has signed in to themselves: here, a call of it is made as them.");
     expect(calls()).toEqual([]);
     click(inDm, card, "allow");
@@ -1154,7 +1268,7 @@ describe("A call of a tool of an app someone has signed in to themselves, in the
 
     const there = await connect(general, grace);
     const shared = await ask(there);
-    expect(shared.plainText).toContain(callNote("Grace Hopper", { appName: "Tracker" }));
+    expect(shared.plainText).toContain(callNote({ appName: "Tracker" }));
     expect(asked.at(-1)!.tools[1]!.description).not.toContain("signed in to themselves");
     click(there, shared, "allow");
     expect((await fromEmber(there)).plainText).toBe("Opened it.");
@@ -1186,7 +1300,7 @@ describe("A call of a tool of an app someone has signed in to themselves, in the
 
     await workspaceSql("DELETE FROM own_app_sign_ins WHERE app_id = ?", tracker.id);
     const card = await askThere(inDm);
-    expect(card.plainText).toContain(callNote("Grace Hopper", { appName: "Tracker" }));
+    expect(card.plainText).toContain(callNote({ appName: "Tracker" }));
     click(inDm, card, "allow");
     expect((await fromEmber(inDm)).plainText).toBe("Opened it.");
     expect(tokens()).toEqual([`Bearer ${MCP_TOKEN}`]);

@@ -8,7 +8,7 @@ import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { parseBlockedWords } from "./blocked-words.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
-import type { HuddleSounds, HuddlesSettings, LiveHuddle, MessageHuddle } from "./huddles.ts";
+import { HUDDLE_VIDEO_REFUSED, isHuddleVideoQuality, type HuddleSounds, type HuddlesSettings, type HuddleVideoQuality, type LiveHuddle, type MessageHuddle } from "./huddles.ts";
 import type { OutsideConnection } from "./outside.ts";
 import type { SsoSettings, SsoStatus } from "./sso.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -93,6 +93,7 @@ export type {
   HuddlesSaved,
   HuddlesSettings,
   HuddlesSetup,
+  HuddleVideoQuality,
   LiveHuddle,
   MessageHuddle,
   PastHuddle,
@@ -190,7 +191,7 @@ export {
   searchOfQuery,
   searchPath,
   searchQuery,
-  searchTerms,
+  searchWords,
   type Search,
   type SearchFilters,
   type SearchFlag,
@@ -276,6 +277,11 @@ export interface SharedRoom {
    * joins one there, where huddles are on. Left out otherwise, which is how every room starts.
    */
   huddles?: false;
+  /**
+   * False while the room's settings don't allow @channel, @here and @everyone in it, as a Slack channel's
+   * can: they notify nobody there. Left out otherwise, which is how every room starts.
+   */
+  channelMentions?: false;
 }
 
 /**
@@ -328,10 +334,11 @@ export const startingInvolvement = (room: Room): Involvement => (room.kind === "
 /**
  * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
  * tab, which marks it unread for them until they do again, when the first of those messages came, while
- * it's marked, in a DM how many have come since, and their level in it. A room they've hidden is listed
- * too, since they can still open it, but their sidebar leaves it out.
+ * it's marked, in a DM how many have come since, in a room how many of them mention them, by name or as
+ * @channel, @here and @everyone notify them, when any do, as Slack's badge counts, and their level in it.
+ * A room they've hidden is listed too, since they can still open it, but their sidebar leaves it out.
  */
-export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; involvement: Involvement };
+export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; mentionCount?: number; involvement: Involvement };
 
 /**
  * The rooms someone has starred, which their sidebar lists first, in the order they starred them.
@@ -353,6 +360,36 @@ export interface Blocks {
   version: number;
 }
 
+/** A sidebar section's id: one of the Workspace's sortable ids, as a room's is. */
+export type SectionId = string;
+
+/**
+ * A sidebar section: a name that rooms are listed under in everyone's sidebar, after the rooms in none,
+ * as the project's owner asked (2026-11-19). Administrators make, rename, order and delete sections,
+ * and whoever can change a room puts it in one in its settings.
+ */
+export interface Section {
+  id: SectionId;
+  name: string;
+}
+
+/** A section in someone's sidebar, with which of their rooms are in it, in no particular order. */
+export interface SidebarSection extends Section {
+  roomIds: RoomId[];
+}
+
+/** A section as a room's settings and New room offer it, with how many of your rooms are in it. */
+export interface SectionOption extends Section {
+  rooms: number;
+}
+
+/**
+ * A room's section as New room and a room's settings send it: a section's id, null for none, or the
+ * name of a section to make, last, which only an administrator can, unless one has that name already,
+ * in which case the room goes in that one.
+ */
+export type SectionChoice = SectionId | null | { name: string };
+
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
  * they've starred, the invitation, when they're an administrator in its room who hasn't dismissed the
@@ -369,6 +406,13 @@ export interface Sidebar {
    * rooms someone isn't in never reach them.
    */
   sharedOrder: RoomId[];
+  /**
+   * The sections, in order, each with the rooms in `rooms` that are in it, which the sidebar lists under
+   * its name, after the rooms in none: for an administrator, every section, and for anyone else, the
+   * ones with a room of theirs. Left out while there are none. `rooms.reordered` frames say when to load
+   * them again.
+   */
+  sections?: SidebarSection[];
   invitation: Invitation | null;
   /** The huddle going on in each of `rooms` that has one, by the room's id. `room.huddle` frames keep it current. */
   huddles: Record<RoomId, LiveHuddle>;
@@ -388,18 +432,22 @@ export interface Sidebar {
 
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
- * Without an icon, it has the default `#`.
+ * Without an icon, it has the default `#`, and without a section, it's in none.
  */
-export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type NewRoom = { name: string; icon?: RoomIconChoice; section?: SectionChoice } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
   member: boolean;
 }
 
-/** What `GET /api/rooms/new` answers for the New room forms: everyone active who can be put in a room, by name (`RoomSettings.people`). */
+/**
+ * What `GET /api/rooms/new` answers for the New room forms: everyone active who can be put in a room, by
+ * name (`RoomSettings.people`), and the sections, in order, to put it in one.
+ */
 export interface NewRoomForm {
   people: User[];
+  sections: SectionOption[];
 }
 
 /**
@@ -430,6 +478,20 @@ export interface ChangedBlocks {
   direct: { roomId: RoomId; involvement: Involvement } | null;
 }
 
+/**
+ * What `GET /api/rooms/<id>/notified` answers, for the composer to ask before a message notifies a room
+ * of six or more, as Slack asks.
+ */
+export interface NotifiedCounts {
+  /** The people in the room, you too, but bots. */
+  members: number;
+  /**
+   * How many of them each special mention you may use there would notify, you aside: @here's are those
+   * active now. A mention that wouldn't notify the room from you isn't there, nor any in a DM.
+   */
+  mentions: Partial<Record<SpecialMention, number>>;
+}
+
 /** What `GET /api/rooms/<id>/settings` answers for a room's settings page. DMs have none. */
 export interface RoomSettings {
   room: SharedRoom;
@@ -440,20 +502,49 @@ export interface RoomSettings {
    * owners and admins can in a channel. Its creator, who can change the rest, sees of them what others do.
    */
   canChangeHuddles: boolean;
+  /** Whether you can allow @channel, @here and @everyone in it or not, as only administrators can, as huddles. */
+  canChangeChannelMentions: boolean;
   /** Everyone active who can be put in a room, by name: all but the AI agents only administrators' direct messages reach. */
   people: RoomPerson[];
+  /** The room's sidebar section, or null for none. */
+  section: Section | null;
+  /** For whoever can change the room, every section, in order, to put it in one; for anyone else, none. */
+  sections: SectionOption[];
 }
 
 /**
  * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, whether
- * huddles are allowed in it, which is an administrator's to change, and who it's for, everyone or just
- * the people `memberIds` names, which takes anyone else out of it.
+ * huddles are allowed in it, and @channel, @here and @everyone, which are an administrator's to change,
+ * its sidebar section, and who it's for, everyone or just the people `memberIds` names, which takes
+ * anyone else out of it.
  */
-export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: boolean; channelMentions?: boolean; section?: SectionChoice } & (
+  | { kind?: "open" }
+  | { kind: "closed"; memberIds: UserId[] }
+);
 
 /**
- * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
- * settings.
+ * What Rooms and permissions' Save order sends to `PUT /api/account/room_order`: the rooms in the
+ * administrator's sidebar in the order they're to come in for everyone, and, from a tab that shows
+ * sections, the sections in order, each with which of those rooms are in it, the rest being in none.
+ */
+export interface RoomLayout {
+  roomIds: RoomId[];
+  sections?: Array<{ id: SectionId; roomIds: RoomId[] }>;
+}
+
+/**
+ * What saving it answers: the rooms of the administrator's that the shared order ranks, in its order,
+ * and every section, as their sidebar has them.
+ */
+export interface SavedRoomLayout {
+  sharedOrder: RoomId[];
+  sections: SidebarSection[];
+}
+
+/**
+ * The rail's buttons, the top bar's search field, and the appearance modes, whose icons an administrator
+ * can choose in Community settings.
  */
 export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "light", "dark", "system"] as const;
 export type NavigationSlot = (typeof NAVIGATION_SLOTS)[number];
@@ -504,6 +595,20 @@ export interface Account {
   customStyles: string;
   /** Whether only administrators can create rooms, as "Must be admin to create new rooms" says. Off until one turns it on. */
   restrictRoomCreation: boolean;
+  /**
+   * Whether only administrators can notify a room with @channel and @here, as "Must be admin to use
+   * @channel and @here" says, as a Slack workspace's owners can keep them to admins. Off until one turns
+   * it on, so everyone can, as in Slack.
+   */
+  restrictChannelMentions: boolean;
+  /** The same for @everyone, as "Must be admin to use @everyone" says. Off until one turns it on. */
+  restrictEveryoneMention: boolean;
+  /**
+   * Whether a message whose @channel, @here or @everyone would notify a room of six or more people asks
+   * its sender first, as "Warn before notifying a room of six or more" says, as Slack asks. On until an
+   * administrator turns it off.
+   */
+  warnBeforeNotifying: boolean;
   /**
    * The address of the workspace's logo, which changes whenever the account does, or null while there's
    * none, when pages show Ember's flame.
@@ -588,6 +693,8 @@ export interface Account {
    * On until an administrator turns it off.
    */
   huddleScreens: boolean;
+  /** How sharp cameras and shared screens are in huddles, as the Huddles tab's Video quality says: `DEFAULT_HUDDLE_VIDEO` until an administrator chooses. */
+  huddleVideo: HuddleVideoQuality;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -837,15 +944,16 @@ export interface NewJoinCode {
 
 /**
  * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
- * its settings, its custom domain, which can only be the address the request comes to, or null for
- * none, the icons of the rail's buttons and the appearance modes, the address Ember's email comes from,
- * or null for none, the domains Email domain lets in, in place of those it had, and the words and
- * phrases Blocked words keeps out, in place of those it had too.
+ * its settings, huddles' video quality, its custom domain, which can only be the address the request
+ * comes to, or null for none, the icons of the rail's buttons and the appearance modes, the address
+ * Ember's email comes from, or null for none, the domains Email domain lets in, in place of those it
+ * had, and the words and phrases Blocked words keeps out, in place of those it had too.
  */
 export interface AccountChanges {
   name?: string;
   tagline?: string;
   settings?: AccountSettings;
+  huddleVideo?: HuddleVideoQuality;
   customDomain?: string | null;
   navigationIcons?: NavigationIconChanges;
   emailFrom?: string | null;
@@ -863,6 +971,9 @@ export interface AccountChanges {
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
   restrictRoomCreation?: boolean;
+  restrictChannelMentions?: boolean;
+  restrictEveryoneMention?: boolean;
+  warnBeforeNotifying?: boolean;
   huddleCameras?: boolean;
   huddleScreens?: boolean;
   joinLink?: boolean;
@@ -1280,9 +1391,6 @@ export const EMAIL_LINKS_LIMITED = "Too many links asked for from your network. 
 /** Why `/join/email` sends no link while Ember can't send email. */
 export const CANT_EMAIL_LINKS = "Ember can't email links right now. Try again later, or ask an administrator to invite you.";
 
-/** Why `/join/email` sent no link when the email provider refused to send it. */
-export const EMAIL_LINK_UNSENT = "Ember couldn't email you just now. Try again later.";
-
 /**
  * Whose password to reset, and to what, as `POST /api/recovery/reset-password` takes it from
  * apps/worker/scripts/reset-password.ts.
@@ -1579,14 +1687,14 @@ export const signInSaying = (problem: JoiningProblem) => `/session/new?${JOINING
 
 /**
  * Open sign-up's limits, which stand in for Turnstile's check while Ember lacks its keys: how many
- * people may sign up from an IP address in an hour, and how many new people in the workspace in the last
+ * people may sign up from a network in an hour, and how many new people in the workspace in the last
  * hour, however they joined, stop it, so that a flood can't use up the rows a Workers Free account
  * writes in a day.
  */
 export const SIGN_UPS_PER_ADDRESS = 5;
 export const SIGN_UPS_PER_HOUR = 50;
 
-/** Why open sign-up refuses someone from an IP address that has signed up as many times as it may in an hour. */
+/** Why open sign-up refuses someone from a network that has signed up as many times as it may in an hour. */
 export const SIGN_UP_LIMITED = "Too many sign-ups from your network. Try again in an hour.";
 
 /** Why open sign-up refuses anyone once the workspace has let in as many new people as it does in an hour. */
@@ -1652,6 +1760,13 @@ export interface Boost {
   createdAt: string;
 }
 
+/**
+ * Slack's special mentions, which notify a room rather than name someone: @here, everyone in it who's
+ * active, @channel, everyone in it, whether they're active or away, and @everyone, everyone in the
+ * workspace, which only an open room, where everyone is, takes.
+ */
+export type SpecialMention = "here" | "channel" | "everyone";
+
 export interface Message {
   id: string;
   /** Generated by the sender so its optimistic copy can be reconciled with the stored one. */
@@ -1670,6 +1785,13 @@ export interface Message {
    * mention shows someone by the name they have now, which the people directory knows.
    */
   mentions: User[];
+  /**
+   * Whom its special mention notified as it came, the widest it makes: everyone in the workspace for
+   * @everyone, in an open room, everyone in the room for @channel, everyone active in it for @here. Only
+   * a message sent to a room that isn't a DM notifies, and not a reply in a thread. An edit can narrow
+   * it or take it away, but never widen it, since an edit notifies nobody.
+   */
+  notifies?: SpecialMention;
   createdAt: string;
   updatedAt: string;
   /** When its text last changed, or a bot changed its file, or null if neither has. */
@@ -1746,6 +1868,27 @@ export interface ScheduledMessage {
 }
 
 /**
+ * A message only one person sees, as a Slack app's ephemeral message is: from @ember or an agent, the card
+ * of its call of a connected app's tool, which waits on whoever asked, and then what came of the call. The
+ * room keeps it only while the call waits, and sends it to that person's tabs alone, never to the room's
+ * timeline, its search or anyone's unread messages. A tab shows it until the room lets the tab in again,
+ * which brings it again while it waits.
+ */
+export interface EphemeralMessage {
+  id: string;
+  roomId: RoomId;
+  creator: User;
+  /** Its text as rich text, as a message's is, which a card's often leaves empty. */
+  body: string;
+  /** Its plain text, its cards' after its own. */
+  plainText: string;
+  cards: Card[];
+  createdAt: string;
+  /** The thread it's in, when the question it's about was asked in one. */
+  parentId?: string;
+}
+
+/**
  * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
  * answers each frame that would change messages or boosts with an `error`.
  */
@@ -1803,7 +1946,8 @@ export type ClientFrame =
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
   /**
-   * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
+   * A click on a button that acts, on one of the cards of a bot's message, or of a message only the tab's person
+   * sees (`EphemeralMessage`): the button `actionId` names there, in the
    * block `blockId` names when it has one, with the `value` it has, which tells apart two that share a name.
    * The room reports it to the bot, and answers `card.clicked`, or an `error`, with `clickId`, which the tab
    * makes up.
@@ -1835,14 +1979,17 @@ export type ServerFrame =
   /**
    * Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. Its
    * page is the newest, or the one around the message the socket's address names, if the room has it.
+   * `ephemeral` holds the messages only they see, the cards of the calls asked in the room's timeline that
+   * wait on them, if any do.
    */
-  | ({ type: "welcome"; you: User; present: User[]; seq: number } & TimelinePage)
+  | ({ type: "welcome"; you: User; present: User[]; seq: number; ephemeral?: EphemeralMessage[] } & TimelinePage)
   /**
    * Sent in place of a welcome to a tab that names the latest change it has seen, if the room still
    * keeps every change since: the messages changed after it, as they are now, oldest first, the ids of
    * those deleted, and who's here. A message both made and deleted since is among the deleted alone.
+   * `ephemeral` holds what a welcome's does.
    */
-  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number }
+  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number; ephemeral?: EphemeralMessage[] }
   /** A new message. Its author has stopped typing, too. */
   | { type: "message.created"; message: Message; seq: number }
   /** The author's message is waiting, sent only to them. */
@@ -1878,13 +2025,19 @@ export type ServerFrame =
   | { type: "message.checked"; stored: string[]; missing: string[] }
   /**
    * Answers thread.open: the message, or null when the room doesn't have it or it's a reply, which has no
-   * thread, and its newest page of replies, oldest first, with whether it has older ones.
+   * thread, and its newest page of replies, oldest first, with whether it has older ones, and the cards
+   * of the calls asked in it that wait on whoever opened it, `ephemeral`, if any do.
    */
-  | { type: "thread.opened"; parentId: string; parent: Message | null; messages: Message[]; hasMore: boolean }
+  | { type: "thread.opened"; parentId: string; parent: Message | null; messages: Message[]; hasMore: boolean; ephemeral?: EphemeralMessage[] }
   /** Answers thread.before: the replies before `before`, oldest first, and whether there are older ones still. */
   | { type: "thread.history"; parentId: string; before: string; messages: Message[]; hasMore: boolean }
   /** Answers card.click once the bot has answered the click: what it does to the room, if anything, comes as any change does. */
   | { type: "card.clicked"; clickId: string }
+  /**
+   * A message only this socket's person sees, new, or changed in place, by its id, as a call's card is
+   * once it's answered. Those that still wait come again with a welcome, `resumed` or `thread.opened`.
+   */
+  | { type: "message.ephemeral"; message: EphemeralMessage }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
    * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
@@ -1909,10 +2062,11 @@ export type WorkspaceServerFrame =
   | { type: "welcome"; you: Me; account: Account }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when the first
-   * of those came. Sent only to the person marked, as their mark changes, and in a DM, as each message
-   * comes, with how many have come since it was marked.
+   * of those came. Sent only to the person marked, as their mark changes, in a DM, as each message comes,
+   * with how many have come since it was marked, and in a room, as each message that mentions them
+   * comes, with how many of those have, as `SidebarRoom.mentionCount` counts them.
    */
-  | { type: "room.unread"; roomId: RoomId; at: string; count?: number }
+  | { type: "room.unread"; roomId: RoomId; at: string; count?: number; mentions?: number }
   /** They've read a room marked unread, in this tab or another. */
   | { type: "room.read"; roomId: RoomId }
   /**
@@ -1928,10 +2082,13 @@ export type WorkspaceServerFrame =
   | { type: "user.gone"; userId: UserId }
   /**
    * A room of theirs as it is now, sent to everyone in it when it's made, renamed, given another icon,
-   * opened to everyone or made private, and to whoever a change puts in it, and to everyone in a DM
-   * when it's started. A room they have keeps its mark, and one new to them starts read.
+   * opened to everyone or made private, or put in another section, and to whoever a change puts in it,
+   * and to everyone in a DM when it's started. A room they have keeps its mark, and one new to them
+   * starts read. A room shared by name comes with its sidebar section while it's in one, which a sidebar
+   * that hasn't that section yet adds after its others, and loads again soon, to put it in its place,
+   * and with null once a change takes it out of one.
    */
-  | { type: "room.saved"; room: Room }
+  | { type: "room.saved"; room: Room; section?: Section | null }
   /** A room that's no longer theirs: deleted, or they've been taken out of it. Nobody else hears of it. */
   | { type: "room.gone"; roomId: RoomId }
   /**
@@ -1976,9 +2133,10 @@ export type WorkspaceServerFrame =
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
   | { type: "invitation.dismissed" }
   /**
-   * An administrator saved the shared room order, so the sidebar loads again. It names no rooms, since
-   * some aren't everyone's. Sent to everyone, and to the people a room the order ranks takes in, whose
-   * sidebars' order left it out.
+   * An administrator saved the shared room order, or made, renamed or deleted a section, so the sidebar
+   * loads again. It names no rooms, since some aren't everyone's. Sent to everyone, to the people a room
+   * the order ranks takes in, whose sidebars' order left it out, and to the people in a room that moves
+   * to another section, or is made in one.
    */
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
@@ -1998,10 +2156,11 @@ export type WorkspaceServerFrame =
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
  * tells a tab running an older app to reload, and refuses its messages and edits: before revision 2,
  * tabs sent a message's text rather than its markup, which the room would now read as markup, before
- * revision 3, an edit dropped the message's mentions, and before revision 4, tabs knew nothing of
- * threads, and showed every reply in the room.
+ * revision 3, an edit dropped the message's mentions, before revision 4, tabs knew nothing of
+ * threads, and showed every reply in the room, and before revision 5, they showed nothing of messages
+ * only their person sees, as the card of a call that waits on them is.
  */
-export const ROOM_PROTOCOL = 4;
+export const ROOM_PROTOCOL = 5;
 
 /** What a room socket's address tells the room about the tab opening it. */
 export interface RoomSocketParams {
@@ -2142,6 +2301,10 @@ export const MAX_LISTED_USERS = 1_000;
 export const MAX_FAVORITES = 4_096;
 /** How many rooms the shared order can rank. */
 export const MAX_SHARED_ORDER = 4_096;
+/** How many sections the sidebar can have: more than a sidebar can show to any use. */
+export const MAX_SECTIONS = 100;
+/** Keeps a section's name to what fits on one line at the head of its rooms, as a room's name is kept. */
+export const MAX_SECTION_NAME_LENGTH = 100;
 /** The profile's Bio field's `maxlength`, as in Campfire's users/profiles/show.html.erb, which the server keeps too. */
 export const MAX_BIO_LENGTH = 200;
 /**
@@ -2373,6 +2536,30 @@ function iconChoice(value: unknown): RoomIconChoice | null | undefined {
   return value === "" || isRoomIcon(value) ? value : null;
 }
 
+/** Whether `value` could name a section: one of the Workspace's sortable ids, which could name a room too. */
+export const isSectionId = (value: unknown): value is SectionId => typeof value === "string" && isRoomId(value);
+
+/** Why a section's name is refused. */
+export const SECTION_NAME_REFUSED = `Section name must be 1 to ${MAX_SECTION_NAME_LENGTH} characters`;
+
+/**
+ * A room's section as New room and its settings send it, or why it's refused: left out, it's left out
+ * here too, which keeps the section a room has.
+ */
+function sectionChoice(value: unknown): { section?: SectionChoice } | string {
+  if (value === undefined) return {};
+  if (value === null || isSectionId(value)) return { section: value };
+  if (!isJsonObject(value)) return "Section must be a section's id, null for none, or a new section's name";
+  const name = text(value.name, MAX_SECTION_NAME_LENGTH);
+  return name ? { section: { name } } : SECTION_NAME_REFUSED;
+}
+
+/** Parses an untrusted section's name, as New section and a section's Rename send it. Returns why it's refused instead of the name. */
+export function parseSectionName(data: unknown): Pick<Section, "name"> | string {
+  const name = isJsonObject(data) ? text(data.name, MAX_SECTION_NAME_LENGTH) : null;
+  return name ? { name } : SECTION_NAME_REFUSED;
+}
+
 /** Parses an untrusted request to create a room. Returns why it's refused instead of the room. */
 export function parseNewRoom(data: unknown): NewRoom | string {
   if (typeof data !== "object" || data === null) return "Expected a JSON object";
@@ -2382,9 +2569,11 @@ export function parseNewRoom(data: unknown): NewRoom | string {
   if (!name) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  if (r.kind === "open") return { kind: r.kind, name, icon };
+  const section = sectionChoice(r.section);
+  if (typeof section === "string") return section;
+  if (r.kind === "open") return { kind: r.kind, name, icon, ...section };
   const memberIds = r.memberIds ?? [];
-  return userIds(memberIds) ? { kind: r.kind, name, icon, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return userIds(memberIds) ? { kind: r.kind, name, icon, ...section, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /**
@@ -2398,9 +2587,12 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (name === null) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  const { huddles } = r;
+  const { huddles, channelMentions } = r;
   if (huddles !== undefined && typeof huddles !== "boolean") return "Huddles must be true or false";
-  const changes = { name, icon, huddles };
+  if (channelMentions !== undefined && typeof channelMentions !== "boolean") return "Room-wide mentions must be true or false";
+  const section = sectionChoice(r.section);
+  if (typeof section === "string") return section;
+  const changes = { name, icon, huddles, channelMentions, ...section };
   if (r.kind === undefined) return changes;
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
@@ -2424,6 +2616,9 @@ export function parseNewDirect(data: unknown): NewDirect | string {
 const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   hideTranslationButtons: "Hide translation buttons",
   restrictRoomCreation: "Must be admin to create new rooms",
+  restrictChannelMentions: "Must be admin to use @channel and @here",
+  restrictEveryoneMention: "Must be admin to use @everyone",
+  warnBeforeNotifying: "Warn before notifying a room of six or more",
   huddleCameras: "Cameras",
   huddleScreens: "Screen sharing",
   joinLink: "Join link",
@@ -2451,6 +2646,36 @@ export const parseFavoriteOrder = (data: unknown) => parseRoomOrder(data, MAX_FA
 
 /** Parses an untrusted shared room order. Returns why it's refused instead of the rooms. */
 export const parseSharedOrder = (data: unknown) => parseRoomOrder(data, MAX_SHARED_ORDER);
+
+/** Why a layout's sections are refused. */
+const SECTIONS_REFUSED = `sections must be at most ${MAX_SECTIONS} sections, each named once by its id, with rooms from roomIds, none in two`;
+
+/**
+ * Parses an untrusted room layout, as Rooms and permissions' Save order sends it: the shared order,
+ * and maybe the sections, each room in one at most, and only rooms the order lists. Returns why it's
+ * refused instead of the layout.
+ */
+export function parseRoomLayout(data: unknown): RoomLayout | string {
+  const roomIds = parseSharedOrder(data);
+  if (typeof roomIds === "string") return roomIds;
+  const { sections } = data as Record<string, unknown>;
+  if (sections === undefined) return { roomIds };
+  if (!Array.isArray(sections) || sections.length > MAX_SECTIONS) return SECTIONS_REFUSED;
+  const listed = new Set(roomIds);
+  const placed = new Set<RoomId>();
+  const named = new Set<SectionId>();
+  const parsed: NonNullable<RoomLayout["sections"]> = [];
+  for (const section of sections as unknown[]) {
+    if (!isJsonObject(section) || !isSectionId(section.id) || named.has(section.id) || !Array.isArray(section.roomIds)) return SECTIONS_REFUSED;
+    named.add(section.id);
+    for (const roomId of section.roomIds as unknown[]) {
+      if (typeof roomId !== "string" || !listed.has(roomId) || placed.has(roomId)) return SECTIONS_REFUSED;
+      placed.add(roomId);
+    }
+    parsed.push({ id: section.id, roomIds: section.roomIds as RoomId[] });
+  }
+  return { roomIds, sections: parsed };
+}
 
 /** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port, from 1 and without leading zeros. */
 const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::([1-9][0-9]{0,4}))?$/;
@@ -2700,17 +2925,19 @@ function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. The name
  * is saved as typed, even blank. The tagline is kept on one line without space at its ends, and blank is
- * none. Each setting is true or false, and one it doesn't know is refused. A custom domain is a host or
- * null, which the Worker then checks is the address the request came to. Navigation icons are as
- * `navigationIconsOf` reads them, the From address as `emailFromOf` does, Email domain's domains as
- * `emailDomainsOf` does, and the blocked words as `parseBlockedWords` does.
+ * none. Each setting is true or false, and one it doesn't know is refused. Huddles' video quality is one
+ * of `HUDDLE_VIDEO_QUALITIES`. A custom domain is a host or null, which the Worker then checks is the
+ * address the request came to. Navigation icons are as `navigationIconsOf` reads them, the From address
+ * as `emailFromOf` does, Email domain's domains as `emailDomainsOf` does, and the blocked words as
+ * `parseBlockedWords` does.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords } = data;
+  const { name, tagline, settings, huddleVideo, customDomain, navigationIcons, emailFrom, emailDomains, blockedWords } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
   const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
   if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
+  if (huddleVideo !== undefined && !isHuddleVideoQuality(huddleVideo)) return HUDDLE_VIDEO_REFUSED;
   const domain = customDomainOf(customDomain);
   if (customDomain !== undefined && domain === undefined) return CUSTOM_DOMAIN_NOT_A_HOST;
   const icons = navigationIconsOf(navigationIcons);
@@ -2724,6 +2951,7 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   const changes: AccountChanges = {
     ...(name !== undefined && { name }),
     ...(kept !== undefined && { tagline: kept }),
+    ...(huddleVideo !== undefined && { huddleVideo }),
     ...(domain !== undefined && { customDomain: domain }),
     ...(icons !== undefined && { navigationIcons: icons }),
     ...(from !== undefined && { emailFrom: from }),

@@ -5,8 +5,10 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { ActivePeople, PeopleContext } from "@/hooks/use-directory";
+import { FOLDED_SECTIONS_KEY } from "@/hooks/use-folded-sections";
 import { activeStore } from "@/lib/presence";
 import type { DirectSidebarRoom } from "@/lib/room-list";
+import { OpenSearchContext } from "./search-box";
 import { Sidebar } from "./sidebar";
 
 const rooms = [
@@ -22,12 +24,12 @@ type Props = ComponentProps<typeof Sidebar>;
 const agent = (id: string, name: string): DirectoryUser => ({ id, name, bio: null, role: "bot", status: "active", avatarUrl: `/users/${id}/avatar`, agent: true });
 
 /** The workspace, as it's set up. */
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" };
 
 /**
  * The sidebar, with `props` in place of an unstarred one listing `rooms` with none open, in `account`'s
  * workspace, with the people directory listing `people`, and the workspace socket having said who's
- * `active`, if it has. `hearActive` has it say who is next.
+ * `active`, if it has. `hearActive` has it say who is next, and `openSearch` is what opens the search box.
  */
 function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: readonly DirectoryUser[] = [], active: UserId[] | null = null) {
   const all: Props = {
@@ -36,6 +38,7 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
     rooms,
     favorites: unstarred,
     sharedOrder: [],
+    sections: [],
     huddles: {},
     onHuddles: false,
     loaded: true,
@@ -54,11 +57,14 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
   const heard = activeStore();
   const hearActive = (userIds: UserId[]) => heard.hear({ type: "presence", active: userIds, away: [] }, true);
   if (active) hearActive(active);
+  const openSearch = vi.fn();
   const sidebar = (changes: Partial<Props>, shown: Account) => (
     <PeopleContext value={listed}>
       <ActivePeople value={heard}>
         <AccountContext value={shown}>
-          <Sidebar {...all} {...changes} />
+          <OpenSearchContext value={openSearch}>
+            <Sidebar {...all} {...changes} />
+          </OpenSearchContext>
         </AccountContext>
       </ActivePeople>
     </PeopleContext>
@@ -67,6 +73,7 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
   return {
     ...view,
     ...all,
+    openSearch,
     rerender: (changes: Partial<Props>, changed = account) => view.rerender(sidebar(changes, changed)),
     hearActive: (userIds: UserId[]) => act(() => hearActive(userIds)),
   };
@@ -104,6 +111,23 @@ describe("Workspace tagline", () => {
 
     rerender({}, EMBER);
     expect([...heading.children].map((child) => child.tagName)).toEqual(["H2"]);
+  });
+});
+
+describe("Search in the drawer", () => {
+  it("follows the workspace's name with a search field at 900px and below, where the top bar's left out, which opens the search box", async () => {
+    const { openSearch } = renderSidebar({ workspaceName: "Analytical Engines" });
+    const search = screen.getByRole("button", { name: "Search Analytical Engines" });
+    expect(search.previousElementSibling?.tagName).toBe("HGROUP");
+    expect(search).toHaveClass("md:hidden", "min-h-11", "text-base", "bg-background");
+    expect(search.querySelector("svg")).toHaveClass("iconoir-search");
+    await userEvent.click(search);
+    expect(openSearch).toHaveBeenCalledExactlyOnceWith({ opener: search });
+  });
+
+  it("draws the icon an administrator chose for Search", () => {
+    renderSidebar({}, { ...EMBER, navigationIcons: { search: "coffee" } });
+    expect(screen.getByRole("button", { name: "Search Ember" }).querySelector("[data-icon]")).toHaveAttribute("data-icon", "coffee");
   });
 });
 
@@ -156,12 +180,28 @@ describe("Unread rooms", () => {
     expect(random!.querySelector(".rounded-full")).toBeNull();
   });
 
-  it("never marks the room the tab shows", () => {
-    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], currentRoomId: "general" });
+  it("never marks the room the tab shows, nor counts its mentions", () => {
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true, mentionCount: 3 }, rooms[1]!], currentRoomId: "general" });
     const general = screen.getByRole("link", { current: "page" });
     expect(general).not.toHaveClass("font-[650]");
     expect(general).toHaveAccessibleDescription(HELP);
     expect(general.querySelector(".rounded-full")).toBeNull();
+  });
+
+  it("counts the mentions in an unread room on a pill in the mention color in place of its dot, past 99 as 99+, saying how many to screen readers", () => {
+    const design = { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, mentionCount: 1, involvement: "mentions" as const };
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true, mentionCount: 2 }, { ...rooms[1]!, unread: true, mentionCount: 120 }, design] });
+    const [general, random, one] = rows();
+    expect(general).toHaveClass("font-[650]");
+    expect(general).toHaveAccessibleName("general");
+    expect(general).toHaveAccessibleDescription(`Unread 2 mentions ${HELP}`);
+    const count = within(general!).getByText("2");
+    expect(count).toHaveAttribute("aria-hidden", "true");
+    expect(count).toHaveClass("ml-auto", "rounded-full", "bg-mention", "text-mention-foreground", "tabular-nums");
+    expect(general!.querySelector(".size-\\[7px\\]")).toBeNull();
+    expect(within(random!).getByText("99+")).toHaveClass("rounded-full", "bg-mention");
+    expect(random).toHaveAccessibleDescription(`Unread 120 mentions ${HELP}`);
+    expect(one).toHaveAccessibleDescription(`Unread 1 mention ${HELP}`);
   });
 });
 
@@ -189,6 +229,99 @@ describe("Activity filter", () => {
     renderSidebar({ currentRoomId: "general", unreadOnly: true });
     expect(listed()).toEqual([]);
     expect(screen.getByText("You’re all caught up. No unread conversations.")).toHaveClass("text-[13px]", "text-muted-foreground");
+  });
+});
+
+describe("Sidebar sections", () => {
+  const open = (id: string, unread = false) => ({ id, name: id, kind: "open" as const, icon: null, unread, involvement: "mentions" as const });
+  // In the order Ada was put in them.
+  const listedRooms = [open("general"), open("backend", true), open("random"), open("frontend"), open("leads"), open("ops"), open("sales")];
+  const sections = [
+    { id: "s1", name: "Software engineering", roomIds: ["frontend", "ops", "backend"] },
+    { id: "s2", name: "Revenue", roomIds: ["sales", "gone"] },
+    { id: "s3", name: "Empty", roomIds: [] },
+  ];
+  const divider = (name: string) => screen.getByRole("button", { name });
+  const dividers = () => within(screen.getByRole("region", { name: "Rooms" })).queryAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+  const roomsUnder = (name: string) => within(screen.getByRole("group", { name })).queryAllByRole("link").map((link) => link.textContent);
+
+  beforeEach(() => localStorage.clear());
+
+  it("lists the rooms in no section first, then each section's rooms set in under its name, on a line across the sidebar", () => {
+    renderSidebar({ rooms: listedRooms, sections });
+    expect(listed()).toEqual(["#general", "#random", "#leads", "#backend", "#frontend", "#ops", "#sales"]);
+    // A section with none of your rooms isn't there.
+    expect(dividers()).toEqual(["Software engineering", "Revenue"]);
+    expect(roomsUnder("Software engineering")).toEqual(["#backend", "#frontend", "#ops"]);
+    expect(roomsUnder("Revenue")).toEqual(["#sales"]);
+    const name = divider("Software engineering");
+    expect(name).toHaveAttribute("aria-expanded", "true");
+    expect(name).toHaveClass("uppercase", "text-[11px]", "tracking-[0.07em]", "text-muted-foreground");
+    expect(row("backend")).toHaveClass("ml-3");
+    expect(row("general")).not.toHaveClass("ml-3");
+  });
+
+  it("keeps your starred rooms at the top, out of their sections, as the shared order ranks the rest in each", () => {
+    renderSidebar({ rooms: listedRooms, sections, favorites: { rooms: ["frontend", "sales"], version: 1 }, sharedOrder: ["ops", "backend"] });
+    expect(listed()).toEqual(["#frontend", "#sales", "#general", "#random", "#leads", "#ops", "#backend"]);
+    expect(dividers()).toEqual(["Software engineering"]);
+    expect(roomsUnder("Software engineering")).toEqual(["#ops", "#backend"]);
+  });
+
+  it("folds a section by its arrow, leaving its rooms marked unread and the one open, and unfolds it", async () => {
+    renderSidebar({ rooms: listedRooms, sections, currentRoomId: "ops" });
+    const name = divider("Software engineering");
+    const arrow = name.querySelector("svg")!;
+    expect(arrow).not.toHaveClass("-rotate-90");
+
+    await userEvent.click(name);
+    expect(name).toHaveAttribute("aria-expanded", "false");
+    expect(arrow).toHaveClass("-rotate-90");
+    expect(roomsUnder("Software engineering")).toEqual(["#backend", "#ops"]);
+    expect(roomsUnder("Revenue")).toEqual(["#sales"]);
+
+    await userEvent.click(name);
+    expect(name).toHaveAttribute("aria-expanded", "true");
+    expect(roomsUnder("Software engineering")).toEqual(["#backend", "#frontend", "#ops"]);
+  });
+
+  it("keeps a section folded in every tab of the browser, and after it's loaded again", async () => {
+    const { unmount } = renderSidebar({ rooms: listedRooms, sections });
+    await userEvent.click(divider("Revenue"));
+    expect(localStorage.getItem(FOLDED_SECTIONS_KEY)).toBe(JSON.stringify(["s2"]));
+    unmount();
+
+    const { unmount: unmountAgain } = renderSidebar({ rooms: listedRooms, sections });
+    expect(divider("Revenue")).toHaveAttribute("aria-expanded", "false");
+    expect(roomsUnder("Revenue")).toEqual([]);
+    // Another tab unfolds it.
+    localStorage.removeItem(FOLDED_SECTIONS_KEY);
+    act(() => void window.dispatchEvent(new StorageEvent("storage", { key: FOLDED_SECTIONS_KEY })));
+    expect(divider("Revenue")).toHaveAttribute("aria-expanded", "true");
+    unmountAgain();
+
+    // Where storage is refused, a section still folds, in that tab.
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Refused", "SecurityError");
+    });
+    renderSidebar({ rooms: listedRooms, sections });
+    await userEvent.click(divider("Revenue"));
+    expect(divider("Revenue")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("folds a section in every sidebar drawn at once, as the drawer's is beside the one a wider window shows", async () => {
+    renderSidebar({ rooms: listedRooms, sections });
+    renderSidebar({ rooms: listedRooms, sections });
+    const [shown, drawer] = screen.getAllByRole("button", { name: "Revenue" });
+    await userEvent.click(drawer!);
+    expect(drawer).toHaveAttribute("aria-expanded", "false");
+    expect(shown).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("lists only the sections with a room Activity shows", () => {
+    renderSidebar({ rooms: listedRooms, sections, unreadOnly: true });
+    expect(listed()).toEqual(["#backend"]);
+    expect(dividers()).toEqual(["Software engineering"]);
   });
 });
 
@@ -391,7 +524,9 @@ describe("Huddles, over the rooms", () => {
     expect(row).toHaveAccessibleName("Huddles");
     expect(row.querySelector("svg")).toHaveClass("iconoir-headset", "text-muted-foreground");
     expect(row).not.toHaveAttribute("aria-current");
-    expect(row.previousElementSibling?.tagName).toBe("HGROUP");
+    // Under the search field the drawer has there.
+    expect(row.previousElementSibling).toBe(screen.getByRole("button", { name: "Search Ember" }));
+    expect(row.previousElementSibling?.previousElementSibling?.tagName).toBe("HGROUP");
     expect(row.nextElementSibling).toBe(screen.getByRole("region", { name: "Rooms" }));
     // As tall as a room's row, and for a fingertip.
     expect(row).toHaveClass("min-h-9", "touch:min-h-11");
@@ -725,7 +860,7 @@ describe("Group DMs and DM names", () => {
     render(
       <PeopleContext value={new Map([[renamed.id, renamed]])}>
         <Sidebar
-          {...{ workspaceName: "Ember", meId: ada!.id, loaded: true, favorites: unstarred, sharedOrder: [], huddles: {}, onHuddles: false, currentRoomId: null, unreadOnly: false }}
+          {...{ workspaceName: "Ember", meId: ada!.id, loaded: true, favorites: unstarred, sharedOrder: [], sections: [], huddles: {}, onHuddles: false, currentRoomId: null, unreadOnly: false }}
           {...{ agents: 0, agentsOpen: false, onSelect: vi.fn(), onNewDirect: vi.fn(), onOpenAgents: vi.fn(), onStarred: vi.fn(), onSessionChanged: vi.fn() }}
           rooms={[direct("d1", [ada!, grace!])]}
         />

@@ -9,7 +9,7 @@ import { appConnector } from "./connector";
 
 // Connected apps' tools as @ember and the agents use them: an administrator picks them for each
 // (Workspace.pickAgentTools), the room gives them to the model beside Ember's own (tool-calls.ts), and
-// every call asks first, on a card in the room, which whoever asked, or an administrator, allows or not,
+// every call asks first, on a card only whoever asked sees (waiting-calls.ts), which they allow or not,
 // unless the administrator has that agent's calls of the tool always allowed: those are made at once,
 // with nothing posted, as the room's typing line says which tool the agent is using, in a room open to
 // everyone, but never in a DM or a private room, where nothing said goes to an app unless someone there
@@ -236,10 +236,13 @@ const CALL_BLOCK = "ember.call";
 export const MAX_SHOWN_INPUT_LENGTH = 3_000;
 
 /** What a model is told of a call with more than a card shows. */
-export const TOO_LONG_TO_SHOW = `Not run: what you called it with is longer than the ${MAX_SHOWN_INPUT_LENGTH.toLocaleString("en-US")} characters, as JSON, that the call's card in the room can show. Call it with less.`;
+export const TOO_LONG_TO_SHOW = `Not run: what you called it with is longer than the ${MAX_SHOWN_INPUT_LENGTH.toLocaleString("en-US")} characters, as JSON, that the call's card can show. Call it with less.`;
 
-/** What a tool is called with as its card shows it: nothing for no fields, or else indented JSON. */
-const written = (input: Record<string, unknown>) => (Object.keys(input).length === 0 ? "" : JSON.stringify(input, null, 2));
+/** What a tool is called with as JSON, as its length is counted against what a card shows. */
+const written = (input: Record<string, unknown>) => JSON.stringify(input, null, 2);
+
+/** The most characters a value can have to show on its field's line, as one line, rather than under it. */
+const MAX_LINE_VALUE_LENGTH = 60;
 
 /** What a call's card says once it's answered, or once it waited too long. */
 export const CALL_OUTCOMES = {
@@ -251,29 +254,80 @@ export const CALL_OUTCOMES = {
 /** Text shown as it's written: a name like `:tada:` in what a tool is called with is shown as it goes to the app, not as an emoji. */
 const plainText = (text: string) => ({ type: "plain_text", text, emoji: false });
 
-/** The blocks every card of a call starts with: its `header`, the tool and what it's called with, in plain text, as the app and the model wrote them, and a `note` under them. */
+/** Rich text's text, shown as it's written, as a link, a mention or an emoji's name in it doesn't become one, in `style`. */
+const richText = (text: string, style?: { bold?: true; italic?: true }) => ({ type: "text", text, ...(style && { style }) });
+
+/** A field of what a tool is called with by name, as its card labels it: `issue_number` and `perPage` as "Issue number" and "Per page". */
+export function labelOf(field: string): string {
+  const words = field
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s_-]+/)
+    .filter((word) => word !== "")
+    .map((word, index) => (index > 0 && /^[A-Z][a-z]/.test(word) ? word.toLowerCase() : word));
+  if (words.length === 0) return field;
+  return [words[0]!.charAt(0).toUpperCase() + words[0]!.slice(1), ...words.slice(1)].join(" ");
+}
+
+const isOneShortLine = (text: string) => text.length <= MAX_LINE_VALUE_LENGTH && !/[\r\n]/.test(text);
+
+/** `text` with each line break a line feed, as a quote shows it: a carriage return breaks the line where it goes, but a browser shows one as a space. */
+const withLineFeeds = (text: string) => text.replace(/\r\n?/g, "\n");
+
+/**
+ * How a card shows a value of what a tool is called with: on its field's line, if it's a short line of text, a
+ * number, true or false, nothing, or a short list of those; or else under it, text as a quote, with its line
+ * breaks, and anything else as the JSON it goes as.
+ */
+function shownValue(value: unknown): { line: Record<string, unknown> } | { under: Record<string, unknown> } {
+  if (value === null || (Array.isArray(value) && value.length === 0)) return { line: richText("none", { italic: true }) };
+  if (value === "") return { line: richText("empty", { italic: true }) };
+  if (typeof value === "number" || typeof value === "boolean") return { line: richText(String(value)) };
+  if (typeof value === "string") return isOneShortLine(value) ? { line: richText(value) } : { under: { type: "rich_text_quote", elements: [richText(withLineFeeds(value))] } };
+  // A list on one line, where nothing in it could be read as two.
+  const listed = Array.isArray(value) && value.every((item) => typeof item === "number" || (typeof item === "string" && item.trim() !== "" && !item.includes(","))) ? value.join(", ") : null;
+  if (listed !== null && isOneShortLine(listed)) return { line: richText(listed) };
+  return { under: { type: "rich_text_preformatted", elements: [richText(JSON.stringify(value, null, 2))] } };
+}
+
+/**
+ * What a tool is called with, as rich text blocks: each field by its label, the short ones a line each, then
+ * the rest, each under its label, every value as the model wrote it, so that nobody allows what they can't see.
+ */
+function inputBlocks(input: Record<string, unknown>): Record<string, unknown>[] {
+  const fields = Object.entries(input).map(([field, value]) => ({ label: richText(`${labelOf(field)}:`, { bold: true }), shown: shownValue(value) }));
+  const lines = fields.flatMap(({ label, shown }) => ("line" in shown ? [[label, richText(" "), shown.line]] : []));
+  const under = fields.flatMap(({ label, shown }) => ("under" in shown ? [{ type: "rich_text_section", elements: [label] }, shown.under] : []));
+  return [
+    ...(lines.length > 0 ? [{ type: "rich_text", elements: [{ type: "rich_text_section", elements: lines.flatMap((line, index) => (index === 0 ? line : [richText("\n"), ...line])) }] }] : []),
+    ...(under.length > 0 ? [{ type: "rich_text", elements: under }] : []),
+  ];
+}
+
+/** The blocks every card of a call starts with: its `header`, the tool and what it's called with, as the app and the model wrote them, and a `note` under them. */
 function callBlocks(header: string, { name }: GivenTool, input: Record<string, unknown>, note: string): Record<string, unknown>[] {
-  const shown = written(input);
+  const nothing = Object.keys(input).length === 0;
   return [
     { type: "header", text: plainText(header) },
-    { type: "section", text: plainText(shown === "" ? `${name}, with nothing` : `${name}, with:\n${shown}`) },
+    { type: "section", text: plainText(nothing ? `${name}, with nothing` : `${name}, with:`) },
+    ...inputBlocks(input),
     { type: "context", elements: [plainText(note)] },
   ];
 }
 
-/** What the card of a call that waits says of who can allow it, and as whom it goes: with Ember's token or sign-in, or, for a tool that's the asker's `own`, as them. */
-export const callNote = (askerName: string, { appName, own }: Pick<GivenTool, "appName" | "own">) =>
-  own
-    ? `${askerName} can allow this call. It goes to ${appName} as ${askerName}, with the sign-in they made to it themselves.`
-    : `${askerName} or an administrator can allow this call. It goes to ${appName} with the token an administrator connected it with.`;
+/**
+ * What the card of a call that waits says, to whoever asked, the only one who sees it, of as whom the call
+ * goes: with Ember's token or sign-in, or, for a tool that's their `own`, as them.
+ */
+export const callNote = ({ appName, own }: Pick<GivenTool, "appName" | "own">) =>
+  own ? `It goes to ${appName} as you, with the sign-in you made to it yourself.` : `It goes to ${appName} with the token an administrator connected it with.`;
 
 /**
- * The card a room posts for a call that waits, as a Slack payload: who wants to use which app, the tool
- * and what it's called with, and Allow once and Deny, or, once it's answered, `outcome` in their place.
+ * The card of a call that waits, as a Slack payload: who wants to use which app, the tool and what it's
+ * called with, and Allow once and Deny, or, once it's answered, `outcome` in their place.
  */
-export function callCard(botName: string, askerName: string, tool: GivenTool, input: Record<string, unknown>, outcome?: string): SlackPayload {
+export function callCard(botName: string, tool: GivenTool, input: Record<string, unknown>, outcome?: string): SlackPayload {
   const button = (decision: CallDecision, label: string, style?: string) => ({ type: "button", text: plainText(label), action_id: CALL_ACTIONS[decision], ...(style && { style }) });
-  const note = outcome ?? callNote(askerName, tool);
+  const note = outcome ?? callNote(tool);
   return {
     blocks: [
       ...callBlocks(`${botName} wants to use ${tool.appName}`, tool, input, note),

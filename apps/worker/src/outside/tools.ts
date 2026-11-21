@@ -1,5 +1,5 @@
 import { fromJsonSchema, type McpServer } from "@modelcontextprotocol/server";
-import { hasWords, HISTORY_PAGE_SIZE, MAX_MESSAGE_HTML_LENGTH, MAX_SEARCH_LENGTH, MESSAGE_TOO_LONG, sanitizeSearch, searchTerms, type Message, type Room, type SidebarRoom, type UserId } from "@ember/protocol";
+import { hasWords, HISTORY_PAGE_SIZE, MAX_MESSAGE_HTML_LENGTH, MAX_SEARCH_LENGTH, MESSAGE_TOO_LONG, searchWords, type Message, type Room, type SidebarRoom, type UserId } from "@ember/protocol";
 import type { OutsideScope } from "@ember/protocol/outside";
 import { markdownHtml, MAX_MARKDOWN_LENGTH } from "../bots/markdown";
 import type { Env } from "../env";
@@ -132,7 +132,7 @@ async function searchMessages(env: Env, access: OutsideAccess, { words, room_id:
   const readable = await workspace(env).outsideReadable(access);
   const rooms = roomId === undefined ? readable : readable.filter(({ id }) => id === roomId);
   if (rooms.length === 0) throw new Refused(roomId === undefined ? "This connection reaches no room of theirs to search." : NO_ROOM);
-  const { hits, next } = await searchIndex(env).search({ terms: searchTerms(sanitizeSearch(words)), roomIds: rooms.map(({ id }) => id), sort: "newest", after: after ?? null });
+  const { hits, next } = await searchIndex(env).search({ words: searchWords(words), roomIds: rooms.map(({ id }) => id), searcherId: access.userId, sort: "newest", after: after ?? null });
   const taken = hits.slice(0, MESSAGES_FOUND);
   const found = await matchesOf(env, taken);
   // Of the rooms it found something in, it answers from those it still reaches, as `readIn` does.

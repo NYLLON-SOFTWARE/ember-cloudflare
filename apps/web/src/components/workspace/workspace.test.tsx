@@ -50,9 +50,9 @@ const roomList = (listed: Room[], favorites: RoomId[] = [], sharedOrder: RoomId[
   huddles: {},
   blocks: { userIds: [], version: 0 },
 });
-const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, canChangeHuddles: true, people: [{ ...ada, member: true }] };
+const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, canChangeHuddles: true, canChangeChannelMentions: true, people: [{ ...ada, member: true }], section: null, sections: [] };
 const workspaceSettings: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
   joinCode: "aB3d-Ef5h-iJ7k",
   canAdminister: false,
   memberfulSite: null,
@@ -179,6 +179,8 @@ const sidebarRooms = () =>
   within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
     .getAllByRole("link")
     .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
+/** The top bar's search field. */
+const topBarSearch = () => within(screen.getByRole("banner")).getByRole("button", { name: "Search Analytical Engines" });
 /** The rail's links for the page shown, if any. */
 const railCurrent = () =>
   within(screen.getByRole("navigation", { name: "Workspace" }))
@@ -392,7 +394,7 @@ describe("Create an open room", () => {
   it("makes a room from workspace settings, lists it below every other room, whatever its name, and opens it", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/general");
@@ -415,7 +417,7 @@ describe("Create an open room", () => {
     let answer = (_: Response) => {};
     serve({
       "GET /api/sidebar": () => new Promise((resolve) => (answer = resolve)),
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -456,7 +458,7 @@ describe("Room settings page", () => {
     const lists = [roomList(rooms)];
     serve({
       "GET /api/sidebar": () => Response.json(lists.shift() ?? roomList([older, ...rooms])),
-      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }], section: null, sections: [] }),
       "PATCH /api/rooms/older": () => Response.json({ room: { ...older, name: "elder" } }),
     });
     const { user } = showWorkspace("/rooms/closeds/older/edit");
@@ -495,7 +497,7 @@ describe("Add and remove private room members", () => {
     const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed", icon: null };
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, leadsRoom])),
-      "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }], section: null, sections: [] }),
       "PATCH /api/rooms/leads": () => Response.json({ room: leadsRoom }),
     });
     const { user } = showWorkspace("/rooms/closeds/leads/edit");
@@ -994,7 +996,7 @@ describe("Rename the workspace", () => {
 describe("Saved notices", () => {
   it("alerts with what the server said when something fails", async () => {
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ error: "Name must be 1 to 100 characters" }, { status: 422 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -1010,7 +1012,7 @@ describe("Saved notices", () => {
 
   it("shows the same alert again when it comes again", async () => {
     serve({
-      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }),
       "POST /api/rooms": () => Response.json({ error: "Name must be 1 to 100 characters" }, { status: 422 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
@@ -1041,6 +1043,15 @@ describe("Rail", () => {
     expect(railCurrent()).toEqual(["Home"]);
     await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
     expect(railCurrent()).toEqual(["Workspace"]);
+  });
+
+  it("has Search in the drawer on community settings' pages, where it holds the rail alone, without the conversations' search field", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const search = () => within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("link", { name: "Search" });
+    expect(search()).not.toHaveClass("max-md:flex");
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    expect(search()).toHaveClass("max-md:flex");
   });
 });
 
@@ -1229,17 +1240,17 @@ describe("Search box", () => {
     }),
   );
 
-  it("opens over the room from the rail, for everything, and from the room's header, in the room, giving focus back to the link as it closes", async () => {
+  it("opens over the room from the top bar's field, for everything, and from the room's header, in the room, giving focus back to what opened it as it closes", async () => {
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
-    const rail = screen.getByRole("link", { name: "Search" });
-    await user.click(rail);
+    const bar = topBarSearch();
+    await user.click(bar);
     expect(searchField()).toHaveFocus();
     expect(boxTokens()).toEqual([]);
     expect(location.pathname).toBe("/rooms/random");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(searchBox()).not.toBeInTheDocument());
-    expect(rail).toHaveFocus();
+    expect(bar).toHaveFocus();
 
     const header = screen.getByRole("link", { name: "Search messages" });
     await user.click(header);
@@ -1253,7 +1264,7 @@ describe("Search box", () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
-    await user.click(within(screen.getByRole("dialog", { name: "Conversations" })).getByRole("link", { name: "Search" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Conversations" })).getByRole("button", { name: "Search Analytical Engines" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Conversations" })).not.toBeInTheDocument());
     expect(searchField()).toHaveFocus();
     await user.keyboard("{Escape}");
@@ -1298,7 +1309,7 @@ describe("Search box", () => {
     expect(boxTokens()).toEqual(["in:random"]);
   });
 
-  it("goes to what a search finds, marking Search, with Exit back to the room visited last", async () => {
+  it("goes to what a search finds, which the top bar shows, marking Search, with Exit back to the room visited last", async () => {
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
     await user.click(screen.getByRole("link", { name: "Search messages" }));
@@ -1306,12 +1317,13 @@ describe("Search box", () => {
     expect(await screen.findByRole("heading", { name: "No messages found" })).toHaveFocus();
     expect(location.pathname + location.search).toBe("/searches?q=eel&in=random");
     expect(searchBox()).not.toBeInTheDocument();
+    // The rail's Search, on a phone in landscape.
     expect(railCurrent()).toEqual(["Search"]);
     expect(document.title).toBe("Search");
     expect(within(screen.getByRole("group", { name: "Search filters" })).getByRole("button", { name: "Remove in:random" })).toBeInTheDocument();
 
     // The top bar's search opens the box with it, to change it.
-    await user.click(screen.getByRole("button", { name: "Change search: in:random eel" }));
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Change search: in:random eel" }));
     expect(searchField()).toHaveValue("eel");
     expect(boxTokens()).toEqual(["in:random"]);
     await user.keyboard("{Escape}");
@@ -1320,6 +1332,89 @@ describe("Search box", () => {
     await user.click(screen.getByRole("link", { name: "Exit search" }));
     expect(await roomHeading()).toHaveTextContent("random");
     expect(railCurrent()).toEqual(["Home"]);
+  });
+});
+
+describe("Top bar", () => {
+  const ember: DirectoryUser = { id: ASSISTANT_ID, name: "Ember", bio: null, role: "bot", status: "active", avatarUrl: "/assistant-avatar.svg", agent: true };
+  const bar = () => screen.getByRole("banner");
+  const openHistory = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(bar()).getByRole("button", { name: "History" }));
+    return screen.findByRole("menu", { name: "History" });
+  };
+
+  it("lists the pages shown lately in History, newest first, the one shown aside, each going back to it", async () => {
+    const { user } = showWorkspace("/rooms/random");
+    await roomHeading();
+    act(() => navigate("/huddles"));
+    act(() => navigate("/rooms/general"));
+    expect(await roomHeading()).toHaveTextContent("general");
+    const menu = await openHistory(user);
+    expect(within(menu).getAllByRole("menuitem").map((item) => [item.getAttribute("href"), item.querySelector("time")?.textContent])).toEqual([
+      ["/huddles", "Just now"],
+      ["/rooms/random", "Just now"],
+    ]);
+    await user.click(within(menu).getByRole("menuitem", { name: /random/ }));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(within(await openHistory(user)).getAllByRole("menuitem").map((item) => item.getAttribute("href"))).toEqual(["/rooms/general", "/huddles"]);
+  });
+
+  it("ends with Ask @ember while Ember AI is on and you can ask it, which opens your DM with it", async () => {
+    serve({
+      "GET /api/users": () => Response.json({ users: [ember] }),
+      "POST /api/directs": () => Response.json({ room: withEmber }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(await within(bar()).findByRole("button", { name: "Ask @ember" }));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/d9"));
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [ASSISTANT_ID] }) }));
+    await waitFor(async () => expect(await roomHeading()).toHaveTextContent("Ember"));
+  });
+
+  it("asks before leaving a room's unsaved settings for your DM with @ember, which it starts only once you go", async () => {
+    serve({
+      "GET /api/users": () => Response.json({ users: [ember] }),
+      "GET /api/rooms/general/settings": () => Response.json(generalSettings),
+      "POST /api/directs": () => Response.json({ room: withEmber }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/opens/general/edit");
+    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
+    // Found by its name alone: jsdom counts the page heading's header as a banner too, though it's inside main.
+    const ask = await screen.findByRole("button", { name: "Ask @ember" });
+    await user.click(ask);
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(location.pathname).toBe("/rooms/opens/general/edit");
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/directs")).toBe(false);
+
+    await user.click(ask);
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/d9"));
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [ASSISTANT_ID] }) }));
+  });
+
+  it("has no Ask @ember while Ember AI is off, nor where @ember is kept for administrators", async () => {
+    serve({ "GET /api/users": () => Response.json({ users: [{ ...ember, status: "deactivated" }] }) });
+    const { unmount } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/users")).toBe(true));
+    expect(within(bar()).queryByRole("button", { name: "Ask @ember" })).not.toBeInTheDocument();
+    unmount();
+
+    serve({ "GET /api/users": () => Response.json({ users: [{ ...ember, adminsOnly: true }] }) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/users")).toBe(true));
+    expect(within(bar()).queryByRole("button", { name: "Ask @ember" })).not.toBeInTheDocument();
+  });
+
+  it("comes first after the skip link, over the rail, the sidebar and the page, which it shares the columns of", async () => {
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    const layout = bar().parentElement!;
+    expect([...layout.children].slice(0, 2)).toEqual([screen.getByRole("link", { name: /^Skip to/ }), bar()]);
+    expect(layout).toHaveClass("flex", "h-dvh", "flex-col");
+    expect(bar().nextElementSibling).toHaveClass("grid", "min-h-0", "flex-1");
   });
 });
 
@@ -1902,6 +1997,44 @@ describe("Shared room order", () => {
     await roomHeading();
     await waitFor(() => expect(sidebarRooms()).toEqual(["random", "general", "Design"]));
   });
+
+  it("says nothing when the rooms don't load again after a save, whose answer has put its order in place", async () => {
+    let sidebar = () => Response.json(roomList(rooms));
+    serve({
+      "GET /api/sidebar": () => sidebar(),
+      "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
+      "PUT /api/account/room_order": () => Response.json({ sharedOrder: ["random", "general"], sections: [] }),
+    });
+    const { user } = showWorkspace("/account/edit#channel-settings");
+    const order = await screen.findByRole("list", { name: "Room order" });
+    sidebar = () => Response.json({ error: "Workspace unavailable" }, { status: 503 });
+    fireEvent.keyDown(within(order).getAllByRole("listitem")[1]!, { key: "ArrowUp", altKey: true });
+    await user.click(screen.getByRole("button", { name: "Save order" }));
+    expect(await screen.findByText("Room order saved for everyone.")).toBeInTheDocument();
+    await waitFor(() => expect(roomListRequests()).toBe(2));
+    expect(roomsIn(order)).toEqual(["random", "general"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("Sidebar sections", () => {
+  it("says why when the sidebar doesn't load again once a section is made, as workspace settings list its sections", async () => {
+    let sidebar = () => Response.json(roomList(rooms));
+    serve({
+      "GET /api/sidebar": () => sidebar(),
+      "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
+      "POST /api/account/sections": () => Response.json({ section: { id: "s1", name: "Engineering" } }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/account/edit#channel-settings");
+    await screen.findByRole("list", { name: "Room order" });
+    sidebar = () => Response.json({ error: "Workspace unavailable" }, { status: 503 });
+    await user.click(screen.getByRole("button", { name: "New section" }));
+    const dialog = screen.getByRole("dialog", { name: "New section" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Section name" }), "Engineering");
+    await user.click(within(dialog).getByRole("button", { name: "Create section" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Workspace unavailable");
+    expect(roomListRequests()).toBe(2);
+  });
 });
 
 describe("Stay signed in, per device", () => {
@@ -1933,7 +2066,7 @@ describe("Stay signed in, per device", () => {
 
   it("goes back to sign-in when a page that was left finds the session gone", async () => {
     let answer = (_: Response) => {};
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
     const { onSessionChanged, user } = showWorkspace("/rooms/opens/new");
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     act(() => navigate("/account/edit"));
@@ -1943,7 +2076,7 @@ describe("Stay signed in, per device", () => {
 
   it("says nothing more once another person's workspace has taken its place", async () => {
     let answer = (_: Response) => {};
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
     const { onSessionChanged, unmount, user } = showWorkspace("/rooms/opens/new");
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     // As App replaces it when another tab signs in as someone else.
@@ -1999,11 +2132,15 @@ describe("Conversations drawer on phones", () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    const drawer = screen.getByRole("dialog");
     await user.tab();
-    expect(within(screen.getByRole("dialog")).getByRole("link", { name: /general/ })).toHaveFocus();
+    expect(within(drawer).getByRole("button", { name: "Search Analytical Engines" })).toHaveFocus();
+    await user.tab();
+    expect(within(drawer).getByRole("link", { name: /general/ })).toHaveFocus();
     await user.tab({ shift: true });
     await user.tab({ shift: true });
-    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Your profile" })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(within(drawer).getByRole("link", { name: "Your profile" })).toHaveFocus();
   });
 
   it("closes when a rail link shows another page", async () => {
@@ -2460,7 +2597,7 @@ describe("Community settings page", () => {
   });
 
   it("shows the room forms as part of Rooms and permissions", async () => {
-    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }) });
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada], sections: [] }) });
     showWorkspace("/rooms/opens/new");
     await screen.findByRole("textbox", { name: "Room name" });
     expect(sectionMarked()).toHaveTextContent("Rooms and permissions");
@@ -2512,7 +2649,7 @@ describe("Huddles", () => {
     setOpen: vi.fn((open: boolean) => showHuddle({ ...joinedHuddle()!, open })),
     setThread: vi.fn(),
     setDevice: vi.fn(),
-    setSmall: vi.fn(),
+    setCameraSize: vi.fn(),
     switchCamera: vi.fn(),
     invite: vi.fn(() => true),
     setSticker: vi.fn(),

@@ -1,5 +1,16 @@
 import type { AccountSettings, Me, WorkspaceSettings } from "@ember/protocol";
-import { APP_ID_UNKNOWN, APP_SECRET_UNKNOWN, CAMERAS_OFF, HuddleCloseCode, RELAY_API_TOKEN_UNKNOWN, RELAY_KEY_ID_UNKNOWN, RELAY_TTL_S, SCREENS_FULL, SCREENS_OFF } from "@ember/protocol/huddles";
+import {
+  APP_ID_UNKNOWN,
+  APP_SECRET_UNKNOWN,
+  CAMERAS_OFF,
+  HuddleCloseCode,
+  RELAY_API_TOKEN_UNKNOWN,
+  RELAY_KEY_ID_UNKNOWN,
+  RELAY_TTL_S,
+  SCREENS_FULL,
+  SCREENS_OFF,
+  type HuddleVideoQuality,
+} from "@ember/protocol/huddles";
 import type { APIRequestContext, Browser, BrowserContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, editorField, expect, huddleTilesKeepClear, newAddress, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress, type TestRoom } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT, SFU_APP, TURN_KEY } from "../../projects/workspace-settings";
@@ -10,8 +21,8 @@ import { startFakeSfu, type FakeSfu, type IceServer } from "./fake-sfu";
 // to carry what the people in a huddle say, what their cameras show and the screens they share, which
 // the fake does through a page of its own. It asks the fake for the relay's servers too, as it asks
 // Cloudflare's TURN service. Each test leaves the workspace as a new one is: huddles off, with no
-// relay, and cameras and screen sharing allowed in them, and the SFU taking a camera in each size it's
-// sent in.
+// relay, cameras and screen sharing allowed in them, at HD, and the SFU taking a camera in each size
+// it's sent in.
 
 let sfu: FakeSfu;
 let relay: Page;
@@ -29,6 +40,7 @@ test.afterEach(async ({ request }) => {
   const forgotten = await request.delete("/api/account/huddles", { headers: await asAdministrator(request) });
   expect(forgotten.status(), await forgotten.text()).toBe(200);
   await switchHuddles(request, { huddleCameras: true, huddleScreens: true });
+  await chooseVideo(request, "hd");
 });
 
 /** The administrator's session's headers, for the API. */
@@ -40,7 +52,13 @@ async function switchHuddles(request: APIRequestContext, settings: Pick<AccountS
   expect(switched.status(), await switched.text()).toBe(200);
 }
 
-/** The workspace as its settings have it, which says whether cameras may go on in huddles and screens be shared. */
+/** Chooses the video quality huddles send at as the administrator, as the Huddles tab's Video quality card does. */
+async function chooseVideo(request: APIRequestContext, huddleVideo: HuddleVideoQuality): Promise<void> {
+  const chosen = await request.patch("/api/account", { data: { huddleVideo }, headers: await asAdministrator(request) });
+  expect(chosen.status(), await chosen.text()).toBe(200);
+}
+
+/** The workspace as its settings have it, which says whether cameras may go on in huddles and screens be shared, and at what quality. */
 const workspaceNow = async (request: APIRequestContext) => ((await (await request.get("/api/account", { headers: await asAdministrator(request) })).json()) as WorkspaceSettings).account;
 
 /** The Huddles tab's card on the page. */
@@ -49,6 +67,9 @@ const huddlesCard = (page: Page) => page.getByRole("region", { name: "Audio and 
 /** The card under it, which the tab has while huddles are on: its Cameras row, and its Screen sharing row. */
 const camerasCard = (page: Page) => page.getByRole("region", { name: "Cameras", exact: true });
 const screensRow = (page: Page) => page.getByRole("region", { name: "Screen sharing", exact: true });
+
+/** The card under it, which the tab has while huddles are on too: the video quality they send at. */
+const videoCard = (page: Page) => page.getByRole("region", { name: "Video quality", exact: true });
 
 /** The card under those, which the tab has while huddles are on too: whether they have a relay. */
 const relayCard = (page: Page) => page.getByRole("region", { name: "Relay for strict networks", exact: true });
@@ -177,6 +198,29 @@ test.describe("Set up huddles", () => {
     await screensSwitch.click();
     await expect(screensSwitch).toBeChecked();
     await expect.poll(() => workspaceNow(request)).toMatchObject({ huddleCameras: true, huddleScreens: true });
+  });
+
+  test("the administrator chooses the video quality huddles send at, which is HD until they do, and Ember keeps", async ({ page, request }) => {
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+    await openHuddles(page);
+    // It's the card under the one Cameras and Screen sharing are on.
+    const video = videoCard(page);
+    await expect(video).toContainText("How sharp cameras and shared screens look in huddles.");
+    expect((await video.boundingBox())!.y).toBeGreaterThan((await screensRow(page).boundingBox())!.y);
+    const quality = (name: string) => video.getByRole("radio", { name, exact: true });
+    await expect(quality("HD")).toBeChecked();
+    expect(await workspaceNow(request)).toMatchObject({ huddleVideo: "hd" });
+
+    // It's saved as it's chosen, with nothing to press.
+    await quality("Full HD").click();
+    await expect(quality("Full HD")).toBeChecked();
+    await expect.poll(() => workspaceNow(request)).toMatchObject({ huddleVideo: "full-hd", huddleCameras: true, huddleScreens: true });
+    await page.reload();
+    await expect(quality("Full HD")).toBeChecked();
+    await quality("Standard").click();
+    await expect(quality("Standard")).toBeChecked();
+    await expect.poll(() => workspaceNow(request)).toMatchObject({ huddleVideo: "standard" });
   });
 
   test("the administrator gives Ember a TURN key for the relay, which Cloudflare makes its servers with, and Ember keeps it until they turn the relay off", async ({ page, request }) => {
@@ -358,6 +402,35 @@ const musicIn = (page: Page) =>
   page.evaluate(() => {
     const audio = (window as unknown as KeepsSounds).huddleSoundsPlayed.filter(({ dataset }) => dataset.huddleSound === "music").at(-1);
     return { at: audio?.currentTime ?? 0, playing: audio !== undefined && audio.isConnected && !audio.paused };
+  });
+
+/** Where `keepSenders` has a page keep the connections it makes. */
+type KeepsSenders = Window & { huddleConnections: RTCPeerConnection[] };
+
+/** Has `page` keep each connection it makes, to say how it sends its camera. */
+const keepSenders = (page: Page) =>
+  page.addInitScript(() => {
+    const made: RTCPeerConnection[] = [];
+    Object.assign(window, {
+      huddleConnections: made,
+      RTCPeerConnection: class extends RTCPeerConnection {
+        constructor(configuration?: RTCConfiguration) {
+          super(configuration);
+          made.push(this);
+        }
+      },
+    });
+  });
+
+/** How `page` sends its camera, while it does: how large a picture its camera takes, and each size it sends that in, by name, smallest first, with how tall it is, and the most bits a second it's sent at. */
+const cameraSentBy = (page: Page) =>
+  page.evaluate(() => {
+    const senders = (window as unknown as KeepsSenders).huddleConnections.flatMap((connection) => (connection.connectionState === "closed" ? [] : connection.getSenders()));
+    const camera = senders.find(({ track }) => track?.kind === "video" && track.readyState === "live");
+    if (!camera?.track) return null;
+    const { width = 0, height = 0 } = camera.track.getSettings();
+    const sizes = camera.getParameters().encodings.map(({ rid, maxBitrate, scaleResolutionDownBy = 1 }) => ({ rid, height: Math.round(height / scaleResolutionDownBy), maxBitrate }));
+    return { width, height, sizes };
   });
 
 /** Where `keepConnections` has a page keep what it made each of its connections by. */
@@ -1130,23 +1203,28 @@ test.describe("A huddle", () => {
     await context.close();
   });
 
-  test("a camera is sent in two sizes, and someone watching is sent the one their tiles show: the smaller in small tiles, and the larger again in large ones", async ({ page, browser, baseURL, request }) => {
-    // Two browsers, one of which sends its camera twice over.
+  test("a camera is sent in three sizes, and someone watching is sent the one their tiles need: the small in small tiles, the medium in middling ones, and the large in large ones", async ({ page, browser, baseURL, request }) => {
+    // Two browsers, one of which sends its camera three times over.
     test.slow();
     const administrator = await administratorSession(request);
     const room = await roomOfItsOwn(request);
     const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
     expect(saved.status(), await saved.text()).toBe(200);
     const askedBefore = sfu.asked.length;
-    /** How tall Grace's tiles are, and whether the pictures she's shown of Ada's camera are the larger size's, wider than the smaller's 320px, or the smaller's. */
+    /** Windows of Grace's whose tiles are taller than the medium size, as tall as it at most, and as tall as the small one at most. */
+    const [tall, middling, short] = [
+      { width: 1280, height: 1000 },
+      { width: 1280, height: 720 },
+      { width: 1280, height: 330 },
+    ];
+    /** How tall Grace's tiles are, and which of the camera's sizes the pictures she's shown of Ada's are in: the small one's are 320px wide, the medium's 640 and the large one's 1280, at HD. */
     const tileHeight = async () => (await tiles(gracesHuddle).first().boundingBox())!.height;
-    const shownLarge = async () => (await widthOf(grace, adasCamera)) > 320;
-    const shownSmall = async () => {
+    const shownIn = async () => {
       const width = await widthOf(grace, adasCamera);
-      return width > 0 && width <= 320;
+      return width === 0 ? "nothing" : width <= 320 ? "small" : width <= 640 ? "medium" : "large";
     };
 
-    // Ada starts the room's huddle and turns her camera on. Grace joins, in a window whose tiles are tall, and is sent the larger size.
+    // Ada starts the room's huddle and turns her camera on. Grace joins, in a window whose tiles are tall, and is sent the large size.
     await useOwnAddress(page);
     await page.goto(`/rooms/${room.id}`);
     await signInAsAdministrator(page);
@@ -1157,56 +1235,133 @@ test.describe("A huddle", () => {
     await expect.poll(() => sees(page, "Your camera"), { timeout: 15_000 }).toBe(true);
     const { context } = await newcomer(browser, baseURL, request, "Grace");
     const grace = await context.newPage();
+    await grace.setViewportSize(tall);
     const gracesHuddle = await joinByLink(grace, room);
     const adasCamera = `${administrator.user.name}'s camera`;
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    expect(await tileHeight()).toBeGreaterThan(180);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    expect(await tileHeight()).toBeGreaterThan(360);
     expect(sizesAsked(askedBefore)).toEqual(["asked for in a"]);
 
-    // Her window gets short, and its tiles no taller than the smaller size. The SFU is asked to send her that one in place
-    // of the other, on the track it sends her already, and she goes on seeing Ada.
+    // Her window gets shorter, and its tiles no taller than the medium size. The SFU is asked to send her that one in
+    // place of the other, on the track it sends her already, and she goes on seeing Ada. Shorter still, it's the small
+    // one, and the large again once her window is as tall as it was.
     const tracksBefore = tracksAsked();
-    await grace.setViewportSize({ width: 1280, height: 330 });
+    await grace.setViewportSize(middling);
+    await expect.poll(tileHeight).toBeLessThanOrEqual(360);
+    expect(await tileHeight()).toBeGreaterThan(180);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("medium");
+    await grace.setViewportSize(short);
     await expect.poll(tileHeight).toBeLessThanOrEqual(180);
-    await expect.poll(shownSmall, { timeout: 15_000 }).toBe(true);
-    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b"]);
-    // And the larger again once her window is as tall as it was.
-    await grace.setViewportSize({ width: 1280, height: 720 });
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to a"]);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("small");
+    await grace.setViewportSize(tall);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to c", "changed to a"]);
     expect(tracksAsked()).toBe(tracksBefore);
 
-    // An SFU that won't make a camera larger has it closed, and is asked for it anew, as it would send it, so
-    // that her tall tiles aren't left the smaller size. It's asked for no size of hers from then on.
-    await grace.setViewportSize({ width: 1280, height: 330 });
-    await expect.poll(shownSmall, { timeout: 15_000 }).toBe(true);
+    // An SFU that won't change a camera's size has it closed, and is asked for it anew, as it would send it, so
+    // that her tall tiles aren't left the small size. It's asked for no size of hers from then on.
+    await grace.setViewportSize(short);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("small");
     sfu.fixedSizes = true;
-    await grace.setViewportSize({ width: 1280, height: 720 });
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    const sizesChanged = ["asked for in a", "changed to b", "changed to a", "changed to b", "changed to a"];
+    await grace.setViewportSize(tall);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    const sizesChanged = ["asked for in a", "changed to b", "changed to c", "changed to a", "changed to c", "changed to a"];
     expect(sizesAsked(askedBefore)).toEqual(sizesChanged);
     expect(tracksAsked()).toBe(tracksBefore + 1);
     sfu.fixedSizes = false;
-    await grace.setViewportSize({ width: 1280, height: 330 });
+    await grace.setViewportSize(short);
     await expect.poll(tileHeight).toBeLessThanOrEqual(180);
-    await grace.setViewportSize({ width: 1280, height: 720 });
-    await expect.poll(tileHeight).toBeGreaterThan(180);
+    await grace.setViewportSize(tall);
+    await expect.poll(tileHeight).toBeGreaterThan(360);
 
-    // An SFU that takes a camera in one size is sent it whole, and not the smaller of the two it was offered, which
-    // is all a browser goes on sending then. Nothing is asked about its size, whatever the tiles'.
+    // An SFU that takes a camera in one size is sent its medium size alone, of the three it was offered, which is
+    // all a browser goes on sending then. Nothing is asked about its size, whatever the tiles'.
     sfu.oneSize = true;
     await adasHuddle.getByRole("button", { name: "Turn off camera" }).click();
     await expect(gracesHuddle.getByLabel(adasCamera)).toHaveCount(0);
     await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    await grace.setViewportSize({ width: 1280, height: 330 });
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("medium");
+    await grace.setViewportSize(short);
     await expect.poll(tileHeight).toBeLessThanOrEqual(180);
     const shownBefore = await picturesOf(grace, adasCamera);
     await expect.poll(() => picturesOf(grace, adasCamera), { timeout: 15_000 }).toBeGreaterThan(shownBefore + 10);
-    expect(await shownLarge()).toBe(true);
+    expect(await shownIn()).toBe("medium");
     expect(sizesAsked(askedBefore)).toEqual(sizesChanged);
 
-    // They leave, and the room has had the SFU close what each of them published, the camera's two sizes as one, and what each heard and saw.
+    // They leave, and the room has had the SFU close what each of them published, the camera's sizes as one, and what each heard and saw.
+    for (const huddle of [gracesHuddle, adasHuddle]) await huddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(adasHuddle).toHaveCount(0);
+    await expect.poll(sessionsLeftOpen).toEqual([]);
+    await context.close();
+  });
+
+  test("a camera is sent at the video quality an administrator chose, from when it's next turned on: in three sizes at Full HD, the large one 1080p, and in two at Standard, the medium the largest", async ({ page, browser, baseURL, request }) => {
+    // Two browsers, one of which sends its camera three times over.
+    test.slow();
+    const administrator = await administratorSession(request);
+    const room = await roomOfItsOwn(request);
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+    await chooseVideo(request, "full-hd");
+    const askedBefore = sfu.asked.length;
+
+    // Ada starts the room's huddle and turns her camera on, which takes 1080p, and is sent in three sizes. Grace
+    // joins, in a window whose tiles are tall, and is sent the large one.
+    await keepSenders(page);
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await useOwnAddress(page);
+    await page.goto(`/rooms/${room.id}`);
+    await signInAsAdministrator(page);
+    await page.getByRole("button", { name: "Start huddle", exact: true }).click();
+    await page.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const adasHuddle = huddleOpened(page, room);
+    await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
+    await expect.poll(() => sees(page, "Your camera"), { timeout: 15_000 }).toBe(true);
+    const fullHd = {
+      width: 1920,
+      height: 1080,
+      sizes: [
+        { rid: "c", height: 180, maxBitrate: 150_000 },
+        { rid: "b", height: 360, maxBitrate: 500_000 },
+        { rid: "a", height: 1080, maxBitrate: 3_000_000 },
+      ],
+    };
+    expect(await cameraSentBy(page)).toEqual(fullHd);
+    const { context } = await newcomer(browser, baseURL, request, "Grace");
+    const grace = await context.newPage();
+    await grace.setViewportSize({ width: 1280, height: 1000 });
+    const gracesHuddle = await joinByLink(grace, room);
+    const adasCamera = `${administrator.user.name}'s camera`;
+    // What she's shown of it the SFU's stand-in has sent again itself, as large as its own connection to her carries, so
+    // it's what the SFU was asked for that says which size she's sent.
+    await expect.poll(() => sees(grace, adasCamera), { timeout: 15_000 }).toBe(true);
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a"]);
+
+    // The administrator chooses Standard, which Ada's tab hears of at once, its tiles no wider than Standard's widest,
+    // and which leaves the camera that's on as it is.
+    const tileWidth = async () => (await tiles(adasHuddle).first().boundingBox())!.width;
+    expect(await tileWidth()).toBeGreaterThan(420);
+    await chooseVideo(request, "standard");
+    await expect.poll(tileWidth).toBeLessThanOrEqual(420);
+    expect(await cameraSentBy(page)).toEqual(fullHd);
+
+    // Turned on again, it takes 360p, which is sent in two sizes, and Grace is sent the larger of those.
+    await adasHuddle.getByRole("button", { name: "Turn off camera" }).click();
+    await expect(gracesHuddle.getByLabel(adasCamera)).toHaveCount(0);
+    await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
+    await expect
+      .poll(() => cameraSentBy(page), { timeout: 15_000 })
+      .toEqual({
+        width: 640,
+        height: 360,
+        sizes: [
+          { rid: "c", height: 180, maxBitrate: 150_000 },
+          { rid: "b", height: 360, maxBitrate: 500_000 },
+        ],
+      });
+    await expect.poll(() => sees(grace, adasCamera), { timeout: 15_000 }).toBe(true);
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "asked for in b"]);
+
     for (const huddle of [gracesHuddle, adasHuddle]) await huddle.getByRole("button", { name: "Leave", exact: true }).click();
     await expect(adasHuddle).toHaveCount(0);
     await expect.poll(sessionsLeftOpen).toEqual([]);
@@ -1644,9 +1799,10 @@ test.describe("A huddle", () => {
     await grace.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
 
-    // In a window too short for the emoji picker, the panel stops as far under the huddle's header as it
-    // is over its buttons, with its tabs beside the emoji, which have the room that leaves.
-    await grace.setViewportSize({ width: 1280, height: 280 });
+    // In a window too short for the emoji picker, 280px under the top bar, the panel stops as far under
+    // the huddle's header as it is over its buttons, with its tabs beside the emoji, which have the room
+    // that leaves.
+    await grace.setViewportSize({ width: 1280, height: 280 + 44 });
     await react.click();
     await expect(panel.getByRole("tablist")).toHaveAttribute("aria-orientation", "vertical");
     await expect(panel.getByRole("gridcell", { name: "Grinning face", exact: true })).toBeInViewport({ ratio: 0.9 });

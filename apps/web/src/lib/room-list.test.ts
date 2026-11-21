@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   apart,
   inDirectOrder,
+  inSections,
   inSidebarOrder,
   isQuietWelcome,
   markedUnread,
   NO_ROOM_LIST,
+  roomCount,
   roomListReducer,
   withRoom,
+  withRoomIn,
   type DirectSidebarRoom,
   type RoomListAction,
   type SharedSidebarRoom,
@@ -160,6 +163,19 @@ describe("Unread rooms", () => {
     expect(roomListReducer(read, { type: "loaded", list }).list!.rooms).toEqual([room("r1", "Design"), room("r2", "general")]);
   });
 
+  it("counts the mentions a room's mark says it has, until it's read, keeping the count as the room's saved", () => {
+    const design = room("r1", "Design");
+    const listed = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([design]) });
+    const marked = roomListReducer(roomListReducer(listed, { type: "marked", roomId: "r1", at: NOON }), { type: "marked", roomId: "r1", at: NOON, mentions: 2 });
+    const counted: SidebarRoom = { ...design, unread: true, unreadSince: NOON, mentionCount: 2 };
+    expect(marked.list!.rooms).toEqual([counted]);
+    expect(withRoom(marked.list!.rooms, { id: "r1", kind: "open", name: "Design", icon: null })).toEqual([counted]);
+    // A mark the server makes again, after a read the same events bring, comes with no mentions of its own.
+    const later = "2026-10-15T12:05:00.000Z";
+    expect(roomListReducer(marked, { type: "marked", roomId: "r1", at: later }).list!.rooms).toEqual([{ ...design, unread: true, unreadSince: later }]);
+    expect(roomListReducer(marked, { type: "marked", roomId: "r1", at: null }).list!.rooms).toEqual([design]);
+  });
+
   it("counts the messages a DM's mark says have come since, until it's read, keeping the count as the DM's saved", () => {
     const dm = direct("d1", "Ada", "Grace");
     const listed = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([dm]) });
@@ -234,6 +250,81 @@ describe("Shared room order", () => {
 
   it("starts with none when the first list fails to arrive", () => {
     expect(roomListReducer(NO_ROOM_LIST, { type: "unanswered" }).list!.sharedOrder).toEqual([]);
+  });
+});
+
+describe("Sidebar sections", () => {
+  const engineering = { id: "s1", name: "Engineering" };
+  const sales = { id: "s2", name: "Sales" };
+  const sections = [
+    { ...engineering, roomIds: ["r4", "r2"] },
+    { ...sales, roomIds: ["r1", "gone"] },
+    { id: "s3", name: "Empty", roomIds: [] },
+  ];
+  const names = ({ loose, sections }: ReturnType<typeof inSections<SharedSidebarRoom>>) => ({
+    loose: loose.map((r) => r.name),
+    sections: sections.map(({ section, rooms }) => [section.name, rooms.map((r) => r.name)]),
+  });
+
+  it("lists the rooms in no section first, then each section's rooms under it, in the sidebar's order, leaving out the sections with none", () => {
+    expect(names(inSections(four, sections, new Set()))).toEqual({
+      loose: ["Design"],
+      sections: [
+        ["Engineering", ["Zebra", "Ops"]],
+        ["Sales", ["general"]],
+      ],
+    });
+  });
+
+  it("keeps a starred room at the top, out of its section, which goes once it has no other room", () => {
+    expect(names(inSections(inSidebarOrder(four, ["r1", "r4"]), sections, new Set(["r1", "r4"])))).toEqual({
+      loose: ["general", "Ops", "Design"],
+      sections: [["Engineering", ["Zebra"]]],
+    });
+  });
+
+  it("moves a room into a section, last, renaming it as it's named now, or adding it after the others while they haven't it", () => {
+    const moved = withRoomIn(sections, "r2", { id: "s2", name: "Revenue" });
+    expect(moved).toEqual([
+      { ...engineering, roomIds: ["r4"] },
+      { id: "s2", name: "Revenue", roomIds: ["r1", "gone", "r2"] },
+      { id: "s3", name: "Empty", roomIds: [] },
+    ]);
+    expect(withRoomIn(moved, "r2", null)).toEqual([
+      { ...engineering, roomIds: ["r4"] },
+      { id: "s2", name: "Revenue", roomIds: ["r1", "gone"] },
+      { id: "s3", name: "Empty", roomIds: [] },
+    ]);
+    expect(withRoomIn([], "r3", { id: "s9", name: "Design" })).toEqual([{ id: "s9", name: "Design", roomIds: ["r3"] }]);
+  });
+
+  it("follows a room's section as it's saved, a room saved without one keeping it, and as it's gone, even over a list asked for before", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { ...sidebar(four), sections } });
+    const asked = roomListReducer(loaded, { type: "asked" });
+    const saved = roomListReducer(asked, { type: "saved", room: four[2]!, section: engineering });
+    expect(saved.list!.sections![0]).toEqual({ ...engineering, roomIds: ["r4", "r2", "r3"] });
+    expect(roomListReducer(saved, { type: "saved", room: four[2]! }).list!.sections).toEqual(saved.list!.sections);
+    const gone = roomListReducer(saved, { type: "gone", roomId: "r4" });
+    expect(gone.list!.sections![0]).toEqual({ ...engineering, roomIds: ["r2", "r3"] });
+    // The list asked for before comes without the changes, which are made over it again.
+    expect(roomListReducer(gone, { type: "loaded", list: { ...sidebar(four), sections } }).list!.sections![0]).toEqual({ ...engineering, roomIds: ["r2", "r3"] });
+    // A list without sections, as a member's with none in theirs, gets one for a room saved in one.
+    const none = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four) });
+    expect(roomListReducer(none, { type: "saved", room: four[0]!, section: sales }).list!.sections).toEqual([{ ...sales, roomIds: ["r1"] }]);
+  });
+
+  it("takes the sections an administrator lays out here, with the order, over a list asked for before they saved it", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { ...sidebar(four), sections } });
+    const laidOut = [{ ...sales, roomIds: ["r2"] }];
+    const reordered = roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "reordered", sharedOrder: ["r2"], sections: laidOut });
+    expect(reordered.list!.sections).toEqual(laidOut);
+    expect(roomListReducer(reordered, { type: "loaded", list: { ...sidebar(four), sections } }).list!.sections).toEqual(laidOut);
+    // An order saved without sections leaves them be.
+    expect(roomListReducer(loaded, { type: "reordered", sharedOrder: [] }).list!.sections).toEqual(sections);
+  });
+
+  it("counts a section's rooms in words", () => {
+    expect([0, 1, 2].map(roomCount)).toEqual(["No rooms", "1 room", "2 rooms"]);
   });
 });
 

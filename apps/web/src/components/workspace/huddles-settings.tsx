@@ -1,8 +1,9 @@
 import { useState, type ComponentType } from "react";
 import type { AccountSettings, WorkspaceSettings } from "@ember/protocol";
+import { HUDDLE_VIDEO_QUALITIES, type HuddleVideoQuality } from "@ember/protocol/huddles";
 import { Computer, VideoCamera, type IconoirIconProps } from "@/components/icons/iconoir";
 import { Switch } from "@/components/ui/switch";
-import { useCamerasAllowed, useScreensAllowed } from "@/hooks/use-account";
+import { useCamerasAllowed, useHuddleVideo, useScreensAllowed } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";
 import { forgetHuddleRelay, forgetHuddles, isSignedOut } from "@/lib/api";
 import { HUDDLE_CHAT_TITLE } from "@/lib/huddle-chat";
@@ -18,9 +19,11 @@ import { BUTTON } from "./email-settings";
 // minute. Change keys opens the setup with the app's ID as it is. While huddles are on, a second card
 // has what people may do in one, each on until an administrator turns it off: Cameras, which off keeps
 // huddles to voices and takes down the cameras that are on, and Screen sharing, which off stops the
-// screens people share. A third has the relay: whether Ember has a TURN key of that account's, by which
-// people whose network blocks the way to the SFU reach it through Cloudflare's TURN service. Its switch
-// opens Set up the relay (`RelaySetup`) and forgets the key, as the first card's does for the app's.
+// screens people share. A third has the video quality huddles send cameras and screens at, Standard, HD
+// or Full HD, saved as soon as it's chosen, as the switches are. A fourth has the relay: whether Ember
+// has a TURN key of that account's, by which people whose network blocks the way to the SFU reach it
+// through Cloudflare's TURN service. Its switch opens Set up the relay (`RelaySetup`) and forgets the
+// key, as the first card's does for the app's.
 
 /** What the card says of huddles while they're off. */
 export const HUDDLES_EXPLAINED =
@@ -33,7 +36,17 @@ export const CONFIRM_STOP_HUDDLES = "Are you sure you want to turn off huddles? 
 export const CAMERAS_EXPLAINED = "People can turn their camera on in a huddle.";
 export const SCREENS_EXPLAINED = "People can share their screen in a huddle, from a computer.";
 
-/** What the third card is called, and what it says of the relay while huddles have none. */
+/** What the Video quality card says of it, and what each quality is called, and sends, under its name. */
+export const VIDEO_EXPLAINED =
+  "How sharp cameras and shared screens look in huddles. Sharper video sends more data, which Cloudflare's Realtime SFU charges for past 1,000 GB a month. Safari and Firefox send cameras at Standard. A change applies to cameras and screens turned on after it.";
+export const VIDEO_QUALITY_NAMES: Record<HuddleVideoQuality, string> = { standard: "Standard", hd: "HD", "full-hd": "Full HD" };
+export const VIDEO_QUALITY_NOTES: Record<HuddleVideoQuality, string> = {
+  standard: "Cameras at up to 360p and screens at up to 1080p. Five people on camera for an hour are sent up to about 5 GB.",
+  hd: "Cameras at up to 720p and screens at up to 1440p. Five people on camera for an hour are sent up to about 14 GB.",
+  "full-hd": "Cameras at up to 1080p and screens at up to 1440p. Five people on camera for an hour are sent up to about 27 GB.",
+};
+
+/** What the relay's card is called, and what it says of the relay while huddles have none. */
 export const RELAY_TITLE = "Relay for strict networks";
 export const RELAY_EXPLAINED =
   "Some networks, like an office's or a hotel's, block the way huddles connect. With a relay, people on them connect through Cloudflare's TURN service, with a TURN key in your Cloudflare account.";
@@ -197,6 +210,61 @@ export function HuddleSwitches({ saveSwitch }: SwitchesProps) {
       <HuddleSwitch id="huddle-cameras" title="Cameras" icon={VideoCamera} explained={CAMERAS_EXPLAINED} on={cameras} save={(on, settled) => saveSwitch({ huddleCameras: on }, settled)} />
       <HuddleSwitch id="huddle-screens" title="Screen sharing" icon={Computer} explained={SCREENS_EXPLAINED} on={screens} save={(on, settled) => saveSwitch({ huddleScreens: on }, settled)} className="border-t" />
     </div>
+  );
+}
+
+interface VideoProps {
+  /** Saves the quality chosen at once, then calls `settled`, as the switches are saved. */
+  save: (quality: HuddleVideoQuality, settled: () => void) => void;
+}
+
+/** The video quality huddles send at, for administrators, which the tab shows while huddles are on: a radio button for each, with what it sends. */
+export function HuddleVideo({ save }: VideoProps) {
+  const quality = useHuddleVideo();
+  // The quality chosen, while that's saved.
+  const [chosen, setChosen] = useState<HuddleVideoQuality | null>(null);
+
+  const choose = (to: HuddleVideoQuality) => {
+    if (chosen !== null) return;
+    setChosen(to);
+    save(to, () => setChosen(null));
+  };
+
+  return (
+    <section aria-labelledby="huddle-video-heading" className={CARD}>
+      <div>
+        <h2 id="huddle-video-heading" className="text-base font-semibold">
+          Video quality
+        </h2>
+        <p id="huddle-video-description" className={NOTE}>
+          {VIDEO_EXPLAINED}
+        </p>
+      </div>
+      <fieldset aria-labelledby="huddle-video-heading" aria-describedby="huddle-video-description" className="flex min-w-0 flex-col gap-1">
+        {HUDDLE_VIDEO_QUALITIES.map((each) => (
+          // For fingers, the button sits far enough into its label, from the side and from the top, for a fingertip on it to land on the label.
+          <label key={each} className="flex min-h-11 cursor-pointer items-start gap-2.5 py-1 has-disabled:cursor-default touch:-ms-3.5 touch:ps-3.5 touch:pt-3.5">
+            <input
+              type="radio"
+              name="huddle-video"
+              value={each}
+              checked={(chosen ?? quality) === each}
+              disabled={chosen !== null}
+              onChange={() => choose(each)}
+              aria-labelledby={`huddle-video-${each}`}
+              aria-describedby={`huddle-video-${each}-description`}
+              className="mt-1 size-4 flex-none accent-foreground"
+            />
+            <span className="flex min-w-0 flex-col">
+              <span id={`huddle-video-${each}`}>{VIDEO_QUALITY_NAMES[each]}</span>
+              <span id={`huddle-video-${each}-description`} className={NOTE}>
+                {VIDEO_QUALITY_NOTES[each]}
+              </span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+    </section>
   );
 }
 
