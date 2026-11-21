@@ -395,6 +395,23 @@ describe("Bots post messages", () => {
     expect((await inRoom.next("message.created")).message.plainText).toBe("Deploy finished 🚀 ünïcödé");
   });
 
+  it("reads a text/markdown body as Markdown, and any other as markup, as Campfire does", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const markdown = "**Standup**\n- [Fix order](https://example.com/1): *High*\n- `deploy` pending";
+
+    expect((await postAs(bot.key, general, markdown, { "Content-Type": "text/markdown; charset=utf-8" })).status).toBe(201);
+    const { message } = await inRoom.next("message.created");
+    expect(message.body).toBe(
+      '<p><strong>Standup</strong></p><ul><li><a href="https://example.com/1">Fix order</a>: <em>High</em></li><li><code>deploy</code> pending</li></ul>',
+    );
+
+    await postAs(bot.key, general, markdown, { "Content-Type": "Text/Markdown" });
+    expect((await inRoom.next("message.created")).message.body).toBe(message.body);
+    await postAs(bot.key, general, "**Standup**");
+    expect((await inRoom.next("message.created")).message.body).toBe("**Standup**");
+  });
+
   it("answers 201 with an empty body and the message's permalink, on the host it was asked at", async () => {
     const { bot, general } = await withBot();
     const response = await postAs(bot.key, general, "Hello!");
@@ -723,6 +740,14 @@ describe("Bots edit and delete their messages", () => {
 
     const json = await api(messagePath(general, bot.key, id, ".json"), { method: "PATCH", body: "Shipped." });
     expect([json.status, ((await json.json()) as ListedMessage).body.plain_text]).toEqual([200, "Shipped."]);
+  });
+
+  it("reads an edit's text/markdown body as Markdown", async () => {
+    const { bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deploying...");
+    const response = await editAs(bot.key, general, id, "Deployed **v2**", "PATCH", { "Content-Type": "text/markdown" });
+    expect(((await response.json()) as ListedMessage).body.plain_text).toBe("Deployed v2");
+    expect((await storedIn(general))[0]!.body).toBe("<p>Deployed <strong>v2</strong></p>");
   });
 
   it("leaves a message saved as it was as it was, its update time included", async () => {
