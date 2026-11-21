@@ -449,13 +449,15 @@ async function bodyText(request: Request): Promise<string | null> {
 /**
  * The markup a bot's text posts, as `bodyText` reads it: its body as it is, as Campfire reads it, or,
  * where Campfire has no such type, a `text/markdown` body read as Markdown, as a Slack payload's
- * markdown block is (markdown.ts), so a bot that writes Markdown needn't write HTML. Null when the body
- * is longer than a message's markup can be.
+ * markdown block is (markdown.ts), so a bot that writes Markdown needn't write HTML. Null when the body,
+ * or the markup its Markdown becomes, is longer than a message's markup can be: a reference link's
+ * address is written once and repeated wherever it's used, so a short body can become a long one.
  */
 async function bodyMarkup(request: Request): Promise<string | null> {
   const text = await bodyText(request);
   if (text === null || contentTypeOf(request.headers.get("Content-Type"))?.toLowerCase() !== "text/markdown") return text;
-  return markdownHtml(text);
+  const markup = markdownHtml(text);
+  return markup.length <= MAX_MESSAGE_HTML_LENGTH ? markup : null;
 }
 
 /**

@@ -412,6 +412,19 @@ describe("Bots post messages", () => {
     expect((await inRoom.next("message.created")).message.body).toBe("**Standup**");
   });
 
+  it("answers 413 to Markdown whose markup would be longer than a message's, posted or edited, however short it's written", async () => {
+    const { bot, general } = await withBot();
+    // One long address, written once and linked from every use, far outgrows its Markdown.
+    const markdown = `${"[x][r] ".repeat(100)}\n\n[r]: https://example.com/${"a".repeat(5_000)}`;
+    expect(markdown.length).toBeLessThan(MAX_MESSAGE_HTML_LENGTH);
+    const headers = { "Content-Type": "text/markdown" };
+
+    expect((await postAs(bot.key, general, markdown, headers)).status).toBe(413);
+    const id = await posted(bot.key, general, "Deploying...");
+    expect((await editAs(bot.key, general, id, markdown, "PATCH", headers)).status).toBe(413);
+    expect((await storedIn(general)).map((message) => message.body)).toEqual(["Deploying..."]);
+  });
+
   it("answers 201 with an empty body and the message's permalink, on the host it was asked at", async () => {
     const { bot, general } = await withBot();
     const response = await postAs(bot.key, general, "Hello!");
