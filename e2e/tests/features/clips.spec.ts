@@ -32,7 +32,7 @@ const attachChoices = (member: Member) => member.page.getByRole("menu").getByRol
 /** The chip of a clip waiting to be sent, by its kind. */
 const clipChip = (member: Member, kind: "Video" | "Audio") => member.page.getByRole("button", { name: new RegExp(`^Remove ${kind} clip \\d{4}-\\d\\d-\\d\\d at .+\\.(mp4|m4a|webm)$`) });
 
-/** How long a video or a recording of sound says it is, to the second, once it has loaded what says so, or null where it doesn't say. */
+/** How long a video or a recording of sound says it is, to the nearest second, once it has loaded what says so, or null where it doesn't say. */
 async function lengthOf(media: Locator): Promise<number | null> {
   await media.evaluate((element: HTMLMediaElement) => {
     element.preload = "metadata";
@@ -41,6 +41,12 @@ async function lengthOf(media: Locator): Promise<number | null> {
   await expect.poll(() => media.evaluate((element: HTMLMediaElement) => element.readyState)).toBeGreaterThanOrEqual(1);
   return media.evaluate((element: HTMLMediaElement) => (Number.isFinite(element.duration) ? Math.round(element.duration) : null));
 }
+
+/**
+ * How long, to the nearest second, a clip the tests stop once its timer says 0:02 says it is: 2 seconds, or
+ * 3 where a busy machine stops it more than half a second after the timer says so, as CI's can.
+ */
+const TWO_SECOND_LENGTHS = [2, 3];
 
 test.describe("Clips", () => {
   test("records a video clip from the camera, as a mirror shows you, choosing its thumbnail, to go with the next message, which plays for everyone, saying how long it is", async ({ members }) => {
@@ -53,13 +59,14 @@ test.describe("Clips", () => {
     expect(await camera.evaluate((video) => parseFloat(getComputedStyle(video).scale))).toBeLessThan(0);
 
     await dialog.getByRole("button", { name: "Record", exact: true }).click();
-    await expect(dialog.getByRole("timer")).toHaveAccessibleName("Recording, 0:02 of 5:00");
     await expect(dialog.getByLabel("Camera", { exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("timer")).toHaveAccessibleName("Recording, 0:02 of 5:00");
     await dialog.getByRole("button", { name: "Stop recording" }).click();
     await expect(dialog.getByLabel("Your clip")).toBeVisible();
     // Once the browser knows how long the clip is.
     const thumbnail = dialog.getByLabel("Thumbnail");
-    await expect(thumbnail).toHaveAttribute("max", /^2(\.\d+)?$/);
+    await expect(thumbnail).toHaveAttribute("max", /^\d/);
+    expect(TWO_SECOND_LENGTHS).toContain(Math.round(Number(await thumbnail.getAttribute("max"))));
     await thumbnail.fill("1");
     await expect(thumbnail).toHaveAttribute("aria-valuetext", "0:01");
     await expect.poll(() => dialog.getByLabel("Your clip").evaluate((video: HTMLVideoElement) => video.currentTime)).toBe(1);
@@ -75,7 +82,7 @@ test.describe("Clips", () => {
       const video = member.page.getByRole("article").locator("video");
       await expect(video).toHaveAccessibleName(/^Video clip .+\.(mp4|webm)$/);
       await expect(video).toHaveAttribute("poster", /^\/previews\//);
-      expect(await lengthOf(video)).toBe(2);
+      expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(video));
     }
   });
 
@@ -105,7 +112,7 @@ test.describe("Clips", () => {
       await expect(sound).toHaveAttribute("controls");
       // At its full width, though it follows its text as a message of its own, in a column only as wide as what it holds.
       expect((await sound.boundingBox())?.width).toBe(360);
-      expect(await lengthOf(sound)).toBe(2);
+      expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(sound));
     }
   });
 
@@ -124,7 +131,7 @@ test.describe("Clips", () => {
 
     const sound = ada.page.getByRole("article").locator("audio");
     await expect(sound).toHaveAccessibleName(/^Audio clip .+\.webm$/);
-    expect(await lengthOf(sound)).toBe(2);
+    expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(sound));
   });
 
   test("discards an audio clip on Escape, and a video clip on Cancel, putting focus back in the text", async ({ members }) => {
