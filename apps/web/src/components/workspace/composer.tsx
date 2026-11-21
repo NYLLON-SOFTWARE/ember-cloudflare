@@ -222,13 +222,12 @@ const noPreviews = (): DraftPreviews => ({ asking: null, asked: new Set(), added
  */
 function useLinkPreviews(opening: number) {
   const draft = useRef(noPreviews());
-  useEffect(
-    () => () => {
-      draft.current.asking?.request.abort();
-      draft.current = noPreviews();
-    },
-    [opening],
-  );
+  /** Forgets the draft's previews: as its editor goes or opens again, and as what's written goes otherwise than as a message, as a command's does. */
+  const dropped = () => {
+    draft.current.asking?.request.abort();
+    draft.current = noPreviews();
+  };
+  useEffect(() => dropped, [opening]);
 
   const pasted = async ({ url, insertBelowLink }: PastedLink) => {
     const previews = draft.current;
@@ -257,7 +256,7 @@ function useLinkPreviews(opening: number) {
     void pastedPreview.then((found) => found ?? typedLinkPreview(links, asked)).then((found) => found && addPreview(found));
   };
 
-  return { pasted, sent };
+  return { pasted, sent, dropped };
 }
 
 /** The preview of the first of a message's `links` to a web page whose preview wasn't `asked` for as it was pasted. */
@@ -613,22 +612,36 @@ export function Composer({
     sendNow.current = send;
   });
 
-  // What's written is done with, as a command that's run is: the room hears you've stopped typing.
+  // What's written is done with, as a command that's run is: the room hears you've stopped typing, and a
+  // link's preview, asked for or added, goes with it, leaving the next message's links their own.
   const doneWith = (written: RichTextEditorHandle) => {
     written.clear();
     wrote(null);
     setUsage(null);
     setRefusal(null);
+    linkPreviews.dropped();
   };
 
-  // What /shrug sends, from what's written by then, as it can change while the room's counts come: the
-  // message with ¯\_(ツ)_/¯ at its end, while it's still /shrug, and otherwise what's written, as any
-  // message written over meanwhile goes.
-  const shrugged = () => {
+  // What's written, as it's to go: with ¯\_(ツ)_/¯ at its end while it's /shrug, and as it is while it's no
+  // command; or undefined, to send nothing, once it's become another command, which runs only as it's
+  // submitted, since the composer can still be written in while the room's counts come.
+  const toSend = () => {
     const body = whatsWritten();
-    const typedIn = body === null ? null : commandIn(body);
-    return typedIn?.command?.name === "shrug" ? withShrug(bodyAfter(typedIn.markup, 1 + typedIn.typed.name.length)) : body;
+    const typedIn = body !== null && onCommand ? commandIn(body) : null;
+    if (!typedIn) return body;
+    return typedIn.command?.name === "shrug" ? withShrug(bodyAfter(typedIn.markup, 1 + typedIn.typed.name.length)) : undefined;
   };
+
+  // Sends what's written, and the files picked, asking first if it would notify a room of six or more,
+  // of what it says then: what goes is what's written once the counts come, or Send is pressed.
+  const sendWritten = () =>
+    notifyConfirm.confirm(
+      () => toSend() ?? "",
+      () => {
+        const body = toSend();
+        if (body !== undefined) sendNow.current(body);
+      },
+    );
 
   // A command that didn't run is written again, to put right, unless something else has been written
   // meanwhile: in the editor, or, where the composer has gone, as when its room was left meanwhile, as its
@@ -647,7 +660,7 @@ export function Composer({
   const run = (written: RichTextEditorHandle, typedIn: NonNullable<ReturnType<typeof commandIn>>) => {
     const { command, typed, markup } = typedIn;
     if (!command) return setNotACommand(`/${typed.name} isn't a command. To send a message that starts with /, put a space before it.`);
-    if (command.name === "shrug") return notifyConfirm.confirm(() => shrugged() ?? "", () => sendNow.current(shrugged()));
+    if (command.name === "shrug") return sendWritten();
     if (command.name === "snippet") {
       const left = bodyAfter(markup, 1 + typed.name.length);
       if (isBlankBody(left)) doneWith(written);
@@ -673,7 +686,7 @@ export function Composer({
     const written = editor.current;
     const command = written && onCommand && !written.isBlank() ? commandIn(written.value()) : null;
     if (command) return run(written!, command);
-    if (written && !written.isBlank()) notifyConfirm.confirm(() => editor.current?.value() ?? "", () => sendNow.current());
+    if (written && !written.isBlank()) sendWritten();
     else send();
   };
 

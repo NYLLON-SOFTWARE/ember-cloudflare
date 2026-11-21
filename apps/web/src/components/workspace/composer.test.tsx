@@ -628,6 +628,31 @@ describe("Ask before notifying a room", () => {
     expect(asking()).not.toBeInTheDocument();
   });
 
+  it("sends nothing where what's written has become a command while the room's counts were on their way, which runs once it's sent again", async () => {
+    let answer!: (response: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => (answer = resolve)));
+    vi.stubGlobal("fetch", fetch);
+    const onCommand = vi.fn<CommandRunner>(async () => true);
+    const { onSend, input, user } = await showComposer({ onCommand });
+    for (const first of ["/shrug @here hello", "@here hello"]) {
+      await user.type(input, `${first}{Enter}`);
+      await user.clear(input);
+      await user.type(input, "/msg @Ada private text");
+      answer(Response.json(six));
+      await act(async () => {});
+      expect(onSend).not.toHaveBeenCalled();
+      expect(asking()).not.toBeInTheDocument();
+      expect(input).toHaveValue("/msg @Ada private text");
+      await user.clear(input);
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(onCommand).not.toHaveBeenCalled();
+
+    await user.type(input, "/msg @Ada private text{Enter}");
+    expect(onCommand).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   /** Runs a command as /msg does, sending `body` to #design, which it says whether to send. */
   function sendsToDesign(body: string) {
     const asked: Promise<boolean>[] = [];
@@ -1490,6 +1515,25 @@ describe("Link previews while writing", () => {
       await user.type(input, "Mail ada@example.com, or see www.basecamp.com and https://example.com{Enter}");
       await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
       expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/unfurl", expect.objectContaining({ body: JSON.stringify({ url: "http://www.basecamp.com" }) }));
+    });
+
+    it("asks for the preview of a link typed in the message after a command that took a pasted link's preview, and puts nothing more in the command's place", async () => {
+      const { fetch, answer } = slowPreviews(basecamp);
+      const onCommand = vi.fn<CommandRunner>(async () => true);
+      const { onSend, addPreview, input, user, view } = await showComposer({ onCommand });
+      await user.type(input, "/search ");
+      await user.paste("https://basecamp.com");
+      await user.keyboard("{Enter}");
+      expect(onCommand).toHaveBeenCalledOnce();
+      await answer();
+      expect(shownPreviews(view)).toHaveLength(0);
+
+      await user.type(input, "See http://www.basecamp.com{Enter}");
+      expect(onSend).toHaveBeenLastCalledWith("<p>See http://www.basecamp.com</p>", false);
+      await answer();
+      await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
+      expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body as string).url)).toEqual(["https://basecamp.com", "http://www.basecamp.com"]);
+      expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(true);
     });
 
     it("adds none to a message that took a preview as it was written, even one taken out of it", async () => {
