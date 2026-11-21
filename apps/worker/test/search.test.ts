@@ -1331,10 +1331,12 @@ describe("Hearing who can read each room", () => {
     // A room it held before it asked about rooms, which sends it nothing.
     await searchSql("INSERT INTO search_rooms (room_id, seq) VALUES ('quiet', 1)");
     const asked: RoomId[][] = [];
-    const slow = {
+    /** Gives the answer to the index's first question, which the Workspace holds until then. */
+    let answerFirst = () => {};
+    const holding = {
       roomReaders: async (roomIds: RoomId[]) => {
         asked.push(roomIds.toSorted());
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (asked.length === 1) await new Promise<void>((resolve) => (answerFirst = resolve));
         return roomIds.map((roomId) => ({ roomId, readers: "everyone" }));
       },
     };
@@ -1342,13 +1344,17 @@ describe("Hearing who can read each room", () => {
     await runInDurableObject(index, (instance: SearchIndex) => {
       const object = instance as unknown as Index;
       original = object.env;
-      object.env = { ...original, WORKSPACE: { getByName: () => slow } as unknown as Env["WORKSPACE"] };
+      object.env = { ...original, WORKSPACE: { getByName: () => holding } as unknown as Env["WORKSPACE"] };
     });
     try {
       for (const room of ["a", "b", "c"]) await index.apply(room, 1, [numbered(room, Date.now() * 1024)], []);
       // Its alarm, going off as it asks, waits for the answer rather than asking again.
-      await runInDurableObject(index, (instance: SearchIndex) => instance.alarm());
-      await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([{ room_id: "quiet" }]));
+      await runInDurableObject(index, async (instance: SearchIndex) => {
+        const alarm = instance.alarm();
+        answerFirst();
+        await alarm;
+      });
+      expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([{ room_id: "quiet" }]);
     } finally {
       await runInDurableObject(index, (instance: SearchIndex) => void ((instance as unknown as Index).env = original!));
     }
