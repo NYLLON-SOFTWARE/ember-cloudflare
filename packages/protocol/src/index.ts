@@ -334,10 +334,11 @@ export const startingInvolvement = (room: Room): Involvement => (room.kind === "
 /**
  * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
  * tab, which marks it unread for them until they do again, when the first of those messages came, while
- * it's marked, in a DM how many have come since, and their level in it. A room they've hidden is listed
- * too, since they can still open it, but their sidebar leaves it out.
+ * it's marked, in a DM how many have come since, in a room how many of them mention them, by name or as
+ * @channel, @here and @everyone notify them, when any do, as Slack's badge counts, and their level in it.
+ * A room they've hidden is listed too, since they can still open it, but their sidebar leaves it out.
  */
-export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; involvement: Involvement };
+export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; mentionCount?: number; involvement: Involvement };
 
 /**
  * The rooms someone has starred, which their sidebar lists first, in the order they starred them.
@@ -2027,10 +2028,11 @@ export type WorkspaceServerFrame =
   | { type: "welcome"; you: Me; account: Account }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when the first
-   * of those came. Sent only to the person marked, as their mark changes, and in a DM, as each message
-   * comes, with how many have come since it was marked.
+   * of those came. Sent only to the person marked, as their mark changes, in a DM, as each message comes,
+   * with how many have come since it was marked, and in a room, as each message that mentions them
+   * comes, with how many of those have, as `SidebarRoom.mentionCount` counts them.
    */
-  | { type: "room.unread"; roomId: RoomId; at: string; count?: number }
+  | { type: "room.unread"; roomId: RoomId; at: string; count?: number; mentions?: number }
   /** They've read a room marked unread, in this tab or another. */
   | { type: "room.read"; roomId: RoomId }
   /**
