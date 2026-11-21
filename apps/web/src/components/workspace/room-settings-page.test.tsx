@@ -1,4 +1,4 @@
-import type { Room, RoomSettings } from "@ember/protocol";
+import type { Me, Room, RoomSettings } from "@ember/protocol";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -62,22 +62,22 @@ function holdChange(settings: RoomSettings, method: "PATCH" | "DELETE" = "PATCH"
 
 type Callbacks = Pick<Parameters<typeof RoomSettingsPage>[0], "askForRoom" | "onMissing" | "onFailed">;
 
-/** The page, as Ada, at the form its address names, as the workspace shows it. */
-function SettingsRoute(callbacks: Callbacks) {
+/** The page, as Ada unless it says otherwise, at the form its address names, as the workspace shows it. */
+function SettingsRoute({ me, ...callbacks }: Callbacks & { me: Me }) {
   const route = useRoute();
   return route.page === "room-settings" ? (
-    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={ada} {...callbacks} />
+    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={me} {...callbacks} />
   ) : null;
 }
 
-function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`, wrapper?: (props: { children: ReactNode }) => ReactNode) {
+function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`, wrapper?: (props: { children: ReactNode }) => ReactNode, me: Me = ada) {
   const [onSaved, onLeft, onMissing, onFailed] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
   // The answers the page lists: rooms saved, and those it took Ada out of or deleted.
   const askForRoom = () => (answer: RoomAnswer) => (answer.type === "saved" ? onSaved(answer.room) : onLeft(answer.roomId));
   history.replaceState(null, "", path);
   const { unmount } = render(
     <Sheet>
-      <SettingsRoute askForRoom={askForRoom} onMissing={onMissing} onFailed={onFailed} />
+      <SettingsRoute me={me} askForRoom={askForRoom} onMissing={onMissing} onFailed={onFailed} />
     </Sheet>,
     { wrapper },
   );
@@ -279,6 +279,117 @@ describe("Sidebar section", () => {
     showPage(design);
     expect(await screen.findByRole("heading", { level: 2, name: "Design" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sidebar section" })).not.toBeInTheDocument();
+  });
+
+  it("shows a section the dialog made by its name, should the page stay, as it does when signing out fails", async () => {
+    let settings: RoomSettings = { ...openSettings(), sections };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method !== "PATCH") return Response.json(settings);
+      settings = { ...settings, section: { id: "s3", name: "Design work" }, sections: [...sections, { id: "s3", name: "Design work", rooms: 1 }] };
+      return Response.json({ room: design });
+    });
+    const { user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    expect(sent()).toEqual({ name: "Design", icon: "", kind: "open", section: { name: "Design work" } });
+
+    await waitFor(() => expect(field()).toHaveTextContent("Design work"));
+    expect(screen.queryByRole("textbox", { name: "New section’s name" })).not.toBeInTheDocument();
+    await user.click(field());
+    expect(screen.getByRole("menuitemradio", { name: /^Design work/ })).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{Escape}");
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(2);
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("leaves the section a later save chose, should the settings loaded for one made answer after it", async () => {
+    const madeSettings: RoomSettings = { ...openSettings(), section: { id: "s3", name: "Design work" }, sections: [...sections, { id: "s3", name: "Design work", rooms: 1 }] };
+    let answerReload = (_: Response) => {};
+    const gets = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method !== "PATCH").length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      if (init?.method === "PATCH") return Promise.resolve(Response.json({ room: design }));
+      // The settings the page loads again once the section is made answer only when the test says.
+      if (gets() === 2) return new Promise((resolve) => (answerReload = resolve));
+      return Promise.resolve(Response.json({ ...openSettings(), sections }));
+    });
+    const { user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(gets()).toBe(2));
+
+    // Sales is picked and saved before they answer.
+    await user.click(field());
+    await user.click(screen.getByRole("menuitemradio", { name: /^Sales/ }));
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(2));
+    await act(async () => answerReload(Response.json(madeSettings)));
+    expect(field()).toHaveTextContent("Sales");
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(3);
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("leaves a later save to say how it went, should the settings loaded for a section made fail during it", async () => {
+    let [answerReload, answerSave] = [(_: Response) => {}, (_: Response) => {}];
+    const calls = (method: "GET" | "PATCH") => vi.mocked(fetch).mock.calls.filter(([, init]) => (init?.method ?? "GET") === method).length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      // The dialog's save answers at once, and the form's own Save once the test says.
+      if (init?.method === "PATCH") return calls("PATCH") === 1 ? Promise.resolve(Response.json({ room: design })) : new Promise((resolve) => (answerSave = resolve));
+      return calls("GET") === 1 ? Promise.resolve(Response.json({ ...openSettings(), sections })) : new Promise((resolve) => (answerReload = resolve));
+    });
+    const { onFailed, onMissing, user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls("GET")).toBe(2));
+
+    await user.type(await roomName(), " team");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await act(async () => answerReload(Response.json({ error: "Workspace unavailable" }, { status: 503 })));
+    expect(screen.getByRole("button", { name: "Delete Design" })).toBeDisabled();
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(onMissing).not.toHaveBeenCalled();
+    await act(async () => answerSave(Response.json({ room: { ...design, name: "Design team" } })));
+    expect(location.pathname).toBe("/rooms/design");
+  });
+
+  it("goes to sign in when the settings loaded for a section made find the session gone, though the page was left", async () => {
+    let answerReload = (_: Response) => {};
+    const gets = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method !== "PATCH").length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      if (init?.method === "PATCH") return Promise.resolve(Response.json({ room: design }));
+      return gets() === 1 ? Promise.resolve(Response.json({ ...openSettings(), sections })) : new Promise((resolve) => (answerReload = resolve));
+    });
+    const { onFailed, user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    act(() => leave(vi.fn(async () => false)));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(gets()).toBe(2));
+
+    act(() => navigate("/rooms/general"));
+    expect(screen.queryByRole("textbox", { name: "Room name" })).not.toBeInTheDocument();
+    await act(async () => answerReload(Response.json({ error: "Not signed in" }, { status: 401 })));
+    expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
   });
 });
 

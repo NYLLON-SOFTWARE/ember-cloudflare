@@ -563,21 +563,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const blockedKey = JSON.stringify((list?.blocks ?? NO_BLOCKS).userIds);
   const blocking = useMemo<Blocking>(() => ({ blocked: new Set(JSON.parse(blockedKey) as UserId[]), setBlocked }), [blockedKey, setBlocked]);
   // The sidebar loads again at once for the administrator who made, renamed or deleted a section, as it
-  // does soon for everyone else.
-  const reloadSections = useCallback(
-    () =>
-      refresh().catch((error) => {
-        if (mounted.current && isSignedOut(error)) onSessionChanged(null);
-      }),
-    [refresh, onSessionChanged, mounted],
-  );
+  // does soon for everyone else. Workspace settings show the sections it lists, so a list that doesn't
+  // come says why, rather than leave the change looking undone.
+  const reloadSections = useCallback(() => refresh().catch(failed), [refresh, failed]);
   // A save's answer can come after a newer order has loaded, so the rooms load again once it's taken.
+  // The answer has put the order it saved in place, so a list that doesn't come leaves that, saying nothing.
   const reorderedRooms = useCallback(
     ({ sharedOrder, sections }: SavedRoomLayout) => {
       changeRooms({ type: "reordered", sharedOrder, sections });
-      void reloadSections();
+      refresh().catch((error) => {
+        if (mounted.current && isSignedOut(error)) onSessionChanged(null);
+      });
     },
-    [reloadSections],
+    [refresh, onSessionChanged, mounted],
   );
 
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
