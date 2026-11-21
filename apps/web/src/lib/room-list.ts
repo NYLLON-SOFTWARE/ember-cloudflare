@@ -157,23 +157,25 @@ export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
     : [...rooms, { ...room, unread: false, involvement: startingInvolvement(room) }];
 }
 
-/** `listed`'s unread mark, since when, and in a DM how many messages it counts, when it's marked. */
-const markOf = ({ unread, unreadSince, unreadCount }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince" | "unreadCount"> => ({
+/** `listed`'s unread mark, since when, in a DM how many messages it counts, and in a room how many of them mention its person, when it's marked. */
+const markOf = ({ unread, unreadSince, unreadCount, mentionCount }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince" | "unreadCount" | "mentionCount"> => ({
   unread,
   ...(unreadSince !== undefined && { unreadSince }),
   ...(unreadCount !== undefined && { unreadCount }),
+  ...(mentionCount !== undefined && { mentionCount }),
 });
 
 /**
- * `room` marked unread as of `at`, with `count` messages in a DM, or read when `at` is null. The server
- * tells of a room's mark only as it makes one, so a room marked already takes the new time: the read
- * between them came in the same events as the message after it, and the server told only of the mark
- * they leave. A DM's comes with each message, with how many there are now.
+ * `room` marked unread as of `at`, with `count` messages in a DM, or in a room `mentions` of them that
+ * mention its person, or read when `at` is null. The server tells of a room's mark only as it makes one,
+ * or as a message mentions its person, so a room marked already takes the new time: the read between
+ * them came in the same events as the message after it, and the server told only of the mark they leave.
+ * A DM's comes with each message, with how many there are now.
  */
-function marked(room: SidebarRoom, at: string | null, count?: number): SidebarRoom {
-  const { unreadSince: _, unreadCount: __, ...unmarked } = room;
+function marked(room: SidebarRoom, at: string | null, count?: number, mentions?: number): SidebarRoom {
+  const { unreadSince: _, unreadCount: __, mentionCount: ___, ...unmarked } = room;
   if (at === null) return { ...unmarked, unread: false };
-  return { ...unmarked, unread: true, unreadSince: at, ...(count !== undefined && { unreadCount: count }) };
+  return { ...unmarked, unread: true, unreadSince: at, ...(count !== undefined && { unreadCount: count }), ...(mentions !== undefined && { mentionCount: mentions }) };
 }
 
 /** `listed`'s time last active, when it's a DM and that's later than `room`'s. */
@@ -202,7 +204,7 @@ function withHuddle(huddles: Sidebar["huddles"], roomId: RoomId, huddle: LiveHud
 export type RoomChange =
   | { type: "saved"; room: Room; section?: Section | null }
   | { type: "gone"; roomId: RoomId }
-  | { type: "marked"; roomId: RoomId; at: string | null; count?: number }
+  | { type: "marked"; roomId: RoomId; at: string | null; count?: number; mentions?: number }
   | { type: "active"; roomId: RoomId; at: string }
   | { type: "huddle"; roomId: RoomId; huddle: LiveHuddle | null }
   | { type: "involved"; roomId: RoomId; involvement: Involvement }
@@ -275,7 +277,7 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
       };
     }
     case "marked":
-      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? marked(room, change.at, change.count) : room)) };
+      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? marked(room, change.at, change.count, change.mentions) : room)) };
     case "active":
       return { ...list, rooms: withActivity(list.rooms, change.roomId, change.at) };
     case "huddle":

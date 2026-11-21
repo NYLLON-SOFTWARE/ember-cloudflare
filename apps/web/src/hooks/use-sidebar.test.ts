@@ -348,6 +348,18 @@ describe("Unread rooms", () => {
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true, unreadSince: NOON }]);
   });
 
+  it("counts the mentions in a room marked unread, as the workspace socket says, until it's read", async () => {
+    server.sidebar = unstarred([design]);
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON });
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON, mentions: 1 });
+    expect(result.current.list?.rooms).toEqual([{ ...design, unread: true, unreadSince: NOON, mentionCount: 1 }]);
+    socket().receive({ type: "room.read", roomId: design.id });
+    expect(result.current.list?.rooms).toEqual([design]);
+  });
+
   it("counts the messages that have come in a DM since it was marked unread, as the workspace socket says, until it's read", async () => {
     const withGrace = { id: "d1", kind: "direct", members: [ada, grace].map(({ id, name }) => ({ id, name })), activeAt: NOON, unread: false, involvement: "everything" } satisfies SidebarRoom;
     server.sidebar = unstarred([withGrace]);

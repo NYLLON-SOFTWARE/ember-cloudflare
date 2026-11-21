@@ -149,6 +149,7 @@ export function Sidebar({
   const helpId = useId();
   const unreadId = useId();
   const huddleId = useId();
+  const mentionsId = useId();
   // A row followed in place shows its room here, and one opened elsewhere, as in a new tab, leaves this page be.
   const select = (event: MouseEvent, roomId: RoomId) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -158,10 +159,11 @@ export function Sidebar({
   /** A room's row, set in under its section's name by `className` when it's in one. */
   const roomRow = (room: SharedSidebarRoom, className?: string) => {
     const unread = markedUnread(room, currentRoomId);
+    const mentions = unread ? room.mentionCount : undefined;
     const star = starred.has(room.id);
     const huddle = huddles[room.id];
-    // The words for who's in the room's huddle, which come with its mark.
-    const inHuddleId = `${huddleId}-${room.id}`;
+    // The words for who's in the room's huddle and for how many mentions it has, which come with their marks.
+    const [inHuddleId, mentionsWordsId] = [`${huddleId}-${room.id}`, `${mentionsId}-${room.id}`];
     return (
       <a
         key={room.id}
@@ -170,8 +172,9 @@ export function Sidebar({
         draggable={false}
         aria-current={room.id === currentRoomId ? "page" : undefined}
         // Every row says how the stars are reordered, a marked one says it's unread, which the eye sees
-        // by its weight and dot, and one with a huddle says who's in it, which the eye sees by its mark.
-        aria-describedby={[huddle && inHuddleId, unread && unreadId, helpId].filter(Boolean).join(" ")}
+        // by its weight and dot, and how many mentions it has, which the eye sees by its count, and one
+        // with a huddle says who's in it, which the eye sees by its mark.
+        aria-describedby={[huddle && inHuddleId, unread && unreadId, mentions !== undefined && mentionsWordsId, helpId].filter(Boolean).join(" ")}
         aria-keyshortcuts={star ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => select(event, room.id)}
         className={cn(
@@ -185,10 +188,14 @@ export function Sidebar({
       >
         <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
         <span className="truncate">{room.name}</span>
-        {/* The huddle's mark, the dot and the star sit together at the row's end, pushed there by one auto
-            margin. The star's muted at 65%. */}
+        {/* The huddle's mark, the dot or the count of mentions, and the star sit together at the row's end,
+            pushed there by one auto margin. The star's muted at 65%. */}
         {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} className="ml-auto" />}
-        {unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />}
+        {mentions !== undefined ? (
+          <MentionCount count={mentions} wordsId={mentionsWordsId} className={cn(!huddle && "ml-auto")} />
+        ) : (
+          unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />
+        )}
         {star && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !huddle && !unread && "ml-auto")} />}
       </a>
     );
@@ -489,14 +496,33 @@ function PresenceDot({ presence }: { presence: Presence }) {
   );
 }
 
-/** How many messages have come in a DM since it was marked unread, on an ink pill, as the rail's Activity counts, past 99 as 99+. */
+/** A count at a row's end, on a pill, past 99 as 99+. */
+const COUNT = "inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] leading-none font-semibold tabular-nums";
+const shownCount = (count: number) => (count > 99 ? "99+" : count);
+
+/** How many messages have come in a DM since it was marked unread, on an ink pill, as the rail's Activity counts. */
 function UnreadCount({ count }: { count: number }) {
   return (
-    <span
-      aria-hidden="true"
-      className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-foreground px-[5px] text-[11px] leading-none font-semibold tabular-nums text-background"
-    >
-      {count > 99 ? "99+" : count}
+    <span aria-hidden="true" className={cn(COUNT, "bg-foreground text-background")}>
+      {shownCount(count)}
     </span>
+  );
+}
+
+/**
+ * How many of the messages that marked a room unread mention you, by name or as @channel, @here and
+ * @everyone do, in place of its dot, as Slack's badge counts them: shaped as a DM's count, in the mention
+ * color their messages are tinted with, with its words, `wordsId`, for screen readers.
+ */
+function MentionCount({ count, wordsId, className }: { count: number; wordsId: string; className?: string }) {
+  return (
+    <>
+      <span aria-hidden="true" className={cn(COUNT, "bg-mention text-mention-foreground", className)}>
+        {shownCount(count)}
+      </span>
+      <span id={wordsId} hidden>
+        {count === 1 ? "1 mention" : `${count} mentions`}
+      </span>
+    </>
   );
 }

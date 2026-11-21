@@ -859,6 +859,13 @@ describe("@ember's answer", () => {
     expect(answerOf(slackBlock(STATUS))).toEqual({ markup: "", cards: [STATUS_CARD], firstLink: null });
   });
 
+  it("makes no special mention, whatever it writes, in its text or its cards, so it notifies nobody, as an AI never does", () => {
+    const answer = answerOf(`@here <!here> @channel <!everyone> Deploy\n\n${slackBlock({ text: "<!channel> Deploy", attachments: [{ text: "<!here> now" }] })}`);
+    expect(answer.markup).not.toContain(MENTION_CONTENT_TYPE);
+    expect(answer.cards).toHaveLength(1);
+    expect(JSON.stringify(answer.cards)).not.toContain(MENTION_CONTENT_TYPE);
+  });
+
   it("shows the guide's example as the card the guide says it is, under its words, wherever they're written", () => {
     const [, example = ""] = /\n```slack\n([\s\S]*?)\n```$/.exec(CARDS_PROMPT) ?? [];
     const answer = answerOf(`The launch slipped.\n\n\`\`\`slack\n${example}\n\`\`\`\n\nAsk me again tomorrow.`);

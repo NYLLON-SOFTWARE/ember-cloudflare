@@ -5783,20 +5783,21 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Applies the events room `roomId` sends from its log, in order, with `viewerIds`, who is viewing the
    * room as it sends them: a new message marks the room unread for its members who aren't, in a DM
-   * counting it for them, and someone opening it clears their mark. Each event is applied once, however
-   * often it's sent. Whoever's mark or count changes hears of it on their workspace sockets, and nobody
-   * else does. A new message in a DM moves it to the top of everyone's DMs there, its author's too, and
-   * one call's messages move it once. It answers the bots' webhooks each new message is delivered to,
-   * the new messages @ember is to answer and, while Web Push is on, their pushes, for the room to send,
-   * none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in, and the
-   * version of the blocked words, which tells the room whether the list it keeps is still the latest.
+   * counting it for them, and in a room counting it for those it mentions or notifies, and someone opening
+   * it clears their mark. Each event is applied once, however often it's sent. Whoever's mark or count
+   * changes hears of it on their workspace sockets, and nobody else does. A new message in a DM moves it
+   * to the top of everyone's DMs there, its author's too, and one call's messages move it once. It
+   * answers the bots' webhooks each new message is delivered to, the new messages @ember is to answer
+   * and, while Web Push is on, their pushes, for the room to send, none of them to a guest while
+   * `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in, and the version of the blocked words, which
+   * tells the room whether the list it keeps is still the latest.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventAnswer> {
     const { version: blockedWords } = await this.blockedWordsNow();
     if (events.length === 0) return { pushes: [], webhooks: [], asks: [], blockedWords };
     const { on: pushing } = await webPush(this.env);
-    // @here notifies those who are active, as presence has them now.
-    const activeIds = pushing && events.some((event) => event.message?.notifies === "here") ? [...this.presence.active()] : [];
+    // @here notifies those who are active, as presence has them now, which pushes and counts its mentions.
+    const activeIds = events.some((event) => event.message?.notifies === "here") ? [...this.presence.active()] : [];
     const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env), activeIds);
     for (const [userId, mark] of marks) this.tell([userId], mark === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, ...mark });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });

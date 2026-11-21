@@ -42,6 +42,8 @@
   --message-divider: #dddddd;
   --message-hover: #f8f8f8;
   --mention: oklch(70% 0.2 44);
+  /* A room's count of mentions, dark on the mention color, which is the same in either theme. */
+  --mention-foreground: #171717;
   /* A notice's green and an alert's red, after Campfire's --color-positive and --color-negative. */
   --positive: oklch(65.59% 0.234 142.49);
   --negative: oklch(51% 0.2 31);
@@ -453,6 +455,7 @@
   --color-message-divider: var(--message-divider);
   --color-message-hover: var(--message-hover);
   --color-mention: var(--mention);
+  --color-mention-foreground: var(--mention-foreground);
   --color-link: var(--link);
   --color-positive: var(--positive);
   --color-negative: var(--negative);

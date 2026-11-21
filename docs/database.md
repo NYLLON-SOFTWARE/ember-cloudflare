@@ -94,7 +94,11 @@ Objects, D1 or speed call for something else.
   changes, so `unread_at` is the time of the first message since someone last read the room; nothing
   reads it but to ask whether it's set. In a DM the same `UPDATE` writes every unread row, adding one
   to `memberships.unread_count` (workspace migration 0065), so a DM's row counts its messages since,
-  as Slack's do; a read sets it back to 0.
+  as Slack's do; a read sets it back to 0. A shared room's row counts the messages since that
+  notify its member instead, in `memberships.mention_count` (workspace migration 0085), which the
+  sidebar shows as Slack's mention badge: one more `UPDATE` in the batch that marks the room raises
+  it, for everyone `@channel` or `@everyone` notifies, or for the people a JSON list names, those a
+  message mentions and those `@here` finds active. A read sets it back to 0 with the mark.
 - **No unbounded lists of bound values.** Durable Object SQLite and D1 bind at most 100 values a
   statement, and binding a page's message ids made a 100-message page fail on both.
 - **Tabs that connect again find what changed through an index on messages.** Campfire's
@@ -225,7 +229,8 @@ Objects, D1 or speed call for something else.
   it into the paragraph Lexxy sends for typed text, in SQL, and set `edited_at` from `updated_at`
   for the messages already edited.
 - **A message keeps whom it notified.** Slack's @here, @channel and @everyone mention no one: each is
-  an attachment whose sgid is its name, which no user id can be. As a message is written its room asks
+  an attachment whose sgid is its name, which no user id can be, as a bot's Slack payload makes one
+  of its text's `<!here>`, `<!channel>` or `<!everyone>`. As a message is written its room asks
   the Workspace whether it may notify the room, which only a message sent to a room's timeline does,
   not one in a DM, a reply in a thread, a bot's reply or an AI's answer, and never one from an AI
   agent, and whether it may with @everyone, which only an open room takes, from anyone but a guest.

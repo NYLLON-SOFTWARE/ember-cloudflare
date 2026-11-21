@@ -180,12 +180,28 @@ describe("Unread rooms", () => {
     expect(random!.querySelector(".rounded-full")).toBeNull();
   });
 
-  it("never marks the room the tab shows", () => {
-    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], currentRoomId: "general" });
+  it("never marks the room the tab shows, nor counts its mentions", () => {
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true, mentionCount: 3 }, rooms[1]!], currentRoomId: "general" });
     const general = screen.getByRole("link", { current: "page" });
     expect(general).not.toHaveClass("font-[650]");
     expect(general).toHaveAccessibleDescription(HELP);
     expect(general.querySelector(".rounded-full")).toBeNull();
+  });
+
+  it("counts the mentions in an unread room on a pill in the mention color in place of its dot, past 99 as 99+, saying how many to screen readers", () => {
+    const design = { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, mentionCount: 1, involvement: "mentions" as const };
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true, mentionCount: 2 }, { ...rooms[1]!, unread: true, mentionCount: 120 }, design] });
+    const [general, random, one] = rows();
+    expect(general).toHaveClass("font-[650]");
+    expect(general).toHaveAccessibleName("general");
+    expect(general).toHaveAccessibleDescription(`Unread 2 mentions ${HELP}`);
+    const count = within(general!).getByText("2");
+    expect(count).toHaveAttribute("aria-hidden", "true");
+    expect(count).toHaveClass("ml-auto", "rounded-full", "bg-mention", "text-mention-foreground", "tabular-nums");
+    expect(general!.querySelector(".size-\\[7px\\]")).toBeNull();
+    expect(within(random!).getByText("99+")).toHaveClass("rounded-full", "bg-mention");
+    expect(random).toHaveAccessibleDescription(`Unread 120 mentions ${HELP}`);
+    expect(one).toHaveAccessibleDescription(`Unread 1 mention ${HELP}`);
   });
 });
 
