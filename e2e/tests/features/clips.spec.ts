@@ -105,6 +105,24 @@ test.describe("Clips", () => {
     }
   });
 
+  test("writes how long a clip is into it where the browser records WebM alone, as Firefox does, as the browser leaves it out, so its player can say", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    // The recorder takes the first type the browser records, so here it takes WebM.
+    await ada.page.evaluate(() => {
+      const records = MediaRecorder.isTypeSupported.bind(MediaRecorder);
+      MediaRecorder.isTypeSupported = (type: string) => !type.includes("mp4") && records(type);
+    });
+    await underText(ada, "Record audio clip").click();
+    await expect(audioRecorder(ada).getByRole("timer")).toHaveAccessibleName("Recording, 0:02 of 5:00");
+    await ada.page.keyboard.press("Enter");
+    await expect(clipChip(ada, "Audio")).toHaveAccessibleName(/\.webm$/);
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+
+    const sound = ada.page.getByRole("article").locator("audio");
+    await expect(sound).toHaveAccessibleName(/^Audio clip .+\.webm$/);
+    expect(await lengthOf(sound)).toBe(2);
+  });
+
   test("discards an audio clip on Escape, and a video clip on Cancel, putting focus back in the text", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await underText(ada, "Record audio clip").click();

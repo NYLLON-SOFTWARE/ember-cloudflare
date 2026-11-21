@@ -1,6 +1,7 @@
-// A WebM recorded by MediaRecorder, as Firefox records clips, says nothing of how long it is, which
-// leaves a player with no length to show, or to seek by, until it has read the whole file. This writes
-// the length it was recorded for into the file's Info, as a muxer that knew it would have.
+// A WebM recorded by MediaRecorder says nothing of how long it is, as Chrome records one, or says 0, as
+// Firefox records clips, which leaves a player with no length to show, or to seek by, until it has read
+// the whole file. This writes the length it was recorded for into the file's Info, as a muxer that knew
+// it would have.
 
 const EBML = 0x1a45dfa3;
 const SEGMENT = 0x18538067;
@@ -69,10 +70,28 @@ export interface WithDuration {
 }
 
 /**
+ * `bytes`' start to the end of the Info's Duration `written` with `time` written over it, which moves
+ * nothing, or null where it says how long the file is already, or isn't a float.
+ */
+function overDuration(bytes: Uint8Array, written: Element, time: number): WithDuration | null {
+  const size = written.size!;
+  if (size !== 4 && size !== 8) return null;
+  const end = written.dataStart + size;
+  const head = bytes.slice(0, end);
+  const float = new DataView(head.buffer, written.dataStart, size);
+  const length = size === 8 ? float.getFloat64(0) : float.getFloat32(0);
+  if (Number.isFinite(length) && length > 0) return null;
+  if (size === 8) float.setFloat64(0, time);
+  else float.setFloat32(0, time);
+  return { head, replaced: end };
+}
+
+/**
  * The start of the WebM whose start is `bytes` with `milliseconds` written into its Info as its duration,
- * which `bytes` must hold to the end of. Null for anything else: a file that isn't a WebM, one that says
- * how long it is already, one whose start `bytes` doesn't hold, and one with a SeekHead, whose positions
- * what's written would move.
+ * which `bytes` must hold to the end of: over the Duration of 0 Firefox writes, in its place, or else
+ * added to the Info. Null for anything else: a file that isn't a WebM, one that says how long it is
+ * already, one whose start `bytes` doesn't hold, and one whose SeekHead points at what adding to the Info
+ * would move.
  */
 export function withDuration(bytes: Uint8Array, milliseconds: number): WithDuration | null {
   const header = elementAt(bytes, 0);
@@ -80,10 +99,13 @@ export function withDuration(bytes: Uint8Array, milliseconds: number): WithDurat
   const segment = elementAt(bytes, header.dataStart + header.size);
   if (segment?.id !== SEGMENT) return null;
 
+  // Firefox's SeekHead, before its Info, is empty, pointing at nothing.
+  let seeks = false;
   let info: Element | null = null;
   for (let at = segment.dataStart; !info; ) {
     const child = elementAt(bytes, at);
-    if (!child || child.size === null || child.id === SEEK_HEAD) return null;
+    if (!child || child.size === null) return null;
+    if (child.id === SEEK_HEAD && child.size > 0) seeks = true;
     if (child.id === INFO) info = child;
     at = child.dataStart + child.size;
   }
@@ -91,17 +113,22 @@ export function withDuration(bytes: Uint8Array, milliseconds: number): WithDurat
   if (infoEnd > bytes.length) return null;
 
   let scale = DEFAULT_SCALE;
+  let written: Element | null = null;
   for (let at = info.dataStart; at < infoEnd; ) {
     const child = elementAt(bytes, at);
-    if (!child || child.size === null || child.id === DURATION) return null;
+    if (!child || child.size === null || child.dataStart + child.size > infoEnd) return null;
     if (child.id === TIMESTAMP_SCALE) scale = uintAt(bytes, child.dataStart, child.size);
+    if (child.id === DURATION) written = child;
     at = child.dataStart + child.size;
   }
+  const time = (milliseconds * 1_000_000) / scale;
+  if (written) return overDuration(bytes, written, time);
+  if (seeks) return null;
 
   // Duration's ID, its size, which is 8, and the time as a float, in the Info's units.
   const duration = new Uint8Array(11);
   duration.set([0x44, 0x89, 0x88]);
-  new DataView(duration.buffer).setFloat64(3, (milliseconds * 1_000_000) / scale);
+  new DataView(duration.buffer).setFloat64(3, time);
 
   const infoId = bytes.subarray(info.start, info.start + numberAt(bytes, info.start, true)!.length);
   const infoData = bytes.subarray(info.dataStart, infoEnd);
