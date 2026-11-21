@@ -1799,9 +1799,10 @@ test.describe("A huddle", () => {
     await grace.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
 
-    // In a window too short for the emoji picker, the panel stops as far under the huddle's header as it
-    // is over its buttons, with its tabs beside the emoji, which have the room that leaves.
-    await grace.setViewportSize({ width: 1280, height: 280 });
+    // In a window too short for the emoji picker, 280px under the top bar, the panel stops as far under
+    // the huddle's header as it is over its buttons, with its tabs beside the emoji, which have the room
+    // that leaves.
+    await grace.setViewportSize({ width: 1280, height: 280 + 44 });
     await react.click();
     await expect(panel.getByRole("tablist")).toHaveAttribute("aria-orientation", "vertical");
     await expect(panel.getByRole("gridcell", { name: "Grinning face", exact: true })).toBeInViewport({ ratio: 0.9 });

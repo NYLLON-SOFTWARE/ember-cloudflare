@@ -3,13 +3,15 @@ import { signInAs } from "../../fixtures";
 import { expect, Member, test } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
+/** An iPad on its side, wider than 900px, but with fingers for a pointer. */
+const tablet = { viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true };
 
-/** The rail's Back and Forward, at its top. */
+/** The top bar's Back and Forward. */
 const arrows = (page: Page, { includeHidden = false } = {}) => {
-  const rail = page.getByRole("navigation", { name: "Workspace" });
+  const bar = page.getByRole("banner", { includeHidden });
   return {
-    back: rail.getByRole("button", { name: "Back", exact: true, includeHidden }),
-    forward: rail.getByRole("button", { name: "Forward", exact: true, includeHidden }),
+    back: bar.getByRole("button", { name: "Back", exact: true, includeHidden }),
+    forward: bar.getByRole("button", { name: "Forward", exact: true, includeHidden }),
   };
 };
 
@@ -111,14 +113,19 @@ test.describe("Back and Forward", () => {
     await expect(ada.page.getByRole("tooltip")).toHaveText(/^Back\s*(⌘\s*\[|Alt\s*←)$/);
   });
 
-  test("stay out of a phone's drawer, since fingers have their own way back", async ({ members }) => {
+  test("stay off a phone, with the top bar, and off a tablet's, since fingers have their own way back", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: phone });
-    await ada.page.getByRole("button", { name: "Open conversations" }).click();
-    const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
-    await expect(drawer.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Home", exact: true })).toBeVisible();
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
     const { back, forward } = arrows(ada.page, { includeHidden: true });
     await expect(back).toBeAttached();
     await expect(back).toBeHidden();
     await expect(forward).toBeHidden();
+    await expect(ada.page.getByRole("banner", { includeHidden: true })).toBeHidden();
+
+    const grace = await members.signIn("Grace", { context: tablet });
+    const bar = grace.page.getByRole("banner");
+    await expect(bar.getByRole("button", { name: "History" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: /^Search / })).toBeVisible();
+    await expect(arrows(grace.page, { includeHidden: true }).back).toBeHidden();
   });
 });

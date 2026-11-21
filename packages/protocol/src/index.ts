@@ -542,8 +542,8 @@ export interface SavedRoomLayout {
 }
 
 /**
- * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
- * settings.
+ * The rail's buttons, the top bar's search field, and the appearance modes, whose icons an administrator
+ * can choose in Community settings.
  */
 export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "light", "dark", "system"] as const;
 export type NavigationSlot = (typeof NAVIGATION_SLOTS)[number];
