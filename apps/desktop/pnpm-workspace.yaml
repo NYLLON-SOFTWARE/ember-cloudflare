@@ -1,0 +1,7 @@
+# The desktop app is a project of its own, outside Ember's workspace, so that installing Ember, its
+# Workers Builds and Deploy to Cloudflare never download Electron. This file makes pnpm treat it so.
+
+# Electron fetches its own binary as it first runs. Squirrel.Windows' installer isn't used: Windows
+# gets NSIS's.
+ignoredBuiltDependencies:
+  - electron-winstaller

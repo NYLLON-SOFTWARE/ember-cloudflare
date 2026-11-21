@@ -1,0 +1,84 @@
+name: Desktop
+
+# The desktop app (apps/desktop), which installs and builds apart from Ember's workspace: type-checked,
+# tested and packaged on macOS, Windows and Linux whenever it changes, with each system's packages kept
+# for a week. They aren't signed yet (apps/desktop/README.md says how to open them).
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/desktop/**
+      # The flame its pages show, and its icon.
+      - apps/web/public/ember-icon.png
+      - apps/web/public/logos/app-icon.png
+      - .github/workflows/desktop.yml
+  pull_request:
+    paths:
+      - apps/desktop/**
+      - apps/web/public/ember-icon.png
+      - apps/web/public/logos/app-icon.png
+      - .github/workflows/desktop.yml
+
+# It only reads the repository, so its token can only read it.
+permissions:
+  contents: read
+
+# A newer push to a pull request stops the run of the one before.
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Only in Ember's own repository and on pull requests to it, as CI's jobs.
+  desktop:
+    if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Let Electron's sandbox start
+        # Ubuntu 24.04 keeps programs from making the user namespaces Chromium's sandbox starts in.
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Test the app
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a pnpm test:app; else pnpm test:app; fi
+      - name: Package it
+        shell: bash
+        # Unsigned for now. A Mac's is signed ad hoc, without the hardened runtime that needs a real
+        # signature, since an Apple silicon Mac opens no app that's unsigned. electron-builder signs
+        # nothing for a pull request unless told to, to keep a real signature's secrets from one, and
+        # an ad hoc signature has none.
+        env:
+          CSC_FOR_PULL_REQUEST: true
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then pnpm package -c.mac.identity=- -c.mac.hardenedRuntime=false; else pnpm package; fi
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ember-desktop-${{ runner.os }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+          if-no-files-found: error
+          retention-days: 7
