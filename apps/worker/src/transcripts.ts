@@ -39,7 +39,7 @@ export async function roomTranscript(request: Request, env: Env, roomId: RoomId)
   if (format === null) return problem(422, TRANSCRIPT_FORMAT_REFUSED);
   const exportedAt = new Date().toISOString();
   const room = transcriptRoomOf(found.room, found.user.id);
-  return fileOf(room.name, format, streamOf((write) => writeRoom(write, env, credentials, roomId, room, exportedAt, format)));
+  return fileOf(room.name, format, streamOf(writeRoom(env, credentials, roomId, room, exportedAt, format)));
 }
 
 /**
@@ -53,10 +53,10 @@ export async function workspaceTranscript(request: Request, env: Env): Promise<R
   if (!credentials || !found) return problem(401, NOT_SIGNED_IN);
   if (format === null) return problem(422, TRANSCRIPT_FORMAT_REFUSED);
   const exportedAt = new Date().toISOString();
-  return fileOf("your-conversations", format, streamOf((write) => writeWorkspace(write, env, credentials, found.user, found.rooms, exportedAt, format)));
+  return fileOf("your-conversations", format, streamOf(writeWorkspace(env, credentials, found.user, found.rooms, exportedAt, format)));
 }
 
-/** `name` as a download of `format`, written as `run` produces it. */
+/** `name` as a download of `format`, written as `body` is read. */
 function fileOf(name: string, format: TranscriptFormat, body: ReadableStream<Uint8Array>): Response {
   const filename = `${sanitizedFilename(name) || "transcript"}.${format === "json" ? "json" : "md"}`;
   return new Response(body, {
@@ -68,17 +68,25 @@ function fileOf(name: string, format: TranscriptFormat, body: ReadableStream<Uin
   });
 }
 
-function streamOf(run: (write: (text: string) => void) => Promise<void>): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    async start(controller) {
-      try {
-        await run((text) => controller.enqueue(encoder.encode(text)));
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
+function streamOf(chunks: AsyncIterable<string>): ReadableStream<Uint8Array> {
+  const iterator = chunks[Symbol.asyncIterator]();
+  return new ReadableStream(
+    {
+      async pull(controller) {
+        try {
+          const { value, done } = await iterator.next();
+          if (done) controller.close();
+          else controller.enqueue(encoder.encode(value));
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      async cancel() {
+        await iterator.return?.();
+      },
     },
-  });
+    new CountQueuingStrategy({ highWaterMark: 1 }),
+  );
 }
 
 /**
@@ -104,51 +112,48 @@ async function messagesOf(env: Env, credentials: Credentials, roomId: RoomId): P
   return messages;
 }
 
-async function writeRoom(write: (text: string) => void, env: Env, credentials: Credentials, roomId: RoomId, room: TranscriptRoom, exportedAt: string, format: TranscriptFormat): Promise<void> {
+async function* writeRoom(env: Env, credentials: Credentials, roomId: RoomId, room: TranscriptRoom, exportedAt: string, format: TranscriptFormat): AsyncGenerator<string> {
   if (format === "json") {
-    write(`{\n  "room": ${JSON.stringify(room)},\n  "exportedAt": ${JSON.stringify(exportedAt)},\n  "messages": [`);
+    yield `{\n  "room": ${JSON.stringify(room)},\n  "exportedAt": ${JSON.stringify(exportedAt)},\n  "messages": [`;
     let first = true;
     for await (const page of pagesOf(env, credentials, roomId)) {
       for (const message of page) {
-        write(first ? "\n    " : ",\n    ");
+        yield `${first ? "\n    " : ",\n    "}${JSON.stringify(message)}`;
         first = false;
-        write(JSON.stringify(message));
       }
     }
-    write(first ? "]\n}\n" : "\n  ]\n}\n");
+    yield first ? "]\n}\n" : "\n  ]\n}\n";
     return;
   }
   // Markdown groups replies under their parent, so one room is gathered after it's paged over RPC.
-  write(roomTranscriptMarkdown({ room, exportedAt, messages: await messagesOf(env, credentials, roomId) }));
+  yield roomTranscriptMarkdown({ room, exportedAt, messages: await messagesOf(env, credentials, roomId) });
 }
 
-async function writeWorkspace(write: (text: string) => void, env: Env, credentials: Credentials, user: User, rooms: Room[], exportedAt: string, format: TranscriptFormat): Promise<void> {
+async function* writeWorkspace(env: Env, credentials: Credentials, user: User, rooms: Room[], exportedAt: string, format: TranscriptFormat): AsyncGenerator<string> {
   if (format === "json") {
-    write(`{\n  "exportedAt": ${JSON.stringify(exportedAt)},\n  "rooms": [`);
+    yield `{\n  "exportedAt": ${JSON.stringify(exportedAt)},\n  "rooms": [`;
     let firstRoom = true;
     for (const listed of rooms) {
       const room = transcriptRoomOf(listed, user.id);
-      write(firstRoom ? "\n    " : ",\n    ");
+      yield `${firstRoom ? "\n    " : ",\n    "}{\n      "room": ${JSON.stringify(room)},\n      "exportedAt": ${JSON.stringify(exportedAt)},\n      "messages": [`;
       firstRoom = false;
-      write(`{\n      "room": ${JSON.stringify(room)},\n      "exportedAt": ${JSON.stringify(exportedAt)},\n      "messages": [`);
       let firstMessage = true;
       for await (const page of pagesOf(env, credentials, listed.id)) {
         for (const message of page) {
-          write(firstMessage ? "\n        " : ",\n        ");
+          yield `${firstMessage ? "\n        " : ",\n        "}${JSON.stringify(message)}`;
           firstMessage = false;
-          write(JSON.stringify(message));
         }
       }
-      write(firstMessage ? "]\n    }" : "\n      ]\n    }");
+      yield firstMessage ? "]\n    }" : "\n      ]\n    }";
     }
-    write(rooms.length === 0 ? "]\n}\n" : "\n  ]\n}\n");
+    yield rooms.length === 0 ? "]\n}\n" : "\n  ]\n}\n";
     return;
   }
-  write(`# Your conversations\n\nExported ${exportedAt}.\n`);
+  yield `# Your conversations\n\nExported ${exportedAt}.\n`;
   if (rooms.length === 0) return;
-  write("\n");
+  yield "\n";
   for (const [index, listed] of rooms.entries()) {
-    if (index > 0) write("\n---\n\n");
-    write(roomTranscriptMarkdown({ room: transcriptRoomOf(listed, user.id), exportedAt, messages: await messagesOf(env, credentials, listed.id) }));
+    if (index > 0) yield "\n---\n\n";
+    yield roomTranscriptMarkdown({ room: transcriptRoomOf(listed, user.id), exportedAt, messages: await messagesOf(env, credentials, listed.id) });
   }
 }

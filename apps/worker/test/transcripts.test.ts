@@ -14,6 +14,7 @@ import { TRANSCRIPT_PAGE } from "../src/store";
 import { pagesOf } from "../src/transcripts";
 import {
   api,
+  apiWith,
   connect,
   cookieOf,
   createRoom,
@@ -63,6 +64,23 @@ async function administrator(): Promise<Session> {
   return { user: shown(user), cookie: cookieOf(response) };
 }
 
+/** Puts `count` messages by `creatorId` in `room`, numbered from 0 with `prefix` and `word`. */
+async function fillRoom(room: string, creatorId: string, prefix: string, word: string, count: number): Promise<void> {
+  await roomSql(
+    room,
+    `WITH RECURSIVE seq(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i + 1 < ?)
+     INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at)
+     SELECT printf('%s%04d', ?, i), ?, printf('%s%04d', ?, i), ?, 'Ada', '<p>n</p>', ? || ' ' || i, '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z'
+     FROM seq`,
+    count,
+    prefix,
+    room,
+    prefix,
+    creatorId,
+    word,
+  );
+}
+
 describe("Who may download a transcript", () => {
   it("answers 401 without a session, for a room and for every conversation", async () => {
     const room = await freshRoom("lobby");
@@ -102,19 +120,7 @@ describe("Who may download a transcript", () => {
     const room = await freshRoom("left");
     const ada = await signIn("Ada");
     await connect(room, ada);
-    for (let i = 0; i < TRANSCRIPT_PAGE + 5; i++) {
-      const id = `l${String(i).padStart(4, "0")}`;
-      await roomSql(
-        room,
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'Ada', '<p>n</p>', ?, '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z')`,
-        id,
-        room,
-        id,
-        ada.user.id,
-        `page ${i}`,
-      );
-    }
+    await fillRoom(room, ada.user.id, "l", "page", TRANSCRIPT_PAGE + 5);
     const credentials = (await credentialsOf(new Request("https://ember.test/", withCookie(ada.cookie)), env as unknown as Env))!;
 
     const pages = pagesOf(env as unknown as Env, credentials, room);
@@ -225,19 +231,7 @@ describe("A room's transcript", () => {
     const ada = await signIn("Ada");
     await connect(room, ada);
     const count = TRANSCRIPT_PAGE + 5;
-    for (let i = 0; i < count; i++) {
-      const id = `m${String(i).padStart(4, "0")}`;
-      await roomSql(
-        room,
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'Ada', '<p>n</p>', ?, '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z')`,
-        id,
-        room,
-        id,
-        ada.user.id,
-        `message ${i}`,
-      );
-    }
+    await fillRoom(room, ada.user.id, "m", "message", count);
     const json = (await (await roomTranscript(ada, room, "json")).json()) as RoomTranscript;
     expect(json.messages).toHaveLength(count);
     expect(json.messages[0]!.text).toBe("message 0");
@@ -250,19 +244,7 @@ describe("A room's transcript", () => {
     const ada = await signIn("Ada");
     await connect(room, ada);
     const count = TRANSCRIPT_PAGE + 5;
-    for (let i = 0; i < count; i++) {
-      const id = `p${String(i).padStart(4, "0")}`;
-      await roomSql(
-        room,
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'Ada', '<p>n</p>', ?, '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z')`,
-        id,
-        room,
-        id,
-        ada.user.id,
-        `page ${i}`,
-      );
-    }
+    await fillRoom(room, ada.user.id, "p", "page", count);
     const first = await roomStub(room).transcriptPage(room);
     expect(first.messages.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE);
     expect(first.messages).toHaveLength(TRANSCRIPT_PAGE);
@@ -277,6 +259,42 @@ describe("A room's transcript", () => {
     expect(json.messages).toHaveLength(count);
     expect(json.messages.map((message) => message.text)).toEqual([...first.messages, ...second.messages].map((message) => message.text));
     expect(await (await roomTranscript(ada, room)).text()).toContain("page 104");
+  });
+
+  it("streams on demand without reading further pages ahead of a slow or cancelled download", async () => {
+    const room = await freshRoom("backpressure");
+    const ada = await signIn("Ada");
+    await connect(room, ada);
+    await fillRoom(room, ada.user.id, "b", "page", TRANSCRIPT_PAGE * 3 + 5);
+
+    let pagesRead = 0;
+    const chatRoom = {
+      getByName: (name: string) => {
+        const stub = roomStub(name);
+        return {
+          transcriptPage: (id: string, after?: string) => {
+            pagesRead++;
+            return after === undefined ? stub.transcriptPage(id) : stub.transcriptPage(id, after);
+          },
+        };
+      },
+    } as unknown as Env["CHAT_ROOM"];
+
+    const response = await apiWith({ CHAT_ROOM: chatRoom }, `/api/rooms/${room}/transcript?format=json`, withCookie(ada.cookie));
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    await scheduler.wait(25);
+    expect(pagesRead).toBeLessThanOrEqual(1);
+
+    const second = await reader.read();
+    expect(new TextDecoder().decode(second.value)).toContain('"page 0"');
+    expect(pagesRead).toBe(1);
+
+    await reader.cancel();
+    await scheduler.wait(25);
+    expect(pagesRead).toBe(1);
   });
 
   it("writes a live image-only message as an image, not as deleted, without its file's address", async () => {
