@@ -755,11 +755,12 @@ export interface AppliedEvents {
 
 /**
  * Someone's unread mark on a room: when the first message they haven't seen came, and in a DM how many
- * have come since, which a room doesn't count.
+ * have come since, which a room doesn't count, or in a room how many of them mention them, when any do.
  */
 export interface Mark {
   at: string;
   count?: number;
+  mentions?: number;
 }
 
 /**
@@ -1792,6 +1793,7 @@ interface SidebarRow extends HuddleRow, HuddlesAllowedRow, ChannelMentionsAllowe
   unread: number;
   unread_since: string | null;
   unread_count: number;
+  mention_count: number;
   involvement: Involvement;
   shared_position: number | null;
 }
@@ -1864,14 +1866,16 @@ const roomOf = (row: SidebarRow, members: DirectMemberRow[] = []): Room =>
   row.kind === "direct" ? directOf(row.id, row.active_at, members, row) : { id: row.id, kind: row.kind, name: row.name ?? "", icon: row.icon, ...roomSwitches(row) };
 
 /**
- * A room as someone's sidebar lists it, with whether it's marked unread for them, since when, and in a
- * DM how many messages have come since, at least the one that marked it, and their level in it.
+ * A room as someone's sidebar lists it, with whether it's marked unread for them, since when, in a DM
+ * how many messages have come since, at least the one that marked it, and in a room how many of those
+ * mention them, if any do, and their level in it.
  */
 const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom => ({
   ...roomOf(row, members),
   unread: row.unread === 1,
   ...(row.unread_since !== null && { unreadSince: row.unread_since }),
   ...(row.unread === 1 && row.kind === "direct" && { unreadCount: Math.max(row.unread_count, 1) }),
+  ...(row.unread === 1 && row.kind !== "direct" && row.mention_count > 0 && { mentionCount: row.mention_count }),
   involvement: row.involvement,
 });
 
@@ -1934,7 +1938,7 @@ function welcomedBy({ id, name }: User, welcomes: Welcome[], started: Array<{ id
  * kept a list (`LEGACY_ROOMS`), whose ids don't sort by time, by when they were listed.
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, ${START}, memberships.unread_at IS NOT NULL AS unread,
-    memberships.unread_at AS unread_since, memberships.unread_count, memberships.involvement, rooms.shared_position, rooms.huddle_started_at,
+    memberships.unread_at AS unread_since, memberships.unread_count, memberships.mention_count, memberships.involvement, rooms.shared_position, rooms.huddle_started_at,
     rooms.huddle_user_ids, rooms.huddles_allowed, rooms.channel_mentions_allowed, rooms.section_id
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY memberships.created_at, rooms.created_at, rooms.id`;
@@ -2349,23 +2353,48 @@ export const MARK_UNREAD = `UPDATE memberships SET unread_at = coalesce(unread_a
   WHERE room_id = ?2 AND involvement <> 'invisible' AND user_id <> ?3
     AND (unread_at IS NULL OR EXISTS (SELECT 1 FROM rooms WHERE id = ?2 AND kind = 'direct'))
     AND user_id NOT IN (SELECT value FROM json_each(?4)) AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?2) AND NOT ${blockedBy("?3")}
-  RETURNING user_id, unread_at, unread_count`;
+  RETURNING user_id, unread_at, unread_count, mention_count`;
 
-/** A membership whose mark `MARK_UNREAD` or `MARK_READ` changed, as it is now. */
+/**
+ * Counts a mention for each of room ?1's members a message by ?2, numbered ?4, notifies with @channel or
+ * @everyone: those `MARK_UNREAD` marks, who haven't hidden the room, aren't among the people the JSON list
+ * ?3 names, who are viewing it, and haven't blocked ?2, at Nothing too, as Slack counts a muted channel's
+ * mentions. Once applied, the message counts for nobody again.
+ */
+export const COUNT_ROOM_MENTION = `UPDATE memberships SET mention_count = mention_count + 1
+  WHERE room_id = ?1 AND involvement <> 'invisible' AND user_id <> ?2 AND user_id NOT IN (SELECT value FROM json_each(?3))
+    AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1) AND NOT ${blockedBy("?2")}
+  RETURNING user_id, unread_at, unread_count, mention_count`;
+
+/**
+ * Counts a mention, as `COUNT_ROOM_MENTION` does, for each of them the JSON list ?5 names: whom the
+ * message mentions by name, and with @here those active. A DM counts all its messages instead.
+ */
+export const COUNT_MENTIONS = `UPDATE memberships SET mention_count = mention_count + 1
+  WHERE room_id = ?1 AND involvement <> 'invisible' AND user_id <> ?2 AND user_id NOT IN (SELECT value FROM json_each(?3))
+    AND user_id IN (SELECT value FROM json_each(?5)) AND NOT EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct')
+    AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1) AND NOT ${blockedBy("?2")}
+  RETURNING user_id, unread_at, unread_count, mention_count`;
+
+/** A membership whose mark `MARK_UNREAD`, `MARK_READ` or a mention's count changed, as it is now. */
 interface MarkRow {
   user_id: UserId;
   unread_at: string | null;
   unread_count: number;
+  mention_count: number;
 }
 
-/** The mark `row` leaves, with its count where messages are `counted`, or null for none. */
-const markOf = (row: MarkRow, counted: boolean): Mark | null =>
-  row.unread_at === null ? null : { at: row.unread_at, ...(counted && { count: Math.max(row.unread_count, 1) }) };
+/** The mark `row` leaves, with its count where messages are `counted`, or else its mentions' count if it has any, or null for none. */
+const markOf = (row: MarkRow, counted: boolean): Mark | null => {
+  if (row.unread_at === null) return null;
+  if (counted) return { at: row.unread_at, count: Math.max(row.unread_count, 1) };
+  return { at: row.unread_at, ...(row.mention_count > 0 && { mentions: row.mention_count }) };
+};
 
-/** Clears someone's unread mark on a room, and its count, answering a row if there was one, once for each event. */
-export const MARK_READ = `UPDATE memberships SET unread_at = NULL, unread_count = 0
+/** Clears someone's unread mark on a room, and its counts, answering a row if there was one, once for each event. */
+export const MARK_READ = `UPDATE memberships SET unread_at = NULL, unread_count = 0, mention_count = 0
   WHERE room_id = ?1 AND user_id = ?2 AND unread_at IS NOT NULL AND ?3 > (SELECT applied_seq FROM rooms WHERE id = ?1)
-  RETURNING user_id, unread_at, unread_count`;
+  RETURNING user_id, unread_at, unread_count, mention_count`;
 
 /**
  * Everyone in DM ?1, to tell of a message in it, numbered ?2, that the Workspace hasn't applied yet,
@@ -2418,9 +2447,26 @@ export const ROOM_MENTION_PUSHES = pushesOfMessage(`memberships.involvement IN (
  */
 function messagePushesOf(roomId: RoomId, { seq, userId, threadOnly, message }: RoomEvent & { message: PushedMessage }, seeing: string, guests: boolean, activeIds: UserId[]): Statement {
   const shared = [roomId, userId, seeing, seq, guests ? 1 : 0] as const;
-  if (message.notifies === "channel" || message.notifies === "everyone") return statement(ROOM_MENTION_PUSHES, ...shared);
-  const mentioned = message.notifies === "here" ? [...new Set([...message.mentionIds, ...activeIds])] : message.mentionIds;
-  return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentioned), JSON.stringify(message.followerIds ?? []));
+  if (notifiesEveryone(message)) return statement(ROOM_MENTION_PUSHES, ...shared);
+  return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentionedBy(message, activeIds)), JSON.stringify(message.followerIds ?? []));
+}
+
+/** Whether `message` notifies everyone in its room, as @channel does, and @everyone in an open room. */
+const notifiesEveryone = (message: PushedMessage) => message.notifies === "channel" || message.notifies === "everyone";
+
+/** Whom `message` mentions by name, and with @here those of `activeIds`, active now, once each. */
+const mentionedBy = (message: PushedMessage, activeIds: UserId[]) => (message.notifies === "here" ? [...new Set([...message.mentionIds, ...activeIds])] : message.mentionIds);
+
+/**
+ * What counts the mentions a new message sent to room `roomId` makes of the members it notifies or
+ * names, with `seeing`, who is viewing the room, and `activeIds`, whom @here notifies, or null for a
+ * reply sent only to its thread, which marks the room for nobody, or a message that mentions nobody.
+ */
+function mentionCountsOf(roomId: RoomId, { seq, userId, threadOnly, message }: RoomEvent, seeing: string, activeIds: UserId[]): Statement | null {
+  if (!message || threadOnly) return null;
+  if (notifiesEveryone(message)) return statement(COUNT_ROOM_MENTION, roomId, userId, seeing, seq);
+  const mentioned = mentionedBy(message, activeIds);
+  return mentioned.length > 0 ? statement(COUNT_MENTIONS, roomId, userId, seeing, seq, JSON.stringify(mentioned)) : null;
 }
 
 /** How many people are in room ?1 but ?2, those whose accounts are active, but bots, which no mention notifies. */
@@ -5275,11 +5321,13 @@ export class WorkspaceStore {
   /**
    * Applies `events` from room `roomId`'s log, in order and in one transaction, with `viewerIds`, who
    * is viewing the room, or for a message whose event names its own `viewerIds`, those: a message marks
-   * it unread for the members who aren't, in a DM counting it for them too, and a read clears the
-   * reader's mark. The latest message also records when the room was last active. A reply sent only to
-   * its thread does neither, and isn't pushed to those its event's `viewerIds` say are viewing the thread,
-   * in place of those viewing the room. Those the Workspace has applied before change nothing. Answers
-   * whose marks changed, in a DM whose counts did, and how each is marked now, and, when a message has
+   * it unread for the members who aren't, in a DM counting it for them too, and in a room counting it for
+   * those it mentions, by name, or as @channel and @everyone mention everyone and @here those of
+   * `activeIds`, and a read clears the reader's mark and counts. The latest message also records when the
+   * room was last active. A reply sent only to its thread does none of that, and isn't pushed to those its
+   * event's `viewerIds` say are viewing the thread, in place of those viewing the room. Those the Workspace
+   * has applied before change nothing. Answers whose marks changed, in a DM whose counts did, and in a room
+   * whose mentions did, and how each is marked now, and, when a message has
    * come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`, it answers each
    * new message's pushes too, found just after its marks, so that a push's badge counts them and none of
    * the events after it, and to guests only if `guests` says they can stay signed in, a message that
@@ -5300,12 +5348,14 @@ export class WorkspaceStore {
       const seeing = event.viewerIds === undefined ? viewers : JSON.stringify(event.viewerIds);
       const mark = isNewMessage(event) ? (event.threadOnly ? null : statement(MARK_UNREAD, at, roomId, userId, seeing, seq)) : statement(MARK_READ, roomId, userId, seq);
       const marks = mark && statements.push(mark) - 1;
+      const counting = mentionCountsOf(roomId, event, seeing, activeIds);
+      const mentioned = counting && statements.push(counting) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
       const pushes = pushing && event.message ? statements.push(messagePushesOf(roomId, { ...event, message: event.message }, seeing, guests, activeIds)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
-      return { event, marks, pushes, bots };
+      return { event, marks, mentioned, pushes, bots };
     });
     const told = statements.length;
     statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
@@ -5313,10 +5363,13 @@ export class WorkspaceStore {
     const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
     // Only a DM's people are told of its messages, and only a DM counts them.
     const counted = toldIds.length > 0;
+    // Each member's mark as the last of the event's statements to change it leaves it.
     const marks = new Map<UserId, Mark | null>();
-    for (const { marks: at } of applied) {
-      if (at === null) continue;
-      for (const row of results[at] as MarkRow[]) marks.set(row.user_id, markOf(row, counted));
+    for (const { marks: at, mentioned } of applied) {
+      for (const changed of [at, mentioned]) {
+        if (changed === null) continue;
+        for (const row of results[changed] as MarkRow[]) marks.set(row.user_id, markOf(row, counted));
+      }
     }
     const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
     const deliveries = applied.flatMap(({ event, bots: at }) => (at === null ? [] : messageDeliveries(event, results[at] as MessageBotRow[])));

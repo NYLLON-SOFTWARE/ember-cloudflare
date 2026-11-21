@@ -207,6 +207,41 @@ test.describe("Highlight mentions of you", () => {
   });
 });
 
+// Slack's mention badges, counting what in an unread room asks for you.
+test.describe("Count mentions of you", () => {
+  test("counts the messages mentioning you in a room you're not in on its row, in place of its dot, through a reload, until you open it", async ({ members, rooms }) => {
+    const tag = newTag();
+    const ada = await members.signIn(`Ada ${tag}`, { path: `/rooms/${rooms.random.id}` });
+    const grace = await members.signIn(`Grace ${tag}`);
+    const row = (name: string) => ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name });
+    const general = row("general");
+
+    await grace.send("Lunch?");
+    await expect(general).toHaveAccessibleDescription(/^Unread/);
+    await expect(general).not.toHaveAccessibleDescription(/mention/);
+
+    await sendMention(grace, "Thanks ", tag, [`Ada ${tag}`, `Grace ${tag}`]);
+    await expect(general).toHaveAccessibleDescription(/^Unread 1 mention /);
+    await sendMention(grace, "And ", tag, [`Ada ${tag}`, `Grace ${tag}`]);
+    await expect(general).toHaveAccessibleDescription(/^Unread 2 mentions /);
+    await expect(general.getByText("2", { exact: true })).toHaveCSS("height", "18px");
+
+    // The server keeps the count.
+    await ada.page.reload();
+    await expect(general).toHaveAccessibleDescription(/^Unread 2 mentions /);
+
+    await general.click();
+    await expect(general).not.toHaveAccessibleDescription(/^Unread/);
+    await expect(general.getByText("2", { exact: true })).toBeHidden();
+
+    // Reading it starts the count again.
+    await row("random").click();
+    await grace.send("Bye");
+    await expect(general).toHaveAccessibleDescription(/^Unread/);
+    await expect(general).not.toHaveAccessibleDescription(/mention/);
+  });
+});
+
 // Slack's @here and @channel, which notify the room rather than someone.
 test.describe("Notify a room", () => {
   test("offers @here and @channel after the people, and @here first once it's typed in full, which Space picks, highlighting the message for everyone", async ({ members, participant }) => {

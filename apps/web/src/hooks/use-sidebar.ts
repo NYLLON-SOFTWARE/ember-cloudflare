@@ -255,7 +255,7 @@ export function useSidebar(
           invitation({ type: "over", roomId: frame.roomId });
           return change({ type: "gone", roomId: frame.roomId });
         case "room.unread":
-          return change({ type: "marked", roomId: frame.roomId, at: frame.at, count: frame.count });
+          return change({ type: "marked", roomId: frame.roomId, at: frame.at, count: frame.count, mentions: frame.mentions });
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, at: null });
         case "room.active":
