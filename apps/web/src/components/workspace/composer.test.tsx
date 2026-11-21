@@ -1,10 +1,10 @@
 import { MAX_FILE_SIZE, SCHEDULE_TIME_REFUSED, type LinkPreview, type NotifiedCounts, type ScheduledMessage } from "@ember/protocol";
-import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, type SpecialMention } from "@ember/richtext/dom";
+import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, ROOM_MENTION_CONTENT_TYPE, type SpecialMention } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
-import { PeopleContext } from "@/hooks/use-directory";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { RoomsContext, type Rooms } from "@/hooks/use-rooms";
 import { previewOf } from "@/lib/previews";
 import type { Typist } from "@/lib/room-state";
@@ -53,6 +53,7 @@ async function showComposer({
   warns = true,
   onCommand = undefined as CommandRunner | undefined,
   rooms = null as Rooms | null,
+  people = new Map() as People,
   scheduling = undefined as ComposerScheduling | undefined,
 } = {}) {
   // Hears a link's preview that comes once the message has gone.
@@ -63,26 +64,28 @@ async function showComposer({
   const composer = createRef<ComposerHandle>();
   const view = render(
     <Warning on={warns}>
-      <RoomsContext value={rooms}>
-        <Composer
-          ref={composer}
-          roomId={roomId}
-          roomName="general"
-          direct={direct}
-          userId="u1"
-          typing={typing}
-          disabled={disabled}
-          threadId={threadId}
-          onSend={onSend}
-          onSendFiles={onSendFiles}
-          onTyping={onTyping}
-          autoFocus={autoFocus}
-          mentionsAbove={mentionsAbove}
-          commands={onCommand && SLASH_COMMANDS}
-          onCommand={onCommand}
-          scheduling={scheduling}
-        />
-      </RoomsContext>
+      <PeopleContext value={people}>
+        <RoomsContext value={rooms}>
+          <Composer
+            ref={composer}
+            roomId={roomId}
+            roomName="general"
+            direct={direct}
+            userId="u1"
+            typing={typing}
+            disabled={disabled}
+            threadId={threadId}
+            onSend={onSend}
+            onSendFiles={onSendFiles}
+            onTyping={onTyping}
+            autoFocus={autoFocus}
+            mentionsAbove={mentionsAbove}
+            commands={onCommand && SLASH_COMMANDS}
+            onCommand={onCommand}
+            scheduling={scheduling}
+          />
+        </RoomsContext>
+      </PeopleContext>
     </Warning>,
   );
   // The editor loads as the first composer shows.
@@ -1403,6 +1406,18 @@ describe("Schedule for later", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("names the people and rooms a scheduled message mentions as they are now, as the room keeps only their ids", async () => {
+    const grace = { id: "grace00000000001", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/grace00000000001/avatar" } as const;
+    const stored = (contentType: string, sgid: string) => `<action-text-attachment content-type="${contentType}" sgid="${sgid}"></action-text-attachment>`;
+    const body = `<p>Ask ${stored(MENTION_CONTENT_TYPE, grace.id)} in ${stored(ROOM_MENTION_CONTENT_TYPE, "design")}, not ${stored(ROOM_MENTION_CONTENT_TYPE, "left")}</p>`;
+    const scheduling = schedulingWith({ scheduled: [scheduledAs("s1", { body })] });
+    const rooms: Rooms = new Map([["design", { id: "design", kind: "closed", name: "design", icon: null }]]);
+    const { user } = await showComposer({ scheduling, rooms, people: new Map([[grace.id, grace]]) });
+    await user.click(screen.getByRole("button", { name: "1 scheduled message in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    expect(within(dialog).getByRole("listitem")).toHaveTextContent("Ask @Grace Hopper in #design, not #private room");
   });
 
   it("takes Escape in a message being edited to close its editor, and only then the list", async () => {

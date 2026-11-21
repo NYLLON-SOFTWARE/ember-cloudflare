@@ -1,11 +1,13 @@
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { ScheduledMessage } from "@ember/protocol";
-import { writtenBody } from "@ember/richtext/dom";
+import { plainText, PRIVATE_ROOM_NAME, userIdFromSgid, writtenBody } from "@ember/richtext/dom";
 import { Clock, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { PeopleContext } from "@/hooks/use-directory";
 import type { Scheduling } from "@/hooks/use-room";
+import { RoomsContext } from "@/hooks/use-rooms";
 import { scheduleChoices, sendAtLabel, type ScheduleChoice } from "@/lib/schedule-times";
 import { cn } from "@/lib/utils";
 import { MessageEditor } from "./message-editor";
@@ -143,12 +145,31 @@ interface ItemProps {
   onDone: (refusal: string | null) => void;
 }
 
+/**
+ * What the scheduled message `body` says, as its list shows it: its plain text, naming the people and rooms
+ * it mentions as they are now, since the room keeps a mention by its id alone, and a room you're no longer
+ * in as a private room, as a message shows it.
+ */
+function useShownText(body: string): string {
+  const people = useContext(PeopleContext);
+  const rooms = useContext(RoomsContext);
+  return plainText(
+    body,
+    (sgid) => {
+      const person = people.get(userIdFromSgid(sgid) ?? "");
+      return person && { id: person.id, name: person.name };
+    },
+    (id) => rooms?.get(id) ?? { id, name: PRIVATE_ROOM_NAME },
+  );
+}
+
 function ScheduledItem({ message, roomId, now, editing, onEdit, scheduling, onDone }: ItemProps) {
   const [choices, setChoices] = useState<ScheduleChoice[]>([]);
   const [customTime, setCustomTime] = useState(false);
   const customTimePicked = useRef(false);
   const editButton = useRef<HTMLButtonElement>(null);
   const { id, body } = message;
+  const text = useShownText(body);
   const reschedule = (at: Date) => onDone(scheduling.reschedule(id, at));
   // Focus goes back to Edit as the editor closes, as it's saved or put away, rather than to the list.
   const closeEditor = () => {
@@ -173,7 +194,7 @@ function ScheduledItem({ message, roomId, now, editing, onEdit, scheduling, onDo
           onClose={closeEditor}
         />
       ) : (
-        <p className="mt-1 line-clamp-3 text-sm whitespace-pre-line text-message-ink wrap-anywhere">{writtenBody(body).plainText.trim() || "Message"}</p>
+        <p className="mt-1 line-clamp-3 text-sm whitespace-pre-line text-message-ink wrap-anywhere">{text.trim() || "Message"}</p>
       )}
       {message.failure && <p className="mt-1 text-[13px] text-negative">{message.failure}</p>}
       {!editing && (
