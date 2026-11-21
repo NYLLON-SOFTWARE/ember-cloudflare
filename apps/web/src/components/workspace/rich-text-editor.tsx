@@ -1,6 +1,18 @@
-import { configure, Extension, Lexical, type ElementNode, type LexicalEditor, type RangeSelection } from "@37signals/lexxy";
-import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
+import {
+  $isCustomActionTextAttachmentNode,
+  configure,
+  CustomActionTextAttachmentNode,
+  Extension,
+  Lexical,
+  type ElementNode,
+  type LexicalEditor,
+  type LexicalNode,
+  type RangeSelection,
+} from "@37signals/lexxy";
+import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, ROOM_MENTION_CONTENT_TYPE, roomMentionContent } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
+import { roomIconUrl } from "@/components/icons/room-icon";
+import type { RoomCard, Rooms } from "@/hooks/use-rooms";
 import { sameFormat, type FormattingCommand, type LinkDraft, type TextFormat } from "@/lib/formatting";
 import { registerQuoteLines } from "./quote-lines";
 import { $applyFormatting, $formatOf, $linkDraft, $unlink, linkText, startNewBlock, type FormattedEditor } from "./text-formatting";
@@ -76,51 +88,192 @@ configure({
   default: { toolbar: false, headings: ["h1", "h2", "h3"] },
 });
 
+/** A `<lexxy-prompt>`, as far as this uses it. */
+type LexxyPrompt = HTMLElement & {
+  /** Its list, from when it first opens. */
+  readonly popoverElement?: HTMLElement | null;
+  /**
+   * Where it finds what it lists, while it's connected: for a prompt of `<lexxy-prompt-item>`s, such as the #
+   * prompt, the items it held as it connected, which Lexxy reads only then.
+   */
+  readonly source?: { inlinePromptItemElements?: Element[] } | null;
+};
+
 /**
  * The @ prompt: typing @ lists the people `src` answers with as prompt items, those whose names hold
  * what follows the @, which Lexxy adds as `filter`. Lexxy opens the list under the cursor where it fits
  * the window, or else above it, or always above it with `above`.
  */
-function mentionPrompt(src: string, above: boolean): HTMLElement {
-  const prompt = document.createElement("lexxy-prompt");
-  const attributes = { trigger: "@", name: "mention", src, "remote-filtering": "true", "empty-results": "No matches" };
-  for (const [name, value] of Object.entries(attributes)) prompt.setAttribute(name, value);
-  if (above) prompt.setAttribute("vertical-direction", "top");
-  return prompt;
+function mentionPrompt(src: string, above: boolean): LexxyPrompt {
+  return lexxyPrompt({ trigger: "@", name: "mention", src, "remote-filtering": "true", "empty-results": "No matches" }, above);
 }
 
-/** The class Lexxy gives the @ prompt's list while it shows. */
-const LIST_SHOWN = "lexxy-prompt-menu--visible";
+/**
+ * The # prompt: typing # lists the rooms `offerRooms` gives it whose names have a word starting with what
+ * follows the #, spaces and all, since a room's name can have them, as Slack's # lists channels. Picking one
+ * writes a mention of it, which Lexxy gives the `room` prompt's content type, ROOM_MENTION_CONTENT_TYPE. Its
+ * list opens where the @ prompt's does, and closes once it lists nothing (`closeListOnNoMatch`).
+ */
+function roomPrompt(above: boolean): LexxyPrompt {
+  return lexxyPrompt({ trigger: "#", name: "room", "supports-space-in-searches": "", "empty-results": "No matches" }, above);
+}
 
-/** Marks the `lexxy:change` that has the @ prompt look again at what's typed, which changes nothing written. */
-const LOOK_AGAIN = Symbol("look again");
+/** A `<lexxy-prompt>` of `attributes`, whose list shows above the text, even where there's room below it, with `above`. */
+function lexxyPrompt(attributes: Record<string, string>, above: boolean): LexxyPrompt {
+  const element = document.createElement("lexxy-prompt");
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+  if (above) element.setAttribute("vertical-direction", "top");
+  return element;
+}
 
 /**
- * Has `lexxy`'s @ prompt list the people for what's typed after the @ as the list shows, when that's
- * changed since the prompt asked for the list. Lexxy (0.9.24, and still 1.0.1) hears what's typed only
- * once the list shows, so a quick "@ka" would list everyone until the next key. Lexxy reads what's typed
- * as it adds the list to the editor, and as it unpins the list (`data-anchored`) to open it again.
+ * Has the # prompt list `rooms`, in their order, from the next time it opens its list or narrows it.
+ * Lexxy reads a prompt's items only as it connects, so once it has, they're given to what it lists from.
  */
-function lookAgainAsListShows(lexxy: LexxyEditor): MutationObserver {
-  const typed = () => lexxy.contents.textBackUntil("@");
-  let asked = "";
+function offerRooms(prompt: LexxyPrompt, rooms: Rooms | null) {
+  const items = [...(rooms?.values() ?? [])].map(roomPromptItem);
+  prompt.replaceChildren(...items);
+  if (prompt.source) prompt.source.inlinePromptItemElements = items;
+}
+
+/**
+ * A room as the # prompt lists it, where the @ prompt lists someone's avatar and name: its icon, or a #, as
+ * the sidebar shows it, then its name, and the mention picking it writes.
+ */
+function roomPromptItem(room: RoomCard): HTMLElement {
+  const icon = Object.assign(document.createElement("span"), { className: "autocompletable__room" });
+  icon.setAttribute("aria-hidden", "true");
+  if (room.icon) {
+    icon.classList.add("autocompletable__room--icon");
+    icon.style.setProperty("--room-icon", `url("${roomIconUrl(room.icon)}")`);
+  } else {
+    icon.textContent = "#";
+  }
+  const name = Object.assign(document.createElement("span"), { className: "autocompletable__name", textContent: room.name });
+  const row = Object.assign(document.createElement("span"), { className: "autocomplete__item" });
+  row.append(icon, name);
+  const item = document.createElement("lexxy-prompt-item");
+  item.setAttribute("search", room.name);
+  item.setAttribute("sgid", room.id);
+  item.append(template("menu", row), template("editor", roomMentionContent(room)));
+  return item;
+}
+
+/** A prompt item's `<template>` of `type`, holding `content`, a node or markup. */
+function template(type: "menu" | "editor", content: Node | string): HTMLTemplateElement {
+  const element = document.createElement("template");
+  element.setAttribute("type", type);
+  if (typeof content === "string") element.innerHTML = content;
+  else element.content.append(content);
+  return element;
+}
+
+/** The class Lexxy gives a prompt's list while it shows. */
+const LIST_SHOWN = "lexxy-prompt-menu--visible";
+
+/** The class Lexxy gives a prompt's list while it says it found nothing, its `empty-results`. */
+const LIST_EMPTY = "lexxy-prompt-menu--empty";
+
+/**
+ * Calls `heard` with each record of a change to the class or `data-anchored` of a list `lexxy`'s prompts
+ * add to it, which each does as it first opens its list, and with the record of its adding.
+ */
+function followLists(lexxy: LexxyEditor, heard: (record: MutationRecord, list: Element) => void): MutationObserver {
   const observer = new MutationObserver((records) => {
-    for (const { type, target, addedNodes, attributeName, oldValue } of records) {
-      const list = target as Element;
-      if (type === "childList") {
-        const added = [...addedNodes].find((node) => node instanceof Element && node.classList.contains("lexxy-prompt-menu"));
-        if (!added) continue;
-        asked = typed();
+    for (const record of records) {
+      if (record.type === "attributes") heard(record, record.target as Element);
+      for (const added of record.addedNodes) {
+        if (!(added instanceof Element) || !added.classList.contains("lexxy-prompt-menu")) continue;
+        heard(record, added);
         observer.observe(added, { attributeFilter: ["class", "data-anchored"], attributeOldValue: true });
-      } else if (attributeName === "data-anchored") {
-        if (!list.hasAttribute("data-anchored")) asked = typed();
-      } else if (list.classList.contains(LIST_SHOWN) && !oldValue?.includes(LIST_SHOWN) && typed() !== asked) {
-        lexxy.dispatchEvent(new CustomEvent("lexxy:change", { detail: LOOK_AGAIN }));
       }
     }
   });
   observer.observe(lexxy, { childList: true });
   return observer;
+}
+
+/** Marks the `lexxy:change` that has a prompt look again at what's typed, which changes nothing written. */
+const LOOK_AGAIN = Symbol("look again");
+
+/**
+ * Has `lexxy`'s prompt `prompt` list what it finds for what's typed after its trigger as the list shows,
+ * when that's changed since the prompt read it. Lexxy (0.9.24, and still 1.0.1) hears what's typed only
+ * once the list shows, a frame or a fetch after it reads what's typed, so a quick "@ka" would list
+ * everyone, and a quick "#ra" every room, until the next key. Lexxy reads what's typed as it adds the
+ * list to the editor, and as it unpins the list (`data-anchored`) to open it again. Until the list shows,
+ * the prompt hasn't said which list is its own, so what's typed is kept for each.
+ */
+function lookAgainAsListShows(lexxy: LexxyEditor, prompt: LexxyPrompt): MutationObserver {
+  const trigger = prompt.getAttribute("trigger")!;
+  const typed = () => lexxy.contents.textBackUntil(trigger);
+  const asked = new WeakMap<Element, string>();
+  return followLists(lexxy, ({ type, attributeName, oldValue }, list) => {
+    if (type === "childList" || (attributeName === "data-anchored" && !list.hasAttribute("data-anchored"))) {
+      asked.set(list, typed());
+    } else if (attributeName === "class" && list === prompt.popoverElement && list.classList.contains(LIST_SHOWN) && !oldValue?.includes(LIST_SHOWN) && typed() !== asked.get(list)) {
+      lexxy.dispatchEvent(new CustomEvent("lexxy:change", { detail: LOOK_AGAIN }));
+    }
+  });
+}
+
+/**
+ * Closes the list of `lexxy`'s prompt `prompt` once it finds nothing for what's typed, as Slack's # list
+ * does, while it's the only list open and the text has focus, rather than leaving it to take the next Enter
+ * or Tab, as Lexxy does, so a # before anything but a room, as in "#1", is only text. The list closes as Tab
+ * closes one that lists nothing: Lexxy (0.9.24) closes its lists only as a key is pressed for them.
+ */
+function closeListOnNoMatch(lexxy: LexxyEditor, prompt: LexxyPrompt): MutationObserver {
+  return followLists(lexxy, (_, list) => {
+    const open = lexxy.querySelectorAll(`.lexxy-prompt-menu.${LIST_SHOWN}`);
+    if (list !== prompt.popoverElement || !list.classList.contains(LIST_EMPTY) || open.length !== 1 || open[0] !== list || !hasFocus(lexxy)) return;
+    lexxy.editor.dispatchCommand(Lexical.KEY_TAB_COMMAND, new KeyboardEvent("keydown", { key: "Tab" }));
+  });
+}
+
+/** The editors whose room mentions `showRoomsAsTheyAre` is changing, which changes nobody's writing. */
+const showingRooms = new WeakSet<HTMLElement>();
+
+/**
+ * Shows each room `lexxy`'s text mentions as `rooms` has it now: by its name as it is, or as a private
+ * room once it's left, rather than as it was when it was picked, or when the draft it's in was kept. What's
+ * sent names the rooms as they are anyway, so this tells nobody of a change, as the room would hear you
+ * typing, and leaves undo and the cursor as they were.
+ */
+function showRoomsAsTheyAre(lexxy: LexxyEditor, rooms: Rooms) {
+  const shown = (mention: CustomActionTextAttachmentNode) => roomMentionContent(rooms.get(mention.sgid));
+  const stale = lexxy.editor.getEditorState().read(() => $roomMentions().filter((mention) => mention.innerHtml !== shown(mention)).map((mention) => mention.getKey()));
+  if (stale.length === 0) return;
+  // Lexical puts the page's selection where its own is after a change, which would take focus to the text.
+  const tags = hasFocus(lexxy) ? [Lexical.HISTORY_MERGE_TAG] : [Lexical.HISTORY_MERGE_TAG, Lexical.SKIP_DOM_SELECTION_TAG];
+  showingRooms.add(lexxy);
+  try {
+    // Lexxy draws an attachment once, so each is shown again as a new one in its place.
+    lexxy.editor.update(
+      () => {
+        for (const mention of stale.map((key) => Lexical.$getNodeByKey(key))) {
+          if (!$isCustomActionTextAttachmentNode(mention)) continue;
+          const { tagName, sgid, contentType } = mention;
+          mention.replace(new CustomActionTextAttachmentNode({ tagName, sgid, contentType, innerHtml: shown(mention) }));
+        }
+      },
+      { discrete: true, tag: tags },
+    );
+  } finally {
+    showingRooms.delete(lexxy);
+  }
+}
+
+/** The mentions of rooms in the editor's text, in order, in a read or an update of it. */
+function $roomMentions(): CustomActionTextAttachmentNode[] {
+  const found: CustomActionTextAttachmentNode[] = [];
+  const visit = (node: LexicalNode) => {
+    if ($isCustomActionTextAttachmentNode(node)) {
+      if (node.contentType === ROOM_MENTION_CONTENT_TYPE) found.push(node);
+    } else if (Lexical.$isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  visit(Lexical.$getRoot());
+  return found;
 }
 
 /** A `<lexxy-editor>`, as far as this uses it. */
@@ -308,7 +461,12 @@ interface Props {
   initialValue?: string;
   /** Where its @ prompt asks for the people it offers (`mentionPromptSrc`), as it opens. Without it, @ is just @. */
   mentionsFrom?: string;
-  /** Whether the people @ lists show above the text even where there's room below it, as it opens. */
+  /**
+   * The rooms its # prompt offers, which it follows as they change: those whoever's writing is in, or null
+   * while they're loading, when it offers none. Without them, as it opens, # is just #.
+   */
+  rooms?: Rooms | null;
+  /** Whether the people @ lists, and the rooms # does, show above the text even where there's room below it, as it opens. */
   mentionsAbove?: boolean;
   /**
    * Whether it takes focus once it's ready, with the cursor after what's written. A function is asked
@@ -338,6 +496,7 @@ export default function RichTextEditor({
   rows,
   initialValue,
   mentionsFrom,
+  rooms,
   mentionsAbove = false,
   autoFocus = false,
   onChange,
@@ -349,6 +508,9 @@ export default function RichTextEditor({
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<LexxyEditor>(null);
+  // Whether the editor's ready, from when Lexxy has read what it opens with until it goes.
+  const initialized = useRef(false);
+  const roomsPrompt = useRef<LexxyPrompt>(null);
 
   useImperativeHandle(ref, () => ({
     value: () => editor.current?.value ?? "",
@@ -425,6 +587,7 @@ export default function RichTextEditor({
   const keyPressed = useEffectEvent((event: KeyboardEvent) => onKeyDown?.(event));
   const linkPasted = useEffectEvent((link: PastedLink) => onLinkPasted?.(link));
   const ready = useEffectEvent((lexxy: LexxyEditor) => {
+    if (rooms) showRoomsAsTheyAre(lexxy, rooms);
     onReady?.();
     if (!(typeof autoFocus === "function" ? autoFocus() : autoFocus)) return;
     lexxy.focus();
@@ -447,12 +610,12 @@ export default function RichTextEditor({
     const lexxy = document.createElement("lexxy-editor") as LexxyEditor;
     lexxy.className = "lexxy-content";
     lexxy.setAttribute("rows", String(rows));
-    // Mentions and link previews, which only the composer adds, but every editor keeps.
-    lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
+    // Mentions of people and rooms, and link previews, which only the composer adds, but every editor keeps.
+    lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${ROOM_MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
     // Read as the editor connects, without telling anyone it changed.
     if (initialValue) lexxy.setAttribute("value", initialValue);
     lexxy.addEventListener("lexxy:change", (event) => {
-      if ((event as CustomEvent).detail !== LOOK_AGAIN) changed();
+      if ((event as CustomEvent).detail !== LOOK_AGAIN && !showingRooms.has(lexxy)) changed();
     });
     let unfollow: (() => void) | undefined;
     let unkeep: (() => void) | undefined;
@@ -461,6 +624,7 @@ export default function RichTextEditor({
       () => {
         unfollow = followFormat(lexxy);
         unkeep = keepSelectionWhileAway(lexxy);
+        initialized.current = true;
         ready(lexxy);
       },
       { once: true },
@@ -471,19 +635,35 @@ export default function RichTextEditor({
       if (lexxy.editorContentElement?.contains(event.target as Node)) keyPressed(event);
     };
     lexxy.addEventListener("keydown", keyDown, { capture: true });
-    // Inside the editor, which finds it there as it connects.
-    if (mentionsFrom) lexxy.append(mentionPrompt(mentionsFrom, mentionsAbove));
-    const prompting = mentionsFrom ? lookAgainAsListShows(lexxy) : undefined;
+    // Inside the editor, which finds them there as it connects.
+    const following: MutationObserver[] = [];
+    if (mentionsFrom) {
+      const prompt = mentionPrompt(mentionsFrom, mentionsAbove);
+      lexxy.append(prompt);
+      following.push(lookAgainAsListShows(lexxy, prompt));
+    }
+    if (rooms !== undefined) {
+      roomsPrompt.current = roomPrompt(mentionsAbove);
+      lexxy.append(roomsPrompt.current);
+      following.push(lookAgainAsListShows(lexxy, roomsPrompt.current), closeListOnNoMatch(lexxy, roomsPrompt.current));
+    }
     editor.current = lexxy;
     host.current!.append(lexxy);
     return () => {
-      prompting?.disconnect();
+      for (const observer of following) observer.disconnect();
       unfollow?.();
       unkeep?.();
       lexxy.remove();
       editor.current = null;
+      initialized.current = false;
+      roomsPrompt.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (roomsPrompt.current) offerRooms(roomsPrompt.current, rooms ?? null);
+    if (rooms && initialized.current) showRoomsAsTheyAre(editor.current!, rooms);
+  }, [rooms]);
 
   // Lexxy copies its label and placeholder to its contenteditable only as it connects.
   useEffect(() => {

@@ -3445,6 +3445,13 @@ export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.u
 export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
 /**
+ * The rooms but DMs a JSON array ? names, each with its name if it's open, which everyone is in, and
+ * otherwise with none: a private room's name isn't read for whoever may read what mentions it.
+ */
+const MENTIONED_ROOMS = `SELECT id, CASE WHEN kind = 'open' THEN name END AS name FROM rooms
+  WHERE id IN (SELECT value FROM json_each(?)) AND kind <> 'direct'`;
+
+/**
  * The people a JSON array ?1 names whom ?2 can start a DM with, whatever their status: anyone, but an AI
  * agent kept for administrators, which only an administrator writes to, and one only their direct
  * messages reach only while everyone else named is an administrator, so that nobody else is shown it:
@@ -5468,6 +5475,11 @@ export class WorkspaceStore {
   /** The people with `ids` who exist, active or not. */
   async peopleWithIds(ids: UserId[]): Promise<User[]> {
     return this.db.all<User>(PEOPLE_WITH_IDS, JSON.stringify(ids));
+  }
+
+  /** The rooms but DMs with `ids` that exist, each named if it's open, and with a null name if it's private. */
+  async mentionedRooms(ids: RoomId[]): Promise<{ id: RoomId; name: string | null }[]> {
+    return this.db.all<{ id: RoomId; name: string | null }>(MENTIONED_ROOMS, JSON.stringify(ids));
   }
 
   /** The people with `ids` who exist, active or not, whom `askerId` can start a DM with (`DIRECT_PEOPLE`). */

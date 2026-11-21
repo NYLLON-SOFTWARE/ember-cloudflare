@@ -15,6 +15,7 @@ import { securityViolations } from "./testing/security";
 
 const display = (html: string, plain = "") => displayBody(parseHtml, html, plain, "");
 const MENTION = 'content-type="application/vnd.campfire.mention"';
+const ROOM_MENTION = 'content-type="application/vnd.campfire.room"';
 const PREVIEW = 'content-type="application/vnd.actiontext.opengraph-embed"';
 
 /** The markup of what shows, a mention as the attachment it's stored as, and a preview as one without its content. */
@@ -24,6 +25,7 @@ function markupOf(nodes: DisplayNode[]): string {
       if (node.kind === "text") return toHtml(parseHtml(node.value.replace(/[&<> ]/g, (c) => `&#${c.charCodeAt(0)};`)));
       if (node.kind === "mention") return `<action-text-attachment ${MENTION} sgid="${mentionSgid(node.userId)}"></action-text-attachment>`;
       if (node.kind === "special-mention") return `<action-text-attachment ${MENTION} sgid="${node.mention}"></action-text-attachment>`;
+      if (node.kind === "room-mention") return `<action-text-attachment ${ROOM_MENTION} sgid="${node.roomId}"></action-text-attachment>`;
       if (node.kind === "preview") return `<action-text-attachment ${PREVIEW}></action-text-attachment>`;
       const attrs = Object.entries(node.attrs).map(([name, value]) => ` ${name}="${value.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"`);
       const inner = markupOf(node.children);

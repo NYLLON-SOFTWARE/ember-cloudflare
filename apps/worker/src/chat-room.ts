@@ -5,6 +5,7 @@ import {
   DELETED_PERSON_NAME,
   HISTORY_PAGE_SIZE,
   isMessageTooLong,
+  isRoomId,
   LATE_PREVIEW_MS,
   MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
@@ -28,7 +29,18 @@ import {
 } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
-import { hasPreview, prepareBody, specialMentionsAsText, userIdFromSgid, userIdsIn, type PreparedBody, type SpecialMention } from "@ember/richtext";
+import {
+  hasPreview,
+  prepareBody,
+  roomIdsIn,
+  specialMentionsAsText,
+  userIdFromSgid,
+  userIdsIn,
+  type MentionRoom,
+  type PreparedBody,
+  type ResolveRoom,
+  type SpecialMention,
+} from "@ember/richtext";
 import {
   AGENT_NOTES,
   AnswerError,
@@ -139,17 +151,14 @@ const rewriting = (why: string) => (why === BLOCKED_WORDS_REFUSED ? { rewrite: t
 
 /**
  * What the writer of `body` wrote of it, which Blocked words checks: its plain text with each mention of
- * someone `named` names read as "@" alone, since their name isn't the writer's words, nor part of a word
- * the writer wrote beside it.
+ * someone `named` names read as "@" alone, and of a room `rooms` finds as "#" alone, since a name isn't
+ * the writer's words, nor part of a word the writer wrote beside it.
  */
-function writtenText(body: PreparedBody, named: (sgid: string) => User | undefined): string {
-  if (body.mentions.length === 0) return body.plainText;
-  const unnamed = (sgid: string) => {
-    const person = named(sgid);
-    return person && { ...person, name: "" };
-  };
+function writtenText(body: PreparedBody, named: (sgid: string) => User | undefined, rooms: ResolveRoom, mentionsRooms: boolean): string {
+  if (body.mentions.length === 0 && !mentionsRooms) return body.plainText;
+  const unnamed = <T extends { name: string }>(found: T | undefined) => found && { ...found, name: "" };
   // Its html prepares as it did, so this reads all of it but the names, or failing that, all of it.
-  return prepareBody(body.html, unnamed)?.plainText ?? body.plainText;
+  return prepareBody(body.html, (sgid) => unnamed(named(sgid)), (sgid) => unnamed(rooms(sgid)))?.plainText ?? body.plainText;
 }
 
 /** Why the room keeps nothing of a message: it couldn't show it, or there's nothing in it. `MESSAGE_TOO_LONG` says when there's too much. */
@@ -1464,18 +1473,26 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * A body a client sent as the room keeps it, naming the people it mentions as they are now, with what
-   * its writer wrote (`writtenText`), not yet checked for blocked words, or why the room can't keep it.
+   * A body a client sent as the room keeps it, naming the people it mentions as they are now, and the
+   * rooms as `mentionedRooms` names them, with what its writer wrote (`writtenText`), not yet checked for
+   * blocked words, or why the room can't keep it.
    */
   private async readBody(markup: string): Promise<{ body: PreparedBody; written: string } | string> {
     const ids = userIdsIn(markup);
-    const people = new Map<UserId, User>(ids.length === 0 ? [] : (await workspace(this.env).mentionedPeople(ids)).map((person) => [person.id, person]));
+    const roomIds = roomIdsIn(markup).filter(isRoomId);
+    const [mentioned, mentionedRooms] = await Promise.all([
+      ids.length === 0 ? [] : workspace(this.env).mentionedPeople(ids),
+      roomIds.length === 0 ? [] : workspace(this.env).mentionedRooms(roomIds),
+    ]);
+    const people = new Map<UserId, User>(mentioned.map((person) => [person.id, person]));
+    const rooms = new Map<RoomId, MentionRoom>(mentionedRooms.map((room) => [room.id, room]));
     const named = (sgid: string) => people.get(userIdFromSgid(sgid) ?? "");
-    const body = prepareBody(markup, named);
+    const roomNamed = (sgid: string) => rooms.get(sgid);
+    const body = prepareBody(markup, named, roomNamed);
     if (body === null) return UNREADABLE;
     if (body.blank) return EMPTY;
     if (isMessageTooLong(body.plainText)) return MESSAGE_TOO_LONG;
-    return { body, written: writtenText(body, named) };
+    return { body, written: writtenText(body, named, roomNamed, rooms.size > 0) };
   }
 
   /**
