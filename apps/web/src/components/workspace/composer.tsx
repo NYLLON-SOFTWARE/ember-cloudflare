@@ -1,5 +1,5 @@
 import { Suspense, useContext, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { MAX_FILE_SIZE, type LinkPreview } from "@ember/protocol";
+import { type LinkPreview, MAX_FILE_SIZE, type ScheduledMessage } from "@ember/protocol";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { AtSign, Page, Send, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -14,6 +14,7 @@ import { AttachMenu } from "./attach-menu";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { EmojiButton } from "./emoji-button";
 import { FormattingToolbar, LinkDialog, useFormatting } from "./formatting-toolbar";
+import { FILES_NOT_SCHEDULED, ScheduleSend } from "./schedule-send";
 import { useNotifyConfirm } from "./notify-confirm";
 import { ShortcutTooltip } from "./shortcut-tooltip";
 import { SnippetDialog } from "./snippet-dialog";
@@ -371,6 +372,15 @@ interface Props {
   onSend: (body: string, alsoSend: boolean) => AddPreview | null;
   /** Sends files, each as a message of its own, before the message written with them. */
   onSendFiles: (files: File[], alsoSend: boolean) => void;
+  /**
+   * Holds what's written until `sendAt`, UTC, answering whether the room took it. A refusal leaves
+   * what's written. The room composer has this; a thread's doesn't, so its clock stays off.
+   */
+  onSchedule?: (body: string, sendAt: string) => boolean | Promise<boolean>;
+  /** This person's messages still waiting in the room, for the clock's list. */
+  scheduled?: ScheduledMessage[];
+  /** Drops a waiting message of this person's before the room posts it. */
+  onCancelScheduled?: (scheduledId: string) => void;
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
@@ -398,14 +408,33 @@ export interface ComposerHandle {
 /**
  * The composer: a card with Slack's formatting row on top, then the editor, and below it Slack's buttons:
  * + (Text snippet, Upload from your computer), Show formatting, which shows or hides the row, Emoji,
- * Mention someone, and a round Send button, grey until there's something to send. @ offers the room's
- * people to mention, and # the rooms you're in. Files picked, pasted or dropped, and snippets, wait
- * above the card to go with the next message. What's written is kept as a draft until it's sent. A
- * thread's has Also send to the room before Send. A message the room won't take for what it says, as one
- * with a word Blocked words keeps out, comes back to be changed, saying why above the card. One whose
- * @channel, @here or @everyone would notify a room of six or more asks first, as Slack's does.
+ * Mention someone, a clock to send later, and a round Send button, grey until there's something to send.
+ * @ offers the room's people to mention, and # the rooms you're in. Files picked, pasted or dropped, and
+ * snippets, wait above the card to go with the next message. What's written is kept as a draft until it's
+ * sent. A thread's has Also send to the room before Send, and no clock. A message the room won't take for
+ * what it says, as one with a word Blocked words keeps out, comes back to be changed, saying why above the
+ * card. One whose @channel, @here or @everyone would notify a room of six or more asks first, as Slack's does.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, mentionsAbove = false, ref }: Props) {
+export function Composer({
+  roomId,
+  roomName,
+  direct = false,
+  userId,
+  typing,
+  disabled,
+  deferEditor = false,
+  threadId,
+  onSend,
+  onSendFiles,
+  onSchedule,
+  scheduled = [],
+  onCancelScheduled,
+  onTyping,
+  onEditLastMessage,
+  autoFocus = true,
+  mentionsAbove = false,
+  ref,
+}: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const formatting = useFormatting(editor);
@@ -429,6 +458,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   // Whether nothing's written, which, with no files picked, leaves Send grey, as Slack's is.
   const [blank, setBlank] = useState(!draft);
   const [writingSnippet, setWritingSnippet] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const pendingSchedule = useRef(false);
   // Whether the editor can be written in, which Emoji and Mention someone wait for, since what they wrote before
   // would be lost.
   const [editorReady, setEditorReady] = useState(false);
@@ -537,6 +568,50 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
       setAlsoSend(false);
     }
     written.focus();
+  };
+
+  // Once the room takes `body`, it's cleared, and its draft, unless what's written has changed since, as
+  // while the room answered, which is left as it is.
+  const finishSchedule = (body: string, accepted: boolean) => {
+    if (!accepted) return;
+    const written = editor.current;
+    if (!written) {
+      if (readDraft(key) === body) keep(null);
+      return;
+    }
+    if (written.isBlank() || written.value() !== body) return;
+    wasBlank.current = true;
+    written.clear();
+    keep(null);
+    setBlank(true);
+  };
+
+  const schedule = (sendAt: string) => {
+    if (disabled || !onSchedule || pendingSchedule.current || picked.files.length > 0) return false;
+    const written = editor.current;
+    if (!written || written.isBlank()) return false;
+    const body = written.value();
+    const result = onSchedule(body, sendAt);
+    if (result === false) return false;
+    if (result === true) {
+      finishSchedule(body, true);
+      return true;
+    }
+    // What's written stays in the box until the room answers, so hold off scheduling it a second time meanwhile.
+    pendingSchedule.current = true;
+    setScheduling(true);
+    void result.then(
+      (accepted) => {
+        pendingSchedule.current = false;
+        setScheduling(false);
+        finishSchedule(body, accepted);
+      },
+      () => {
+        pendingSchedule.current = false;
+        setScheduling(false);
+      },
+    );
+    return true;
   };
 
   // This render's send, for a message that waits on its room's counts or its writer's say, so that the
@@ -712,6 +787,18 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                 <AtSign className="size-[18px] opacity-70" />
               </button>
             </ShortcutTooltip>
+            {onSchedule && threadId === undefined && (
+              <ScheduleSend
+                disabled={disabled}
+                scheduled={scheduled}
+                canSchedule={!blank && editorShown && picked.files.length === 0}
+                waiting={scheduling}
+                // Only what's written is scheduled, so files picked wait to be sent or removed.
+                unavailable={picked.files.length > 0 ? FILES_NOT_SCHEDULED : undefined}
+                onSchedule={schedule}
+                onCancel={onCancelScheduled ?? (() => {})}
+              />
+            )}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. Where
                 the buttons would leave the label too little room, it takes a line of its own above them: for
                 fingers' bigger buttons that's as on a phone held upright, and otherwise as in a huddle's thread,

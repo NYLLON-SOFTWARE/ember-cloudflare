@@ -6,6 +6,7 @@ import { useGivingBack } from "@/hooks/use-giving-back";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMessageEditors } from "@/hooks/use-message-editors";
 import { useRoom } from "@/hooks/use-room";
+import { useScheduled } from "@/hooks/use-scheduled";
 import { useVisit } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
@@ -70,7 +71,13 @@ export interface RoomViewHandle {
 }
 
 export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
-  const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(room.id, me, onSessionChanged, messageId);
+  const { state, frames, postMessage, postFiles, scheduleMessage, cancelScheduled, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice, givenBack } = useRoom(
+    room.id,
+    me,
+    onSessionChanged,
+    messageId,
+  );
+  const scheduled = useScheduled(frames);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
@@ -170,6 +177,9 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
               autoFocus={threadId === undefined}
               onSend={postMessage}
               onSendFiles={postFiles}
+              onSchedule={scheduleMessage}
+              scheduled={scheduled}
+              onCancelScheduled={cancelScheduled}
               onTyping={typing}
               onEditLastMessage={editLastMessage}
             />

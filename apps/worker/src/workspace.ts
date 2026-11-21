@@ -6116,6 +6116,22 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Whether `userId` is in room `roomId` now, for a room deciding whether they may schedule a message
+   * there. Rooms ask, since membership can change while their sockets are open.
+   */
+  async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
+    return this.store.isMember(roomId, userId);
+  }
+
+  /**
+   * Whether `userId` is in room `roomId` now and active, for a room deciding whether to post a message
+   * they scheduled. Banning or suspending someone keeps their memberships, so membership alone won't do.
+   */
+  async isActiveMember(roomId: RoomId, userId: UserId): Promise<boolean> {
+    return this.store.isActiveMember(roomId, userId);
+  }
+
+  /**
    * Who `credentials` signs in, with their session, whether they're in room `roomId` and whether a ban
    * blocks the IP address they come from, as of `authorizedAt`, or null without a valid session. The
    * session is recorded as coming from the address the room tags its socket or upload with, so that

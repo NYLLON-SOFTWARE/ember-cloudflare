@@ -61,6 +61,7 @@ import appScopeWanted from "../migrations/0060_app_scope_wanted.sql";
 import ownAppSignIns from "../migrations/0061_own_app_sign_ins.sql";
 import outsideAi from "../migrations/0062_outside_ai.sql";
 import agentAccess from "../migrations/0063_agent_access.sql";
+import scheduledMessages from "../migrations/0064_scheduled_messages.sql";
 import sessionTransfers from "../migrations/0064_session_transfers.sql";
 import newcomersAndUnreadCounts from "../migrations/0065_newcomers_and_unread_counts.sql";
 import huddleMessages from "../migrations/0066_huddle_messages.sql";
@@ -174,6 +175,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0061_own_app_sign_ins.sql", scope: "workspace", sql: ownAppSignIns },
   { name: "0062_outside_ai.sql", scope: "workspace", sql: outsideAi },
   { name: "0063_agent_access.sql", scope: "workspace", sql: agentAccess },
+  { name: "0064_scheduled_messages.sql", scope: "room", sql: scheduledMessages },
   { name: "0064_session_transfers.sql", scope: "workspace", sql: sessionTransfers },
   { name: "0065_newcomers_and_unread_counts.sql", scope: "workspace", sql: newcomersAndUnreadCounts },
   { name: "0066_huddle_messages.sql", scope: "room", sql: huddleMessages },

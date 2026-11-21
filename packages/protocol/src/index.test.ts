@@ -63,6 +63,7 @@ import {
   onlyAddressesAt,
   othersAfterMove,
   parseAccountChanges,
+  isUtcInstant,
   parseAccountDeletion,
   parseClientFrame,
   parseCustomDomainCheck,
@@ -214,6 +215,38 @@ describe("Threads", () => {
     expect(read({ visible: "1", apart: "1" })).toMatchObject({ visible: true, apart: true });
     for (const apart of ["0", "", "true", "yes"]) expect(read({ apart }).apart, apart).toBeUndefined();
     expect(read({}).apart).toBeUndefined();
+  });
+});
+
+describe("Schedule a message", () => {
+  it("accepts a future send time in UTC, and lists and cancels waiting messages", () => {
+    const sendAt = "2026-11-13T15:04:00.000Z";
+    expect(parse({ type: "message.schedule", clientMessageId: "c1", body: "<p>later</p>", sendAt })).toEqual({
+      type: "message.schedule",
+      clientMessageId: "c1",
+      body: "<p>later</p>",
+      sendAt,
+    });
+    expect(parse({ type: "message.schedule", clientMessageId: "c1", body: "<p>later</p>", sendAt: "2026-11-13T15:04Z" })).toEqual({
+      type: "message.schedule",
+      clientMessageId: "c1",
+      body: "<p>later</p>",
+      sendAt: "2026-11-13T15:04Z",
+    });
+    expect(parse({ type: "scheduled.list" })).toEqual({ type: "scheduled.list" });
+    expect(parse({ type: "scheduled.cancel", scheduledId: "s1" })).toEqual({ type: "scheduled.cancel", scheduledId: "s1" });
+  });
+
+  it("rejects a send time that isn't UTC with a Z, and a cancel without an id", () => {
+    const body = "<p>later</p>";
+    for (const sendAt of ["2026-11-13T15:04:00", "2026-11-13T15:04:00+00:00", "tomorrow", "", 42, null]) {
+      expect(parse({ type: "message.schedule", clientMessageId: "c1", body, sendAt }), String(sendAt)).toBeNull();
+    }
+    expect(parse({ type: "message.schedule", clientMessageId: "c1", sendAt: "2026-11-13T15:04:00.000Z" })).toBeNull();
+    expect(parse({ type: "scheduled.cancel" })).toBeNull();
+    expect(parse({ type: "scheduled.cancel", scheduledId: "" })).toBeNull();
+    expect(isUtcInstant("2026-11-13T15:04:00.000Z")).toBe(true);
+    expect(isUtcInstant("2026-11-13T15:04:00+00:00")).toBe(false);
   });
 });
 

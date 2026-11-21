@@ -10,6 +10,7 @@ import type { Typist } from "@/lib/room-state";
 import { createRef, type ReactNode } from "react";
 import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import { FILES_NOT_SCHEDULED } from "./schedule-send";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
@@ -42,6 +43,7 @@ async function showComposer({
   mentionsAbove = false,
   warns = true,
   rooms = null as Rooms | null,
+  onSchedule = undefined as ((body: string, sendAt: string) => boolean | Promise<boolean>) | undefined,
 } = {}) {
   // Hears a link's preview that comes once the message has gone.
   const addPreview = vi.fn((_preview: LinkPreview) => {});
@@ -63,6 +65,7 @@ async function showComposer({
           threadId={threadId}
           onSend={onSend}
           onSendFiles={onSendFiles}
+          onSchedule={onSchedule}
           onTyping={onTyping}
           autoFocus={autoFocus}
           mentionsAbove={mentionsAbove}
@@ -72,7 +75,7 @@ async function showComposer({
   );
   // The editor loads as the first composer shows.
   const input = await within(view.container).findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { onSend, addPreview, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
+  return { onSend, addPreview, onSendFiles, onSchedule, onTyping, composer, view, user: userEvent.setup(), input };
 }
 
 function touchScreen() {
@@ -940,6 +943,99 @@ describe("Keep drafts", () => {
     localStorage.setItem("composer-draft-u2-r1", "<p>Grace's own</p>");
     const { input } = await showComposer({ roomId: "r1" });
     expect(input).toHaveValue("");
+  });
+});
+
+describe("Schedule a message", () => {
+  it("offers a clock on the room composer, and not on a thread's", async () => {
+    const { view } = await showComposer({ onSchedule: vi.fn(() => true) });
+    expect(screen.getByRole("button", { name: "Schedule send" })).toBeInTheDocument();
+    view.unmount();
+    await showComposer({ threadId: "m1", onSchedule: vi.fn(() => true) });
+    expect(screen.queryByRole("button", { name: "Schedule send" })).toBeNull();
+  });
+
+  it("leaves the clock off when the room doesn't schedule", async () => {
+    await showComposer();
+    expect(screen.queryByRole("button", { name: "Schedule send" })).toBeNull();
+  });
+
+  it("schedules what's written for a future time, then empties the box", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => true);
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule).toHaveBeenCalledOnce();
+    expect(onSchedule.mock.calls[0]![0]).toBe("<p>After lunch</p>");
+    expect(onSchedule.mock.calls[0]![1].endsWith("Z")).toBe(true);
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written, and the draft, when the room refuses the schedule", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => Promise.resolve(false));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule).toHaveBeenCalledOnce();
+    expect(input).toHaveValue("After lunch");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>After lunch</p>");
+  });
+
+  it("won't schedule while files are picked, and keeps them, since only what's written is scheduled", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => true);
+    const { input, user } = await showComposer({ onSchedule });
+    await user.upload(fileField(), fileOf("notes.txt"));
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    expect(screen.getByRole("button", { name: "Schedule" })).toBeDisabled();
+    expect(screen.getByText(FILES_NOT_SCHEDULED)).toBeInTheDocument();
+    expect(onSchedule).not.toHaveBeenCalled();
+    expect(chips()).toEqual(["Remove notes.txt"]);
+    expect(input).toHaveValue("After lunch");
+  });
+
+  it("leaves what's written since, and its draft, when the room takes the schedule later", async () => {
+    let accept = (_accepted: boolean) => {};
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => new Promise<boolean>((resolve) => (accept = resolve)));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule.mock.calls[0]![0]).toBe("<p>After lunch</p>");
+    await user.type(input, " and tea");
+    await act(async () => accept(true));
+    expect(input).toHaveValue("After lunch and tea");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>After lunch and tea</p>");
+  });
+
+  it("empties the box when the room takes the schedule later and nothing was written since", async () => {
+    let accept = (_accepted: boolean) => {};
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => new Promise<boolean>((resolve) => (accept = resolve)));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    await act(async () => accept(true));
+    expect(input).toHaveValue("");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+  });
+
+  it("holds off scheduling again while the room's answer is pending, then lets you retry once refused", async () => {
+    let accept = (_accepted: boolean) => {};
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => new Promise<boolean>((resolve) => (accept = resolve)));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    const scheduling = screen.getByRole("button", { name: "Scheduling…" });
+    expect(scheduling).toBeDisabled();
+    await user.click(scheduling);
+    expect(onSchedule).toHaveBeenCalledOnce();
+    await act(async () => accept(false));
+    expect(screen.getByRole("button", { name: "Schedule" })).toBeEnabled();
   });
 });
 

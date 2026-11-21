@@ -517,8 +517,10 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       // message keeps the same list: the timeline takes a new one for a change, and would ask again for a
       // page that just failed. One about a thread, or about messages the timeline isn't sending, as
       // replies in a thread, is the thread's to show, and one about a link's preview, which the tab sent
-      // of its own accord, isn't shown.
-      const notSent = frame.clientMessageIds ?? (frame.clientMessageId === undefined ? [] : [frame.clientMessageId]);
+      // of its own accord, isn't shown. A refused schedule names its own client id, which is no message
+      // in the timeline, so it only says why.
+      const notSent =
+        frame.failed === "message.schedule" ? [] : (frame.clientMessageIds ?? (frame.clientMessageId === undefined ? [] : [frame.clientMessageId]));
       if (frame.failed === "thread.open" || frame.failed === "thread.before" || frame.failed === "message.preview") return state;
       if (notSent.length > 0 && !state.messages.some((m) => isPending(m) && notSent.includes(m.clientMessageId))) return state;
       const refused = frame.rewrite ? { failed: true, rewrite: frame.message } : { failed: true };
@@ -536,9 +538,13 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         refusedUnboosts: frame.failed === "boost.delete" ? state.refusedUnboosts + 1 : state.refusedUnboosts,
       };
     }
-    // A thread's, which its own state keeps, and a click's answer, which its button waits for.
+    // A thread's, which its own state keeps, waiting messages, which only the composer lists, and a click's answer, which its button waits for.
     case "thread.opened":
     case "thread.history":
+    case "scheduled.created":
+    case "scheduled.listed":
+    case "scheduled.cancelled":
+    case "scheduled.sent":
     case "card.clicked":
     case "pong":
       return state;

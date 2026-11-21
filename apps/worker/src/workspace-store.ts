@@ -2330,6 +2330,10 @@ const RETRY_DOUBLINGS = 10;
 /** Whether someone is in a room. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
 
+/** Whether someone active is in a room, rather than banned or suspended with their membership kept. */
+const ACTIVE_MEMBERSHIP = `SELECT 1 FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? AND memberships.user_id = ? AND users.status = ${ACTIVE}`;
+
 /** The direct conversation ?1, if its members are ?2 and ?3 alone, each of them active. */
 const BETWEEN = `SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct' AND (SELECT COUNT(*) FROM memberships WHERE room_id = ?1) = 2
   AND (SELECT COUNT(*) FROM memberships JOIN users ON users.id = memberships.user_id
@@ -5417,6 +5421,11 @@ export class WorkspaceStore {
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
     return (await this.db.all(MEMBERSHIP, roomId, userId)).length > 0;
+  }
+
+  /** Whether `userId` is in room `roomId` and active, not banned or suspended with their membership kept. */
+  async isActiveMember(roomId: RoomId, userId: UserId): Promise<boolean> {
+    return (await this.db.all(ACTIVE_MEMBERSHIP, roomId, userId)).length > 0;
   }
 
   /**
