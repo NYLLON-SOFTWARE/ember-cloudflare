@@ -415,10 +415,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // any of their tabs: the huddle this tab is in, and the next it joins, plays only those.
   const soundsHeard = list?.huddleSounds ?? ALL_HUDDLE_SOUNDS;
   useEffect(() => hearSounds(soundsHeard), [soundsHeard]);
-  // An invitation's ring is one of them, which waits for the server's list to say they hear it, and
-  // which stays quiet while they've paused their notifications, ringing as the pause ends.
+  // An invitation's ring is one of them, which waits for the server's list to say they hear it, and for
+  // the people directory to say whether they've paused their notifications, staying quiet while they
+  // have, and ringing as the pause ends.
   const paused = usePauseEnd(directory.people.get(me.id)) !== null;
-  const ringless = inAHuddle || !answered || !soundsHeard.ring || paused;
+  const ringless = inAHuddle || !answered || !soundsHeard.ring || !directory.loaded || paused;
   // The cameras turned on and the screens shared in this tab's huddles go out at the workspace's video
   // quality as it is then, which an administrator changes for everyone.
   const huddleVideo = useHuddleVideo();

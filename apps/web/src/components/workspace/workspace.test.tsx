@@ -3474,6 +3474,31 @@ describe("Huddles", () => {
         expect(invitation()).toBeInTheDocument();
       });
 
+      it("stays quiet until the people directory has come, which says whether they've paused them, and rings then if they haven't", async () => {
+        let answer!: (response: Response) => void;
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => new Promise<Response>((resolve) => (answer = resolve)) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        await roomHeading();
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        await act(async () => answer(Response.json({ users: [listedAda()] })));
+        await waitFor(() => expect(ringForHuddle).toHaveBeenCalledTimes(1));
+      });
+
+      it("stays quiet once the people directory comes, saying they've paused them", async () => {
+        let answer!: (response: Response) => void;
+        serveRooms(roomList([...rooms, withGrace]), { "GET /api/users": () => new Promise<Response>((resolve) => (answer = resolve)) });
+        showWorkspace("/rooms/general", ada, HUDDLES_ON);
+        await roomHeading();
+        await workspaceSends(INVITED);
+        expect(await screen.findByRole("group", { name: "Grace invites you to a huddle" })).toBeVisible();
+        await act(async () => answer(Response.json({ users: [listedAda(new Date(Date.now() + 60 * 60_000).toISOString())] })));
+        expect(await screen.findByRole("button", { name: /^Notifications paused until/ })).toBeInTheDocument();
+        expect(ringForHuddle).not.toHaveBeenCalled();
+        expect(invitation()).toBeInTheDocument();
+      });
+
       it("rings once the pause ends, while the invitation still shows", async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
         const ends = Date.now() + INVITATION_RINGS_MS / 2;
