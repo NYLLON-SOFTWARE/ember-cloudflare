@@ -4,7 +4,7 @@ import { ChatPlusIn, Headset, NavArrowDown, NavArrowRight, StarSolid } from "@/c
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { PeopleContext, useNameOf, usePresenceOf, type Presence } from "@/hooks/use-directory";
+import { PeopleContext, useNameOf, usePausedUntil, usePresenceOf, type Presence } from "@/hooks/use-directory";
 import { useFoldedSections } from "@/hooks/use-folded-sections";
 import { HUDDLES_PATH, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
@@ -14,12 +14,33 @@ import { inItsHuddle } from "@/lib/huddle-people";
 import { apart, inDirectOrder, inSections, inSidebarOrder, isQuietWelcome, markedUnread, type DirectSidebarRoom, type SharedSidebarRoom } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
+import { NavigationIcon } from "./navigation-icon";
 import { opensNewDirect } from "./new-direct-dialog";
+import { PausedMark } from "./paused-mark";
+import { OpenSearchContext } from "./search-box";
 import { UserAvatar } from "./user-avatar";
 
 /** A row of the list, a room's or a DM's. */
 const ROW =
   "flex min-h-9 items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-sm leading-[22px] text-foreground no-underline touch:min-h-11 hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-semibold";
+
+/**
+ * The search field atop the conversations in the drawer, at 900px and below, where there's no top bar,
+ * as Slack's phone app starts Home with its own. It opens the search box for everything.
+ */
+function DrawerSearchField({ workspaceName }: { workspaceName: string }) {
+  const openSearch = useContext(OpenSearchContext);
+  return (
+    <button
+      type="button"
+      onClick={(event) => openSearch({ opener: event.currentTarget })}
+      className="flex min-h-11 w-full shrink-0 cursor-text items-center gap-2 rounded-[10px] border bg-background px-3 text-start text-base text-muted-foreground md:hidden"
+    >
+      <NavigationIcon slot="search" size={18} className="size-[18px] shrink-0" />
+      <span className="truncate">Search {workspaceName}</span>
+    </button>
+  );
+}
 
 /** How many avatars a group DM's row shows. */
 const MAX_FACES = 4;
@@ -129,6 +150,7 @@ export function Sidebar({
   const helpId = useId();
   const unreadId = useId();
   const huddleId = useId();
+  const mentionsId = useId();
   // A row followed in place shows its room here, and one opened elsewhere, as in a new tab, leaves this page be.
   const select = (event: MouseEvent, roomId: RoomId) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -138,10 +160,11 @@ export function Sidebar({
   /** A room's row, set in under its section's name by `className` when it's in one. */
   const roomRow = (room: SharedSidebarRoom, className?: string) => {
     const unread = markedUnread(room, currentRoomId);
+    const mentions = unread ? room.mentionCount : undefined;
     const star = starred.has(room.id);
     const huddle = huddles[room.id];
-    // The words for who's in the room's huddle, which come with its mark.
-    const inHuddleId = `${huddleId}-${room.id}`;
+    // The words for who's in the room's huddle and for how many mentions it has, which come with their marks.
+    const [inHuddleId, mentionsWordsId] = [`${huddleId}-${room.id}`, `${mentionsId}-${room.id}`];
     return (
       <a
         key={room.id}
@@ -150,8 +173,9 @@ export function Sidebar({
         draggable={false}
         aria-current={room.id === currentRoomId ? "page" : undefined}
         // Every row says how the stars are reordered, a marked one says it's unread, which the eye sees
-        // by its weight and dot, and one with a huddle says who's in it, which the eye sees by its mark.
-        aria-describedby={[huddle && inHuddleId, unread && unreadId, helpId].filter(Boolean).join(" ")}
+        // by its weight and dot, and how many mentions it has, which the eye sees by its count, and one
+        // with a huddle says who's in it, which the eye sees by its mark.
+        aria-describedby={[huddle && inHuddleId, unread && unreadId, mentions !== undefined && mentionsWordsId, helpId].filter(Boolean).join(" ")}
         aria-keyshortcuts={star ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => select(event, room.id)}
         className={cn(
@@ -165,10 +189,14 @@ export function Sidebar({
       >
         <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
         <span className="truncate">{room.name}</span>
-        {/* The huddle's mark, the dot and the star sit together at the row's end, pushed there by one auto
-            margin. The star's muted at 65%. */}
+        {/* The huddle's mark, the dot or the count of mentions, and the star sit together at the row's end,
+            pushed there by one auto margin. The star's muted at 65%. */}
         {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} className="ml-auto" />}
-        {unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />}
+        {mentions !== undefined ? (
+          <MentionCount count={mentions} wordsId={mentionsWordsId} className={cn(!huddle && "ml-auto")} />
+        ) : (
+          unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />
+        )}
         {star && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !huddle && !unread && "ml-auto")} />}
       </a>
     );
@@ -183,6 +211,7 @@ export function Sidebar({
         <h2 className="flex min-h-7 items-center gap-2 text-[17px] leading-6 font-[650] wrap-anywhere">{workspaceName}</h2>
         {tagline && <p className="text-[13px] leading-[18px] text-muted-foreground wrap-anywhere">{tagline}</p>}
       </hgroup>
+      <DrawerSearchField workspaceName={workspaceName} />
 
       {huddlesOn && !unreadOnly && <HuddlesRow current={onHuddles} goingOn={goingOn} />}
 
@@ -386,11 +415,12 @@ interface DirectRowProps {
 }
 
 /**
- * A DM's row: the avatar of the one other person in it, with whether they're active or away, or of up
- * to four in a group, at 24px or 14px each, then their names, or yours in a DM with yourself, and the
- * agent badge in a DM with an AI agent alone. It ends with who's in its huddle while one is going on, as
- * a room's does, and one marked unread with how many messages it counts, or a dot for one the server
- * didn't count. Its presence and count are said to screen readers too.
+ * A DM's row: the avatar of the one other person in it, with whether they're active or away, and a
+ * half-moon for the dot while they've paused their notifications, or of up to four in a group, at 24px or
+ * 14px each, then their names, or yours in a DM with yourself, and the agent badge in a DM with an AI
+ * agent alone. It ends with who's in its huddle while one is going on, as a room's does, and one marked
+ * unread with how many messages it counts, or a dot for one the server didn't count. Its presence, pause
+ * and count are said to screen readers too.
  */
 function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
@@ -399,11 +429,14 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
   const wordsId = useId();
   const members = membersShown(room, meId);
   // An AI agent has no presence, though @ember's isn't listed as a bot until the directory has loaded.
-  const presence = members.length === 1 && !isWithAgent(room) ? presenceOf(members[0]!) : null;
+  const alone = members.length === 1 && !isWithAgent(room) ? members[0]! : undefined;
+  const presence = alone ? presenceOf(alone) : null;
+  const paused = usePausedUntil(alone?.id) !== null;
+  const presenceWords = presenceWordsOf(presence, paused);
   const count = unreadId ? room.unreadCount : undefined;
   // The words for its presence, who's in its huddle, and its count, which come with its mark.
   const [presenceId, inHuddleId, countId] = [`${wordsId}-presence`, `${wordsId}-huddle`, `${wordsId}-count`];
-  const described = [presence && presenceId, huddle && inHuddleId, count === undefined ? unreadId : countId].filter(Boolean).join(" ");
+  const described = [presenceWords && presenceId, huddle && inHuddleId, count === undefined ? unreadId : countId].filter(Boolean).join(" ");
   return (
     <>
       <a
@@ -424,7 +457,14 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
           members.map((member) => (
             <span key={member.id} className="relative shrink-0">
               <UserAvatar user={member} className="size-6" />
-              {presence && <PresenceDot presence={presence} />}
+              {paused ? (
+                <PausedMark
+                  presence={presence}
+                  className="-right-1 -bottom-1 size-3.5 ring-2 ring-surface group-hover:ring-hover group-aria-[current=page]:ring-hover"
+                />
+              ) : (
+                presence && <PresenceDot presence={presence} />
+              )}
             </span>
           ))
         )}
@@ -437,9 +477,9 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
         {count !== undefined ? <UnreadCount count={count} /> : unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}
       </a>
       {/* Outside the row, so they're no part of its text. */}
-      {presence && (
+      {presenceWords && (
         <span id={presenceId} hidden>
-          {presence === "active" ? "Active" : "Away"}
+          {presenceWords}
         </span>
       )}
       {count !== undefined && (
@@ -449,6 +489,13 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
       )}
     </>
   );
+}
+
+/** What a DM's row says of its person's presence, and of their pause, as its dot or half-moon shows them. */
+function presenceWordsOf(presence: Presence | null, paused: boolean): string | null {
+  const words = presence && (presence === "active" ? "Active" : "Away");
+  if (!paused) return words;
+  return words ? `${words}, notifications paused` : "Notifications paused";
 }
 
 /**
@@ -468,14 +515,33 @@ function PresenceDot({ presence }: { presence: Presence }) {
   );
 }
 
-/** How many messages have come in a DM since it was marked unread, on an ink pill, as the rail's Activity counts, past 99 as 99+. */
+/** A count at a row's end, on a pill, past 99 as 99+. */
+const COUNT = "inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] leading-none font-semibold tabular-nums";
+const shownCount = (count: number) => (count > 99 ? "99+" : count);
+
+/** How many messages have come in a DM since it was marked unread, on an ink pill, as the rail's Activity counts. */
 function UnreadCount({ count }: { count: number }) {
   return (
-    <span
-      aria-hidden="true"
-      className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-foreground px-[5px] text-[11px] leading-none font-semibold tabular-nums text-background"
-    >
-      {count > 99 ? "99+" : count}
+    <span aria-hidden="true" className={cn(COUNT, "bg-foreground text-background")}>
+      {shownCount(count)}
     </span>
+  );
+}
+
+/**
+ * How many of the messages that marked a room unread mention you, by name or as @channel, @here and
+ * @everyone do, in place of its dot, as Slack's badge counts them: shaped as a DM's count, in the mention
+ * color their messages are tinted with, with its words, `wordsId`, for screen readers.
+ */
+function MentionCount({ count, wordsId, className }: { count: number; wordsId: string; className?: string }) {
+  return (
+    <>
+      <span aria-hidden="true" className={cn(COUNT, "bg-mention text-mention-foreground", className)}>
+        {shownCount(count)}
+      </span>
+      <span id={wordsId} hidden>
+        {count === 1 ? "1 mention" : `${count} mentions`}
+      </span>
+    </>
   );
 }

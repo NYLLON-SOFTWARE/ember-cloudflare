@@ -79,6 +79,15 @@ const dropFile = (target: Locator, name: string, text: string) =>
     [name, text] as const,
   );
 
+/**
+ * Waits for each of `member`'s text file messages, by the file's name, to show the file's text above its
+ * card, as it does once the text has loaded. Each moves the timeline as it comes, since the timeline keeps
+ * to its end, so a link clicked before then can move out from under the pointer.
+ */
+async function textsShown(member: Member, texts: Record<string, string>): Promise<void> {
+  for (const [name, text] of Object.entries(texts)) await expect(member.message(name)).toContainText(text);
+}
+
 /** Downloads the file of `member`'s file message `name`, answering what it says. */
 async function downloaded(member: Member, name: string): Promise<string> {
   const [download] = await Promise.all([member.page.waitForEvent("download"), downloadLink(member, name).click()]);
@@ -117,6 +126,7 @@ test.describe("Attach files", () => {
       expect(at("Two files")).toBeGreaterThanOrEqual(0);
       expect(at("a.txt")).toBeLessThan(at("b.txt"));
     }
+    await textsShown(grace, { "a.txt": "Ay", "b.txt": "Bee" });
     expect(await downloaded(grace, "a.txt")).toBe("Ay");
   });
 
@@ -136,6 +146,7 @@ test.describe("Attach files", () => {
     await expect(ada.composer().locator("img, action-text-attachment, figure")).toHaveCount(0);
 
     await ada.page.getByRole("button", { name: "Send Message" }).click();
+    await textsShown(ada, { "pasted.txt": "Pasted", "on the composer.txt": "Dropped on the composer", "on the messages.txt": "Dropped on the messages" });
     expect(await downloaded(ada, "on the messages.txt")).toBe("Dropped on the messages");
     for (const name of ["pasted.txt", "on the composer.txt"]) await expect(downloadLink(ada, name)).toBeVisible();
   });

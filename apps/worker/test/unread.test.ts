@@ -1,8 +1,9 @@
-import type { RoomId, Sidebar, WorkspaceServerFrame } from "@ember/protocol";
+import type { RoomId, Sidebar, SpecialMention, WorkspaceServerFrame } from "@ember/protocol";
+import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UNDELIVERED_EVENTS, type RoomEvent } from "../src/room-log";
-import { MARK_READ, MARK_UNREAD } from "../src/workspace-store";
+import { COUNT_MENTIONS, COUNT_ROOM_MENTION, MARK_READ, MARK_UNREAD } from "../src/workspace-store";
 import {
   api,
   connect,
@@ -471,5 +472,121 @@ describe("Unread DMs", () => {
     expect(await heard(tab, room)).toEqual([unread(room, first.createdAt)]);
     const { rooms } = (await (await api("/api/sidebar", { headers: { Cookie: hopper.cookie } })).json()) as Sidebar;
     expect(rooms.find(({ id }) => id === room)).not.toHaveProperty("unreadCount");
+  });
+});
+
+describe("Mentions in an unread room", () => {
+  /** How a message mentioning `session`'s person is written. */
+  const mention = (session: Session) => `<action-text-attachment sgid="${mentionSgid(session.user.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+
+  /** The frame marking room `roomId` unread as of `at`, with `mentions` of its messages mentioning whoever hears it. */
+  const mentioned = (roomId: RoomId, at: string, mentions: number): WorkspaceServerFrame => ({ type: "room.unread", roomId, at, mentions });
+
+  /** How many of the messages marking room `room` unread mention each of its members, by name, for those with any. */
+  const mentionCounts = async (room: RoomId) =>
+    Object.fromEntries(
+      (
+        (await workspaceSql(
+          "SELECT users.name, mention_count FROM memberships JOIN users ON users.id = memberships.user_id WHERE room_id = ? AND mention_count > 0 ORDER BY users.name",
+          room,
+        )) as Array<{ name: string; mention_count: number }>
+      ).map(({ name, mention_count }) => [name, mention_count]),
+    );
+
+  /** Room `room` as `session`'s sidebar lists it. */
+  const listed = async (session: Session, room: RoomId) => ((await (await api("/api/sidebar", { headers: { Cookie: session.cookie } })).json()) as Sidebar).rooms.find(({ id }) => id === room);
+
+  let seq = 0;
+  /** A new message by `author`, as its room's log sends it, mentioning `mentioned` and notifying the room as `notifies` says. */
+  const message = (author: Session, mentioned: Session[] = [], notifies?: SpecialMention): RoomEvent => ({
+    seq: ++seq,
+    kind: "message",
+    userId: author.user.id,
+    at: new Date().toISOString(),
+    message: { id: crypto.randomUUID(), plainText: "Lunch?", mentionIds: mentioned.map(({ user }) => user.id), ...(notifies && { notifies }) },
+  });
+
+  it("counts each message that mentions someone in a room they aren't viewing, telling each of their tabs, until they read it", async () => {
+    const room = await freshRoom("mentions");
+    const ada = await connect(room, "Ada", { visible: true });
+    const hopper = await signIn("Hopper");
+    const [laptop, phone] = [await openWorkspaceSocket(hopper), await openWorkspaceSocket(hopper)];
+
+    const first = await post(ada, "Standup soon");
+    expect(await heard(laptop, room)).toEqual([unread(room, first.createdAt)]);
+    await post(ada, `<p>Ready, ${mention(hopper)}?</p>`);
+    expect(await heard(laptop, room)).toEqual([mentioned(room, first.createdAt, 1)]);
+    await post(ada, `<p>${mention(hopper)}, now</p>`);
+    expect(await heard(laptop, room)).toEqual([mentioned(room, first.createdAt, 2)]);
+    // A message that mentions nobody changes neither the mark nor its count.
+    await post(ada, "Starting");
+    expect(await heard(laptop, room)).toEqual([]);
+    expect(await heard(phone, room)).toEqual([unread(room, first.createdAt), mentioned(room, first.createdAt, 1), mentioned(room, first.createdAt, 2)]);
+    expect(await listed(hopper, room)).toMatchObject({ unread: true, unreadSince: first.createdAt, mentionCount: 2 });
+
+    // Opening the room reads it, in his other tabs too, and starts the count over.
+    const reading = await connect(room, hopper, { visible: true });
+    await settle(reading);
+    expect(await heard(laptop, room)).toEqual([read(room)]);
+    expect(await heard(phone, room)).toEqual([read(room)]);
+    expect(await listed(hopper, room)).not.toHaveProperty("mentionCount");
+    expect(await mentionCounts(room)).toEqual({});
+  });
+
+  it("counts @channel and @everyone for everyone in the room, and @here for those whose tabs are in use, at Nothing too, but for those viewing it, its author, and those who hid it or blocked its author", async () => {
+    const room = await freshRoom("Designers");
+    const [ada, grace, lin, hopper, joan, kay, max] = [await signIn("Ada"), await signIn("Grace"), await signIn("Lin"), await signIn("Hopper"), await signIn("Joan"), await signIn("Kay"), await signIn("Max")];
+    await workspaceSql("UPDATE memberships SET involvement = 'nothing' WHERE room_id = ? AND user_id = ?", room, kay.user.id);
+    await workspaceSql("UPDATE memberships SET involvement = 'invisible' WHERE room_id = ? AND user_id = ?", room, max.user.id);
+    expect((await api(`/api/users/${ada.user.id}/block`, { method: "POST", headers: { Cookie: hopper.cookie } })).status).toBe(200);
+    // Grace's tab is in use, and Lin's says it isn't.
+    await openWorkspaceSocket(grace);
+    const linsTab = await openWorkspaceSocket(lin);
+    linsTab.send(JSON.stringify({ type: "presence.active", active: false }));
+    while ((await linsTab.next()).type !== "presence");
+    const apply = (event: RoomEvent) => workspaceStub().applyRoomEvents(room, [event], [joan.user.id]);
+
+    await apply(message(ada, [], "channel"));
+    expect(await mentionCounts(room)).toEqual({ Grace: 1, Host: 1, Kay: 1, Lin: 1 });
+    await apply(message(ada, [lin], "here"));
+    expect(await mentionCounts(room)).toEqual({ Grace: 2, Host: 1, Kay: 1, Lin: 2 });
+    await apply(message(ada, [], "everyone"));
+    expect(await mentionCounts(room)).toEqual({ Grace: 3, Host: 2, Kay: 2, Lin: 3 });
+    // Joan, viewing it, Max, who hid it, and Hopper, who blocked Ada, have no mark to count on.
+    expect(await marked(room)).toEqual(["Grace", "Host", "Kay", "Lin"]);
+  });
+
+  it("counts nothing for a reply sent only to its thread, which marks no room, nor in a DM, which counts all its messages", async () => {
+    const room = await freshRoom("threads");
+    const [ada, hopper] = [await signIn("Ada"), await signIn("Hopper")];
+    await workspaceStub().applyRoomEvents(room, [{ ...message(ada, [hopper], "channel"), threadOnly: true }], []);
+    expect(await mentionCounts(room)).toEqual({});
+    expect(await marked(room)).toEqual([]);
+
+    const { id: dm } = await direct(ada, hopper);
+    await workspaceStub().applyRoomEvents(dm, [message(ada, [hopper])], []);
+    expect(await workspaceSql("SELECT unread_count, mention_count FROM memberships WHERE room_id = ? AND user_id = ?", dm, hopper.user.id)).toEqual([{ unread_count: 1, mention_count: 0 }]);
+  });
+
+  it("counts each message once, however often the room sends it", async () => {
+    const room = await freshRoom("again");
+    const [ada, hopper] = [await signIn("Ada"), await signIn("Hopper")];
+    const tab = await openWorkspaceSocket(hopper);
+    const [first, second] = [message(ada, [hopper]), message(ada, [], "channel")];
+    await workspaceStub().applyRoomEvents(room, [first, second], []);
+    await workspaceStub().applyRoomEvents(room, [second], []);
+    expect(await mentionCounts(room)).toMatchObject({ Hopper: 2 });
+    // One call's messages tell of the mark they leave, once.
+    expect(await tab.next()).toEqual(mentioned(room, first.at, 2));
+  });
+
+  it("finds the members a mention counts for through the memberships' key", async () => {
+    const room = await freshRoom("plans");
+    await connect(room, "Ada");
+    const plan = async (query: string, ...params: Array<string | number>) =>
+      ((await workspaceSql(`EXPLAIN QUERY PLAN ${query}`, ...params)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
+    const byRoom = /memberships USING (INDEX sqlite_autoindex_memberships_1|PRIMARY KEY) \(room_id=\?/;
+    expect(await plan(COUNT_ROOM_MENTION, room, "someone", "[]", 1)).toMatch(byRoom);
+    expect(await plan(COUNT_MENTIONS, room, "someone", "[]", 1, '["someone else"]')).toMatch(byRoom);
   });
 });

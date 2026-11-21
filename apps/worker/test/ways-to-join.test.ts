@@ -69,6 +69,9 @@ const account = (changes: Partial<Account> = {}): Account => ({
   hideTranslationButtons: true,
   customStyles: "",
   restrictRoomCreation: false,
+  restrictChannelMentions: false,
+  restrictEveryoneMention: false,
+  warnBeforeNotifying: true,
   logo: null,
   customDomain: null,
   joinLink: true,
@@ -83,6 +86,7 @@ const account = (changes: Partial<Account> = {}): Account => ({
   huddles: false,
   huddleCameras: true,
   huddleScreens: true,
+  huddleVideo: "hd",
   ...changes,
 });
 

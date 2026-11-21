@@ -1,4 +1,4 @@
-import type { RoomId, UserId } from "@ember/protocol";
+import type { RoomId, SpecialMention, UserId } from "@ember/protocol";
 import type { MessageHuddle, PastHuddle } from "@ember/protocol/huddles";
 import { statement, type Db, type Statement } from "./db";
 
@@ -43,6 +43,8 @@ export interface PushedMessage {
   plainText: string;
   /** Everyone it mentions, once each. */
   mentionIds: UserId[];
+  /** Whom its special mention notifies, for a message that notifies the room. */
+  notifies?: SpecialMention;
   /** The message it replies to, for a reply in a thread. */
   parentId?: string;
   /**
@@ -54,11 +56,12 @@ export interface PushedMessage {
 
 /**
  * The oldest events a room's log holds, up to a number of them, which are the ones the Workspace hasn't
- * applied, with each new message's text and mentions as they are now, by the message's key, unless it's
- * been deleted, and for a reply in a thread, who wrote and who's mentioned in each message of the thread.
+ * applied, with each new message's text, mentions and whom it notifies as they are now, by the message's
+ * key, unless it's been deleted, and for a reply in a thread, who wrote and who's mentioned in each
+ * message of the thread.
  */
 export const UNDELIVERED_EVENTS = `SELECT room_events.seq, room_events.kind, room_events.user_id AS userId, room_events.at, room_events.in_room AS inRoom,
-    messages.id AS messageId, messages.plain_text AS plainText, messages.mentions, messages.parent_id AS parentId,
+    messages.id AS messageId, messages.plain_text AS plainText, messages.mentions, messages.notifies, messages.parent_id AS parentId,
     CASE WHEN messages.parent_id IS NULL THEN NULL ELSE (
       SELECT json_group_array(json_array(thread.creator_id, json(thread.mentions))) FROM messages AS thread
         WHERE thread.id = messages.parent_id OR thread.parent_id = messages.parent_id
@@ -74,6 +77,7 @@ interface EventRow extends Omit<RoomEvent, "message" | "threadOnly"> {
   messageId: string | null;
   plainText: string | null;
   mentions: string | null;
+  notifies: SpecialMention | null;
   parentId: string | null;
   /** A JSON array of who wrote each message of a reply's thread, with its mentions, as `[id, mentions]`. */
   thread: string | null;
@@ -86,10 +90,15 @@ function followersOf(thread: string): UserId[] {
   return [...new Set(followers)];
 }
 
-function eventOf({ messageId, plainText, mentions, parentId, thread, inRoom, ...logged }: EventRow): RoomEvent {
+function eventOf({ messageId, plainText, mentions, notifies, parentId, thread, inRoom, ...logged }: EventRow): RoomEvent {
   const event: RoomEvent = { ...logged, ...(inRoom === 0 && { threadOnly: true }) };
   if (messageId === null) return event;
-  const message: PushedMessage = { id: messageId, plainText: plainText!, mentionIds: [...new Set(mentionedIds(JSON.parse(mentions!) as StoredMentions))] };
+  const message: PushedMessage = {
+    id: messageId,
+    plainText: plainText!,
+    mentionIds: [...new Set(mentionedIds(JSON.parse(mentions!) as StoredMentions))],
+    ...(notifies !== null && { notifies }),
+  };
   return { ...event, message: parentId === null ? message : { ...message, parentId, followerIds: followersOf(thread!) } };
 }
 

@@ -1,4 +1,4 @@
-import { bodyFromPlainText, writtenBody } from "@ember/richtext/dom";
+import { bodyFromPlainText, MENTION_CONTENT_TYPE, writtenBody } from "@ember/richtext/dom";
 import { createElement, Fragment, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { PLAIN_TEXT, type FormattingCommand, type TextFormat } from "@/lib/formatting";
 import type Editor from "../rich-text-editor";
@@ -35,6 +35,10 @@ function formatAfter(format: TextFormat, command: FormattingCommand): TextFormat
   }
 }
 
+/** Lexxy's markup for `text`, where @here, @channel and @everyone, typed as words, are the mentions picking them from @'s list writes. */
+const markupOf = (text: string) =>
+  bodyFromPlainText(text).replace(/(?<![\w.@])@(here|channel|everyone)(?![\w-])/g, (_, name: string) => `<action-text-attachment sgid="${name}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`);
+
 const attachmentMarkup = ({ contentType, html }: Attachment) =>
   `<action-text-attachment content="${html.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}" content-type="${contentType}"></action-text-attachment>`;
 
@@ -43,11 +47,28 @@ const attachmentMarkup = ({ contentType, html }: Attachment) =>
  * written under jsdom: a text box whose lines are one paragraph of Lexxy's markup, which tells of
  * changes and keys as the editor does, and of addresses pasted in it, below which it shows what's
  * added, each with Lexxy's Remove button. Formatting changes only the formatting it tells of, and a
- * link only the text, which it marks `data-linked` with the address. It lists nobody for an @, and is
- * marked `data-mentions-above` where the list is to show above the text. The browser tests in e2e/
- * write in Lexxy itself.
+ * link only the text, which it marks `data-linked` with the address. It lists nobody for an @, though
+ * @here, @channel and @everyone typed as words are written as the mentions picked from the list, and is
+ * marked `data-mentions-from` with where the list would ask for them and `data-mentions-above` where
+ * the list is to show above the text. Nor does it list rooms for a #, marking itself `data-rooms` with
+ * the ids of the rooms the list would offer, in order. The browser tests in e2e/ write in Lexxy itself.
  */
-export default function RichTextEditor({ label, placeholder, rows, initialValue, mentionsAbove, autoFocus, onChange, onFormatChange, onKeyDown, onLinkPasted, onReady, ref }: ComponentProps<typeof Editor>) {
+export default function RichTextEditor({
+  label,
+  placeholder,
+  rows,
+  initialValue,
+  mentionsFrom,
+  rooms,
+  mentionsAbove,
+  autoFocus,
+  onChange,
+  onFormatChange,
+  onKeyDown,
+  onLinkPasted,
+  onReady,
+  ref,
+}: ComponentProps<typeof Editor>) {
   const box = useRef<HTMLTextAreaElement>(null);
   // Read as soon as they change, as Lexxy's are, and shown once React renders them.
   const attachments = useRef<Attachment[]>([]);
@@ -63,7 +84,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
   };
 
   useImperativeHandle(ref, () => ({
-    value: () => (box.current?.value ? bodyFromPlainText(box.current.value) : EMPTY) + attachments.current.map(attachmentMarkup).join(""),
+    value: () => (box.current?.value ? markupOf(box.current.value) : EMPTY) + attachments.current.map(attachmentMarkup).join(""),
     clear: () => {
       if (!box.current?.value && attachments.current.length === 0) return;
       box.current!.value = "";
@@ -153,6 +174,8 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
         aria-label={label}
         placeholder={placeholder}
         rows={rows}
+        data-mentions-from={mentionsFrom}
+        data-rooms={rooms === undefined ? undefined : [...(rooms?.keys() ?? [])].join(" ")}
         data-mentions-above={mentionsAbove || undefined}
         defaultValue={initialValue && writtenBody(initialValue).plainText}
         onChange={() => onChange?.()}

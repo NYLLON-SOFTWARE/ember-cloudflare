@@ -1,4 +1,4 @@
-import type { Invitation, Me, Message } from "@ember/protocol";
+import type { EphemeralMessage, Invitation, Me, Message } from "@ember/protocol";
 import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -338,7 +338,7 @@ describe("Welcome and invite card", () => {
 
 describe("Sign in with Memberful", () => {
   it("shows no welcome card while Memberful is members only, since its join link is off", () => {
-    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: true, memberfulSignIn: true, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: true, memberfulSignIn: true, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" as const };
     render(<AccountContext value={account}>{list({ messages: [], paged: false }, vi.fn(), { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" })}</AccountContext>);
     expect(screen.queryByRole("heading", { name: "Welcome to Ember" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
@@ -347,7 +347,7 @@ describe("Sign in with Memberful", () => {
 
 describe("Ways to join", () => {
   it("shows no welcome card while the join link is off, but shows it again once it's on", () => {
-    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: false, openSignUp: true, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+    const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: false, openSignUp: true, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" as const };
     const welcome = (joinLink: boolean) => <AccountContext value={{ ...account, joinLink }}>{list({ messages: [], paged: false }, vi.fn(), { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" })}</AccountContext>;
     const { rerender } = render(welcome(false));
     expect(screen.queryByRole("heading", { name: "Welcome to Ember" })).not.toBeInTheDocument();
@@ -399,6 +399,41 @@ describe("Day separators", () => {
   });
 });
 
+describe("Messages only you see", () => {
+  const allow = { id: "ember.call.allow", blockId: "ember.call" };
+  /** The card of a call from @ember that waits on Ada, which only she sees. */
+  const card: EphemeralMessage = {
+    id: "e1",
+    roomId: "general",
+    creator: { id: "ember", name: "Ember" },
+    body: "",
+    plainText: "Ember wants to use Tracker",
+    cards: [{ source: "blocks", parts: [{ kind: "text", html: "<p>Ember wants to use Tracker</p>" }, { kind: "buttons", buttons: [{ text: "Allow once", action: allow, style: "primary" }] }] }],
+    createdAt: "2026-10-12T10:01:00.000Z",
+  };
+  const rows = () => [...screen.getByRole("log").querySelectorAll<HTMLElement>("[data-row]")].map((row) => row.dataset.row);
+
+  it("shows each after the messages that came before it, saying only you see it, with buttons that answer it", async () => {
+    render(list({ messages: [message("Asked"), message("Later", "2026-10-12T10:02:00.000Z")], ephemeral: [card] }));
+    expect(rows()).toEqual(["u1:Asked", "ephemeral:e1", "u1:Later"]);
+    const shown = within(screen.getByRole("log").querySelector<HTMLElement>('[data-row="ephemeral:e1"]')!);
+    expect(shown.getByText("Only visible to you")).toBeInTheDocument();
+    expect(shown.getByRole("heading", { level: 3 })).toHaveTextContent("Ember");
+    // The message after it shows whose it is again.
+    expect(screen.getAllByRole("heading", { level: 3, name: /Ada/ })).toHaveLength(2);
+    actions.click.mockResolvedValueOnce(true);
+    await userEvent.click(shown.getByRole("button", { name: "Allow once" }));
+    expect(actions.click).toHaveBeenCalledWith("e1", allow);
+  });
+
+  it("waits to show one while the timeline holds older messages than the newest, which it came among", () => {
+    const { rerender } = render(list({ messages: [message("Asked")], ephemeral: [card], hasNewer: true }));
+    expect(rows()).toEqual(["u1:Asked"]);
+    rerender(list({ messages: [message("Asked")], ephemeral: [card] }));
+    expect(rows()).toEqual(["u1:Asked", "ephemeral:e1"]);
+  });
+});
+
 describe("New line", () => {
   const grace = { id: "u2", name: "Grace" };
   /** A message from Grace, named by its id. */
@@ -433,6 +468,13 @@ describe("New line", () => {
     expect(newLine()).not.toBeInTheDocument();
     rerender(list({ messages: timeline.slice(3), hasMore: false }, vi.fn(), null, { newSince: "2026-10-12T10:00:00.000Z" }));
     expect(newLineOver()).toBe("First new");
+  });
+
+  it("draws none over the first message loaded when older new ones may not be loaded yet, though a card only the reader sees came before it", () => {
+    const card: EphemeralMessage = { id: "e1", roomId: "general", creator: { id: "ember", name: "Ember" }, body: "", plainText: "Ember wants to use Tracker", cards: [], createdAt: "2026-10-12T09:50:00.000Z" };
+    render(list({ messages: timeline.slice(3), hasMore: true, ephemeral: [card] }, vi.fn(), null, { newSince: "2026-10-12T10:00:00.000Z" }));
+    expect(screen.getByRole("log").querySelector<HTMLElement>("[data-row]")?.dataset.row).toBe("ephemeral:e1");
+    expect(newLine()).not.toBeInTheDocument();
   });
 
   it("draws none when the first message loaded is the reader's own, sent since, and older ones may not be loaded yet", () => {

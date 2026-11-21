@@ -1,13 +1,15 @@
 import { useContext, type MouseEvent } from "react";
-import type { Me, NavigationSlot } from "@ember/protocol";
+import type { DirectoryUser, Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
+import { usePausedUntil } from "@/hooks/use-directory";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
-import { HistoryButtons } from "./history-buttons";
 import { NavigationIcon } from "./navigation-icon";
 import { opensNewDirect } from "./new-direct-dialog";
+import { PauseMenu } from "./pause-menu";
+import { PausedMark } from "./paused-mark";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { openReportsNamed } from "./settings-navigation";
 import { UserAvatar } from "./user-avatar";
@@ -25,12 +27,13 @@ interface RailLinkProps {
   /** What a dot at the icon's corner says is waiting there, said to screen readers as a description. */
   notice?: string;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  className?: string;
 }
 
 /** One of the rail's links, marked when it's the page shown, with a dot in ink when something's waiting there. */
-function RailLink({ slot, label, href, current, notice, onClick }: RailLinkProps) {
+function RailLink({ slot, label, href, current, notice, onClick, className }: RailLinkProps) {
   return (
-    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={notice} onClick={onClick} className={RAIL_LINK}>
+    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={notice} onClick={onClick} className={cn(RAIL_LINK, className)}>
       <NavigationIcon slot={slot} size={22} className="size-[22px]" />
       <span>{label}</span>
       {notice && <span aria-hidden="true" className="absolute top-[5px] right-[13px] size-[11px] rounded-full border-2 border-surface bg-foreground" />}
@@ -93,15 +96,27 @@ interface Props {
   openReports?: number;
   /** Opens New direct message, which DMs does in place, from the link that opened it. */
   onNewDirect: (opener: HTMLElement) => void;
+  /**
+   * Whether the drawer's rail has Search, as on community settings, where the drawer holds the rail
+   * alone, without the conversations or the search field atop them.
+   */
+  searchInDrawer?: boolean;
+  /** Called as Pause notifications pauses them, or resumes them, with what lists you in the people directory as the server answers. */
+  askForPause: () => (me: DirectoryUser) => void;
+  onFailed: (error: unknown) => void;
 }
 
 /**
  * The persistent navigation rail, drawn with the icons an administrator chose in Community settings, or
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of, or while reports are open, which Membership counts.
+ * Search and the arrows that go back and forward are the top bar's, over it (top-bar.tsx), but for
+ * Search where nothing else has it: on a phone in landscape, which has no top bar, and in the drawer
+ * when it holds the rail alone. Your avatar has a half-moon while you've paused your notifications.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease, openReports = 0, onNewDirect, searchInDrawer = false, askForPause, onFailed }: Props) {
   const { logo } = useAccount();
+  const paused = usePausedUntil(me.id) !== null;
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
   const notices = [newRelease !== null && `Ember ${newRelease} is available`, openReports > 0 && openReportsNamed(openReports)].filter((notice) => notice !== false);
@@ -111,8 +126,6 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
       aria-label="Workspace"
       className="flex h-full w-[calc(var(--spacing-rail)+env(safe-area-inset-left))] flex-col items-center gap-3 overflow-y-auto overscroll-contain border-r bg-surface pt-4 pr-3 pb-[max(16px,env(safe-area-inset-bottom))] pl-[calc(12px+env(safe-area-inset-left))] [scrollbar-width:none]"
     >
-      {/* Back and Forward at the top, in line with the page's top bar, for a pointer: fingers have their own way back. */}
-      <HistoryButtons className="touch:hidden" />
       <PageLink
         href="/"
         aria-label="Ember home"
@@ -131,8 +144,17 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
       {/* Never marked, since its address opens New direct message over the last room visited. */}
       <RailLink slot="dms" label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
-      {/* Opens the search box in place, for everything. */}
-      <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />
+      {/* Opens the search box in place, for everything, where nothing else does: on a phone in landscape,
+          which has neither the top bar's search field nor the drawer's, and too little height for either,
+          and in the drawer, at 900px and below, when it has no search field. */}
+      <RailLink
+        slot="search"
+        label="Search"
+        href={SEARCHES_PATH}
+        current={marked === "search"}
+        onClick={opensSearch(openSearch)}
+        className={cn("hidden md:no-top-bar:flex", searchInDrawer && "max-md:flex")}
+      />
       <hr className="my-1 w-8 border-t" />
       <RailLink
         slot="admin"
@@ -141,6 +163,8 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
         current={marked === "workspace"}
         notice={notices.length > 0 ? notices.join(". ") : undefined}
       />
+      {/* The two round buttons and your avatar sit at the rail's foot, pushed there by Pause notifications' auto margin. */}
+      <PauseMenu meId={me.id} askForPause={askForPause} onFailed={onFailed} />
       <AppearanceMenu />
       {/* Your avatar, at 36px, links to your profile, where you log out. */}
       <PageLink
@@ -148,9 +172,10 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
         aria-label="Your profile"
         title={me.name}
         aria-current={marked === "profile" ? "page" : undefined}
-        className="flex shrink-0 rounded-full touch:p-1"
+        className="relative flex shrink-0 rounded-full touch:p-1"
       >
         <UserAvatar user={me} />
+        {paused && <PausedMark className="-right-1 -bottom-1 size-4 ring-2 ring-surface touch:right-0 touch:bottom-0" />}
       </PageLink>
     </nav>
   );

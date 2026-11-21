@@ -300,7 +300,14 @@ async function relayOn(page: Page): Promise<Relay> {
           const received = new Map((sizes?.mid === mid ? sizes.rids : [""]).map((rid) => [rid, receivedOn(rid || mid)]));
           if ([...received.values()].some((track) => !track)) return { mid, trackName, errorCode: "invalid_request", errorDescription: "No such media section" };
           published.set(trackName, { mid, sizes: received as Map<string, MediaStreamTrack> });
-          for (const track of received.values()) play(track!);
+          for (const track of received.values()) {
+            // Chromium encodes a picture again to pass it on, and starts it smaller than it came while it knows
+            // little of what the connection carries, growing it over seconds. Cloudflare's SFU passes on what
+            // it's sent as it is, so the relay keeps a picture's size, which shows which of a camera's sizes
+            // someone is sent.
+            if (track!.kind === "video") track!.contentHint = "detail";
+            play(track!);
+          }
           return { mid, trackName };
         });
         const answer = await described(connection, await connection.createAnswer());

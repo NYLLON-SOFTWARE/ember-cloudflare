@@ -1,5 +1,5 @@
 import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
-import { bodyFromPlainText } from "@ember/richtext/dom";
+import { bodyFromPlainText, ROOM_MENTION_CONTENT_TYPE } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useMemo, useState } from "react";
@@ -9,6 +9,7 @@ import { BlockingContext } from "@/hooks/use-blocking";
 import { ReportingContext } from "@/hooks/use-reporting";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { RoomsContext, type Rooms } from "@/hooks/use-rooms";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { BLOCKED_MESSAGE, MessageItem, type ThreadPlace } from "./message-item";
@@ -55,6 +56,15 @@ const cardMessage = (overrides: Partial<Message> = {}) => message({ body: "", pl
 /** A file message, whose text is empty and whose plain text is its file's name, as the room posts it. */
 const fileMessage = (overrides: Partial<Message> = {}) => message({ body: "", plainText: report.name, attachment: report, ...overrides });
 
+/** The rooms Ada and Grace are in: just the one, Otter Pond. */
+const OTTER_POND: Rooms = new Map([["otters", { id: "otters", kind: "open", name: "Otter Pond", icon: null }]]);
+
+/** A message mentioning Otter Pond, then a room whoever reads it isn't in. */
+const roomsMessage = () => {
+  const room = (roomId: string) => `<action-text-attachment content-type="${ROOM_MENTION_CONTENT_TYPE}" sgid="${roomId}"></action-text-attachment>`;
+  return message({ body: `<p>See ${room("otters")} and ${room("secret")}</p>`, plainText: "See #Otter Pond and #private room" });
+};
+
 /**
  * Renders one message, opening and closing its editor as the room does, seen by `me`, who's an
  * administrator if `administrator`, in a thread's panel if `thread` says where, and marked as the open
@@ -63,10 +73,20 @@ const fileMessage = (overrides: Partial<Message> = {}) => message({ body: "", pl
  * room does when the message changes, `reconnect` lets the page into the room again, `refuse` has the
  * room refuse to delete a reaction, `setBlocked` is what Block and Unblock call, `block` has the
  * sidebar hear that the people it names are the ones blocked, and `openReport` is what Report message opens.
+ * `me` is in `rooms`, as their sidebar lists them.
  */
 function show(
   m: Message | PendingMessage,
-  { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false, blocked = [] as string[] } = {},
+  {
+    me = ada,
+    administrator = false,
+    threaded = false,
+    sent = true,
+    thread = undefined as ThreadPlace | undefined,
+    open = false,
+    blocked = [] as string[],
+    rooms = null as Rooms | null,
+  } = {},
 ) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
   const setBlocked = vi.fn((_person: User, _blocked: boolean) => Promise.resolve(true));
@@ -95,7 +115,9 @@ function show(
           <RefusedUnboosts value={refusals}>
             <BlockingContext value={blocking}>
               <ReportingContext value={openReport}>
-                <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+                <RoomsContext value={rooms}>
+                  <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+                </RoomsContext>
               </ReportingContext>
             </BlockingContext>
           </RefusedUnboosts>
@@ -512,6 +534,14 @@ describe("Edit a message", () => {
     await pressAction(user, "Edit");
     await user.type(await editBox(), " there{Meta>}{Enter}{/Meta}");
     expect(actions.edit).toHaveBeenLastCalledWith("m1", "<p>Hello there</p>");
+  });
+
+  it("opens the rooms a message mentions as you see them, offering the rooms you're in from #", async () => {
+    const { user } = show(roomsMessage(), { rooms: OTTER_POND });
+    await pressAction(user, "Edit", "Ada");
+    const editor = await editBox();
+    expect(editor).toHaveValue("See #Otter Pond and #private room");
+    expect(editor).toHaveAttribute("data-rooms", "otters");
   });
 
   it("starts a new line on Enter, and saves from Save changes too", async () => {
@@ -1084,6 +1114,19 @@ describe("Quote a message", () => {
     expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Thanks Grace Hopper!<\/p><\/blockquote><cite>Ada King <a /);
   });
 
+  it("quotes the rooms the message mentions as mentions of them, shown as you see them, by name or as a private room", async () => {
+    const { editors, user } = show(roomsMessage(), { me: grace, rooms: OTTER_POND });
+    await pressAction(user, "Quote", "Ada");
+    const quote = editors.reply.mock.lastCall![0];
+    expect(quote).toMatch(/^<blockquote><p>See <action-text-attachment [^>]+><\/action-text-attachment> and <action-text-attachment [^>]+><\/action-text-attachment><\/p><\/blockquote><cite>Ada <a /);
+    const mentions = new DOMParser().parseFromString(quote, "text/html").querySelectorAll(`action-text-attachment[content-type="${ROOM_MENTION_CONTENT_TYPE}"]`);
+    const shown = (content: string | null) => new DOMParser().parseFromString(content ?? "", "text/html").body.textContent;
+    expect([...mentions].map((mention) => [mention.getAttribute("sgid"), shown(mention.getAttribute("content"))])).toEqual([
+      ["otters", "#Otter Pond"],
+      ["secret", "private room"],
+    ]);
+  });
+
   it("quotes from More actions with a mouse, whose bar has Reply in thread in its place", async () => {
     withMouse();
     const { article, editors, user } = show(message({ plainText: "Third time's a charm." }), { me: grace });
@@ -1549,6 +1592,12 @@ describe("Highlight mentions of you", () => {
   ])("leaves %s alone", (_, mentions) => {
     expect(highlight(show(message({ creator: grace, plainText: "Thanks @Ada", mentions })).article)).toBeNull();
   });
+
+  it.each(["here", "channel", "everyone"] as const)("highlights a message that notified the room with @%s, as Slack does for everyone it notified", (notifies) => {
+    expect(highlight(show(message({ creator: grace, plainText: `Standup @${notifies}`, notifies })).article)).not.toBeNull();
+    // As a message whose @here, written in a thread or a DM, notified nobody isn't.
+    expect(highlight(show(message({ creator: grace, plainText: `Standup @${notifies}` })).article)).toBeNull();
+  });
 });
 
 describe("How mentions look", () => {
@@ -1573,6 +1622,11 @@ describe("How mentions look", () => {
     const body = `<p>Thanks ${mention(hopper.id)} and ${mention("fedcba9876543210")}!</p>`;
     render(editing(message({ body, plainText: "Thanks @Grace and !", mentions: [hopper] }), new Map([[hopper.id, listed]])));
     expect(await editBox()).toHaveValue("Thanks @Grace Hopper and !");
+  });
+
+  it("edits a message with @here and @channel as they show", async () => {
+    render(editing(message({ body: `<p>Standup ${mention("here")} ${mention("channel")}</p>`, plainText: "Standup @here @channel", notifies: "channel" }), new Map()));
+    expect(await editBox()).toHaveValue("Standup @here @channel");
   });
 
   it("waits for the people directory to edit a message from before messages named the people they mention", async () => {

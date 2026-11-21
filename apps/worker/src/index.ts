@@ -43,6 +43,7 @@ import {
   parseRoomLayout,
   parseNewDirect,
   parseNewRoom,
+  parseNotificationsPause,
   parseProfileChanges,
   parseResendApiKey,
   parseRoleChange,
@@ -75,6 +76,8 @@ import {
   type MemberfulStatus,
   type NewJoinCode,
   type NewRoomForm,
+  type NotificationsPaused,
+  type NotifiedCounts,
   type PersonAnswer,
   type ProfileAnswer,
   type ReleaseCheck,
@@ -115,7 +118,7 @@ import {
   type ElsewhereConnection,
   type SsoStatus,
 } from "@ember/protocol/sso";
-import { mentionPromptItem } from "@ember/richtext";
+import { mentionPromptItem, specialMentionPromptItem, type SpecialMention } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
 import {
   clientOf,
@@ -1110,6 +1113,21 @@ async function changeHuddleSounds(request: Request, env: Env): Promise<Response>
 }
 
 /**
+ * `PUT /api/users/me/notifications-pause`, `{ until }`: pauses the signed-in person's notifications until
+ * `until`, an ISO time no more than a week on, or resumes them with null, as the rail's Pause
+ * notifications does, answering them as the people directory lists them then: 422 for a time that has
+ * passed or isn't one.
+ */
+async function pauseNotifications(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const pause = parseNotificationsPause(await jsonBodyOf(request), Date.now());
+  if (typeof pause === "string") return problem(422, pause);
+  const user = await workspace(env).pauseNotifications(credentials, pause.until);
+  return user ? json({ user } satisfies NotificationsPaused) : problem(401, "Not signed in");
+}
+
+/**
  * `GET /api/huddles`: the huddles that are over in the rooms the signed-in person is in and hasn't
  * hidden, the latest to have started first, which the Huddles page lists.
  */
@@ -1168,7 +1186,8 @@ async function personPage(request: Request, env: Env, pathname: string, userId: 
 /**
  * Whom the mentions prompt offers: the first 20 by name of the active people in `room_id`, or anywhere
  * without one, whose names contain `filter` (or `query`), as `<lexxy-prompt-item>`s, with the AI agents'
- * badged, @ember's among them. A room someone isn't in is 404.
+ * badged, @ember's among them, and with `special_mentions=1`, as a room's own composer asks, the special
+ * mentions that notify the room whose names start with it (`promptItems`). A room someone isn't in is 404.
  */
 async function mentionable(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1177,11 +1196,23 @@ async function mentionable(request: Request, env: Env): Promise<Response> {
   const roomId = present(params.get("room_id"));
   if (roomId !== undefined && !isRoomId(roomId)) return problem(404, ROOM_NOT_FOUND);
   const query = present(params.get("filter")) ?? present(params.get("query")) ?? "";
-  const people = await workspace(env).mentionable(credentials, roomId ?? null, query);
-  if (!people) return problem(401, "Not signed in");
-  if (people === "not found") return problem(404, ROOM_NOT_FOUND);
-  const items = (await directoryOf(people, env.SESSION_SECRET)).map((person) => mentionPromptItem(person));
+  const found = await workspace(env).mentionable(credentials, roomId ?? null, query, params.get("special_mentions") === "1");
+  if (!found) return problem(401, "Not signed in");
+  if (found === "not found") return problem(404, ROOM_NOT_FOUND);
+  const people = (await directoryOf(found.people, env.SESSION_SECRET)).map((person) => mentionPromptItem(person));
+  const items = promptItems(people, found.specialMentions, query);
   return new Response(items.join(""), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+/**
+ * The mentions prompt's items: the people's, then the special mentions', but for a special mention named
+ * all that's been typed, which comes first, so that typing @here and a space picks it, as Slack's prompt
+ * does, while @c picks someone called Chris.
+ */
+function promptItems(people: string[], specialMentions: SpecialMention[], query: string): string[] {
+  const typed = (mention: SpecialMention) => mention === query.toLowerCase();
+  const items = (mentions: SpecialMention[]) => mentions.map(specialMentionPromptItem);
+  return [...items(specialMentions.filter(typed)), ...people, ...items(specialMentions.filter((mention) => !typed(mention)))];
 }
 
 /** A parameter's value unless it's blank, as Rails' `presence` reads it. */
@@ -1304,6 +1335,14 @@ async function newRoomForm(request: Request, env: Env): Promise<Response> {
   return form === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json(form satisfies NewRoomForm);
 }
 
+/** How many people a room holds, and how many each special mention the asker may use would notify there, for its members. */
+async function notified(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const counts = credentials && (await workspace(env).notified(credentials, roomId));
+  if (!counts) return problem(401, "Not signed in");
+  return counts === "not found" ? problem(404, ROOM_NOT_FOUND) : json(counts satisfies NotifiedCounts);
+}
+
 /** A room's settings page, for its members, read-only for those who can't change it. */
 async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1314,8 +1353,8 @@ async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise
 
 /**
  * Changes a room, as its settings page saves it. Someone who can't change it hears so before anything
- * they sent is checked, and whoever would turn huddles on or off in it hears that only an administrator
- * can, unless they're one.
+ * they sent is checked, and whoever would turn huddles, or @channel, @here and @everyone, on or off in it
+ * hears that only an administrator can, unless they're one.
  */
 async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1327,6 +1366,7 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   if (room === "not found") return problem(404, ROOM_NOT_FOUND);
   if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
   if (room === "administrators only") return problem(403, "Only administrators can turn huddles on or off in a room");
+  if (room === "mentions administrators only") return problem(403, "Only administrators can turn @channel, @here and @everyone on or off in a room");
   if (room === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
   if (typeof room === "string") return sectionRefused(room);
   return typeof changes === "string" ? problem(422, changes) : json({ room });
@@ -1573,6 +1613,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me" && request.method === "DELETE") return () => deleteAccount(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
   if (pathname === "/api/users/me/huddle-sounds" && request.method === "PATCH") return () => changeHuddleSounds(request, env);
+  if (pathname === "/api/users/me/notifications-pause" && request.method === "PUT") return () => pauseNotifications(request, env);
   if (pathname === "/api/huddles" && request.method === "GET") return () => pastHuddles(request, env);
   const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
   if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);
@@ -1641,6 +1682,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const huddleInvitation = pathname.match(/^\/api\/rooms\/([^/]+)\/huddle\/invitation$/);
   if (huddleInvitation && request.method === "DELETE")
     return () => (isRoomId(huddleInvitation[1]!) ? answerHuddleInvitation(request, env, huddleInvitation[1]!) : problem(404, ROOM_NOT_FOUND));
+  const notifiedBy = pathname.match(/^\/api\/rooms\/([^/]+)\/notified$/);
+  if (notifiedBy && request.method === "GET") return () => (isRoomId(notifiedBy[1]!) ? notified(request, env, notifiedBy[1]!) : problem(404, ROOM_NOT_FOUND));
   const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
   if (settings && request.method === "GET") return () => (isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND));
   const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);

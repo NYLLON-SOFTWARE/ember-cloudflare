@@ -1,4 +1,5 @@
 import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type NewWorkspace, type RoomId, type SearchResults } from "@ember/protocol";
+import { MENTION_CONTENT_TYPE, type SpecialMention } from "@ember/richtext";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
@@ -45,6 +46,12 @@ async function bodiesIn(room: RoomId): Promise<string[]> {
   return ((await roomSql(room, "SELECT body FROM messages WHERE room_id = ? ORDER BY id", room)) as { body: string }[]).map(({ body }) => body);
 }
 
+/** Whom each of `room`'s messages notifies, as it keeps them, oldest first. */
+const notifiedIn = async (room: RoomId) => ((await roomSql(room, "SELECT notifies FROM messages WHERE room_id = ? ORDER BY id", room)) as Array<{ notifies: string | null }>).map(({ notifies }) => notifies);
+
+/** How the room keeps the special mention `name` in a message's body. */
+const stored = (name: SpecialMention) => `<action-text-attachment content-type="${MENTION_CONTENT_TYPE}" sgid="${name}"></action-text-attachment>`;
+
 /** A body its sender holds back until `meanwhile` has run, once the Worker has begun to read it. */
 const heldBack = (text: string, meanwhile: () => Promise<unknown>) =>
   new ReadableStream<Uint8Array>(
@@ -75,10 +82,64 @@ describe("Slack-compatible webhooks", () => {
     expect(message).toMatchObject({
       roomId: general,
       creator: { id: bot.id, name: "Build Bot" },
-      body: '<p>Deploy <strong>finished</strong> 🎉 <a href="https://ci.example.com/builds/42">Build 42</a> for @U024BE7LH @here</p>',
+      body: `<p>Deploy <strong>finished</strong> 🎉 <a href="https://ci.example.com/builds/42">Build 42</a> for @U024BE7LH ${stored("here")}</p>`,
       plainText: "Deploy finished 🎉 Build 42 for @U024BE7LH @here",
       mentions: [],
+      notifies: "here",
     });
+  });
+
+  it("makes its text's <!here>, <!channel> and <!everyone>, labelled or not, the room's special mentions, which notify it as a person's do", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    for (const [text, body, notifies] of [
+      ["<!here|here> Standup in 5", `<p>${stored("here")} Standup in 5</p>`, "here"],
+      ["Deploy *failed* <!channel>", `<p>Deploy <strong>failed</strong> ${stored("channel")}</p>`, "channel"],
+      ["<!everyone|@everyone> Lunch is here", `<p>${stored("everyone")} Lunch is here</p>`, "everyone"],
+      // With nothing else to say, as Slack takes it too.
+      ["<!channel>", `<p>${stored("channel")}</p>`, "channel"],
+    ] as const) {
+      expect(await answerTo(bot.key, general, { text })).toEqual(OK);
+      expect((await inRoom.next("message.created")).message).toMatchObject({ body, notifies });
+    }
+    expect(await notifiedIn(general)).toEqual(["here", "channel", "everyone", "channel"]);
+  });
+
+  it("keeps them as the text they show, notifying nobody with them, where the room or the workspace's limits keep them from the bot, as from a member", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const change = async (path: string, changes: unknown) =>
+      expect((await api(path, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify(changes) })).status).toBe(200);
+    const sent = async (text: string) => {
+      expect(await answerTo(bot.key, general, { text })).toEqual(OK);
+      return (await inRoom.next("message.created")).message;
+    };
+
+    await change(`/api/rooms/${general}`, { channelMentions: false });
+    expect(await sent("<!channel> Deploy failed")).toMatchObject({ body: "<p>@channel Deploy failed</p>", plainText: "@channel Deploy failed" });
+    expect(await sent("<!here> <!channel>")).toMatchObject({ body: "<p>@here @channel</p>", plainText: "@here @channel" });
+    await change(`/api/rooms/${general}`, { channelMentions: true });
+    await change("/api/account", { settings: { restrictChannelMentions: true } });
+    expect(await sent("<!here> <!everyone> Deploy failed")).toMatchObject({ body: `<p>@here ${stored("everyone")} Deploy failed</p>`, notifies: "everyone" });
+    await change("/api/account", { settings: { restrictEveryoneMention: true } });
+    expect((await sent("<!everyone> Deploy failed")).body).toBe("<p>@everyone Deploy failed</p>");
+    expect(await notifiedIn(general)).toEqual([null, null, "everyone", null]);
+  });
+
+  it("keeps the <!here> and <!channel> of its attachments and blocks as text, notifying nobody, as only the text it shows can notify", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    for (const payload of [
+      { text: "Deploy failed", attachments: [{ pretext: "<!here>", text: "<!channel> Deploy failed" }] },
+      // Blocks show in place of the text, so its <!channel> shows nowhere.
+      { text: "<!channel> Deploy failed", blocks: [{ type: "section", text: { type: "mrkdwn", text: "<!here> Deploy failed" } }] },
+    ]) {
+      expect(await answerTo(bot.key, general, payload)).toEqual(OK);
+      const { message } = await inRoom.next("message.created");
+      expect(JSON.stringify([message.body, message.cards])).not.toContain(MENTION_CONTENT_TYPE);
+      expect(message.notifies).toBeUndefined();
+    }
+    expect(await notifiedIn(general)).toEqual([null, null]);
   });
 
   it("posts as the bot, to the room its address names, whatever name, icon, channel or thread the payload asks for", async () => {

@@ -12,6 +12,9 @@ const EMBER: Account = {
   hideTranslationButtons: true,
   customStyles: "",
   restrictRoomCreation: false,
+  restrictChannelMentions: false,
+  restrictEveryoneMention: false,
+  warnBeforeNotifying: true,
   logo: null,
   customDomain: null,
   joinLink: true,
@@ -26,6 +29,7 @@ const EMBER: Account = {
   huddles: false,
   huddleCameras: true,
   huddleScreens: true,
+  huddleVideo: "hd",
 };
 
 /** How a new workspace sends email: with the binding wrangler.jsonc declares, from no address yet. */

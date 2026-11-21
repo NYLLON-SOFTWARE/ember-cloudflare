@@ -12,7 +12,7 @@ const NOON = "2026-10-15T12:00:00.000Z";
 const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false, involvement: "mentions" } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
 const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } });
-const ember: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+const ember: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" };
 /** Someone as the directory lists them. */
 const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
 
@@ -346,6 +346,18 @@ describe("Unread rooms", () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true, unreadSince: NOON }]);
+  });
+
+  it("counts the mentions in a room marked unread, as the workspace socket says, until it's read", async () => {
+    server.sidebar = unstarred([design]);
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON });
+    socket().receive({ type: "room.unread", roomId: design.id, at: NOON, mentions: 1 });
+    expect(result.current.list?.rooms).toEqual([{ ...design, unread: true, unreadSince: NOON, mentionCount: 1 }]);
+    socket().receive({ type: "room.read", roomId: design.id });
+    expect(result.current.list?.rooms).toEqual([design]);
   });
 
   it("counts the messages that have come in a DM since it was marked unread, as the workspace socket says, until it's read", async () => {
@@ -1163,5 +1175,35 @@ describe("Custom CSS", () => {
     await settle();
     socket().connect(grace);
     expect(onAccountChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("Pause notifications", () => {
+  it("lists this person in the people directory as the server answers a pause of theirs, unless the workspace socket has said what became of them since", async () => {
+    const update = vi.fn();
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { people: new Map(), reload: async () => {}, update, remove: () => {} }));
+    await settle();
+    socket().connect();
+    await settle();
+    const paused: DirectoryUser = { ...listed(ada, "member"), pausedUntil: "2026-10-15T13:00:00.000Z" };
+
+    // Ada pauses them, and her answer comes before the socket's word of it.
+    const saved = result.current.askForYou();
+    act(() => saved(paused));
+    expect(update).toHaveBeenLastCalledWith(paused);
+
+    // She pauses them again, and the socket brings that, then her resuming them in another tab just after, before her answer.
+    const answered = result.current.askForYou();
+    socket().receive({ type: "user.updated", user: paused });
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    update.mockClear();
+    act(() => answered(paused));
+    expect(update).not.toHaveBeenCalled();
+
+    // What the socket says of anyone else leaves an answer to take its place.
+    const later = result.current.askForYou();
+    socket().receive({ type: "user.updated", user: listed(grace, "administrator") });
+    act(() => later(listed(ada, "member")));
+    expect(update).toHaveBeenLastCalledWith(listed(ada, "member"));
   });
 });

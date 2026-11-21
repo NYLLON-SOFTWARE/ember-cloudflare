@@ -54,6 +54,9 @@ const isSameAccount = (a: Account, b: Account) =>
   a.hideTranslationButtons === b.hideTranslationButtons &&
   a.customStyles === b.customStyles &&
   a.restrictRoomCreation === b.restrictRoomCreation &&
+  a.restrictChannelMentions === b.restrictChannelMentions &&
+  a.restrictEveryoneMention === b.restrictEveryoneMention &&
+  a.warnBeforeNotifying === b.warnBeforeNotifying &&
   a.logo === b.logo &&
   a.customDomain === b.customDomain &&
   a.joinLink === b.joinLink &&
@@ -68,7 +71,8 @@ const isSameAccount = (a: Account, b: Account) =>
   NAVIGATION_SLOTS.every((slot) => a.navigationIcons[slot] === b.navigationIcons[slot]) &&
   a.huddles === b.huddles &&
   a.huddleCameras === b.huddleCameras &&
-  a.huddleScreens === b.huddleScreens;
+  a.huddleScreens === b.huddleScreens &&
+  a.huddleVideo === b.huddleVideo;
 
 export function App() {
   // Undefined until the server says whether Ember is set up.

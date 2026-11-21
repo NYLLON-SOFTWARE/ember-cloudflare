@@ -29,6 +29,7 @@ import { PeopleContext, type People } from "@/hooks/use-directory";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
 import { CHROME_MAC, SAFARI_MAC } from "@/test-platforms";
+import { pauseEndLabel } from "@/lib/notifications-pause";
 import { PUSH_ON } from "@/test-push";
 import { DEFAULT_MODEL_EXPLAINED } from "./answer-levels";
 import { AVATAR_CHANGED, ProfilePage } from "./profile-page";
@@ -48,7 +49,7 @@ const LEVELS: YourAssistant = {
   defaultModel: "@cf/zai-org/glm-4.7-flash",
   models: [{ id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" }],
 };
-const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true };
+const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
 
@@ -120,7 +121,7 @@ function serve({
  * and with the huddle sounds she hears as the list has them, or none while huddles are off.
  */
 function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, huddleSounds: HuddleSounds | null = null) {
-  const [onSignOut, onFailed, answered, soundsAnswered] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+  const [onSignOut, onFailed, answered, soundsAnswered, onPaused] = [vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn()];
   const onDeleteAccount = vi.fn(async () => {});
   const setBlocked = vi.fn(async () => true);
   const page = (listed: SidebarRoom[] | null, people: People = new Map(), blocked: string[] = []) => (
@@ -136,6 +137,7 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
                   askForRoom={() => answered}
                   huddleSounds={huddleSounds}
                   askForHuddleSounds={() => soundsAnswered}
+                  askForPause={() => onPaused}
                   onSignOut={onSignOut}
                   onDeleteAccount={onDeleteAccount}
                   onFailed={onFailed}
@@ -614,6 +616,52 @@ describe("Huddle sounds on your profile", () => {
     await user.click(within(section()!).getByRole("switch", { name: "Ring when someone invites you to a huddle" }));
     expect(onFailed).toHaveBeenCalledOnce();
     expect(soundsAnswered).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Pause notifications on your profile", () => {
+  const section = () => screen.getByRole("region", { name: "Pause notifications" });
+  /** Ada as the people directory lists her, paused until `pausedUntil` if it's given. */
+  const listed = (pausedUntil?: string): DirectoryUser => ({ ...ada, bio: null, role: "member", status: "active", avatarUrl: "/users/u1/avatar", ...(pausedUntil && { pausedUntil }) });
+  /** When the pause each call asked for ends. */
+  const endsAsked = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input) === "/api/users/me/notifications-pause")
+      .map(([, init]) => (JSON.parse(String(init?.body)) as { until: string | null }).until);
+
+  beforeEach(() => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input) !== "/api/users/me/notifications-pause") return Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer);
+      const { until } = JSON.parse(String(init?.body)) as { until: string | null };
+      return Response.json({ user: listed(until ?? undefined) });
+    });
+  });
+
+  it("offers the rail's choices before Huddle sounds, handing you as the directory lists you once one's saved", async () => {
+    const { user } = showPage(account, [], CHROME_MAC, { music: true, chimes: true, ring: true });
+    await loaded();
+    expect(within(section()).getAllByRole("button").map((button) => button.textContent)).toEqual(["30 minutes", "1 hour", "2 hours", "Until tomorrow"]);
+    expect(section().compareDocumentPosition(screen.getByRole("region", { name: "Huddle sounds" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    const asked = Date.now();
+    await user.click(within(section()).getByRole("button", { name: "30 minutes" }));
+    await waitFor(() => expect(endsAsked()).toHaveLength(1));
+    const [end] = endsAsked();
+    expect(Date.parse(end!) - asked).toBeGreaterThanOrEqual(30 * 60_000);
+    expect(Date.parse(end!) - Date.now()).toBeLessThanOrEqual(30 * 60_000);
+  });
+
+  it("says until when they're paused, with Resume notifications first", async () => {
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    const { showPeople, user } = showPage();
+    await loaded();
+    showPeople(new Map([[ada.id, listed(until)]]));
+    expect(section()).toHaveTextContent(`Paused until ${pauseEndLabel(new Date(until))}.`);
+    expect(within(section()).getAllByRole("button").map((button) => button.textContent)).toEqual(["Resume notifications", "30 minutes", "1 hour", "2 hours", "Until tomorrow"]);
+
+    await user.click(within(section()).getByRole("button", { name: "Resume notifications" }));
+    await waitFor(() => expect(endsAsked()).toEqual([null]));
   });
 });
 

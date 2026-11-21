@@ -11,6 +11,8 @@ const uniqueWord = () => `fudge${crypto.randomUUID().slice(0, 8)}`;
 /** Opens Membership from the rail's Admin link, as an administrator does, and saves `words` as its Blocked words. */
 async function block(page: Page, ...words: string[]): Promise<void> {
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Admin" }).click();
+  // Community settings shows its links while it loads, then draws them again once it has, losing a click that comes as it does.
+  await expect(page).toHaveTitle("Community settings");
   await page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Membership" }).click();
   const card = page.getByRole("region", { name: "Blocked words" });
   await card.getByRole("textbox", { name: "Words and phrases, one a line or apart by commas" }).fill(words.join("\n"));
