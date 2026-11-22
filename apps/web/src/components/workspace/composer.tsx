@@ -83,10 +83,11 @@ const CLIP_BUTTON_WITHOUT_SHORTCUT = "touch:hidden @max-[15.4375rem]:hidden";
 /**
  * Manage drafts, which gives way in a card narrower than the row's nine buttons with it and its two lines,
  * 326px, or for fingers, seven, 320px, and where there's no Run shortcut, one button and one line fewer:
- * 281px, or for fingers, 274px.
+ * 281px, or for fingers, 274px. The wider widths are kept from fingers, whose row has no lines, by `md:` and
+ * `not-pointer-coarse:`, which together are where `touch:` isn't.
  */
-const DRAFTS_BUTTON = "@max-[20.375rem]:hidden touch:@max-[20rem]:hidden";
-const DRAFTS_BUTTON_WITHOUT_SHORTCUT = "@max-[17.5625rem]:hidden touch:@max-[17.125rem]:hidden";
+const DRAFTS_BUTTON = "md:not-pointer-coarse:@max-[20.375rem]:hidden touch:@max-[20rem]:hidden";
+const DRAFTS_BUTTON_WITHOUT_SHORTCUT = "md:not-pointer-coarse:@max-[17.5625rem]:hidden touch:@max-[17.125rem]:hidden";
 
 /**
  * Schedule for later's chevron, joined to Send, as Slack's is, and Send beside it: it gives way on touch
