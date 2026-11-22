@@ -1,8 +1,9 @@
 import { useRef, useState, type ComponentType } from "react";
 import { CodeBrackets, Microphone, Plus, Upload, VideoCamera, Xmark, type IconoirIconProps } from "@/components/icons/iconoir";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { ClipKind } from "@/lib/clips";
 import { appleKeyboard, snippetShortcut, uploadShortcut, type Shortcut } from "@/lib/keyboard";
+import { DraftsItems, listsDrafts, type Drafts, type DraftsShown } from "./drafts-menu";
 import { ShortcutTooltip } from "./shortcut-tooltip";
 
 /** What the menu closed for, which says where focus goes as it does. */
@@ -19,6 +20,10 @@ interface Props {
   onRecordClip?: (kind: ClipKind) => void;
   /** Whether the composer's row shows the clips' own buttons, as the menu opens. */
   clipsInRow: () => boolean;
+  /** The composer's drafts, where this browser can keep them. */
+  drafts?: Drafts;
+  /** Whether the composer's row shows Manage drafts, as the menu opens. */
+  draftsInRow: () => boolean;
   /** Puts focus back in the text once the menu's gone, but for a snippet. */
   onClosed: () => void;
 }
@@ -26,14 +31,20 @@ interface Props {
 /**
  * Slack's +, under the composer's text: a menu of Text snippet and Upload from your computer, Slack's two that
  * Ember has, each with its keys, and where the composer's row has no room for the clips' buttons, Record a
- * video clip and Record an audio clip, which Slack's apps have in their + too. The + is an × while it's open.
+ * video clip and Record an audio clip, which Slack's apps have in their + too, and for Manage drafts, the
+ * drafts it lists, with Save as draft. The + is an × while it's open.
  */
-export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordClip, clipsInRow, onClosed }: Props) {
+export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordClip, clipsInRow, drafts, draftsInRow, onClosed }: Props) {
   const [open, setOpen] = useState(false);
   const [clips, setClips] = useState(false);
+  const [draftsShown, setDraftsShown] = useState<DraftsShown | null>(null);
   const chosen = useRef<Choice>(null);
   const openChanged = (opened: boolean) => {
-    if (opened) setClips(onRecordClip !== undefined && !clipsInRow());
+    if (opened) {
+      setClips(onRecordClip !== undefined && !clipsInRow());
+      const shown = drafts && !draftsInRow() ? drafts.look() : null;
+      setDraftsShown(shown && listsDrafts(shown) ? shown : null);
+    }
     setOpen(opened);
   };
   return (
@@ -73,6 +84,12 @@ export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordC
           <>
             <Item icon={VideoCamera} label="Record a video clip" onSelect={() => (chosen.current = "video")} />
             <Item icon={Microphone} label="Record an audio clip" onSelect={() => (chosen.current = "audio")} />
+          </>
+        )}
+        {drafts && draftsShown && (
+          <>
+            <DropdownMenuSeparator />
+            <DraftsItems drafts={drafts} shown={draftsShown} />
           </>
         )}
       </DropdownMenuContent>

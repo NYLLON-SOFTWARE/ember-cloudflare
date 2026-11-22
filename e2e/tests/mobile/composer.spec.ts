@@ -121,3 +121,25 @@ test("the people @ lists show above the text, fit the phone, each big enough to 
   await expect(mention).toBeVisible();
   await screenIsFine();
 });
+
+test("Manage drafts is beside Send where the row has room for it, and in + on narrow phones, the buttons keeping to one line", async ({ page, room, screenIsFine }) => {
+  await openRoom(page, room);
+  const composer = editorField(page, "Write a message");
+  await composer.tap();
+  await page.keyboard.type("A thought");
+  const button = (name: string) => page.locator("form.composer").getByRole("button", { name, exact: true, includeHidden: true });
+  // A phone 360px wide or less has a card narrower than seven fingertip-sized buttons, 320px, so room for six.
+  const inRow = page.viewportSize()!.width > 360;
+  await expect(button("Manage drafts")).toBeVisible({ visible: inRow });
+  for (const name of ["Attach", "Run shortcut", ...(inRow ? ["Manage drafts"] : []), "Send Message"]) {
+    expect((await button(name).boundingBox())!.y, name).toBe((await button("Show formatting").boundingBox())!.y);
+  }
+  await screenIsFine();
+
+  await button(inRow ? "Manage drafts" : "Attach").tap();
+  await expect(page.getByRole("group", { name: "Drafts in this room" }).getByRole("menuitemradio")).toHaveText(["A thought"]);
+  await screenIsFine();
+  await page.getByRole("menuitem", { name: "Save as draft" }).tap();
+  await expect(composer).toHaveText("");
+  await expect(page.getByRole("button", { name: "Send Message" })).toHaveAttribute("data-empty");
+});
