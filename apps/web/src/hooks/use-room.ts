@@ -126,6 +126,26 @@ export interface Scheduling {
 /** Whether the room lists `clientMessageId`'s message among those scheduled. */
 const lists = (scheduled: ScheduledMessage[] | undefined, clientMessageId: string) => scheduled?.some((message) => message.clientMessageId === clientMessageId) ?? false;
 
+/**
+ * What waits for a room's answer to what someone asked it to schedule, by `answersOf` them and the room.
+ * It outlives the room's view: what was asked as the room was left hears the welcome the room sends as
+ * the page comes back to it, which lists what the room has scheduled, so the composer that asked, gone by
+ * then, forgets its draft once the room has it, as it would have had the room stayed open.
+ */
+const scheduleAnswers = new Map<string, Set<(frame: ServerFrame) => void>>();
+
+const answersOf = (userId: string, roomId: string) => `${userId} ${roomId}`;
+
+/** Hears the frames of the room `answers` names, among `scheduleAnswers`, until the function it answers is called. */
+function listenForAnswers(answers: string, listener: (frame: ServerFrame) => void): () => void {
+  const listeners = scheduleAnswers.get(answers) ?? new Set();
+  scheduleAnswers.set(answers, listeners.add(listener));
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0 && scheduleAnswers.get(answers) === listeners) scheduleAnswers.delete(answers);
+  };
+}
+
 export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
   const whyNotSent = (frame: ClientFrame) => (send(frame) ? null : NOT_CONNECTED);
   // The last edit asked of each scheduled message, by its id, until the room has answered it.
@@ -214,6 +234,11 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   // What this page left unsent here when the room was last left waits in the timeline again, to go, or
   // show as not sent, as it would have had the room stayed open.
   const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me));
+  // What was asked of the room to schedule hears what it says, here or in its next view, should this one go first.
+  const answers = answersOf(me.id, roomId);
+  const answerSchedules = useEffectEvent((frame: ServerFrame) => {
+    for (const listener of scheduleAnswers.get(answers) ?? []) listener(frame);
+  });
 
   // A message sent over the socket can lose its answer, where one posted over HTTP fails only when the
   // request does: the socket can close after the room stored a message but before the confirmation came
@@ -296,6 +321,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         sendQueued(room, frame);
       }
       for (const listener of listeners.current) listener(frame);
+      answerSchedules(frame);
     };
 
     const onClose = (code: number, opened: boolean) => {
@@ -472,7 +498,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   );
 
   const messageActions = useMemo(() => messageActionsOf(frames, warn), [frames, warn]);
-  const scheduling = useMemo(() => schedulingOf(frames), [frames]);
+  const scheduling = useMemo(() => schedulingOf({ send, listen: (listener) => listenForAnswers(answers, listener) }), [send, answers]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
   const givenBack = useCallback((clientMessageId: string, taken: boolean) => dispatch({ type: "given-back", clientMessageId, taken }), []);

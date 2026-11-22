@@ -1378,6 +1378,21 @@ describe("Schedule a message", () => {
     expect(result.current.state.scheduled).toEqual([]);
   });
 
+  it("finds out as the page comes back to the room whether it had one asked for as the room was left, which its welcome lists among those scheduled", async () => {
+    const left = joinGeneral();
+    const kept = scheduleLater(left.result);
+    const lost = scheduleLater(left.result);
+    left.unmount();
+    joinGeneral({ connect: false });
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, scheduled: [scheduledAs(kept.sent.clientMessageId)] });
+    const answers: Array<string | null> = [];
+    void kept.settled.then((answer) => (answers[0] = answer));
+    void lost.settled.then((answer) => (answers[1] = answer));
+    await act(async () => {});
+    expect(answers).toEqual([null, NOT_CONNECTED]);
+  });
+
   /** Has s1 say `body`, answering what that settles with. */
   function editing(result: ReturnType<typeof joinGeneral>["result"], body: string) {
     let saved: Promise<string | null> | undefined;
