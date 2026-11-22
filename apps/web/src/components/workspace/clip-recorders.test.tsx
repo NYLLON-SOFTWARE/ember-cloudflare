@@ -185,6 +185,15 @@ describe("Record video clip", () => {
     expect(status()).toHaveTextContent(NOT_RECORDED);
     expect(button("Record")).toBeEnabled();
   });
+
+  it("says so where the browser fails as it records, showing nothing to keep, but Record", async () => {
+    const { user } = showVideoRecorder();
+    await user.click(await screen.findByRole("button", { name: "Record" }));
+    await recorder().fail();
+    expect(status()).toHaveTextContent(NOT_RECORDED);
+    expect(screen.queryByLabelText("Your clip")).not.toBeInTheDocument();
+    expect(button("Record")).toBeEnabled();
+  });
 });
 
 function showAudioRecorder() {
@@ -251,5 +260,33 @@ describe("Record audio clip", () => {
     FakeRecorder.refuses = true;
     showAudioRecorder();
     expect(await screen.findByText(NOT_RECORDED)).toBeInTheDocument();
+  });
+
+  it("says so where the browser fails as it records, leaving nothing to go with the next message, until it's closed", async () => {
+    media.pending = true;
+    const { user, onRecorded, onClose } = showAudioRecorder();
+    await media.answer();
+    expect(button("Done")).toHaveFocus();
+    await recorder().fail();
+    expect(status()).toHaveTextContent(NOT_RECORDED);
+    expect(onRecorded).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // Done goes, and focus with it stays in the recorder, where Escape closes it, as Close does.
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Record audio clip" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+    await user.click(button("Close"));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves focus on Cancel, which becomes Close, where the browser fails as it records", async () => {
+    media.pending = true;
+    const { user } = showAudioRecorder();
+    await media.answer();
+    await user.tab({ shift: true });
+    expect(button("Cancel")).toHaveFocus();
+    await recorder().fail();
+    expect(button("Close")).toHaveFocus();
   });
 });

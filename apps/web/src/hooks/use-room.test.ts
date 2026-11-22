@@ -1362,20 +1362,55 @@ describe("Schedule a message", () => {
     expect(await settled).toBe(NOT_CONNECTED);
   });
 
-  it("finds out as the room lets the page in again whether it had one sent before, as it lists what's scheduled, or has it among its messages, sent since", async () => {
+  it("finds out as the room lets the page in again whether it had one sent before, as it lists what's scheduled, has it among its messages, sent since, or says, asked", async () => {
     const { result } = joinGeneral();
     const lost = scheduleLater(result);
     const kept = scheduleLater(result);
     const due = scheduleLater(result);
     const since = [message("m9", { clientMessageId: due.sent.clientMessageId })];
     act(() => socket().receive({ type: "resumed", you: ada, messages: since, deletedIds: [], present: [ada], seq: 0, scheduled: [scheduledAs(kept.sent.clientMessageId)] }));
-    expect(await lost.settled).toBe(NOT_CONNECTED);
     expect(await kept.settled).toBeNull();
     expect(await due.settled).toBeNull();
     expect(result.current.state.scheduled).toEqual([scheduledAs(kept.sent.clientMessageId)]);
+    // One it neither lists nor has among them it may have sent before them, so it's asked.
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [lost.sent.clientMessageId] }]);
+    act(() => socket().receive({ type: "message.checked", stored: [], missing: [lost.sent.clientMessageId] }));
+    expect(await lost.settled).toBe(NOT_CONNECTED);
     // A welcome that lists none means there are none.
     socket().receive(welcome());
     expect(result.current.state.scheduled).toEqual([]);
+  });
+
+  it("says why where the room couldn't say whether it had sent one it doesn't list as it lets the page in again", async () => {
+    const { result } = joinGeneral();
+    const lost = scheduleLater(result);
+    act(() => socket().receive(welcome()));
+    act(() => socket().receive({ type: "error", message: "Something went wrong", failed: "message.check", clientMessageIds: [lost.sent.clientMessageId] }));
+    expect(await lost.settled).toBe("Something went wrong");
+  });
+
+  it("finds out as the page comes back to the room whether it had those asked for as the room was left, as its welcome lists them, or it says, asked, as of a reply in its thread alone that came due meanwhile", async () => {
+    const left = joinGeneral();
+    const kept = scheduleLater(left.result);
+    const lost = scheduleLater(left.result);
+    const due = scheduleLater(left.result, { parentId: "m1", alsoSend: false });
+    left.unmount();
+    joinGeneral({ connect: false });
+    socket().open();
+    // The reply isn't among the messages the room sends, as it went in its thread alone.
+    act(() => socket().receive({ type: "welcome", you: ada, messages: [message("m1")], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, scheduled: [scheduledAs(kept.sent.clientMessageId)] }));
+    expect(socket().sentOfType("message.check")).toEqual([
+      { type: "message.check", clientMessageIds: [lost.sent.clientMessageId] },
+      { type: "message.check", clientMessageIds: [due.sent.clientMessageId] },
+    ]);
+    act(() => socket().receive({ type: "message.checked", stored: [], missing: [lost.sent.clientMessageId] }));
+    act(() => socket().receive({ type: "message.checked", stored: [due.sent.clientMessageId], missing: [] }));
+    const answers: Array<string | null> = [];
+    void kept.settled.then((answer) => (answers[0] = answer));
+    void lost.settled.then((answer) => (answers[1] = answer));
+    void due.settled.then((answer) => (answers[2] = answer));
+    await act(async () => {});
+    expect(answers).toEqual([null, NOT_CONNECTED, null]);
   });
 
   /** Has s1 say `body`, answering what that settles with. */

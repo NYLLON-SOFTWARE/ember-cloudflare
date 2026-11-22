@@ -167,7 +167,7 @@ export function VideoClipDialog({ onRecorded, onClose }: Props) {
   const [cameraOff, setCameraOff] = useState(false);
   const [clip, setClip] = useState<File | null>(null);
   const [failed, setFailed] = useState(false);
-  const recorder = useClipRecorder("video", setClip);
+  const recorder = useClipRecorder("video", setClip, () => setFailed(true));
   const url = useObjectUrl(clip);
   const played = useRef<HTMLVideoElement>(null);
   const [length, setLength] = useState<number | null>(null);
@@ -391,19 +391,27 @@ const BAR_ACTION = "inline-flex h-9 shrink-0 cursor-pointer items-center justify
 export function AudioClipRecorder({ onRecorded, onClose }: Props) {
   const microphone = useClipDevice("microphone", openMicrophone);
   const [failed, setFailed] = useState(false);
-  const recorder = useClipRecorder("audio", (clip) => {
-    onRecorded(clip);
-    onClose();
-  });
+  const recorder = useClipRecorder(
+    "audio",
+    (clip) => {
+      onRecorded(clip);
+      onClose();
+    },
+    () => setFailed(true),
+  );
   const levels = useLevels(recorder.recording ? microphone.stream : null);
   const group = useRef<HTMLDivElement>(null);
   const doneButton = useRef<HTMLButtonElement>(null);
 
-  // Focus is in it from the start, as what was under it is out of reach, and on Done once it records.
+  // Focus is in it from the start, as what was under it is out of reach, on Done once it records, and
+  // back in it where recording fails, should it have been on Done, which goes.
   useEffect(() => group.current?.focus(), []);
   useEffect(() => {
     if (recorder.recording) doneButton.current?.focus();
   }, [recorder.recording]);
+  useEffect(() => {
+    if (failed && !group.current?.contains(document.activeElement)) group.current?.focus();
+  }, [failed]);
 
   const start = useEffectEvent((stream: MediaStream) => {
     if (!recorder.start(stream)) setFailed(true);

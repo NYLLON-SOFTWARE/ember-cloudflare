@@ -17,14 +17,16 @@ const TICK = 250;
  * Records a `kind` of clip from a stream, as the composer's clips are: `start` begins it, and `stop` ends
  * it, after which `onRecorded` has the clip, as it does once five minutes are up, when it stops by itself,
  * and once what it records ends, as a camera unplugged does. `discard` ends it without handing it over,
- * until it has been, and what records it going discards it too. `recording` is whether it's under way,
- * until it's handed over, and `seconds` how long it has run.
+ * until it has been, and what records it going discards it too. Where the browser fails as it records,
+ * what it recorded is cut short, so it's discarded, and `onFailed` hears that it couldn't record.
+ * `recording` is whether it's under way, until it's handed over, and `seconds` how long it has run.
  */
-export function useClipRecorder(kind: ClipKind, onRecorded: (clip: File) => void) {
+export function useClipRecorder(kind: ClipKind, onRecorded: (clip: File) => void, onFailed: () => void) {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
   const recording = useRef<Recording | null>(null);
   const recorded = useEffectEvent(onRecorded);
+  const failed = useEffectEvent(onFailed);
 
   // Discarding a clip that was stopped to keep, before it's handed over, still discards it.
   const finish = (keep: boolean) => {
@@ -52,6 +54,15 @@ export function useClipRecorder(kind: ClipKind, onRecorded: (clip: File) => void
     const chunks: Blob[] = [];
     const at = new Date();
     recorder.addEventListener("dataavailable", ({ data }) => data.size > 0 && chunks.push(data));
+    // A browser that fails as it records, as when its encoder gives out, says so, then hands over what it
+    // had and stops as though it had been stopped. What it had is cut short, so nothing is handed over.
+    recorder.addEventListener("error", () => {
+      if (recording.current !== current) return;
+      recording.current = null;
+      setStartedAt(null);
+      if (current.keep) failed();
+      current.keep = false;
+    });
     recorder.addEventListener("stop", async () => {
       const milliseconds = (current.stoppedAt ??= performance.now()) - current.startedAt;
       const clip = current.keep ? await recordedClip(kind, new Blob(chunks, { type: recorder.mimeType || type }), milliseconds, at) : null;
