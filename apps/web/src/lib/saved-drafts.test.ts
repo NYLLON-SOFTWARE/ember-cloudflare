@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keepSavedDrafts, keepsDrafts, readSavedDrafts, savedDraft } from "./saved-drafts";
 
 beforeEach(() => localStorage.clear());
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("Drafts put aside", () => {
   it("keeps a conversation's drafts beside the one being written there, and reads them newest first", () => {
@@ -32,7 +35,17 @@ describe("Drafts put aside", () => {
     const [one, other] = [savedDraft("<p>One</p>"), savedDraft("<p>One</p>")];
     expect(one).toEqual({ id: expect.any(String), body: "<p>One</p>", savedAt: 1234 });
     expect(other.id).not.toBe(one.id);
-    vi.restoreAllMocks();
+  });
+
+  it("keeps drafts where storage is full, which still holds those put aside, though no more fit", () => {
+    const draft = { id: "a", body: "<p>Kept</p>", savedAt: 1 };
+    expect(keepSavedDrafts("composer-draft-u1-r1", [draft])).toBe(true);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    });
+    expect(keepsDrafts()).toBe(true);
+    expect(readSavedDrafts("composer-draft-u1-r1")).toEqual([draft]);
+    expect(keepSavedDrafts("composer-draft-u1-r1", [savedDraft("<p>More</p>"), draft])).toBe(false);
   });
 
   it("keeps and reads nothing where storage is unavailable, and says so", () => {

@@ -1292,6 +1292,8 @@ describe("Keep drafts", () => {
 });
 
 describe("Manage drafts", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   const manageDrafts = () => screen.queryByRole("button", { name: "Manage drafts" });
   const listed = (place = "room") => within(screen.getByRole("group", { name: `Drafts in this ${place}` })).getAllByRole("menuitemradio");
   const ticked = (place = "room") => listed(place).map((item) => [item.textContent, item.getAttribute("aria-checked")]);
@@ -1408,7 +1410,7 @@ describe("Manage drafts", () => {
   it("says so, leaving what's written, where the drafts can't be kept, until it's changed", async () => {
     const { input, user } = await showComposer();
     await user.type(input, "Hello");
-    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
       if (key.endsWith("/saved")) throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
       localStorage[key] = value;
     });
@@ -1419,7 +1421,22 @@ describe("Manage drafts", () => {
 
     await user.type(input, "!");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    setItem.mockRestore();
+  });
+
+  it("leaves a draft put aside, and what's written, as they were, saying so, where there's no room to keep the draft opened", async () => {
+    keepAside("<p>Aside</p>");
+    const { input, user } = await showComposer();
+    await user.type(input, "Now");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === "composer-draft-u1-r1") throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      localStorage[key] = value;
+    });
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitemradio", { name: "Aside" }));
+    expect(input).toHaveValue("Now");
+    expect(screen.getByRole("alert")).toHaveTextContent("Your drafts couldn't be saved, as this browser has no room left for them.");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Now</p>");
+    expect(putAside()).toEqual(["<p>Aside</p>"]);
   });
 
   it("isn't there where this browser can't keep drafts", async () => {
@@ -1430,6 +1447,15 @@ describe("Manage drafts", () => {
     const { input, user } = await showComposer();
     await user.type(input, "Hello");
     expect(manageDrafts()).not.toBeInTheDocument();
+  });
+
+  it("is there where storage is full, which still holds the drafts put aside", async () => {
+    keepAside("<p>Aside</p>");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    });
+    await showComposer();
+    expect(manageDrafts()).toBeInTheDocument();
   });
 
   it("lists beside the room what a thread's composer in the huddle over it put aside, once that's gone", async () => {

@@ -48,13 +48,16 @@ export function keepSavedDrafts(draftKey: string, drafts: SavedDraft[]): boolean
 /** `body` as a draft put aside now. */
 export const savedDraft = (body: string): SavedDraft => ({ id: crypto.randomUUID(), body, savedAt: Date.now() });
 
-/** Whether this browser can keep drafts: storage can be unavailable, as in some private windows. */
+/**
+ * Whether this browser can keep drafts: storage can be unavailable, as in some private windows. Storage
+ * that's full still holds the drafts put aside, which opening one makes room for.
+ */
 export function keepsDrafts(): boolean {
   try {
     localStorage.setItem(PROBE, "");
     localStorage.removeItem(PROBE);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return error instanceof DOMException && error.name === "QuotaExceededError";
   }
 }

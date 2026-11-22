@@ -546,8 +546,11 @@ export function Composer({
   // Only a message to a room's timeline notifies it, so only its composer asks first.
   const notifyConfirm = useNotifyConfirm(roomId, roomName, !direct && threadId === undefined, () => editor.current?.focus());
 
+  // Keeps `body` as what's written, answering whether it could.
   const keep = (body: string | null) => {
-    if (keepDraft(key, body)) kept.current = body;
+    const keeps = keepDraft(key, body);
+    if (keeps) kept.current = body;
+    return keeps;
   };
 
   // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
@@ -707,7 +710,9 @@ export function Composer({
 
   // The draft put aside as `id` is written in the composer, and what's written put aside in its place, with
   // the previews asked for of its links forgotten, as it's no longer what's written. One that another
-  // composer of this draft has opened meanwhile has gone from the list.
+  // composer of this draft has opened meanwhile has gone from the list. The draft opened is kept as what's
+  // written before it shows, so it isn't lost as the page goes: where there's no room for it, the drafts are
+  // put back as they were, and what's written stays.
   const openDraft = (id: string) => {
     const written = editor.current;
     const drafts = readSavedDrafts(key);
@@ -715,6 +720,10 @@ export function Composer({
     if (!written || !opened) return setSaved(drafts);
     const others = drafts.filter((draft) => draft !== opened);
     if (!keepSaved(written.isBlank() ? others : [savedDraft(written.value()), ...others])) return;
+    if (!keep(opened.body)) {
+      keepSaved(drafts);
+      return setNotSaved(true);
+    }
     written.replace(opened.body);
     linkPreviews.dropped();
   };
