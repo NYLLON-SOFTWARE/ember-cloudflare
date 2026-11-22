@@ -15,6 +15,7 @@ import {
   direct,
   freshDeploy,
   freshRoom,
+  holdNextCall,
   openWorkspaceSocket,
   pauseNotifications,
   post,
@@ -22,6 +23,7 @@ import {
   recordedImage,
   roomSql,
   roomStub,
+  settle,
   shown,
   signIn,
   upload,
@@ -289,7 +291,7 @@ describe("Who gets a push", () => {
     await connect(room, "Ada");
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", 1, 1, "2026-11-20T23:30:00.000Z", 1, "[]", "[]"));
+    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", 1, 1, "2026-11-20T23:30:00.000Z", "2026-11-20T23:29:00.000Z", 1, "[]", "[]"));
     expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
@@ -348,7 +350,7 @@ describe("Who @channel, @here and @everyone push", () => {
     const room = await freshRoom("plans");
     // Which makes the room's tables, on Durable Object SQLite.
     await connect(room, "Ada");
-    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${ROOM_MENTION_PUSHES}`, room, "someone", "[]", 1, 1, "2026-11-20T23:30:00.000Z")) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
+    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${ROOM_MENTION_PUSHES}`, room, "someone", "[]", 1, 1, "2026-11-20T23:30:00.000Z", "2026-11-20T23:29:00.000Z")) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
     expect(plan).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(plan).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
   });
@@ -553,6 +555,31 @@ describe("Who gets a push", () => {
       await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
       expect(pushed[0]!.endpoint).toMatch(/\/grace$/);
       expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ title: "Designers", options: { body: "Ada: Standup in 5 @channel" } });
+    });
+
+    it("pushes nobody a message from before they joined its room, though the room tells the Workspace of it once they have", async () => {
+      const pushed = pushServices();
+      const [ada, grace] = await people("Ada", "Grace");
+      const browser = await pushBrowser();
+      await subscribe(grace, "grace", browser);
+      const { id: room } = await createRoom("Board", { closedTo: [ada.user.id], as: ada });
+      const adaThere = await connect(room, ada, { visible: true });
+      await settle(adaThere);
+      await delivered(room);
+      const call = await holdNextCall(room);
+      const bodies = () => Promise.all(pushed.map(async ({ body }) => (JSON.parse(await browser.open(body)) as { options: { body: string } }).options.body));
+
+      // Ada's message waits for the Workspace while she adds Grace, as a busy room's waits for the calls before it.
+      await post(adaThere, `<p>Standup in 5 ${special("channel")}</p>`);
+      await call.called();
+      const added = await api(`/api/rooms/${room}/members`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ addedIds: [grace.user.id], removedIds: [] }) });
+      expect(added.status, await added.clone().text()).toBe(200);
+      call.release();
+      await delivered(room);
+
+      await post(adaThere, `<p>Welcome, Grace ${special("channel")}</p>`);
+      await vi.waitFor(async () => expect(await bodies()).toContain("Ada: Welcome, Grace @channel"), { timeout: 5_000 });
+      expect(await bodies()).toEqual(["Ada: Welcome, Grace @channel"]);
     });
 
     it("pushes a bot's <!channel>, sent to its Slack-compatible webhook, to everyone in the room at @mentions, as a person's @channel", async () => {
