@@ -12,6 +12,7 @@ import {
   type ServerFrame,
   type User,
 } from "@ember/protocol";
+import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { AddPreview } from "@/components/workspace/composer";
 import { StrictMode } from "react";
@@ -1393,12 +1394,12 @@ describe("Schedule a message", () => {
     expect(socket().sentOfType("scheduled.edit")).toEqual([{ type: "scheduled.edit", scheduledId: "s1", body: "<p>Sooner</p>" }]);
     // What's scheduled, after a change from another tab, or to another message, isn't this one's answer.
     socket().receive({ type: "scheduled", messages: [scheduledAs("s1")] });
-    socket().receive({ type: "scheduled", messages: [scheduledAs("s1")], changed: "s2" });
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1")], edited: "s2" });
     let answer: string | null | undefined;
     void saved.then((settledWith) => (answer = settledWith));
     await act(async () => {});
     expect(answer).toBeUndefined();
-    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>Sooner</p>" })], changed: "s1" });
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>Sooner</p>" })], edited: "s1" });
     expect(await saved).toBeNull();
 
     const refused = edit("<p>Gone</p>");
@@ -1417,18 +1418,28 @@ describe("Schedule a message", () => {
 
   it("sends another edit of one once the room has answered the last, as its answer names only the message", async () => {
     const { result } = joinGeneral();
+    const sent = () => socket().sentOfType("scheduled.edit").map((frame) => frame.body);
     const first = editing(result, "<p>One</p>");
     const second = editing(result, "<p>Two</p>");
+    const third = editing(result, "<p>Three</p>");
     expect(socket().sentOfType("scheduled.edit")).toEqual([{ type: "scheduled.edit", scheduledId: "s1", body: "<p>One</p>" }]);
-    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>One</p>" })], changed: "s1" });
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>One</p>" })], edited: "s1" });
     expect(await first).toBeNull();
     await act(async () => {});
-    expect(socket().sentOfType("scheduled.edit").map((frame) => frame.body)).toEqual(["<p>One</p>", "<p>Two</p>"]);
-    socket().receive({ type: "error", message: SCHEDULED_GONE, scheduledId: "s1", failed: "scheduled.edit" });
-    expect(await second).toBe(SCHEDULED_GONE);
+    expect(sent()).toEqual(["<p>One</p>", "<p>Two</p>"]);
+    // As the room refuses one: what's scheduled, as it was, then why not, after which it says nothing more of it.
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>One</p>" })] });
+    await act(async () => {});
+    expect(sent()).toHaveLength(2);
+    socket().receive({ type: "error", message: BLOCKED_WORDS_REFUSED, scheduledId: "s1", failed: "scheduled.edit" });
+    expect(await second).toBe(BLOCKED_WORDS_REFUSED);
+    await act(async () => {});
+    expect(sent()).toEqual(["<p>One</p>", "<p>Two</p>", "<p>Three</p>"]);
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>Three</p>" })], edited: "s1" });
+    expect(await third).toBeNull();
     // And none waits once they're answered.
-    void editing(result, "<p>Three</p>");
-    expect(socket().sentOfType("scheduled.edit")).toHaveLength(3);
+    void editing(result, "<p>Four</p>");
+    expect(sent()).toHaveLength(4);
   });
 
   it("moves, sends now and deletes one, saying why a change couldn't go, and shows the room's refusal", () => {

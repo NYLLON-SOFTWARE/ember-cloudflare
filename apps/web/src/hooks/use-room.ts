@@ -157,15 +157,15 @@ export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
         return lists(frame.scheduled, clientMessageId) || frame.messages.some((message) => message.clientMessageId === clientMessageId) ? null : NOT_CONNECTED;
       });
     },
-    // The room says why it refused an edit before it tells the tab what's scheduled, with which it changed,
-    // as it does after any change. That names only the message, so another edit of it goes once the room
-    // has answered the last. A room that lets the page in again may not have had it, which can be saved again.
+    // The room tells the tab what's scheduled once it has the edit, with which it edited, or else says why
+    // not, last. Either names only the message, so another edit of it goes once the room has answered the
+    // last. A room that lets the page in again may not have had it, which can be saved again.
     edit: (scheduledId, body) => {
       if (isTooLong(body, writtenBody(body).plainText)) return Promise.resolve(MESSAGE_TOO_LONG);
       const ask = () =>
         answerTo({ type: "scheduled.edit", scheduledId, body }, (frame) => {
           if (frame.type === "error" && frame.scheduledId === scheduledId && frame.failed === "scheduled.edit") return frame.message;
-          if (frame.type === "scheduled" && frame.changed === scheduledId) return null;
+          if (frame.type === "scheduled" && frame.edited === scheduledId) return null;
           return frame.type === "welcome" || frame.type === "resumed" ? NOT_CONNECTED : undefined;
         });
       const last = edits.get(scheduledId);

@@ -2075,10 +2075,11 @@ export type ServerFrame =
   /**
    * The messages you have scheduled in the room, every one, soonest first, sent to your sockets in the room
    * whenever one is scheduled, moved, sent, deleted or can't be sent. A socket starts with them in its
-   * welcome, or with what it resumes. `changed`, sent only to the socket that asked for a change to one, is
-   * the one it asked to change, once the room has changed it, or said first why it didn't.
+   * welcome, or with what it resumes. `edited`, sent only to the socket that asked to edit one, is the one it
+   * asked to edit, once the room has the edit. Where the room refuses a change, that socket hears them, then
+   * why not.
    */
-  | { type: "scheduled"; messages: ScheduledMessage[]; changed?: string }
+  | { type: "scheduled"; messages: ScheduledMessage[]; edited?: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
    * `clientMessageIds` the messages it was about, `scheduledId` the scheduled message, or `clickId` the
