@@ -5194,6 +5194,15 @@ export class Workspace extends DurableObject<Env> {
     return this.store.roomMember(roomId, clickerId);
   }
 
+  /**
+   * `writerId` as they're named now, while they're in room `roomId`, for a message they scheduled there,
+   * which the room sends as theirs only then: null once they've left it, been removed from it, or can't
+   * sign in to Ember.
+   */
+  async scheduledWriter(roomId: RoomId, writerId: UserId): Promise<User | null> {
+    return (await this.store.roomMember(roomId, writerId))?.member ?? null;
+  }
+
   /** Whether `agentId` is one tools are picked for: @ember, whether or not it has answered yet, or an agent. */
   private async usesTools(agentId: UserId): Promise<boolean> {
     return agentId === ASSISTANT_ID || (await this.store.isAgent(agentId));

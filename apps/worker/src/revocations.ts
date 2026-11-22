@@ -52,6 +52,9 @@ export const OPEN_ROOMS_ONLY = "*open";
  */
 export const AUTHORIZATION_TTL_MS = 60_000;
 
+/** Whether the Workspace's word, given at `authorizedAt`, has been held up too long to trust. */
+export const heldUpTooLong = (authorizedAt: number, now = Date.now()) => !(now - authorizedAt <= AUTHORIZATION_TTL_MS);
+
 /**
  * How long a room keeps a revocation: an authorization's lifetime, with a few more minutes in case
  * the Workspace's clock and the room's disagree.
@@ -77,7 +80,7 @@ export class Revocations {
    * it's too old to trust.
    */
   async refuse(tags: string[], authorizedAt: number, now = Date.now()): Promise<boolean> {
-    if (!(now - authorizedAt <= AUTHORIZATION_TTL_MS)) return true;
+    if (heldUpTooLong(authorizedAt, now)) return true;
     const recent = await this.read(now);
     // At or before: the clock only counts milliseconds, and a check in the same one as the
     // revocation may have read what came before it.

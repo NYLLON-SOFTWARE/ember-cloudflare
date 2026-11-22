@@ -18,8 +18,8 @@ files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log, its log of messages for the search index, its recent deletions, its files and the
-calls of apps' tools that wait to be allowed, and
+room's change log, its log of messages for the search index, its recent deletions, its files, the
+calls of apps' tools that wait to be allowed and the messages people have scheduled there, and
 `workspace` for the workspace-wide tables (the account, people, sessions and the addresses their sockets come from, linked accounts, push
 subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
 purges and reindexes, the rooms deleted, the apps connected, the tools picked for each agent, and the AI apps people connect to Ember). On DO SQLite, an object applies only its own scope's
@@ -29,7 +29,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
+`message_deletions`, `blobs`, `waiting_calls` and `scheduled_messages`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`, `sections`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,

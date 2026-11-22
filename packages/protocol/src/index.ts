@@ -1867,6 +1867,40 @@ export interface ThreadSummary {
   people: User[];
 }
 
+/**
+ * A message someone has scheduled in a room, as Slack's Schedule for later does, which the room sends as
+ * theirs at `sendAt`, as long as they're in the room then. Only they hear of it, on their own sockets in
+ * the room (`scheduled`). `body` is its markup, as the room keeps a message's, `clientMessageId` the id the
+ * tab that scheduled it gave it, which the message is sent with, and with `parentId`, it's a reply in that
+ * message's thread, which `alsoSend` sends to the room too. `failure` says why the room couldn't send it
+ * when it was due, as when the thread's message had been deleted: it waits then, to be edited or deleted.
+ */
+export interface ScheduledMessage {
+  id: string;
+  clientMessageId: string;
+  body: string;
+  sendAt: string;
+  parentId?: string;
+  alsoSend?: boolean;
+  failure?: string;
+}
+
+/** The most messages someone can have scheduled in a room at once. */
+export const MAX_SCHEDULED_MESSAGES = 30;
+/** How far ahead a message can be scheduled: 120 days, as in Slack. */
+export const SCHEDULE_AHEAD_MS = 120 * 24 * 60 * 60_000;
+/** What the room says of a time that's past, or further ahead than it schedules. */
+export const SCHEDULE_TIME_REFUSED = "Pick a time between now and 120 days from now.";
+/** What the room says once someone has as many messages scheduled there as it keeps. */
+export const TOO_MANY_SCHEDULED = `You can have up to ${MAX_SCHEDULED_MESSAGES} messages scheduled here at once.`;
+/** What the room says of a scheduled message that has gone, sent or deleted meanwhile, as from another tab. */
+export const SCHEDULED_GONE = "That message isn't scheduled any more.";
+/**
+ * Why the room couldn't send a scheduled reply: its thread's message has been deleted since it was
+ * scheduled, leaving no thread to send it in, so its room's composer lists it, where it can be deleted.
+ */
+export const THREAD_DELETED = "Its thread's message has been deleted.";
+
 /** Whether a message shows in its room's timeline: every message but a reply that was sent only to its thread. */
 export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
 
@@ -1901,6 +1935,19 @@ export type ClientFrame =
    * With `parentId`, it's a reply in that message's thread, which `alsoSend` sends to the room too.
    */
   | { type: "message.create"; clientMessageId: string; body: string; parentId?: string; alsoSend?: boolean }
+  /**
+   * A message to send at `sendAt`, as `message.create` would send it now, which the room keeps for its
+   * writer, answering with `scheduled`, or with an `error` naming `clientMessageId`.
+   */
+  | { type: "message.schedule"; clientMessageId: string; body: string; sendAt: string; parentId?: string; alsoSend?: boolean }
+  /** One of your scheduled messages' new body, as for `message.update`, which keeps its time. */
+  | { type: "scheduled.edit"; scheduledId: string; body: string }
+  /** Moves one of your scheduled messages to `sendAt`, to be sent then, though it couldn't be before. */
+  | { type: "scheduled.reschedule"; scheduledId: string; sendAt: string }
+  /** Sends one of your scheduled messages now. */
+  | { type: "scheduled.send"; scheduledId: string }
+  /** Deletes one of your scheduled messages, unsent. */
+  | { type: "scheduled.delete"; scheduledId: string }
   /** A message's new body, as for `message.create`. */
   | { type: "message.update"; messageId: string; body: string }
   /**
@@ -1974,16 +2021,17 @@ export type ServerFrame =
    * Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. Its
    * page is the newest, or the one around the message the socket's address names, if the room has it.
    * `ephemeral` holds the messages only they see, the cards of the calls asked in the room's timeline that
-   * wait on them, if any do.
+   * wait on them, if any do, and `scheduled` the messages they have scheduled here, as `scheduled` lists
+   * them, if they have any.
    */
-  | ({ type: "welcome"; you: User; present: User[]; seq: number; ephemeral?: EphemeralMessage[] } & TimelinePage)
+  | ({ type: "welcome"; you: User; present: User[]; seq: number; ephemeral?: EphemeralMessage[]; scheduled?: ScheduledMessage[] } & TimelinePage)
   /**
    * Sent in place of a welcome to a tab that names the latest change it has seen, if the room still
    * keeps every change since: the messages changed after it, as they are now, oldest first, the ids of
    * those deleted, and who's here. A message both made and deleted since is among the deleted alone.
-   * `ephemeral` holds what a welcome's does.
+   * `ephemeral` and `scheduled` hold what a welcome's do.
    */
-  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number; ephemeral?: EphemeralMessage[] }
+  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number; ephemeral?: EphemeralMessage[]; scheduled?: ScheduledMessage[] }
   /** A new message. Its author has stopped typing, too. */
   | { type: "message.created"; message: Message; seq: number }
   | { type: "message.updated"; message: Message; seq: number }
@@ -2025,12 +2073,20 @@ export type ServerFrame =
    */
   | { type: "message.ephemeral"; message: EphemeralMessage }
   /**
-   * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
-   * take a message for what it says, as one with a word Blocked words keeps out, which is its writer's to
-   * change and send again.
+   * The messages you have scheduled in the room, every one, soonest first, sent to your sockets in the room
+   * whenever one is scheduled, moved, sent, deleted or can't be sent. A socket starts with them in its
+   * welcome, or with what it resumes. `edited`, sent only to the socket that asked to edit one, is the one it
+   * asked to edit, once the room has the edit. Where the room refuses a change, that socket hears them, then
+   * why not.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
+  | { type: "scheduled"; messages: ScheduledMessage[]; edited?: string }
+  /**
+   * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
+   * `clientMessageIds` the messages it was about, `scheduledId` the scheduled message, or `clickId` the
+   * click. `rewrite` says the room won't take a message for what it says, as one with a word Blocked words
+   * keeps out, which is its writer's to change and send again.
+   */
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; scheduledId?: string; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
   | { type: "pong" };
 
 /**
@@ -2372,6 +2428,13 @@ function linkPreview(v: unknown): LinkPreview | null {
   return title.trim() !== "" && url.trim() !== "" ? { title, url, image, description } : null;
 }
 
+/** A time, as an ISO string no longer than one is, which it answers as `toISOString` writes it, or null. */
+const time = (v: unknown): string | null => {
+  if (typeof v !== "string" || v.length > 30) return null;
+  const at = Date.parse(v);
+  return Number.isFinite(at) ? new Date(at).toISOString() : null;
+};
+
 /** Trimmed, non-empty text no longer than `max`, or null. */
 const text = (v: unknown, max: number): string | null => {
   if (typeof v !== "string") return null;
@@ -2401,6 +2464,24 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       if (f.parentId === undefined) return { type: f.type, clientMessageId: f.clientMessageId, body };
       return id(f.parentId) ? { type: f.type, clientMessageId: f.clientMessageId, body, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
     }
+    case "message.schedule": {
+      const body = markup(f.body);
+      const sendAt = time(f.sendAt);
+      if (!id(f.clientMessageId) || body === null || sendAt === null) return null;
+      if (f.parentId === undefined) return { type: f.type, clientMessageId: f.clientMessageId, body, sendAt };
+      return id(f.parentId) ? { type: f.type, clientMessageId: f.clientMessageId, body, sendAt, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
+    }
+    case "scheduled.edit": {
+      const body = markup(f.body);
+      return id(f.scheduledId) && body !== null ? { type: f.type, scheduledId: f.scheduledId, body } : null;
+    }
+    case "scheduled.reschedule": {
+      const sendAt = time(f.sendAt);
+      return id(f.scheduledId) && sendAt !== null ? { type: f.type, scheduledId: f.scheduledId, sendAt } : null;
+    }
+    case "scheduled.send":
+    case "scheduled.delete":
+      return id(f.scheduledId) ? { type: f.type, scheduledId: f.scheduledId } : null;
     case "message.update": {
       const body = markup(f.body);
       return id(f.messageId) && body !== null ? { type: f.type, messageId: f.messageId, body } : null;

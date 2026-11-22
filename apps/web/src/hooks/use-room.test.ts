@@ -1,4 +1,18 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type LinkPreview, type Message, type ServerFrame, type User } from "@ember/protocol";
+import {
+  CloseCode,
+  MAX_CHECKED_MESSAGES,
+  MAX_MESSAGE_HTML_LENGTH,
+  MAX_MESSAGE_LENGTH,
+  MESSAGE_TOO_LONG,
+  SCHEDULE_TIME_REFUSED,
+  SCHEDULED_GONE,
+  type LinkPreview,
+  type Message,
+  type ScheduledMessage,
+  type ServerFrame,
+  type User,
+} from "@ember/protocol";
+import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { AddPreview } from "@/components/workspace/composer";
 import { StrictMode } from "react";
@@ -8,7 +22,7 @@ import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
-import { openRoomSocketAhead, useRoom } from "./use-room";
+import { NOT_CONNECTED, openRoomSocketAhead, useRoom, type ScheduledReply } from "./use-room";
 import { useThread } from "./use-thread";
 
 vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
@@ -1286,6 +1300,161 @@ describe("Click a card's button", () => {
     });
     expect(await went).toBe(false);
     expect(result.current.state.notice).toBe("Not connected. Try again once you're reconnected.");
+  });
+});
+
+describe("Schedule a message", () => {
+  const at = new Date("2026-11-18T17:00:00.000Z");
+  const scheduledAs = (clientMessageId: string, overrides: Partial<ScheduledMessage> = {}): ScheduledMessage => ({
+    id: clientMessageId,
+    clientMessageId,
+    body: "<p>Later</p>",
+    sendAt: at.toISOString(),
+    ...overrides,
+  });
+
+  /** Schedules "Later" for `at`, answering what that settles with and the frame it sent. */
+  function scheduleLater(result: ReturnType<typeof joinGeneral>["result"], reply?: ScheduledReply) {
+    let settled: Promise<string | null> | undefined;
+    act(() => {
+      settled = result.current.scheduling.schedule("<p>Later</p>", at, reply);
+    });
+    const [sent] = socket().sentOfType("message.schedule").slice(-1);
+    return { settled: settled!, sent: sent as { clientMessageId: string } };
+  }
+
+  it("sends it to the room, and waits for the room to list it among those scheduled", async () => {
+    const { result } = joinGeneral();
+    const { settled, sent } = scheduleLater(result, { parentId: "m1", alsoSend: true });
+    expect(sent).toEqual({ type: "message.schedule", clientMessageId: expect.any(String), body: "<p>Later</p>", sendAt: "2026-11-18T17:00:00.000Z", parentId: "m1", alsoSend: true });
+    // Another's listing isn't this one's.
+    act(() => socket().receive({ type: "scheduled", messages: [scheduledAs("another")] }));
+    let answer: string | null | undefined;
+    void settled.then((settledWith) => (answer = settledWith));
+    await act(async () => {});
+    expect(answer).toBeUndefined();
+    const listed = [scheduledAs("another"), scheduledAs(sent.clientMessageId, { parentId: "m1", alsoSend: true })];
+    act(() => socket().receive({ type: "scheduled", messages: listed }));
+    expect(await settled).toBeNull();
+    expect(result.current.state.scheduled).toEqual(listed);
+  });
+
+  it("says why the room refused it, there rather than over the timeline", async () => {
+    const { result } = joinGeneral();
+    const { settled, sent } = scheduleLater(result);
+    act(() => socket().receive({ type: "error", message: SCHEDULE_TIME_REFUSED, clientMessageId: sent.clientMessageId, failed: "message.schedule" }));
+    expect(await settled).toBe(SCHEDULE_TIME_REFUSED);
+    expect(result.current.state.notice).toBeNull();
+  });
+
+  it("says one too long for the room is, without sending it, and one written while the room is away wasn't scheduled", async () => {
+    const { result } = joinGeneral();
+    let settled: Promise<string | null> | undefined;
+    act(() => {
+      settled = result.current.scheduling.schedule(paragraphOf(MAX_MESSAGE_LENGTH + 1), at);
+    });
+    expect(await settled).toBe(MESSAGE_TOO_LONG);
+    expect(socket().sentOfType("message.schedule")).toEqual([]);
+    socket().drop();
+    act(() => {
+      settled = result.current.scheduling.schedule("<p>Later</p>", at);
+    });
+    expect(await settled).toBe(NOT_CONNECTED);
+  });
+
+  it("finds out as the room lets the page in again whether it had one sent before, as it lists what's scheduled, or has it among its messages, sent since", async () => {
+    const { result } = joinGeneral();
+    const lost = scheduleLater(result);
+    const kept = scheduleLater(result);
+    const due = scheduleLater(result);
+    const since = [message("m9", { clientMessageId: due.sent.clientMessageId })];
+    act(() => socket().receive({ type: "resumed", you: ada, messages: since, deletedIds: [], present: [ada], seq: 0, scheduled: [scheduledAs(kept.sent.clientMessageId)] }));
+    expect(await lost.settled).toBe(NOT_CONNECTED);
+    expect(await kept.settled).toBeNull();
+    expect(await due.settled).toBeNull();
+    expect(result.current.state.scheduled).toEqual([scheduledAs(kept.sent.clientMessageId)]);
+    // A welcome that lists none means there are none.
+    socket().receive(welcome());
+    expect(result.current.state.scheduled).toEqual([]);
+  });
+
+  /** Has s1 say `body`, answering what that settles with. */
+  function editing(result: ReturnType<typeof joinGeneral>["result"], body: string) {
+    let saved: Promise<string | null> | undefined;
+    act(() => {
+      saved = result.current.scheduling.edit("s1", body);
+    });
+    return saved!;
+  }
+
+  it("edits one, settling once the room says it's changed it, or why it didn't, there rather than over the timeline", async () => {
+    const { result } = joinGeneral();
+    const edit = (body: string) => editing(result, body);
+    const saved = edit("<p>Sooner</p>");
+    expect(socket().sentOfType("scheduled.edit")).toEqual([{ type: "scheduled.edit", scheduledId: "s1", body: "<p>Sooner</p>" }]);
+    // What's scheduled, after a change from another tab, or to another message, isn't this one's answer.
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1")] });
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1")], edited: "s2" });
+    let answer: string | null | undefined;
+    void saved.then((settledWith) => (answer = settledWith));
+    await act(async () => {});
+    expect(answer).toBeUndefined();
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>Sooner</p>" })], edited: "s1" });
+    expect(await saved).toBeNull();
+
+    const refused = edit("<p>Gone</p>");
+    socket().receive({ type: "error", message: SCHEDULED_GONE, scheduledId: "s1", failed: "scheduled.edit" });
+    expect(await refused).toBe(SCHEDULED_GONE);
+    expect(result.current.state.notice).toBeNull();
+    // A room that lets the page in again may not have had it.
+    const lost = edit("<p>Sooner</p>");
+    socket().receive(welcome());
+    expect(await lost).toBe(NOT_CONNECTED);
+    expect(await edit(overformatted)).toBe(MESSAGE_TOO_LONG);
+    expect(socket().sentOfType("scheduled.edit")).toHaveLength(3);
+    socket().drop();
+    expect(await edit("<p>Sooner</p>")).toBe(NOT_CONNECTED);
+  });
+
+  it("sends another edit of one once the room has answered the last, as its answer names only the message", async () => {
+    const { result } = joinGeneral();
+    const sent = () => socket().sentOfType("scheduled.edit").map((frame) => frame.body);
+    const first = editing(result, "<p>One</p>");
+    const second = editing(result, "<p>Two</p>");
+    const third = editing(result, "<p>Three</p>");
+    expect(socket().sentOfType("scheduled.edit")).toEqual([{ type: "scheduled.edit", scheduledId: "s1", body: "<p>One</p>" }]);
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>One</p>" })], edited: "s1" });
+    expect(await first).toBeNull();
+    await act(async () => {});
+    expect(sent()).toEqual(["<p>One</p>", "<p>Two</p>"]);
+    // As the room refuses one: what's scheduled, as it was, then why not, after which it says nothing more of it.
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>One</p>" })] });
+    await act(async () => {});
+    expect(sent()).toHaveLength(2);
+    socket().receive({ type: "error", message: BLOCKED_WORDS_REFUSED, scheduledId: "s1", failed: "scheduled.edit" });
+    expect(await second).toBe(BLOCKED_WORDS_REFUSED);
+    await act(async () => {});
+    expect(sent()).toEqual(["<p>One</p>", "<p>Two</p>", "<p>Three</p>"]);
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>Three</p>" })], edited: "s1" });
+    expect(await third).toBeNull();
+    // And none waits once they're answered.
+    void editing(result, "<p>Four</p>");
+    expect(sent()).toHaveLength(4);
+  });
+
+  it("moves, sends now and deletes one, saying why a change couldn't go, and shows the room's refusal", () => {
+    const { result } = joinGeneral();
+    const { scheduling } = result.current;
+    expect([scheduling.reschedule("s1", at), scheduling.sendNow("s1"), scheduling.remove("s1")]).toEqual([null, null, null]);
+    expect(socket().sent.filter((frame) => String(frame.type).startsWith("scheduled."))).toEqual([
+      { type: "scheduled.reschedule", scheduledId: "s1", sendAt: "2026-11-18T17:00:00.000Z" },
+      { type: "scheduled.send", scheduledId: "s1" },
+      { type: "scheduled.delete", scheduledId: "s1" },
+    ]);
+    socket().receive({ type: "error", message: SCHEDULED_GONE, scheduledId: "s1", failed: "scheduled.delete" });
+    expect(result.current.state.notice).toBe(SCHEDULED_GONE);
+    socket().drop();
+    expect(result.current.scheduling.sendNow("s1")).toBe(NOT_CONNECTED);
   });
 });
 

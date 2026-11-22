@@ -84,6 +84,7 @@ import roomChannelMentions from "../migrations/0083_room_channel_mentions.sql";
 import waitingCallAskers from "../migrations/0084_waiting_call_askers.sql";
 import membershipMentionCounts from "../migrations/0085_membership_mention_counts.sql";
 import notificationsPausedUntil from "../migrations/0086_notifications_paused_until.sql";
+import scheduledMessages from "../migrations/0087_scheduled_messages.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -197,6 +198,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0084_waiting_call_askers.sql", scope: "room", sql: waitingCallAskers },
   { name: "0085_membership_mention_counts.sql", scope: "workspace", sql: membershipMentionCounts },
   { name: "0086_notifications_paused_until.sql", scope: "workspace", sql: notificationsPausedUntil },
+  { name: "0087_scheduled_messages.sql", scope: "room", sql: scheduledMessages },
 ];
 
 /**
