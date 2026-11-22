@@ -15,7 +15,7 @@ import { roomIconUrl } from "@/components/icons/room-icon";
 import type { RoomCard, Rooms } from "@/hooks/use-rooms";
 import { sameFormat, type FormattingCommand, type LinkDraft, type TextFormat } from "@/lib/formatting";
 import type { SlashCommand } from "@/lib/slash-commands";
-import { registerQuoteLines } from "./quote-lines";
+import { registerLineStyles } from "./line-styles";
 import { $applyFormatting, $formatOf, $linkDraft, $unlink, linkText, startNewBlock, type FormattedEditor } from "./text-formatting";
 import "./rich-text-editor.css";
 
@@ -76,7 +76,7 @@ class CampfireRichTextExtension extends Extension {
   }
 
   get lexicalExtension() {
-    return this.defineExtension({ name: "campfire/rich-text", nodes: [CiteNode], register: registerQuoteLines });
+    return this.defineExtension({ name: "campfire/rich-text", nodes: [CiteNode], register: registerLineStyles });
   }
 }
 

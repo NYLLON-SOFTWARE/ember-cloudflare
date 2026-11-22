@@ -92,6 +92,9 @@ declare module "@37signals/lexxy" {
     /** Turns the format on across what's selected, or off where all of it has it already, or for what's typed next. */
     formatText(format: string): void;
     getTextContent(): string;
+    /** The formatting, and the style, of what's typed next, with nothing selected. */
+    readonly format: number;
+    readonly style: string;
     setFormat(format: number): void;
     setStyle(style: string): void;
     clone(): RangeSelection;

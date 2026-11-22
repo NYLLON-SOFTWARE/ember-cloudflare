@@ -153,7 +153,7 @@ test.describe("Schedule for later", () => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const field = ada.composer();
     await expect(underText(field, "Schedule for later")).toBeVisible();
-    // A card narrower than its nine buttons and the chevron, 324px.
+    // A card narrower than its nine buttons, its two lines and the chevron, 346px.
     await ada.page.locator("form.composer").evaluate((form) => (form.style.inlineSize = "320px"));
     await expect(underText(field, "Schedule for later")).toBeHidden();
     const [attach, send] = [await box(underText(field, "Attach")), await box(underText(field, "Send Message"))];
