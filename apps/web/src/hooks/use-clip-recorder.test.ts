@@ -15,9 +15,10 @@ afterEach(() => {
 
 function renderRecorder(kind: "video" | "audio" = "video") {
   const onRecorded = vi.fn((_clip: File) => {});
-  const view = renderHook(() => useClipRecorder(kind, onRecorded));
+  const onFailed = vi.fn();
+  const view = renderHook(() => useClipRecorder(kind, onRecorded, onFailed));
   const start = () => act(() => void expect(view.result.current.start(stream)).toBe(true));
-  return { ...view, onRecorded, start, recorder: (index = 0) => FakeRecorder.made[index]! };
+  return { ...view, onRecorded, onFailed, start, recorder: (index = 0) => FakeRecorder.made[index]! };
 }
 
 describe("useClipRecorder", () => {
@@ -105,6 +106,20 @@ describe("useClipRecorder", () => {
     expect(recorder(1).state).toBe("inactive");
     await recorder(1).end();
     expect(onRecorded).not.toHaveBeenCalled();
+  });
+
+  it("hands over nothing where the browser fails as it records, saying it couldn't record, unless it was being discarded", async () => {
+    const { result, onRecorded, onFailed, start, recorder } = renderRecorder();
+    start();
+    await recorder(0).fail();
+    expect(result.current.recording).toBe(false);
+    expect(onRecorded).not.toHaveBeenCalled();
+    expect(onFailed).toHaveBeenCalledOnce();
+
+    start();
+    act(() => result.current.discard());
+    await recorder(1).fail();
+    expect(onFailed).toHaveBeenCalledOnce();
   });
 
   it("says it couldn't start where the browser won't record", () => {

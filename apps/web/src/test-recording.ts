@@ -125,6 +125,19 @@ export class FakeRecorder extends EventTarget {
       this.dispatchEvent(new Event("stop"));
     });
   }
+
+  /**
+   * The browser failing as it records, as when its encoder gives out: as Chromium does, it says why, then
+   * hands over what it had recorded and says it has stopped, as though it had been stopped.
+   */
+  async fail() {
+    this.state = "inactive";
+    await act(async () => {
+      this.dispatchEvent(Object.assign(new Event("error"), { error: new DOMException("Recording failed", "UnknownError") }));
+      this.dispatchEvent(Object.assign(new Event("dataavailable"), { data: new Blob(["recorded"]) }));
+      this.dispatchEvent(new Event("stop"));
+    });
+  }
 }
 
 /** The recorder made last. */

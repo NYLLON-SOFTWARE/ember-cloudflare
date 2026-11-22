@@ -185,6 +185,15 @@ describe("Record video clip", () => {
     expect(status()).toHaveTextContent(NOT_RECORDED);
     expect(button("Record")).toBeEnabled();
   });
+
+  it("says so where the browser fails as it records, showing nothing to keep, but Record", async () => {
+    const { user } = showVideoRecorder();
+    await user.click(await screen.findByRole("button", { name: "Record" }));
+    await recorder().fail();
+    expect(status()).toHaveTextContent(NOT_RECORDED);
+    expect(screen.queryByLabelText("Your clip")).not.toBeInTheDocument();
+    expect(button("Record")).toBeEnabled();
+  });
 });
 
 function showAudioRecorder() {
@@ -251,5 +260,16 @@ describe("Record audio clip", () => {
     FakeRecorder.refuses = true;
     showAudioRecorder();
     expect(await screen.findByText(NOT_RECORDED)).toBeInTheDocument();
+  });
+
+  it("says so where the browser fails as it records, leaving nothing to go with the next message, until it's closed", async () => {
+    const { user, onRecorded, onClose } = showAudioRecorder();
+    await screen.findByRole("timer");
+    await recorder().fail();
+    expect(status()).toHaveTextContent(NOT_RECORDED);
+    expect(onRecorded).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    await user.click(button("Close"));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
