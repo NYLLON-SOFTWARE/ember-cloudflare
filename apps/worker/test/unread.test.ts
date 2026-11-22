@@ -12,6 +12,7 @@ import {
   direct,
   freshDeploy,
   freshRoom,
+  holdNextCall,
   openWorkspaceSocket,
   post,
   roomSql,
@@ -236,8 +237,8 @@ describe("Unread rooms", () => {
     const hopper = await signIn("Hopper");
     const tab = await openWorkspaceSocket(hopper);
     const apply = (...events: RoomEvent[]) => workspaceStub().applyRoomEvents(room, events, []);
-    const message: RoomEvent = { seq: 1, kind: "message", userId: "someone", at: "2026-10-14T12:00:00.000Z" };
-    const reading: RoomEvent = { seq: 2, kind: "read", userId: hopper.user.id, at: "2026-10-14T12:01:00.000Z" };
+    const message: RoomEvent = { seq: 1, kind: "message", userId: "someone", at: new Date().toISOString() };
+    const reading: RoomEvent = { seq: 2, kind: "read", userId: hopper.user.id, at: new Date().toISOString() };
 
     await apply(message);
     expect(await heard(tab, room)).toEqual([unread(room)]);
@@ -257,15 +258,16 @@ describe("Unread rooms", () => {
     await connect(room, "Lin", { visible: false });
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const [adasTab, gracesTab] = [await openWorkspaceSocket(ada), await openWorkspaceSocket(grace)];
+    const now = Date.now();
     const messages: RoomEvent[] = [
-      { seq: 1, kind: "message", userId: ada.user.id, at: "2026-10-14T12:00:00.000Z" },
-      { seq: 2, kind: "message", userId: grace.user.id, at: "2026-10-14T12:00:01.000Z" },
+      { seq: 1, kind: "message", userId: ada.user.id, at: new Date(now).toISOString() },
+      { seq: 2, kind: "message", userId: grace.user.id, at: new Date(now + 1_000).toISOString() },
     ];
     await workspaceStub().applyRoomEvents(room, messages, []);
     expect(await heard(adasTab, room)).toEqual([unread(room)]);
     expect(await heard(gracesTab, room)).toEqual([unread(room)]);
-    expect(await unreadAt(room, grace)).toBe("2026-10-14T12:00:00.000Z");
-    expect(await unreadAt(room, ada)).toBe("2026-10-14T12:00:01.000Z");
+    expect(await unreadAt(room, grace)).toBe(messages[0]!.at);
+    expect(await unreadAt(room, ada)).toBe(messages[1]!.at);
   });
 
   it("takes everyone viewing a room as one value, however many there are", async () => {
@@ -275,7 +277,7 @@ describe("Unread rooms", () => {
     const tab = await openWorkspaceSocket(hopper);
     // More than the 100 values a statement can bind, with Hopper last.
     const viewers = [...Array.from({ length: 150 }, (_, i) => `viewer-${i}`), hopper.user.id];
-    await workspaceStub().applyRoomEvents(room, [{ seq: 1, kind: "message", userId: "someone", at: "2026-10-14T12:00:00.000Z" }], viewers);
+    await workspaceStub().applyRoomEvents(room, [{ seq: 1, kind: "message", userId: "someone", at: new Date().toISOString() }], viewers);
     expect(await heard(tab, room)).toEqual([]);
     expect(await marked(room)).toEqual(["Host", "Lin"]);
   });
@@ -332,6 +334,34 @@ describe("Unread rooms", () => {
     expect(await heard(gracesTab!, room)).toEqual([]);
     expect(await heard(hoppersTab!, room)).toEqual([unread(room)]);
     expect(await marked(room)).toEqual(["Hopper", "Host"]);
+  });
+
+  it("marks a room for nobody who joined it after its message, though the Workspace hears of the message once they have", async () => {
+    const room = await freshRoom("joined-after");
+    const ada = await connect(room, "Ada", { visible: true });
+    await settle(ada);
+    await delivered(room);
+    const call = await holdNextCall(room);
+
+    // Ada's messages wait for the Workspace while Hopper joins, as a busy room's wait for the calls before
+    // theirs: the first in the call held, the second for the call after it.
+    await post(ada, "Before anyone new");
+    await call.called();
+    await post(ada, `<p>Standup in 5 <action-text-attachment sgid="channel" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment></p>`);
+    const hopper = await signIn("Hopper");
+    const tab = await openWorkspaceSocket(hopper);
+    call.release();
+
+    // Host was in the room for both, and @channel counts for him, but neither is Hopper's to read.
+    expect(await heard(tab, room)).toEqual([]);
+    expect(await marked(room)).toEqual(["Host"]);
+    const counted = "SELECT users.name, mention_count FROM memberships JOIN users ON users.id = memberships.user_id WHERE room_id = ? AND mention_count > 0";
+    expect(await workspaceSql(counted, room)).toEqual([{ name: "Host", mention_count: 1 }]);
+    expect(await sidebarOf(hopper, room)).toMatchObject({ unread: false, unreadSince: undefined });
+
+    // The first message since he joined marks the room for him, as of it.
+    const welcome = await post(ada, "Welcome, Hopper");
+    expect(await heard(tab, room)).toEqual([unread(room, welcome.createdAt)]);
   });
 
   it("calls a Workspace it couldn't reach again only when its alarm goes off, however busy the room is", async () => {
@@ -453,13 +483,14 @@ describe("Unread DMs", () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const { id: room } = await direct(ada, grace);
     const tab = await openWorkspaceSocket(grace);
-    const event = (seq: number): RoomEvent => ({ seq, kind: "message", userId: ada.user.id, at: `2026-10-14T12:00:0${seq}.000Z` });
+    const now = Date.now();
+    const event = (seq: number): RoomEvent => ({ seq, kind: "message", userId: ada.user.id, at: new Date(now + seq * 1_000).toISOString() });
     await workspaceStub().applyRoomEvents(room, [event(1), event(2), event(3)], []);
     await workspaceStub().applyRoomEvents(room, [event(2), event(3)], []);
     expect(await workspaceSql("SELECT unread_at, unread_count FROM memberships WHERE room_id = ? AND user_id = ?", room, grace.user.id)).toEqual([
-      { unread_at: "2026-10-14T12:00:01.000Z", unread_count: 3 },
+      { unread_at: event(1).at, unread_count: 3 },
     ]);
-    expect(await tab.next()).toEqual({ type: "room.unread", roomId: room, at: "2026-10-14T12:00:01.000Z", count: 3 });
+    expect(await tab.next()).toEqual({ type: "room.unread", roomId: room, at: event(1).at, count: 3 });
   });
 
   it("doesn't count a room's messages, which mark it once", async () => {
@@ -586,7 +617,7 @@ describe("Mentions in an unread room", () => {
     const plan = async (query: string, ...params: Array<string | number>) =>
       ((await workspaceSql(`EXPLAIN QUERY PLAN ${query}`, ...params)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
     const byRoom = /memberships USING (INDEX sqlite_autoindex_memberships_1|PRIMARY KEY) \(room_id=\?/;
-    expect(await plan(COUNT_ROOM_MENTION, room, "someone", "[]", 1)).toMatch(byRoom);
-    expect(await plan(COUNT_MENTIONS, room, "someone", "[]", 1, '["someone else"]')).toMatch(byRoom);
+    expect(await plan(COUNT_ROOM_MENTION, room, "someone", "[]", 1, "2026-10-14T12:00:00.000Z")).toMatch(byRoom);
+    expect(await plan(COUNT_MENTIONS, room, "someone", "[]", 1, '["someone else"]', "2026-10-14T12:00:00.000Z")).toMatch(byRoom);
   });
 });

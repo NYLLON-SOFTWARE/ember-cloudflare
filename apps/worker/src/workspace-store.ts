@@ -2353,37 +2353,39 @@ export const ROOM_ACCESS = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_
   EXISTS (SELECT 1 FROM bans WHERE ip_address = ?) AS banned`;
 
 /**
-/**
- * Marks a room unread, as of a message, for its members who haven't hidden it, didn't write the message,
- * haven't blocked whoever did and aren't among the people a JSON list names, who are viewing it, answering
- * a row for each, with when the first message they haven't seen came and, in a DM, how many have come
- * since. In a room it writes only the rows of those not marked already, which a message in a DM writes
- * too, to count it. Nothing changes once the Workspace has applied the message's event, so one delivered
- * again is applied once.
+ * Marks a room unread, as of a message, for its members who were in it when the message was written,
+ * haven't hidden it, didn't write the message, haven't blocked whoever did and aren't among the people a
+ * JSON list names, who are viewing it, answering a row for each, with when the first message they haven't
+ * seen came and, in a DM, how many have come since. A room tells the Workspace of a message a moment
+ * after it, and longer in a burst, so someone can join meanwhile, and a message from before they did is
+ * never theirs to read. In a room it writes only the rows of those not marked already, which a message in
+ * a DM writes too, to count it. Nothing changes once the Workspace has applied the message's event, so
+ * one delivered again is applied once.
  */
 export const MARK_UNREAD = `UPDATE memberships SET unread_at = coalesce(unread_at, ?1), unread_count = unread_count + 1
-  WHERE room_id = ?2 AND involvement <> 'invisible' AND user_id <> ?3
+  WHERE room_id = ?2 AND created_at <= ?1 AND involvement <> 'invisible' AND user_id <> ?3
     AND (unread_at IS NULL OR EXISTS (SELECT 1 FROM rooms WHERE id = ?2 AND kind = 'direct'))
     AND user_id NOT IN (SELECT value FROM json_each(?4)) AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?2) AND NOT ${blockedBy("?3")}
   RETURNING user_id, unread_at, unread_count, mention_count`;
 
 /**
- * Counts a mention for each of room ?1's members a message by ?2, numbered ?4, notifies with @channel or
- * @everyone: those `MARK_UNREAD` marks, who haven't hidden the room, aren't among the people the JSON list
- * ?3 names, who are viewing it, and haven't blocked ?2, at Nothing too, as Slack counts a muted channel's
- * mentions. Once applied, the message counts for nobody again.
+ * Counts a mention for each of room ?1's members a message by ?2, numbered ?4 and written at ?5, notifies
+ * with @channel or @everyone: those `MARK_UNREAD` marks, who were in the room by then, haven't hidden it,
+ * aren't among the people the JSON list ?3 names, who are viewing it, and haven't blocked ?2, at Nothing
+ * too, as Slack counts a muted channel's mentions. Once applied, the message counts for nobody again.
  */
 export const COUNT_ROOM_MENTION = `UPDATE memberships SET mention_count = mention_count + 1
-  WHERE room_id = ?1 AND involvement <> 'invisible' AND user_id <> ?2 AND user_id NOT IN (SELECT value FROM json_each(?3))
+  WHERE room_id = ?1 AND created_at <= ?5 AND involvement <> 'invisible' AND user_id <> ?2 AND user_id NOT IN (SELECT value FROM json_each(?3))
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1) AND NOT ${blockedBy("?2")}
   RETURNING user_id, unread_at, unread_count, mention_count`;
 
 /**
- * Counts a mention, as `COUNT_ROOM_MENTION` does, for each of them the JSON list ?5 names: whom the
- * message mentions by name, and with @here those active. A DM counts all its messages instead.
+ * Counts a mention, as `COUNT_ROOM_MENTION` does of a message written at ?6, for each of them the JSON
+ * list ?5 names: whom the message mentions by name, and with @here those active. A DM counts all its
+ * messages instead.
  */
 export const COUNT_MENTIONS = `UPDATE memberships SET mention_count = mention_count + 1
-  WHERE room_id = ?1 AND involvement <> 'invisible' AND user_id <> ?2 AND user_id NOT IN (SELECT value FROM json_each(?3))
+  WHERE room_id = ?1 AND created_at <= ?6 AND involvement <> 'invisible' AND user_id <> ?2 AND user_id NOT IN (SELECT value FROM json_each(?3))
     AND user_id IN (SELECT value FROM json_each(?5)) AND NOT EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct')
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1) AND NOT ${blockedBy("?2")}
   RETURNING user_id, unread_at, unread_count, mention_count`;
@@ -2416,13 +2418,14 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
   WHERE room_id = ?1 AND ?2 > (SELECT applied_seq FROM rooms WHERE id = ?1 AND kind = 'direct')`;
 
 /**
- * Where a new message, numbered ?4, by ?2 in room ?1 is pushed, to those of the room's active members
- * `whom` picks: to the subscriptions of each but its author, those who have blocked its author and the
- * people a JSON list ?3 names, who are viewing it, or its thread for a reply sent only there, those at all
- * messages first, then those at @mentions, each in the order they were saved. Guests are left out unless
- * ?5 says they can stay signed in, and anyone whose notifications are paused past ?6, now (`notPaused`).
- * Each comes with the room, its author's name and the count its push sets the badge to: how many of its
- * owner's conversations are marked unread. Nothing once the Workspace has applied the message's event.
+ * Where a new message, numbered ?4 and written at ?7, by ?2 in room ?1 is pushed, to those of the room's
+ * active members `whom` picks who were in it by then, as `MARK_UNREAD` marks: to the subscriptions of each
+ * but its author, those who have blocked its author and the people a JSON list ?3 names, who are viewing
+ * it, or its thread for a reply sent only there, those at all messages first, then those at @mentions,
+ * each in the order they were saved. Guests are left out unless ?5 says they can stay signed in, and
+ * anyone whose notifications are paused past ?6, now (`notPaused`). Each comes with the room, its author's
+ * name and the count its push sets the badge to: how many of its owner's conversations are marked unread.
+ * Nothing once the Workspace has applied the message's event.
  */
 const pushesOfMessage = (whom: string) => `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -2431,18 +2434,18 @@ const pushesOfMessage = (whom: string) => `SELECT push_subscriptions.id, push_su
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND ?4 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?5 = 1)
-    AND ${notPaused("?6")} AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
+  WHERE rooms.id = ?1 AND ?4 > rooms.applied_seq AND memberships.user_id <> ?2 AND memberships.created_at <= ?7 AND users.status = ${ACTIVE}
+    AND (users.guest = 0 OR ?5 = 1) AND ${notPaused("?6")} AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
     AND ${whom}
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
 
 /**
  * Where a new message is pushed (`pushesOfMessage`): to those at all messages, when it's in the room's
- * timeline, as ?7 says, and those at @mentions or all messages whom it mentions, a JSON list ?8, or who
- * follow the thread it's a reply in, a JSON list ?9.
+ * timeline, as ?8 says, and those at @mentions or all messages whom it mentions, a JSON list ?9, or who
+ * follow the thread it's a reply in, a JSON list ?10.
  */
-export const MESSAGE_PUSHES = pushesOfMessage(`((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
-      AND (memberships.user_id IN (SELECT value FROM json_each(?8)) OR memberships.user_id IN (SELECT value FROM json_each(?9)))))`);
+export const MESSAGE_PUSHES = pushesOfMessage(`((memberships.involvement = 'everything' AND ?8 = 1) OR (memberships.involvement IN ('everything', 'mentions')
+      AND (memberships.user_id IN (SELECT value FROM json_each(?9)) OR memberships.user_id IN (SELECT value FROM json_each(?10)))))`);
 
 /**
  * Where a new message that notifies everyone in its room, as @channel does, and @everyone in an open
@@ -2459,13 +2462,13 @@ export const ROOM_MENTION_PUSHES = pushesOfMessage(`memberships.involvement IN (
  */
 function messagePushesOf(
   roomId: RoomId,
-  { seq, userId, threadOnly, message }: RoomEvent & { message: PushedMessage },
+  { seq, userId, at, threadOnly, message }: RoomEvent & { message: PushedMessage },
   seeing: string,
   guests: boolean,
   activeIds: UserId[],
   now: string,
 ): Statement {
-  const shared = [roomId, userId, seeing, seq, guests ? 1 : 0, now] as const;
+  const shared = [roomId, userId, seeing, seq, guests ? 1 : 0, now, at] as const;
   if (notifiesEveryone(message)) return statement(ROOM_MENTION_PUSHES, ...shared);
   return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentionedBy(message, activeIds)), JSON.stringify(message.followerIds ?? []));
 }
@@ -2481,11 +2484,11 @@ const mentionedBy = (message: PushedMessage, activeIds: UserId[]) => (message.no
  * names, with `seeing`, who is viewing the room, and `activeIds`, whom @here notifies, or null for a
  * reply sent only to its thread, which marks the room for nobody, or a message that mentions nobody.
  */
-function mentionCountsOf(roomId: RoomId, { seq, userId, threadOnly, message }: RoomEvent, seeing: string, activeIds: UserId[]): Statement | null {
+function mentionCountsOf(roomId: RoomId, { seq, userId, at, threadOnly, message }: RoomEvent, seeing: string, activeIds: UserId[]): Statement | null {
   if (!message || threadOnly) return null;
-  if (notifiesEveryone(message)) return statement(COUNT_ROOM_MENTION, roomId, userId, seeing, seq);
+  if (notifiesEveryone(message)) return statement(COUNT_ROOM_MENTION, roomId, userId, seeing, seq, at);
   const mentioned = mentionedBy(message, activeIds);
-  return mentioned.length > 0 ? statement(COUNT_MENTIONS, roomId, userId, seeing, seq, JSON.stringify(mentioned)) : null;
+  return mentioned.length > 0 ? statement(COUNT_MENTIONS, roomId, userId, seeing, seq, JSON.stringify(mentioned), at) : null;
 }
 
 /** How many people are in room ?1 but ?2, those whose accounts are active, but bots, which no mention notifies. */
@@ -5380,7 +5383,8 @@ export class WorkspaceStore {
    * message that notifies the room going to everyone in it for @channel and @everyone, as a mention of
    * each of them, and to those of `activeIds` in it for @here. It answers the bots' webhooks each new
    * message is delivered to, but for a bot's reply to one, which reaches the room as any message does
-   * but goes to no webhook.
+   * but goes to no webhook. A message marks, counts and pushes for nobody who joined the room after it was
+   * written, as someone can before the room tells the Workspace of it.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false, activeIds: UserId[] = []): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
