@@ -1377,15 +1377,18 @@ describe("Schedule a message", () => {
     expect(result.current.state.scheduled).toEqual([]);
   });
 
+  /** Has s1 say `body`, answering what that settles with. */
+  function editing(result: ReturnType<typeof joinGeneral>["result"], body: string) {
+    let saved: Promise<string | null> | undefined;
+    act(() => {
+      saved = result.current.scheduling.edit("s1", body);
+    });
+    return saved!;
+  }
+
   it("edits one, settling once the room says it's changed it, or why it didn't, there rather than over the timeline", async () => {
     const { result } = joinGeneral();
-    const edit = (body: string) => {
-      let saved: Promise<string | null> | undefined;
-      act(() => {
-        saved = result.current.scheduling.edit("s1", body);
-      });
-      return saved!;
-    };
+    const edit = (body: string) => editing(result, body);
     const saved = edit("<p>Sooner</p>");
     expect(socket().sentOfType("scheduled.edit")).toEqual([{ type: "scheduled.edit", scheduledId: "s1", body: "<p>Sooner</p>" }]);
     // What's scheduled, after a change from another tab, or to another message, isn't this one's answer.
@@ -1410,6 +1413,22 @@ describe("Schedule a message", () => {
     expect(socket().sentOfType("scheduled.edit")).toHaveLength(3);
     socket().drop();
     expect(await edit("<p>Sooner</p>")).toBe(NOT_CONNECTED);
+  });
+
+  it("sends another edit of one once the room has answered the last, as its answer names only the message", async () => {
+    const { result } = joinGeneral();
+    const first = editing(result, "<p>One</p>");
+    const second = editing(result, "<p>Two</p>");
+    expect(socket().sentOfType("scheduled.edit")).toEqual([{ type: "scheduled.edit", scheduledId: "s1", body: "<p>One</p>" }]);
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>One</p>" })], changed: "s1" });
+    expect(await first).toBeNull();
+    await act(async () => {});
+    expect(socket().sentOfType("scheduled.edit").map((frame) => frame.body)).toEqual(["<p>One</p>", "<p>Two</p>"]);
+    socket().receive({ type: "error", message: SCHEDULED_GONE, scheduledId: "s1", failed: "scheduled.edit" });
+    expect(await second).toBe(SCHEDULED_GONE);
+    // And none waits once they're answered.
+    void editing(result, "<p>Three</p>");
+    expect(socket().sentOfType("scheduled.edit")).toHaveLength(3);
   });
 
   it("moves, sends now and deletes one, saying why a change couldn't go, and shows the room's refusal", () => {

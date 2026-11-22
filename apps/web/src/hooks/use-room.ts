@@ -128,6 +128,8 @@ const lists = (scheduled: ScheduledMessage[] | undefined, clientMessageId: strin
 
 export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
   const whyNotSent = (frame: ClientFrame) => (send(frame) ? null : NOT_CONNECTED);
+  // The last edit asked of each scheduled message, by its id, until the room has answered it.
+  const edits = new Map<string, Promise<string | null>>();
   // Sends `frame`, settling with the room's answer, which `answerOf` reads from each frame it hears, null while it's yet to come.
   const answerTo = (frame: ClientFrame, answerOf: (heard: ServerFrame) => string | null | undefined) =>
     new Promise<string | null>((resolve) => {
@@ -156,15 +158,21 @@ export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
       });
     },
     // The room says why it refused an edit before it tells the tab what's scheduled, with which it changed,
-    // as it does after any change. A room that lets the page in again may not have had it, which can be
-    // saved again.
+    // as it does after any change. That names only the message, so another edit of it goes once the room
+    // has answered the last. A room that lets the page in again may not have had it, which can be saved again.
     edit: (scheduledId, body) => {
       if (isTooLong(body, writtenBody(body).plainText)) return Promise.resolve(MESSAGE_TOO_LONG);
-      return answerTo({ type: "scheduled.edit", scheduledId, body }, (frame) => {
-        if (frame.type === "error" && frame.scheduledId === scheduledId && frame.failed === "scheduled.edit") return frame.message;
-        if (frame.type === "scheduled" && frame.changed === scheduledId) return null;
-        return frame.type === "welcome" || frame.type === "resumed" ? NOT_CONNECTED : undefined;
-      });
+      const ask = () =>
+        answerTo({ type: "scheduled.edit", scheduledId, body }, (frame) => {
+          if (frame.type === "error" && frame.scheduledId === scheduledId && frame.failed === "scheduled.edit") return frame.message;
+          if (frame.type === "scheduled" && frame.changed === scheduledId) return null;
+          return frame.type === "welcome" || frame.type === "resumed" ? NOT_CONNECTED : undefined;
+        });
+      const last = edits.get(scheduledId);
+      const answered = last ? last.then(ask) : ask();
+      edits.set(scheduledId, answered);
+      void answered.then(() => edits.get(scheduledId) === answered && edits.delete(scheduledId));
+      return answered;
     },
     reschedule: (scheduledId, at) => whyNotSent({ type: "scheduled.reschedule", scheduledId, sendAt: at.toISOString() }),
     sendNow: (scheduledId) => whyNotSent({ type: "scheduled.send", scheduledId }),

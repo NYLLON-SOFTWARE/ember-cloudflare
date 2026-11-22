@@ -105,7 +105,7 @@ import { Huddle, HUDDLE_CHECK_MS, HUDDLE_TAG } from "./huddles/room";
 import { base36, sortableId } from "./ids";
 import { pushesInChunks, sendPushes } from "./push/delivery";
 import { urlOf } from "./request-url";
-import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
+import { addressTag, EVERYONE, heldUpTooLong, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog, type RoomEvent } from "./room-log";
 import { listed, ScheduledMessages, type KeptScheduled } from "./scheduled-messages";
 import { searchIndex } from "./search-index";
@@ -1435,13 +1435,16 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Sends `due`, a scheduled message that was due, as `writer`'s, whom the Workspace had in the room at
    * `authorizedAt`, unless it's been moved, sent or deleted since, as from its writer's tab. Forgets it once
-   * its writer isn't in the room: the Workspace had them in it no longer, or they've lost access since.
+   * its writer isn't in the room: the Workspace had them in it no longer, or they've lost access since. The
+   * Workspace's word, held up too long to trust, as by a busy room, is asked for again later, as when the
+   * Workspace couldn't be asked, rather than taken as its writer gone.
    */
   private async sendDue(roomId: RoomId, due: KeptScheduled, writer: User | null, authorizedAt: number): Promise<void> {
     if (await this.isDeleted()) return;
     const scheduled = this.scheduledFor(roomId);
     const message = await scheduled.find(due.id);
     if (!message || message.failure !== undefined || message.sendAt > new Date().toISOString()) return;
+    if (heldUpTooLong(authorizedAt)) throw new Error("The Workspace's word on who's in the room was held up too long to trust");
     if (!writer || (await this.revocationsFor(roomId).refuse([message.creatorId], authorizedAt))) return scheduled.remove(message.id);
     await this.sendScheduled(this.storeFor(roomId), writer, message);
   }

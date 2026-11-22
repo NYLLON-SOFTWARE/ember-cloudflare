@@ -1461,6 +1461,36 @@ describe("Schedule for later", () => {
     expect(within(item).getAllByRole("button").map((button) => button.textContent)).toEqual(["Edit", "Delete"]);
   });
 
+  it("waits for the room to have an edit, keeping what's written since, and closes no other editor as it comes", async () => {
+    const scheduled = [scheduledAs("s1", { body: "<p>First</p>" }), scheduledAs("s2", { body: "<p>Second</p>" })];
+    const scheduling = schedulingWith({ scheduled });
+    const answers: Array<(refusal: string | null) => void> = [];
+    scheduling.edit.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const answer = (refusal: string | null) => act(async () => answers.shift()!(refusal));
+    const { user } = await showComposer({ scheduling });
+    await user.click(screen.getByRole("button", { name: "2 scheduled messages in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    const [first, second] = within(dialog).getAllByRole("listitem");
+    const editorIn = (item: HTMLElement) => within(item).queryByRole("textbox", { name: "Edit message" });
+
+    await user.click(within(first!).getByRole("button", { name: "Edit" }));
+    await user.type((await within(first!).findByRole("textbox", { name: "Edit message" })), " and more");
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    // Saved once while the room's answer comes.
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    expect(scheduling.edit).toHaveBeenCalledExactlyOnceWith("s1", "<p>First and more</p>");
+    await user.type(editorIn(first!)!, " still");
+    await answer(null);
+    expect(editorIn(first!)).toHaveValue("First and more still");
+
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    await user.keyboard("{Escape}");
+    await user.click(within(second!).getByRole("button", { name: "Edit" }));
+    await user.type((await within(second!).findByRole("textbox", { name: "Edit message" })), " too");
+    await answer(null);
+    expect(editorIn(second!)).toHaveValue("Second too");
+  });
+
   it("names the people and rooms a scheduled message mentions as they are now, as the room keeps only their ids", async () => {
     const grace = { id: "grace00000000001", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/grace00000000001/avatar" } as const;
     const stored = (contentType: string, sgid: string) => `<action-text-attachment content-type="${contentType}" sgid="${sgid}"></action-text-attachment>`;

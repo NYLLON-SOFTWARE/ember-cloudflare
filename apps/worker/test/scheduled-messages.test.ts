@@ -13,6 +13,7 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY, MESSAGE_GONE, type ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
+import { AUTHORIZATION_TTL_MS } from "../src/revocations";
 import { SCHEDULED_SENT_AT_ONCE, type ScheduledMessages } from "../src/scheduled-messages";
 import { api, connect, createRoom, freshDeploy, freshRoom, post, reconnect, roomSql, roomStub, settle, signIn, workspaceSql, type Socket } from "./support";
 
@@ -79,24 +80,33 @@ async function batchesOf(room: RoomId): Promise<number[]> {
 }
 
 /**
- * Has room `room` find the Workspace unable to say who's in it, as while it restarts, until the function
- * this answers is called. Everything else it asks the Workspace goes as before.
+ * Has room `room` hear the Workspace say whether a scheduled message's writer is in it as `answer` has it,
+ * given what it would say, until the function this answers is called. Everything else it asks the
+ * Workspace goes as before.
  */
-async function unsureWhoIsIn(room: RoomId): Promise<() => Promise<void>> {
+async function answeringWhoIsIn(room: RoomId, answer: (asIs: () => Promise<unknown>) => Promise<unknown>): Promise<() => Promise<void>> {
   let original: Env | undefined;
   await runInDurableObject(roomStub(room), (instance: ChatRoom) => {
     const object = instance as unknown as { env: Env };
     original = object.env;
     const { WORKSPACE } = original;
-    const unsure = (stub: object) =>
-      new Proxy(stub, { get: (target, key) => (key === "scheduledWriter" ? () => Promise.reject(new Error("The Workspace is restarting")) : (target as Record<PropertyKey, unknown>)[key]) });
-    object.env = { ...original, WORKSPACE: { getByName: (name: string) => unsure(WORKSPACE.getByName(name)) } as unknown as Env["WORKSPACE"] };
+    const answering = (stub: object) =>
+      new Proxy(stub, {
+        get: (target, key) => {
+          const asked = (target as Record<PropertyKey, unknown>)[key];
+          return key === "scheduledWriter" ? (...args: unknown[]) => answer(() => Reflect.apply(asked as (...args: unknown[]) => Promise<unknown>, target, args)) : asked;
+        },
+      });
+    object.env = { ...original, WORKSPACE: { getByName: (name: string) => answering(WORKSPACE.getByName(name)) } as unknown as Env["WORKSPACE"] };
   });
   return () =>
     runInDurableObject(roomStub(room), (instance: ChatRoom) => {
       (instance as unknown as { env: Env }).env = original!;
     });
 }
+
+/** Has room `room` find the Workspace unable to say who's in it, as while it restarts, until the function this answers is called. */
+const unsureWhoIsIn = (room: RoomId) => answeringWhoIsIn(room, () => Promise.reject(new Error("The Workspace is restarting")));
 
 beforeEach(freshDeploy);
 
@@ -342,5 +352,31 @@ describe("Send what's due", () => {
     expect(await roomSql(room, "SELECT count(*) AS posted FROM messages WHERE client_message_id = ?", again.clientMessageId)).toEqual([{ posted: 1 }]);
     await settle(ada);
     expect(ada.pending("message.created")).toEqual([]);
+  });
+
+  it("asks again a minute later where the Workspace's word on who's in the room comes too late to trust, rather than forgetting the message", async () => {
+    const room = await freshRoom("held");
+    const ada = await connect(room, "Ada");
+    const scheduled = await schedule(ada, "<p>Soon</p>");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now");
+    // The Workspace says as ever, but as if the room had been too busy to hear it for over the word's lifetime.
+    const restore = await answeringWhoIsIn(room, async (asIs) => {
+      const writer = await asIs();
+      clock.mockImplementation(() => now() + AUTHORIZATION_TTL_MS + 1);
+      return writer;
+    });
+
+    await comeDue(room);
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(true);
+    expect(await kept(room)).toEqual(["<p>Soon</p>"]);
+    expect(await alarmOf(room)).toBeGreaterThan(Date.now() + MINUTE - 5_000);
+
+    await restore();
+    clock.mockRestore();
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(true);
+    expect((await created(ada, scheduled.clientMessageId)).body).toBe("<p>Soon</p>");
+    expect(await kept(room)).toEqual([]);
   });
 });

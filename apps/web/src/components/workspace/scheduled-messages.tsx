@@ -188,13 +188,12 @@ function ScheduledItem({ message, roomId, now, editing, onEdit, scheduling, onDo
         <MessageEditor
           message={{ body, mentions: writtenBody(body).mentions, roomId }}
           // The editor stays until the room has the edit, so what's written isn't lost where it's refused.
-          onSave={(edited) => {
-            void scheduling.edit(id, edited).then((refusal) => {
+          onSave={(edited) =>
+            scheduling.edit(id, edited).then((refusal) => {
               onDone(refusal);
-              if (refusal === null) closeEditor();
-            });
-            return false;
-          }}
+              return refusal === null;
+            })
+          }
           onDelete={() => onDone(scheduling.remove(id))}
           onClose={closeEditor}
         />
