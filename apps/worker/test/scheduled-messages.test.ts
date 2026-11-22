@@ -3,6 +3,7 @@ import {
   SCHEDULE_AHEAD_MS,
   SCHEDULE_TIME_REFUSED,
   SCHEDULED_GONE,
+  THREAD_DELETED,
   TOO_MANY_SCHEDULED,
   type Message,
   type RoomId,
@@ -10,7 +11,7 @@ import {
 } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EMPTY, MESSAGE_GONE, THREAD_DELETED, type ChatRoom } from "../src/chat-room";
+import { EMPTY, MESSAGE_GONE, type ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { SCHEDULED_SENT_AT_ONCE, type ScheduledMessages } from "../src/scheduled-messages";
 import { api, connect, createRoom, freshDeploy, freshRoom, post, reconnect, roomSql, roomStub, settle, signIn, workspaceSql, type Socket } from "./support";
@@ -200,12 +201,16 @@ describe("Schedule a message", () => {
 describe("Change a scheduled message", () => {
   it("edits it, keeping its time, moves it, sends it now and deletes it, telling its writer's tabs", async () => {
     const room = await freshRoom("changes");
-    const ada = await connect(room, "Ada");
+    const adaSignedIn = await signIn("Ada");
+    const ada = await connect(room, adaSignedIn);
     const grace = await connect(room, "Grace");
     const scheduled = await schedule(ada, "<p>Draft</p>");
+    const adaElsewhere = await connect(room, adaSignedIn);
 
     ada.send({ type: "scheduled.edit", scheduledId: scheduled.id, body: "<p>Final</p>" });
-    expect(await listed(ada)).toEqual([{ ...scheduled, body: "<p>Final</p>" }]);
+    // The tab that asked hears which it changed, which it takes as the edit gone through.
+    expect(await ada.next("scheduled")).toEqual({ type: "scheduled", messages: [{ ...scheduled, body: "<p>Final</p>" }], changed: scheduled.id });
+    expect(await adaElsewhere.next("scheduled")).toEqual({ type: "scheduled", messages: [{ ...scheduled, body: "<p>Final</p>" }] });
     const sendAt = fromNow(10 * MINUTE);
     ada.send({ type: "scheduled.reschedule", scheduledId: scheduled.id, sendAt });
     expect(await listed(ada)).toEqual([{ ...scheduled, body: "<p>Final</p>", sendAt }]);
@@ -243,6 +248,10 @@ describe("Change a scheduled message", () => {
 
     ada.send({ type: "scheduled.edit", scheduledId: scheduled.id, body: "<p></p>" });
     expect(await refusal(ada)).toEqual({ type: "error", message: EMPTY, scheduledId: scheduled.id, failed: "scheduled.edit" });
+    // Before what she has scheduled, with which it changed, which her tab would take as the edit gone through.
+    expect(await ada.next("scheduled")).toEqual({ type: "scheduled", messages: [scheduled], changed: scheduled.id });
+    const [refused, listing] = [ada.log.findLastIndex((frame) => frame.type === "error"), ada.log.findLastIndex((frame) => frame.type === "scheduled")];
+    expect(refused).toBeLessThan(listing);
     ada.send({ type: "scheduled.reschedule", scheduledId: scheduled.id, sendAt: fromNow(-MINUTE) });
     expect((await refusal(ada)).message).toBe(SCHEDULE_TIME_REFUSED);
     expect(await kept(room)).toEqual(["<p>Ada's</p>"]);

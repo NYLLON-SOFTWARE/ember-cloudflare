@@ -17,6 +17,7 @@ import {
   SCHEDULE_AHEAD_MS,
   SCHEDULE_TIME_REFUSED,
   SCHEDULED_GONE,
+  THREAD_DELETED,
   TOO_MANY_SCHEDULED,
   type Boost,
   type Card,
@@ -263,8 +264,6 @@ interface Posting {
 /** A message as someone wrote it, which `message.create` sends, and a scheduled message keeps. */
 type Written = Pick<ScheduledMessage, "clientMessageId" | "body" | "parentId" | "alsoSend">;
 
-/** Why the room couldn't send a scheduled reply: the thread's message has gone since it was scheduled. */
-export const THREAD_DELETED = "Its thread's message has been deleted.";
 /** How long the alarm waits to send the messages scheduled in a room again, once one couldn't be sent for now. */
 const SCHEDULED_RETRY_MS = 60_000;
 
@@ -754,14 +753,15 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Deletes up to `limit` of the messages here of `userId`, who deleted their account, whenever they
-   * wrote them, as `removeMessagesBy` does, then once none are left, up to `limit` of the boosts they
-   * gave others' messages, telling everyone in the room of each, and answers whether any of theirs are
-   * left. Once none are, what's kept of their messages for their threads' replies takes the name a
-   * deleted account goes by.
+   * Forgets what `userId`, who deleted their account, has scheduled here, which nobody is to send now,
+   * then deletes up to `limit` of their messages here, whenever they wrote them, as `removeMessagesBy`
+   * does, then once none are left, up to `limit` of the boosts they gave others' messages, telling
+   * everyone in the room of each, and answers whether any of theirs are left. Once none are, what's kept
+   * of their messages for their threads' replies takes the name a deleted account goes by.
    */
   async removeEverythingBy(roomId: RoomId, userId: UserId, limit: number): Promise<boolean> {
     return this.serially(async () => {
+      await this.scheduledFor(roomId).forgetBy(userId);
       const store = this.storeFor(roomId);
       const ids = await store.messageIdsBy(userId, limit + 1, null);
       if (ids.length > 0) {
@@ -1204,9 +1204,10 @@ export class ChatRoom extends DurableObject<Env> {
       case "scheduled.delete": {
         if (frame.type === "scheduled.edit" && isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, scheduledId: frame.scheduledId, failed: frame.type });
         const refused = await this.changeScheduled(store, user, frame);
-        // Whatever it came to, their tabs hear what they have scheduled now.
-        await this.tellScheduled(store.roomId, user.id);
+        // Their tabs hear what they have scheduled now, whatever it came to, and the tab that asked which it
+        // changed, which it takes as the change gone through, so why it was refused goes first.
         if (refused !== null) this.send(ws, { type: "error", message: refused, scheduledId: frame.scheduledId, failed: frame.type });
+        await this.tellScheduled(store.roomId, user.id, { by: ws, scheduledId: frame.scheduledId });
         return;
       }
       case "message.update": {
@@ -1445,12 +1446,16 @@ export class ChatRoom extends DurableObject<Env> {
     await this.sendScheduled(this.storeFor(roomId), writer, message);
   }
 
-  /** Tells `userId`'s tabs here what they have scheduled here now. */
-  private async tellScheduled(roomId: RoomId, userId: UserId): Promise<void> {
-    const sockets = this.roomSockets(userId);
-    if (sockets.length === 0) return;
+  /**
+   * Tells `userId`'s tabs here what they have scheduled here now, and the socket that `asked` to change one,
+   * if one did, which one, as the room has changed it, or said why not.
+   */
+  private async tellScheduled(roomId: RoomId, userId: UserId, asked?: { by: WebSocket; scheduledId: string }): Promise<void> {
+    const sockets = this.roomSockets(userId).filter((socket) => socket !== asked?.by);
+    if (sockets.length === 0 && !asked) return;
     const messages = (await this.scheduledFor(roomId).of(userId)).map(listed);
     for (const socket of sockets) this.send(socket, { type: "scheduled", messages });
+    if (asked) this.send(asked.by, { type: "scheduled", messages, changed: asked.scheduledId });
   }
 
   /** When the alarm is to come back for the messages scheduled here, not before `notBefore`: Infinity while none is to be sent. */

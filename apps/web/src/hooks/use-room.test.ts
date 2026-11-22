@@ -1361,26 +1361,62 @@ describe("Schedule a message", () => {
     expect(await settled).toBe(NOT_CONNECTED);
   });
 
-  it("finds out as the room lets the page in again whether it had one sent before, as it lists what's scheduled", async () => {
+  it("finds out as the room lets the page in again whether it had one sent before, as it lists what's scheduled, or has it among its messages, sent since", async () => {
     const { result } = joinGeneral();
     const lost = scheduleLater(result);
     const kept = scheduleLater(result);
-    act(() => socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 0, scheduled: [scheduledAs(kept.sent.clientMessageId)] }));
+    const due = scheduleLater(result);
+    const since = [message("m9", { clientMessageId: due.sent.clientMessageId })];
+    act(() => socket().receive({ type: "resumed", you: ada, messages: since, deletedIds: [], present: [ada], seq: 0, scheduled: [scheduledAs(kept.sent.clientMessageId)] }));
     expect(await lost.settled).toBe(NOT_CONNECTED);
     expect(await kept.settled).toBeNull();
+    expect(await due.settled).toBeNull();
     expect(result.current.state.scheduled).toEqual([scheduledAs(kept.sent.clientMessageId)]);
     // A welcome that lists none means there are none.
     socket().receive(welcome());
     expect(result.current.state.scheduled).toEqual([]);
   });
 
-  it("edits, moves, sends now and deletes one, saying why a change couldn't go, and shows the room's refusal", () => {
+  it("edits one, settling once the room says it's changed it, or why it didn't, there rather than over the timeline", async () => {
+    const { result } = joinGeneral();
+    const edit = (body: string) => {
+      let saved: Promise<string | null> | undefined;
+      act(() => {
+        saved = result.current.scheduling.edit("s1", body);
+      });
+      return saved!;
+    };
+    const saved = edit("<p>Sooner</p>");
+    expect(socket().sentOfType("scheduled.edit")).toEqual([{ type: "scheduled.edit", scheduledId: "s1", body: "<p>Sooner</p>" }]);
+    // What's scheduled, after a change from another tab, or to another message, isn't this one's answer.
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1")] });
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1")], changed: "s2" });
+    let answer: string | null | undefined;
+    void saved.then((settledWith) => (answer = settledWith));
+    await act(async () => {});
+    expect(answer).toBeUndefined();
+    socket().receive({ type: "scheduled", messages: [scheduledAs("s1", { body: "<p>Sooner</p>" })], changed: "s1" });
+    expect(await saved).toBeNull();
+
+    const refused = edit("<p>Gone</p>");
+    socket().receive({ type: "error", message: SCHEDULED_GONE, scheduledId: "s1", failed: "scheduled.edit" });
+    expect(await refused).toBe(SCHEDULED_GONE);
+    expect(result.current.state.notice).toBeNull();
+    // A room that lets the page in again may not have had it.
+    const lost = edit("<p>Sooner</p>");
+    socket().receive(welcome());
+    expect(await lost).toBe(NOT_CONNECTED);
+    expect(await edit(overformatted)).toBe(MESSAGE_TOO_LONG);
+    expect(socket().sentOfType("scheduled.edit")).toHaveLength(3);
+    socket().drop();
+    expect(await edit("<p>Sooner</p>")).toBe(NOT_CONNECTED);
+  });
+
+  it("moves, sends now and deletes one, saying why a change couldn't go, and shows the room's refusal", () => {
     const { result } = joinGeneral();
     const { scheduling } = result.current;
-    expect([scheduling.edit("s1", "<p>Sooner</p>"), scheduling.reschedule("s1", at), scheduling.sendNow("s1"), scheduling.remove("s1")]).toEqual([null, null, null, null]);
-    expect(scheduling.edit("s1", overformatted)).toBe(MESSAGE_TOO_LONG);
+    expect([scheduling.reschedule("s1", at), scheduling.sendNow("s1"), scheduling.remove("s1")]).toEqual([null, null, null]);
     expect(socket().sent.filter((frame) => String(frame.type).startsWith("scheduled."))).toEqual([
-      { type: "scheduled.edit", scheduledId: "s1", body: "<p>Sooner</p>" },
       { type: "scheduled.reschedule", scheduledId: "s1", sendAt: "2026-11-18T17:00:00.000Z" },
       { type: "scheduled.send", scheduledId: "s1" },
       { type: "scheduled.delete", scheduledId: "s1" },

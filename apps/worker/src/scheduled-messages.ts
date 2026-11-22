@@ -1,7 +1,7 @@
 import type { RoomId, ScheduledMessage, UserId } from "@ember/protocol";
 import type { Db } from "./db";
 
-// The messages people have scheduled in a room (migration 0067), which the room's alarm sends as their
+// The messages people have scheduled in a room (migration 0087), which the room's alarm sends as their
 // writers' once they're due, if they're in the room still.
 
 /** The most due messages the alarm sends at once. It comes back at once for any more. */
@@ -108,6 +108,11 @@ export class ScheduledMessages {
   async nextDue(): Promise<number | null> {
     const [row] = await this.db.all<{ next: string | null }>(`SELECT min(send_at) AS next FROM scheduled_messages WHERE room_id = ? AND failure IS NULL`, this.roomId);
     return row === undefined || row.next === null ? null : Date.parse(row.next);
+  }
+
+  /** Forgets every message `creatorId` has scheduled here, as their account is deleted. */
+  async forgetBy(creatorId: UserId): Promise<void> {
+    await this.db.run(`DELETE FROM scheduled_messages WHERE room_id = ? AND creator_id = ?`, this.roomId, creatorId);
   }
 
   /** Forgets every message scheduled here, as the room is deleted. */

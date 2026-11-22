@@ -1,6 +1,6 @@
 import { lazy, Suspense, useContext, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { MAX_FILE_SIZE, type LinkPreview, type ScheduledMessage } from "@ember/protocol";
+import { MAX_FILE_SIZE, THREAD_DELETED, type LinkPreview, type ScheduledMessage } from "@ember/protocol";
 import { hasPreview, linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { AtSign, Microphone, Page, Send, SlashSquare, TextSquare, VideoCamera, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -154,6 +154,15 @@ function showDraft(key: string, lookAgain: () => void): () => void {
  */
 function restoreDraft(key: string, body: string): void {
   if (readDraft(key) !== undefined || !keepDraft(key, body)) return;
+  for (const lookAgain of showing.get(key) ?? []) lookAgain();
+}
+
+/**
+ * Forgets `body` as the draft kept as `key`, as it's gone to the room, unless something else has been
+ * written there since, telling the composers of it showing, which then show what's written as they open.
+ */
+function forgetDraft(key: string, body: string): void {
+  if (readDraft(key) !== body || !keepDraft(key, null)) return;
   for (const lookAgain of showing.get(key) ?? []) lookAgain();
 }
 
@@ -558,6 +567,10 @@ export function Composer({
   const draftsButton = useRef<HTMLButtonElement>(null);
   // Why the room refused to schedule what's written, Custom time's dialog, and the list of what's scheduled here.
   const [notScheduled, setNotScheduled] = useState<string | null>(null);
+  // Whether what's written is being scheduled, as the room's answer comes, which Send and Schedule for later
+  // wait for, so it doesn't go twice.
+  const beingScheduled = useRef(false);
+  const [scheduleAwaited, setScheduleAwaited] = useState(false);
   const [pickingTime, setPickingTime] = useState(false);
   const [listingScheduled, setListingScheduled] = useState(false);
   const scheduleButton = useRef<HTMLButtonElement>(null);
@@ -670,7 +683,7 @@ export function Composer({
   // shows, as its code loads, only the files go. Also send to the room is unticked once anything's gone,
   // as Slack unticks it.
   const send = (body = whatsWritten()) => {
-    if (disabled) return;
+    if (disabled || beingScheduled.current) return;
     setRefusal(null);
     if (picked.files.length > 0) {
       onSendFiles(picked.files.map(({ file }) => file), alsoSend);
@@ -780,18 +793,21 @@ export function Composer({
     : undefined;
 
   // Where the composer writes, as "in" goes on, and what you have scheduled there: replies in its thread, or
-  // the room's own messages.
+  // the room's own messages, with the replies whose thread's message has been deleted, which have no thread
+  // to be listed in.
   const place = threadId !== undefined ? "in this thread" : direct ? "in this conversation" : `in #${roomName}`;
-  const scheduledHere = scheduling?.scheduled.filter((message) => message.parentId === threadId) ?? [];
-  // Something written can be scheduled, but not files, which go as they're sent, nor a command.
-  const schedulable = editorReady && !blank && picked.files.length === 0 && usage === null;
+  const scheduledHere =
+    scheduling?.scheduled.filter((message) => (threadId === undefined ? message.parentId === undefined || message.failure === THREAD_DELETED : message.parentId === threadId)) ?? [];
+  // Something written can be scheduled, but not files, which go as they're sent, nor a command, nor what's
+  // being scheduled already.
+  const schedulable = editorReady && !blank && picked.files.length === 0 && usage === null && !scheduleAwaited;
 
   // Schedules what's written for `at`, as a reply sent to the room too while Also send to the room is
   // ticked, asking first, as Send does, if it would notify a room of six or more once it's sent. A command
   // isn't scheduled.
   const scheduleWritten = (at: Date) => {
     const written = editor.current;
-    if (!scheduling || !written || written.isBlank()) return;
+    if (!scheduling || !written || written.isBlank() || beingScheduled.current) return;
     const typedIn = onCommand ? commandIn(written.value()) : null;
     if (typedIn) return setNotACommand(typedIn.command ? `/${typedIn.command.name} can't be scheduled.` : isntACommand(typedIn.typed.name));
     notifyConfirm.confirm(() => whatsWritten() ?? "", () => void scheduleNow(scheduling, at), "Schedule");
@@ -799,14 +815,20 @@ export function Composer({
 
   // Schedules what's written by now, unless it's been emptied, or become a command, while the room's counts
   // came. Once the room has it, the composer empties, as Send empties it, unless something else has been
-  // written meanwhile. One the room refuses stays, with why over the card.
+  // written meanwhile, and where the composer has gone meanwhile, its draft is forgotten, as it's scheduled.
+  // One the room refuses stays, with why over the card.
   const scheduleNow = async (scheduling: ComposerScheduling, at: Date) => {
     const body = whatsWritten();
-    if (body === null || (onCommand && commandIn(body))) return;
+    if (body === null || (onCommand && commandIn(body)) || beingScheduled.current) return;
+    beingScheduled.current = true;
+    setScheduleAwaited(true);
     const refusal = await scheduling.schedule(body, at, threadId === undefined ? undefined : { parentId: threadId, alsoSend });
+    beingScheduled.current = false;
+    setScheduleAwaited(false);
     if (refusal !== null) return setNotScheduled(refusal);
     const stillWritten = editor.current;
-    if (stillWritten && !stillWritten.isBlank() && stillWritten.value() === body) {
+    if (!stillWritten) forgetDraft(key, body);
+    else if (!stillWritten.isBlank() && stillWritten.value() === body) {
       doneWith(stillWritten);
       setAlsoSend(false);
     }
@@ -852,7 +874,7 @@ export function Composer({
   // the files picked, then what's written unless it's blank: what would notify a room of six or more
   // waits, with the files picked, until its writer says to send it.
   const submit = () => {
-    if (disabled) return;
+    if (disabled || beingScheduled.current) return;
     const written = editor.current;
     const command = written && onCommand && !written.isBlank() ? commandIn(written.value()) : null;
     if (command) return run(written!, command);
@@ -1145,7 +1167,7 @@ export function Composer({
                 <ShortcutTooltip label="Send message">
                   <button
                     type="submit"
-                    disabled={disabled}
+                    disabled={disabled || scheduleAwaited}
                     data-empty={(blank && picked.files.length === 0) || undefined}
                     // Keep focus in the editor, so a phone's keyboard stays up between messages.
                     onMouseDown={(event) => event.preventDefault()}

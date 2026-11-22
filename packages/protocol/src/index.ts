@@ -1895,6 +1895,11 @@ export const SCHEDULE_TIME_REFUSED = "Pick a time between now and 120 days from 
 export const TOO_MANY_SCHEDULED = `You can have up to ${MAX_SCHEDULED_MESSAGES} messages scheduled here at once.`;
 /** What the room says of a scheduled message that has gone, sent or deleted meanwhile, as from another tab. */
 export const SCHEDULED_GONE = "That message isn't scheduled any more.";
+/**
+ * Why the room couldn't send a scheduled reply: its thread's message has been deleted since it was
+ * scheduled, leaving no thread to send it in, so its room's composer lists it, where it can be deleted.
+ */
+export const THREAD_DELETED = "Its thread's message has been deleted.";
 
 /** Whether a message shows in its room's timeline: every message but a reply that was sent only to its thread. */
 export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
@@ -2070,9 +2075,10 @@ export type ServerFrame =
   /**
    * The messages you have scheduled in the room, every one, soonest first, sent to your sockets in the room
    * whenever one is scheduled, moved, sent, deleted or can't be sent. A socket starts with them in its
-   * welcome, or with what it resumes.
+   * welcome, or with what it resumes. `changed`, sent only to the socket that asked for a change to one, is
+   * the one it asked to change, once the room has changed it, or said first why it didn't.
    */
-  | { type: "scheduled"; messages: ScheduledMessage[] }
+  | { type: "scheduled"; messages: ScheduledMessage[]; changed?: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
    * `clientMessageIds` the messages it was about, `scheduledId` the scheduled message, or `clickId` the

@@ -1,4 +1,4 @@
-import { MAX_FILE_SIZE, SCHEDULE_TIME_REFUSED, type LinkPreview, type NotifiedCounts, type ScheduledMessage } from "@ember/protocol";
+import { MAX_FILE_SIZE, SCHEDULE_TIME_REFUSED, THREAD_DELETED, type LinkPreview, type NotifiedCounts, type ScheduledMessage } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, ROOM_MENTION_CONTENT_TYPE, type SpecialMention } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -1226,7 +1226,7 @@ describe("Schedule for later", () => {
     return {
       scheduled,
       schedule: vi.fn(async (_body: string, _at: Date, _reply?: { parentId: string; alsoSend: boolean }) => answer),
-      edit: vi.fn((_id: string, _body: string) => null as string | null),
+      edit: vi.fn(async (_id: string, _body: string) => null as string | null),
       reschedule: vi.fn((_id: string, _at: Date) => null as string | null),
       sendNow: vi.fn((_id: string) => null as string | null),
       remove: vi.fn((_id: string) => null as string | null),
@@ -1285,6 +1285,46 @@ describe("Schedule for later", () => {
     const channel = `<action-text-attachment sgid="channel" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
     expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith(`<p>${channel} Standup</p>`, new Date(2026, 10, 18, 9), undefined);
     await waitFor(() => expect(input).toHaveValue(""));
+    expect(scheduling.onScheduled).toHaveBeenCalledOnce();
+  });
+
+  /** Has `scheduling` wait to answer the next message scheduled until what this answers is called with the answer. */
+  function answerLater(scheduling: ReturnType<typeof schedulingWith>) {
+    let answer: (refusal: string | null) => void = () => {};
+    scheduling.schedule.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    return (refusal: string | null) => act(async () => answer(refusal));
+  }
+
+  it("neither sends what's being scheduled nor schedules it again while the room's answer comes", async () => {
+    const scheduling = schedulingWith();
+    const answer = answerLater(scheduling);
+    const { input, onSend, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    expect(scheduleButton()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send Message" })).toBeDisabled();
+    await user.type(input, "{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+
+    await answer(null);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(scheduling.schedule).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Send Message" })).toBeEnabled();
+  });
+
+  it("forgets the draft of a reply scheduled as its thread closes, once the room has it", async () => {
+    const scheduling = schedulingWith();
+    const answer = answerLater(scheduling);
+    const { input, user, view } = await showComposer({ threadId: "m1", scheduling });
+    await user.type(input, "Later");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Monday at 9:00 AM" }));
+    view.unmount();
+    expect(localStorage.getItem("composer-draft-u1-r1/threads/m1")).toBe("<p>Later</p>");
+    await answer(null);
+    expect(localStorage.getItem("composer-draft-u1-r1/threads/m1")).toBeNull();
     expect(scheduling.onScheduled).toHaveBeenCalledOnce();
   });
 
@@ -1372,14 +1412,15 @@ describe("Schedule for later", () => {
   });
 
   it("lists them, soonest first, to edit, reschedule, send now or delete, saying why a change couldn't go", async () => {
-    const scheduled = [scheduledAs("s1", { body: "<p>First</p>" }), scheduledAs("s2", { body: "<p>Second</p>", sendAt: new Date(2026, 10, 26, 9).toISOString(), failure: "Its thread's message has been deleted." })];
+    const blocked = "This community doesn't allow one of these words.";
+    const scheduled = [scheduledAs("s1", { body: "<p>First</p>" }), scheduledAs("s2", { body: "<p>Second</p>", sendAt: new Date(2026, 10, 26, 9).toISOString(), failure: blocked })];
     const scheduling = schedulingWith({ scheduled });
     const { input, user } = await showComposer({ scheduling });
     await user.click(screen.getByRole("button", { name: "2 scheduled messages in #general" }));
     const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
     const [first, second] = within(dialog).getAllByRole("listitem");
     expect(first).toHaveTextContent("Scheduled for tomorrow at 9:00 AMFirst");
-    expect(second).toHaveTextContent("Scheduled for Thursday, November 26 at 9:00 AMSecondIts thread's message has been deleted.");
+    expect(second).toHaveTextContent(`Scheduled for Thursday, November 26 at 9:00 AMSecond${blocked}`);
 
     await user.click(within(first!).getByRole("button", { name: "Send now" }));
     expect(scheduling.sendNow).toHaveBeenCalledExactlyOnceWith("s1");
@@ -1395,17 +1436,29 @@ describe("Schedule for later", () => {
     await user.click(within(first!).getByRole("button", { name: "Edit" }));
     const editor = await within(first!).findByRole("textbox", { name: "Edit message" });
     await user.type(editor, " and more");
-    scheduling.edit.mockReturnValueOnce("Not connected. Try again once you're reconnected.");
+    scheduling.edit.mockResolvedValueOnce(blocked);
     await user.click(within(first!).getByRole("button", { name: "Save changes" }));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("Not connected.");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(blocked);
     // Kept to try again.
+    expect(within(first!).getByRole("textbox", { name: "Edit message" })).toHaveValue("First and more");
     await user.click(within(first!).getByRole("button", { name: "Save changes" }));
     expect(scheduling.edit).toHaveBeenLastCalledWith("s1", "<p>First and more</p>");
-    expect(within(first!).queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    await waitFor(() => expect(within(first!).queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument());
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
     expect(within(first!).getByRole("button", { name: "Edit" })).toHaveFocus();
 
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("lists the replies whose thread's message has been deleted with the room's, to edit or delete, as there's no thread to send them in", async () => {
+    const scheduled = [scheduledAs("s1", { body: "<p>Orphaned</p>", parentId: "m1", failure: THREAD_DELETED }), scheduledAs("s2", { parentId: "m2" })];
+    const { user } = await showComposer({ scheduling: schedulingWith({ scheduled }) });
+    await user.click(screen.getByRole("button", { name: "1 scheduled message in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    const item = within(dialog).getByRole("listitem");
+    expect(item).toHaveTextContent(`Orphaned${THREAD_DELETED}`);
+    expect(within(item).getAllByRole("button").map((button) => button.textContent)).toEqual(["Edit", "Delete"]);
   });
 
   it("names the people and rooms a scheduled message mentions as they are now, as the room keeps only their ids", async () => {

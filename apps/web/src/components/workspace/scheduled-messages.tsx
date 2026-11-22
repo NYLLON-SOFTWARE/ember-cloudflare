@@ -1,6 +1,6 @@
 import { useContext, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import type { ScheduledMessage } from "@ember/protocol";
+import { THREAD_DELETED, type ScheduledMessage } from "@ember/protocol";
 import { plainText, PRIVATE_ROOM_NAME, userIdFromSgid, writtenBody } from "@ember/richtext/dom";
 import { Clock, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -55,7 +55,8 @@ interface DialogProps {
 /**
  * What you have scheduled where the composer writes, soonest first, as Slack's Scheduled lists it: when
  * each is to be sent, its text, and why it couldn't be, if it couldn't, with Edit, which edits it in its
- * place, Reschedule, which offers the schedule menu's times, Send now and Delete.
+ * place, Reschedule, which offers the schedule menu's times, Send now and Delete. A reply whose thread's
+ * message has been deleted can't be sent, so it has only Edit and Delete.
  */
 export function ScheduledDialog({ open, onOpenChange, messages, roomId, place, scheduling, onClosed }: DialogProps) {
   return (
@@ -170,6 +171,7 @@ function ScheduledItem({ message, roomId, now, editing, onEdit, scheduling, onDo
   const editButton = useRef<HTMLButtonElement>(null);
   const { id, body } = message;
   const text = useShownText(body);
+  const sendable = message.failure !== THREAD_DELETED;
   const reschedule = (at: Date) => onDone(scheduling.reschedule(id, at));
   // Focus goes back to Edit as the editor closes, as it's saved or put away, rather than to the list.
   const closeEditor = () => {
@@ -185,10 +187,13 @@ function ScheduledItem({ message, roomId, now, editing, onEdit, scheduling, onDo
       {editing ? (
         <MessageEditor
           message={{ body, mentions: writtenBody(body).mentions, roomId }}
+          // The editor stays until the room has the edit, so what's written isn't lost where it's refused.
           onSave={(edited) => {
-            const refusal = scheduling.edit(id, edited);
-            onDone(refusal);
-            return refusal === null;
+            void scheduling.edit(id, edited).then((refusal) => {
+              onDone(refusal);
+              if (refusal === null) closeEditor();
+            });
+            return false;
           }}
           onDelete={() => onDone(scheduling.remove(id))}
           onClose={closeEditor}
@@ -202,27 +207,31 @@ function ScheduledItem({ message, roomId, now, editing, onEdit, scheduling, onDo
           <button ref={editButton} type="button" onClick={() => onEdit(true)} className={ACTION}>
             Edit
           </button>
-          <DropdownMenu onOpenChange={(opened) => opened && setChoices(scheduleChoices())}>
-            <DropdownMenuTrigger asChild>
-              <button type="button" className={ACTION}>
-                Reschedule
+          {sendable && (
+            <>
+              <DropdownMenu onOpenChange={(opened) => opened && setChoices(scheduleChoices())}>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className={ACTION}>
+                    Reschedule
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  // Custom time opens once the menu has handed focus back to Reschedule, which it gives focus back to as it closes.
+                  onCloseAutoFocus={() => {
+                    if (!customTimePicked.current) return;
+                    customTimePicked.current = false;
+                    setCustomTime(true);
+                  }}
+                >
+                  <ScheduleItems choices={choices} onSchedule={reschedule} onCustomTime={() => (customTimePicked.current = true)} />
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <button type="button" onClick={() => onDone(scheduling.sendNow(id))} className={ACTION}>
+                Send now
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              // Custom time opens once the menu has handed focus back to Reschedule, which it gives focus back to as it closes.
-              onCloseAutoFocus={() => {
-                if (!customTimePicked.current) return;
-                customTimePicked.current = false;
-                setCustomTime(true);
-              }}
-            >
-              <ScheduleItems choices={choices} onSchedule={reschedule} onCustomTime={() => (customTimePicked.current = true)} />
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <button type="button" onClick={() => onDone(scheduling.sendNow(id))} className={ACTION}>
-            Send now
-          </button>
+            </>
+          )}
           <button type="button" onClick={() => confirm("Are you sure you want to delete this scheduled message?") && onDone(scheduling.remove(id))} className={cn(ACTION, "text-negative")}>
             Delete
           </button>

@@ -521,10 +521,11 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       // for what it says, when the composer it came from takes it back if it can. An error about no
       // message keeps the same list: the timeline takes a new one for a change, and would ask again for a
       // page that just failed. One about a thread, or about messages the timeline isn't sending, as
-      // replies in a thread, is the thread's to show, and one about a link's preview, which the tab sent
-      // of its own accord, isn't shown.
+      // replies in a thread, is the thread's to show, one about a link's preview, which the tab sent of its
+      // own accord, isn't shown, and one about an edit to a scheduled message is their list's to show, as
+      // it keeps the edit.
       const notSent = frame.clientMessageIds ?? (frame.clientMessageId === undefined ? [] : [frame.clientMessageId]);
-      if (frame.failed === "thread.open" || frame.failed === "thread.before" || frame.failed === "message.preview") return state;
+      if (frame.failed === "thread.open" || frame.failed === "thread.before" || frame.failed === "message.preview" || frame.failed === "scheduled.edit") return state;
       if (notSent.length > 0 && !state.messages.some((m) => isPending(m) && notSent.includes(m.clientMessageId))) return state;
       const refused = frame.rewrite ? { failed: true, rewrite: frame.message } : { failed: true };
       const messages = notSent.length

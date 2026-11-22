@@ -116,7 +116,8 @@ export interface ScheduledReply {
 export interface Scheduling {
   /** Schedules `body` to be sent at `at`, or as `reply`, settling with why it wasn't, or null once the room has it. */
   schedule: (body: string, at: Date, reply?: ScheduledReply) => Promise<string | null>;
-  edit: (scheduledId: string, body: string) => string | null;
+  /** Has the scheduled message `scheduledId` say `body`, settling with why it doesn't, or null once the room has the edit. */
+  edit: (scheduledId: string, body: string) => Promise<string | null>;
   reschedule: (scheduledId: string, at: Date) => string | null;
   sendNow: (scheduledId: string) => string | null;
   remove: (scheduledId: string) => string | null;
@@ -127,27 +128,44 @@ const lists = (scheduled: ScheduledMessage[] | undefined, clientMessageId: strin
 
 export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
   const whyNotSent = (frame: ClientFrame) => (send(frame) ? null : NOT_CONNECTED);
+  // Sends `frame`, settling with the room's answer, which `answerOf` reads from each frame it hears, null while it's yet to come.
+  const answerTo = (frame: ClientFrame, answerOf: (heard: ServerFrame) => string | null | undefined) =>
+    new Promise<string | null>((resolve) => {
+      const answered = (refusal: string | null) => {
+        stop();
+        resolve(refusal);
+      };
+      const stop = listen((heard) => {
+        const answer = answerOf(heard);
+        if (answer !== undefined) answered(answer);
+      });
+      if (!send(frame)) answered(NOT_CONNECTED);
+    });
   return {
     schedule: (body, at, reply) => {
       if (isTooLong(body, writtenBody(body).plainText)) return Promise.resolve(MESSAGE_TOO_LONG);
       const clientMessageId = crypto.randomUUID();
-      return new Promise((resolve) => {
-        const answered = (refusal: string | null) => {
-          stop();
-          resolve(refusal);
-        };
-        // The room lists it once it has it, or says why it doesn't. A room that lets the page in again
-        // lists what it has, which says whether it had it before the page left.
-        const stop = listen((frame) => {
-          if (frame.type === "scheduled" && lists(frame.messages, clientMessageId)) answered(null);
-          else if (frame.type === "error" && frame.clientMessageId === clientMessageId) answered(frame.message);
-          else if (frame.type === "welcome" || frame.type === "resumed") answered(lists(frame.scheduled, clientMessageId) ? null : NOT_CONNECTED);
-        });
-        const sent = send({ type: "message.schedule", clientMessageId, body, sendAt: at.toISOString(), ...reply });
-        if (!sent) answered(NOT_CONNECTED);
+      // The room lists it once it has it, or says why it doesn't. A room that lets the page in again lists
+      // what it has, which says whether it had it before the page left, unless it's been sent since, as
+      // when it came due meanwhile, when the room has it among its messages.
+      return answerTo({ type: "message.schedule", clientMessageId, body, sendAt: at.toISOString(), ...reply }, (frame) => {
+        if (frame.type === "scheduled" && lists(frame.messages, clientMessageId)) return null;
+        if (frame.type === "error" && frame.clientMessageId === clientMessageId) return frame.message;
+        if (frame.type !== "welcome" && frame.type !== "resumed") return undefined;
+        return lists(frame.scheduled, clientMessageId) || frame.messages.some((message) => message.clientMessageId === clientMessageId) ? null : NOT_CONNECTED;
       });
     },
-    edit: (scheduledId, body) => (isTooLong(body, writtenBody(body).plainText) ? MESSAGE_TOO_LONG : whyNotSent({ type: "scheduled.edit", scheduledId, body })),
+    // The room says why it refused an edit before it tells the tab what's scheduled, with which it changed,
+    // as it does after any change. A room that lets the page in again may not have had it, which can be
+    // saved again.
+    edit: (scheduledId, body) => {
+      if (isTooLong(body, writtenBody(body).plainText)) return Promise.resolve(MESSAGE_TOO_LONG);
+      return answerTo({ type: "scheduled.edit", scheduledId, body }, (frame) => {
+        if (frame.type === "error" && frame.scheduledId === scheduledId && frame.failed === "scheduled.edit") return frame.message;
+        if (frame.type === "scheduled" && frame.changed === scheduledId) return null;
+        return frame.type === "welcome" || frame.type === "resumed" ? NOT_CONNECTED : undefined;
+      });
+    },
     reschedule: (scheduledId, at) => whyNotSent({ type: "scheduled.reschedule", scheduledId, sendAt: at.toISOString() }),
     sendNow: (scheduledId) => whyNotSent({ type: "scheduled.send", scheduledId }),
     remove: (scheduledId) => whyNotSent({ type: "scheduled.delete", scheduledId }),
