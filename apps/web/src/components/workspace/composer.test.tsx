@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { RoomsContext, type Rooms } from "@/hooks/use-rooms";
+import { previewOf } from "@/lib/previews";
 import type { Typist } from "@/lib/room-state";
 import { SHRUG, SLASH_COMMANDS, type CommandRunner, type WrittenCommand } from "@/lib/slash-commands";
+import { installRecording, lastRecorder } from "@/test-recording";
 import { createRef, type ReactNode } from "react";
 import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
@@ -15,6 +17,13 @@ import { editorLoaded } from "./editor";
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
+
+// Of the pages few visits need, the clips' recorders, which are all the composer loads of them, without the rest,
+// which take a while to load here.
+vi.mock("./pages", () => import("./clip-recorders"));
+
+// A video's poster, which jsdom can't decode one to take: none, unless a test makes one.
+vi.mock("@/lib/previews", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/previews")>()), previewOf: vi.fn(async () => null) }));
 
 // The emoji picker, without Emojibase's data, which isn't served here: one emoji to pick.
 vi.mock("./emoji-panel", () => ({
@@ -93,6 +102,7 @@ const fileField = () => document.querySelector<HTMLInputElement>('input[type="fi
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.mocked(editorLoaded).mockReturnValue(false);
+  vi.mocked(previewOf).mockReset();
 });
 
 describe("Composer", () => {
@@ -766,6 +776,25 @@ describe("Attach files", () => {
     expect(within(screen.getByRole("button", { name: "Remove README" })).getByText("README")).toHaveClass("truncate");
   });
 
+  it("shows a video's poster once it's taken, the one its message will show, as Slack shows a clip, and a file icon until then", async () => {
+    const { revoked } = thumbnails();
+    let take!: (poster: Blob) => void;
+    vi.mocked(previewOf).mockReturnValueOnce(new Promise((resolve) => (take = resolve)));
+    const { user } = await showComposer();
+    const tour = fileOf("tour.mp4", { type: "video/mp4" });
+    await user.upload(fileField(), tour);
+    const chip = screen.getByRole("button", { name: "Remove tour.mp4" });
+    expect(previewOf).toHaveBeenCalledExactlyOnceWith(tour);
+    expect(chip.querySelector("img")).toBeNull();
+    expect(chip.querySelector("svg")).toHaveClass("iconoir-page");
+
+    await act(async () => take(new File(["poster"], "tour poster.jpg", { type: "image/jpeg" })));
+    expect(chip.querySelector("img")).toHaveAttribute("src", "blob:tour poster.jpg");
+    expect(chip.querySelector("svg.iconoir-page")).toBeNull();
+    await user.click(chip);
+    expect(revoked).toEqual(["blob:tour poster.jpg"]);
+  });
+
   it("takes a file back out when its chip is pressed, letting go of its thumbnail", async () => {
     const { revoked } = thumbnails();
     const { user, onSendFiles } = await showComposer();
@@ -1065,6 +1094,112 @@ describe("/ commands", () => {
     expect(screen.queryByRole("button", { name: "Run shortcut" })).not.toBeInTheDocument();
     await user.type(input, "/shrug{Enter}");
     expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>/shrug</p>", false);
+  });
+});
+
+describe("Clips", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "mediaDevices");
+    vi.restoreAllMocks();
+  });
+
+  /** A browser that records clips, and plays nothing. */
+  function recordingBrowser() {
+    installRecording();
+    thumbnails();
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  }
+
+  it("has Record video clip and Record audio clip after Mention someone where the browser records, before Run shortcut, as Slack's row has them", async () => {
+    recordingBrowser();
+    const { view } = await showComposer({ onCommand: vi.fn((_written: WrittenCommand) => Promise.resolve(true)) });
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual([
+      "Attach",
+      "Show formatting",
+      "Emoji",
+      "Mention someone",
+      "Record video clip",
+      "Record audio clip",
+      "Run shortcut",
+      "Send Message",
+    ]);
+  });
+
+  it("records an audio clip in the card's place, keeping what's written, then waits to send it with the files, and puts focus back in the text", async () => {
+    recordingBrowser();
+    const { input, onSend, onSendFiles, user } = await showComposer();
+    await user.type(input, "Listen to this");
+    await user.click(screen.getByRole("button", { name: "Record audio clip" }));
+    // It records once the browser lets Ember use the microphone.
+    const recording = await screen.findByRole("group", { name: "Record audio clip" });
+    const done = await within(recording).findByRole("button", { name: "Done" });
+    await waitFor(() => expect(done).toHaveFocus());
+
+    await user.click(done);
+    await lastRecorder().end();
+    expect(screen.queryByRole("group", { name: "Record audio clip" })).not.toBeInTheDocument();
+    expect(chips()).toEqual([expect.stringMatching(/^Remove Audio clip .+\.m4a$/)]);
+    expect(input).toHaveValue("Listen to this");
+    await waitFor(() => expect(input).toHaveFocus());
+
+    await user.click(sendButton());
+    expect(onSendFiles.mock.calls[0]![0].map((file) => file.type)).toEqual(["audio/mp4"]);
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Listen to this</p>", false);
+  });
+
+  it("goes back to the text when the audio clip's discarded", async () => {
+    recordingBrowser();
+    const { input, user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Record audio clip" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Done" })).toHaveFocus());
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("group", { name: "Record audio clip" })).not.toBeInTheDocument();
+    expect(chips()).toEqual([]);
+    expect(input).toHaveFocus();
+  });
+
+  it("records a video clip in its dialog, which waits to send it with the files, and puts focus back in the text", async () => {
+    recordingBrowser();
+    const { input, user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Record video clip" }));
+    const dialog = await screen.findByRole("dialog", { name: "Record video clip" });
+    const record = within(dialog).getByRole("button", { name: "Record" });
+    await waitFor(() => expect(record).toBeEnabled());
+
+    await user.click(record);
+    await user.click(within(dialog).getByRole("button", { name: "Stop recording" }));
+    await lastRecorder().end();
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(chips()).toEqual([expect.stringMatching(/^Remove Video clip .+\.mp4$/)]);
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("offers the clips from + where the row has no room for their buttons, as on touch screens, as Slack's apps do", async () => {
+    recordingBrowser();
+    const { user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+    await user.keyboard("{Escape}");
+
+    // As the row's styles hide them, which jsdom has none of.
+    for (const name of ["Record video clip", "Record audio clip"]) screen.getByRole("button", { name }).style.display = "none";
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Text snippetCtrl+Shift+Enter", "Upload from your computerCtrl+O", "Record a video clip", "Record an audio clip"]);
+    expect(screen.getByRole("menuitem", { name: "Record a video clip" })).not.toHaveAttribute("aria-keyshortcuts");
+
+    await user.click(screen.getByRole("menuitem", { name: "Record an audio clip" }));
+    const recording = await screen.findByRole("group", { name: "Record audio clip" });
+    await waitFor(() => expect(within(recording).getByRole("button", { name: "Done" })).toHaveFocus());
+  });
+
+  it("offers no clips where the browser can't record them, as over plain HTTP", async () => {
+    const { user } = await showComposer();
+    expect(screen.queryByRole("button", { name: /clip/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Text snippetCtrl+Shift+Enter", "Upload from your computerCtrl+O"]);
   });
 });
 

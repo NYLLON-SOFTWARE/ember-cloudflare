@@ -1,11 +1,12 @@
 import { useRef, useState, type ComponentType } from "react";
-import { CodeBrackets, Plus, Upload, Xmark, type IconoirIconProps } from "@/components/icons/iconoir";
+import { CodeBrackets, Microphone, Plus, Upload, VideoCamera, Xmark, type IconoirIconProps } from "@/components/icons/iconoir";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { ClipKind } from "@/lib/clips";
 import { appleKeyboard, snippetShortcut, uploadShortcut, type Shortcut } from "@/lib/keyboard";
 import { ShortcutTooltip } from "./shortcut-tooltip";
 
 /** What the menu closed for, which says where focus goes as it does. */
-type Choice = "upload" | "snippet";
+type Choice = "upload" | "snippet" | ClipKind;
 
 interface Props {
   disabled: boolean;
@@ -14,19 +15,29 @@ interface Props {
   onUpload: () => void;
   /** Opens Text snippet's dialog, once the menu's gone. */
   onSnippet: () => void;
+  /** Starts recording a clip, once the menu's gone, where this browser can record one. */
+  onRecordClip?: (kind: ClipKind) => void;
+  /** Whether the composer's row shows the clips' own buttons, as the menu opens. */
+  clipsInRow: () => boolean;
   /** Puts focus back in the text once the menu's gone, but for a snippet. */
   onClosed: () => void;
 }
 
 /**
  * Slack's +, under the composer's text: a menu of Text snippet and Upload from your computer, Slack's two that
- * Ember has, each with its keys. The + is an × while it's open.
+ * Ember has, each with its keys, and where the composer's row has no room for the clips' buttons, Record a
+ * video clip and Record an audio clip, which Slack's apps have in their + too. The + is an × while it's open.
  */
-export function AttachMenu({ disabled, className, onUpload, onSnippet, onClosed }: Props) {
+export function AttachMenu({ disabled, className, onUpload, onSnippet, onRecordClip, clipsInRow, onClosed }: Props) {
   const [open, setOpen] = useState(false);
+  const [clips, setClips] = useState(false);
   const chosen = useRef<Choice>(null);
+  const openChanged = (opened: boolean) => {
+    if (opened) setClips(onRecordClip !== undefined && !clipsInRow());
+    setOpen(opened);
+  };
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={openChanged}>
       <ShortcutTooltip label="Attach" hidden={open}>
         <DropdownMenuTrigger asChild>
           <button type="button" aria-label="Attach" disabled={disabled} className={className}>
@@ -38,12 +49,13 @@ export function AttachMenu({ disabled, className, onUpload, onSnippet, onClosed 
         side="top"
         align="start"
         sideOffset={8}
-        // The snippet's dialog opens once the menu has closed, so the menu doesn't hand focus back over it.
+        // The snippet's dialog and a clip's recorder open once the menu has closed, so the menu doesn't hand focus back over them.
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           const choice = chosen.current;
           chosen.current = null;
           if (choice === "snippet") onSnippet();
+          else if (choice === "video" || choice === "audio") onRecordClip?.(choice);
           else onClosed();
         }}
       >
@@ -57,6 +69,12 @@ export function AttachMenu({ disabled, className, onUpload, onSnippet, onClosed 
             onUpload();
           }}
         />
+        {clips && (
+          <>
+            <Item icon={VideoCamera} label="Record a video clip" onSelect={() => (chosen.current = "video")} />
+            <Item icon={Microphone} label="Record an audio clip" onSelect={() => (chosen.current = "audio")} />
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -65,19 +83,21 @@ export function AttachMenu({ disabled, className, onUpload, onSnippet, onClosed 
 interface ItemProps {
   icon: ComponentType<IconoirIconProps>;
   label: string;
-  shortcut: Shortcut;
+  shortcut?: Shortcut;
   onSelect: () => void;
 }
 
-/** One of the menu's items, with its keys after it, as Slack's menu shows them. */
+/** One of the menu's items, with its keys after it if it has any, as Slack's menu shows them. */
 function Item({ icon: Icon, label, shortcut, onSelect }: ItemProps) {
   return (
-    <DropdownMenuItem onSelect={onSelect} aria-keyshortcuts={shortcut.aria} className="min-w-64 gap-2.5">
+    <DropdownMenuItem onSelect={onSelect} aria-keyshortcuts={shortcut?.aria} className="min-w-64 gap-2.5">
       <Icon className="size-[18px]" />
       {label}
-      <span aria-hidden className="ms-auto ps-6 text-xs text-muted-foreground">
-        {shortcut.keys.join(appleKeyboard() ? "" : "+")}
-      </span>
+      {shortcut && (
+        <span aria-hidden className="ms-auto ps-6 text-xs text-muted-foreground">
+          {shortcut.keys.join(appleKeyboard() ? "" : "+")}
+        </span>
+      )}
     </DropdownMenuItem>
   );
 }

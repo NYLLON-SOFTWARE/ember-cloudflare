@@ -7,6 +7,12 @@ export { expect };
 /** A name no other test's people or rooms have, since they all share the server. */
 export const unique = (name: string) => `${name} ${crypto.randomUUID().slice(0, 8)}`;
 
+/**
+ * Whether the browser can record clips, which the composer offers only where it can: every one the tests run
+ * but Playwright's WebKit for Linux, which CI runs, as it has no MediaRecorder, though Safari has.
+ */
+export const recordsClips = (browserName: string) => browserName !== "webkit" || process.platform !== "linux";
+
 /** The rooms each test has to itself. Its browsers show these instead of the server's own. */
 export interface Rooms {
   general: TestRoom;
