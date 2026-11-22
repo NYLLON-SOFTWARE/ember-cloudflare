@@ -132,12 +132,15 @@ const lists = (scheduled: ScheduledMessage[] | undefined, clientMessageId: strin
  * the page comes back to it, which lists what the room has scheduled, so the composer that asked, gone by
  * then, forgets its draft once the room has it, as it would have had the room stayed open.
  */
-const scheduleAnswers = new Map<string, Set<(frame: ServerFrame) => void>>();
+const scheduleAnswers = new Map<string, Set<AnswerListener>>();
+
+/** Hears a frame from the room, with what sends the room a frame over the socket it came by, answering whether it went. */
+type AnswerListener = (frame: ServerFrame, ask: RoomFrames["send"]) => void;
 
 const answersOf = (userId: string, roomId: string) => `${userId} ${roomId}`;
 
 /** Hears the frames of the room `answers` names, among `scheduleAnswers`, until the function it answers is called. */
-function listenForAnswers(answers: string, listener: (frame: ServerFrame) => void): () => void {
+function listenForAnswers(answers: string, listener: AnswerListener): () => void {
   const listeners = scheduleAnswers.get(answers) ?? new Set();
   scheduleAnswers.set(answers, listeners.add(listener));
   return () => {
@@ -146,19 +149,26 @@ function listenForAnswers(answers: string, listener: (frame: ServerFrame) => voi
   };
 }
 
-export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
+/** What a room's socket carries for Schedule for later: what's sent to the room, and what it says, which can be answered. */
+interface SchedulingFrames {
+  send: RoomFrames["send"];
+  listen: (listener: AnswerListener) => () => void;
+}
+
+export function schedulingOf({ send, listen }: SchedulingFrames): Scheduling {
   const whyNotSent = (frame: ClientFrame) => (send(frame) ? null : NOT_CONNECTED);
   // The last edit asked of each scheduled message, by its id, until the room has answered it.
   const edits = new Map<string, Promise<string | null>>();
   // Sends `frame`, settling with the room's answer, which `answerOf` reads from each frame it hears, null while it's yet to come.
-  const answerTo = (frame: ClientFrame, answerOf: (heard: ServerFrame) => string | null | undefined) =>
+  // `answerOf` can ask the room something to settle it, over the socket it heard from.
+  const answerTo = (frame: ClientFrame, answerOf: (heard: ServerFrame, ask: RoomFrames["send"]) => string | null | undefined) =>
     new Promise<string | null>((resolve) => {
       const answered = (refusal: string | null) => {
         stop();
         resolve(refusal);
       };
-      const stop = listen((heard) => {
-        const answer = answerOf(heard);
+      const stop = listen((heard, ask) => {
+        const answer = answerOf(heard, ask);
         if (answer !== undefined) answered(answer);
       });
       if (!send(frame)) answered(NOT_CONNECTED);
@@ -169,12 +179,17 @@ export function schedulingOf({ send, listen }: RoomFrames): Scheduling {
       const clientMessageId = crypto.randomUUID();
       // The room lists it once it has it, or says why it doesn't. A room that lets the page in again lists
       // what it has, which says whether it had it before the page left, unless it's been sent since, as
-      // when it came due meanwhile, when the room has it among its messages.
-      return answerTo({ type: "message.schedule", clientMessageId, body, sendAt: at.toISOString(), ...reply }, (frame) => {
+      // when it came due meanwhile. Then it's among the room's messages, which the room is asked about
+      // where it isn't among those it sends with the list, as one older than they are isn't, or a reply
+      // in its thread alone.
+      return answerTo({ type: "message.schedule", clientMessageId, body, sendAt: at.toISOString(), ...reply }, (frame, ask) => {
         if (frame.type === "scheduled" && lists(frame.messages, clientMessageId)) return null;
-        if (frame.type === "error" && frame.clientMessageId === clientMessageId) return frame.message;
+        if (frame.type === "message.checked") return frame.stored.includes(clientMessageId) ? null : frame.missing.includes(clientMessageId) ? NOT_CONNECTED : undefined;
+        // Why the room refused it, or couldn't say whether it had sent it.
+        if (frame.type === "error" && (frame.clientMessageId === clientMessageId || frame.clientMessageIds?.includes(clientMessageId))) return frame.message;
         if (frame.type !== "welcome" && frame.type !== "resumed") return undefined;
-        return lists(frame.scheduled, clientMessageId) || frame.messages.some((message) => message.clientMessageId === clientMessageId) ? null : NOT_CONNECTED;
+        if (lists(frame.scheduled, clientMessageId) || frame.messages.some((message) => message.clientMessageId === clientMessageId)) return null;
+        return ask({ type: "message.check", clientMessageIds: [clientMessageId] }) ? undefined : NOT_CONNECTED;
       });
     },
     // The room tells the tab what's scheduled once it has the edit, with which it edited, or else says why
@@ -236,8 +251,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me));
   // What was asked of the room to schedule hears what it says, here or in its next view, should this one go first.
   const answers = answersOf(me.id, roomId);
-  const answerSchedules = useEffectEvent((frame: ServerFrame) => {
-    for (const listener of scheduleAnswers.get(answers) ?? []) listener(frame);
+  const answerSchedules = useEffectEvent((frame: ServerFrame, ask: RoomFrames["send"]) => {
+    for (const listener of scheduleAnswers.get(answers) ?? []) listener(frame, ask);
   });
 
   // A message sent over the socket can lose its answer, where one posted over HTTP fails only when the
@@ -321,7 +336,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         sendQueued(room, frame);
       }
       for (const listener of listeners.current) listener(frame);
-      answerSchedules(frame);
+      answerSchedules(frame, (asked) => room.send(asked));
     };
 
     const onClose = (code: number, opened: boolean) => {
