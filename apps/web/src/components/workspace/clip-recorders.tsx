@@ -403,11 +403,15 @@ export function AudioClipRecorder({ onRecorded, onClose }: Props) {
   const group = useRef<HTMLDivElement>(null);
   const doneButton = useRef<HTMLButtonElement>(null);
 
-  // Focus is in it from the start, as what was under it is out of reach, and on Done once it records.
+  // Focus is in it from the start, as what was under it is out of reach, on Done once it records, and
+  // back in it where recording fails, should it have been on Done, which goes.
   useEffect(() => group.current?.focus(), []);
   useEffect(() => {
     if (recorder.recording) doneButton.current?.focus();
   }, [recorder.recording]);
+  useEffect(() => {
+    if (failed && !group.current?.contains(document.activeElement)) group.current?.focus();
+  }, [failed]);
 
   const start = useEffectEvent((stream: MediaStream) => {
     if (!recorder.start(stream)) setFailed(true);

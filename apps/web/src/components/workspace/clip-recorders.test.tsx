@@ -263,13 +263,30 @@ describe("Record audio clip", () => {
   });
 
   it("says so where the browser fails as it records, leaving nothing to go with the next message, until it's closed", async () => {
+    media.pending = true;
     const { user, onRecorded, onClose } = showAudioRecorder();
-    await screen.findByRole("timer");
+    await media.answer();
+    expect(button("Done")).toHaveFocus();
     await recorder().fail();
     expect(status()).toHaveTextContent(NOT_RECORDED);
     expect(onRecorded).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    await user.click(button("Close"));
+    // Done goes, and focus with it stays in the recorder, where Escape closes it, as Close does.
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Record audio clip" })).toHaveFocus();
+    await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
+    await user.click(button("Close"));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves focus on Cancel, which becomes Close, where the browser fails as it records", async () => {
+    media.pending = true;
+    const { user } = showAudioRecorder();
+    await media.answer();
+    await user.tab({ shift: true });
+    expect(button("Cancel")).toHaveFocus();
+    await recorder().fail();
+    expect(button("Close")).toHaveFocus();
   });
 });
