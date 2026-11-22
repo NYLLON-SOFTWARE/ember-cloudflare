@@ -30,7 +30,8 @@ import { returnPath } from "@/lib/return-path";
 import { forgetSsoOutcome, ssoOutcomeOnArrival } from "@/lib/sso";
 
 // The sign-in page. A refused sign-in shakes the card and says why at the top of the form, in place of a
-// flash, keeping the email address and emptying the password. While Memberful is members only, the card
+// flash, keeping the email address and emptying the password. One that fails on Ember's side says so over
+// the card, as when Ember can't be reached, keeping both. While Memberful is members only, the card
 // offers signing in with Memberful instead, and the email and password form to those who ask for it:
 // administrators, and members with an account from before, whose password then asks them to connect
 // their Memberful account. Otherwise, while Memberful's members sign in with it, the card links to that
@@ -47,6 +48,15 @@ function problemOnArrival(): { text: string; taken: boolean } | null {
   if (sso !== null && sso !== SSO_CONNECTED) return { text: SSO_SIGN_IN_PROBLEMS[sso], taken: sso === "taken" };
   return null;
 }
+
+/**
+ * The answers that refuse a sign-in, each for a reason the person can act on: a wrong email address or
+ * password, a way to sign in other than a password, or too many tries.
+ */
+const REFUSALS = new Set([401, 403, 429]);
+
+/** What a sign-in that failed on Ember's side says, the password typed being as likely right as not. */
+const SIGN_IN_FAILED = "Ember couldn't sign you in just now. Please try again.";
 
 /** What the link to sign in with single sign-on asks, apart from Memberful's "Member?", which can be beside it. */
 const SSO_QUESTION = "Use single sign-on?";
@@ -112,6 +122,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     } catch (error) {
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
+      if (!REFUSALS.has(error.status)) return setProblem(SIGN_IN_FAILED);
       if (passwordInput.current) passwordInput.current.value = "";
       // A member whose password is right, and who has connected Memberful or single sign-on, hears that they sign in with it.
       setRefusal(error.status === 403 ? error.message : error.status === 429 ? SIGN_IN_LIMITED : SIGN_IN_REJECTED);
