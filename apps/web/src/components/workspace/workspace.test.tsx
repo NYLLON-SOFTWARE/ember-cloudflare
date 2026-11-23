@@ -1590,6 +1590,22 @@ describe("Activity filter", () => {
     await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
   });
 
+  it("leaves out a room you've muted, but for one with a mention of you", async () => {
+    const muted: SidebarRoom[] = [
+      { ...rooms[0]!, unread: true, involvement: "nothing" },
+      { ...rooms[1]!, unread: true, involvement: "nothing" },
+      { id: "design", name: "Design", kind: "open", icon: null, unread: true, mentionCount: 1, involvement: "nothing" },
+    ];
+    serve({ "GET /api/sidebar": () => Response.json(roomList(muted)) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
+    await user.click(activity());
+    // By its room's id, since its count's words are part of its text.
+    const rows = within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" })).getAllByRole("link");
+    expect(rows.map((row) => row.dataset.roomId)).toEqual(["design"]);
+  });
+
   it("turns off when you follow a rail or sidebar link, and stays on through other navigation", async () => {
     serve({
       "GET /api/sidebar": () => Response.json(roomList(marked)),

@@ -11,6 +11,7 @@ import { useStarOrder } from "@/hooks/use-star-order";
 import { membersShown } from "@/lib/directs";
 import { huddlesGoingOn } from "@/lib/huddle-list";
 import { inItsHuddle } from "@/lib/huddle-people";
+import { isMuted } from "@/lib/involvement";
 import { apart, inDirectOrder, inSections, inSidebarOrder, isQuietWelcome, markedUnread, type DirectSidebarRoom, type SharedSidebarRoom } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
@@ -23,6 +24,12 @@ import { UserAvatar } from "./user-avatar";
 /** A row of the list, a room's or a DM's. */
 const ROW =
   "flex min-h-9 items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-sm leading-[22px] text-foreground no-underline touch:min-h-11 hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-semibold";
+
+/** A muted row's name, dimmed, as Slack dims a muted channel's, but under the pointer and while it's open. */
+const MUTED = "text-muted-foreground hover:text-foreground aria-[current=page]:text-foreground";
+
+/** A muted DM's avatars, dimmed as its name is. */
+const MUTED_FACES = "opacity-50 group-hover:opacity-100 group-aria-[current=page]:opacity-100";
 
 /**
  * The search field atop the conversations in the drawer, at 900px and below, where there's no top bar,
@@ -104,6 +111,9 @@ interface Props {
  * while it's open or has a huddle going on. A DM with one other person shows whether they're active or
  * away, by a dot on their avatar. A room marked unread is bold with a dot at the end of its row, a DM with how many messages
  * have come since in place of the dot, and either with a huddle going on ends its row with who's in it.
+ * A room or DM they've muted, turning its notifications off, is dimmed and never bold, as Slack shows a
+ * muted channel, as the project's owner chose (2026-11-23), and is marked only by its count, of the
+ * mentions of them in a room and of the messages in a DM (`markedUnread`).
  * With Activity on, only the unread rows show, and with none it says everything's read; with it off and
  * nothing to list, it says it found nothing. Under them all, Available Agents says how many AI agents
  * this person can ask, and opens the list of them, as the project's owner chose (2026-11-15), unless
@@ -149,6 +159,7 @@ export function Sidebar({
   const empty = loaded && listed.length === 0 && directsListed.length === 0;
   const helpId = useId();
   const unreadId = useId();
+  const mutedId = useId();
   const huddleId = useId();
   const mentionsId = useId();
   // A row followed in place shows its room here, and one opened elsewhere, as in a new tab, leaves this page be.
@@ -161,6 +172,7 @@ export function Sidebar({
   const roomRow = (room: SharedSidebarRoom, className?: string) => {
     const unread = markedUnread(room, currentRoomId);
     const mentions = unread ? room.mentionCount : undefined;
+    const muted = isMuted(room);
     const star = starred.has(room.id);
     const huddle = huddles[room.id];
     // The words for who's in the room's huddle and for how many mentions it has, which come with their marks.
@@ -173,16 +185,17 @@ export function Sidebar({
         draggable={false}
         aria-current={room.id === currentRoomId ? "page" : undefined}
         // Every row says how the stars are reordered, a marked one says it's unread, which the eye sees
-        // by its weight and dot, and how many mentions it has, which the eye sees by its count, and one
-        // with a huddle says who's in it, which the eye sees by its mark.
-        aria-describedby={[huddle && inHuddleId, unread && unreadId, mentions !== undefined && mentionsWordsId, helpId].filter(Boolean).join(" ")}
+        // by its weight and dot, and how many mentions it has, which the eye sees by its count, one
+        // with a huddle says who's in it, which the eye sees by its mark, and a muted one says so, which
+        // the eye sees as it's dimmed.
+        aria-describedby={[huddle && inHuddleId, unread && unreadId, mentions !== undefined && mentionsWordsId, muted && mutedId, helpId].filter(Boolean).join(" ")}
         aria-keyshortcuts={star ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => select(event, room.id)}
         className={cn(
           ROW,
           "[-webkit-touch-callout:none]",
           className,
-          unread && "font-[650]",
+          muted ? MUTED : unread && "font-[650]",
           star && "cursor-grab",
           room.id === moving && "relative z-[1] cursor-grabbing bg-background! shadow-[0_4px_14px_var(--color-drag-shadow)] outline outline-muted-foreground",
         )}
@@ -221,6 +234,9 @@ export function Sidebar({
         </p>
         <span id={unreadId} hidden>
           Unread
+        </span>
+        <span id={mutedId} hidden>
+          Muted
         </span>
         <div ref={listRef} {...listProps} className={cn("flex flex-col gap-[3px]", moving && "select-none")}>
           {grouped.loose.map((room) => roomRow(room))}
@@ -261,6 +277,7 @@ export function Sidebar({
             meId={meId}
             current={room.id === currentRoomId}
             unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
+            mutedId={isMuted(room) ? mutedId : null}
             huddle={huddles[room.id]}
             onClick={(event) => select(event, room.id)}
           />
@@ -409,6 +426,8 @@ interface DirectRowProps {
   current: boolean;
   /** The element saying the DM is unread, when it's marked so, or null. */
   unreadId: string | null;
+  /** The element saying the DM is muted, when it is, or null. */
+  mutedId: string | null;
   /** The huddle going on in it, if one is. */
   huddle: LiveHuddle | undefined;
   onClick: (event: MouseEvent) => void;
@@ -419,10 +438,11 @@ interface DirectRowProps {
  * half-moon for the dot while they've paused their notifications, or of up to four in a group, at 24px or
  * 14px each, then their names, or yours in a DM with yourself, and the agent badge in a DM with an AI
  * agent alone. It ends with who's in its huddle while one is going on, as a room's does, and one marked
- * unread with how many messages it counts, or a dot for one the server didn't count. Its presence, pause
- * and count are said to screen readers too.
+ * unread with how many messages it counts, or a dot for one the server didn't count. Muted, it's dimmed,
+ * its avatars too, and never bold, as a room's row is. Its presence, pause, count and being muted are said
+ * to screen readers too.
  */
-function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRowProps) {
+function DirectRow({ room, meId, current, unreadId, mutedId, huddle, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
   const isWithAgent = useIsWithAgent();
   const presenceOf = usePresenceOf();
@@ -436,7 +456,7 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
   const count = unreadId ? room.unreadCount : undefined;
   // The words for its presence, who's in its huddle, and its count, which come with its mark.
   const [presenceId, inHuddleId, countId] = [`${wordsId}-presence`, `${wordsId}-huddle`, `${wordsId}-count`];
-  const described = [presenceWords && presenceId, huddle && inHuddleId, count === undefined ? unreadId : countId].filter(Boolean).join(" ");
+  const described = [presenceWords && presenceId, huddle && inHuddleId, count === undefined ? unreadId : countId, mutedId].filter(Boolean).join(" ");
   return (
     <>
       <a
@@ -444,18 +464,18 @@ function DirectRow({ room, meId, current, unreadId, huddle, onClick }: DirectRow
         aria-current={current ? "page" : undefined}
         aria-describedby={described || undefined}
         onClick={onClick}
-        className={cn(ROW, "group", unreadId && "font-[650]")}
+        className={cn(ROW, "group", mutedId ? MUTED : unreadId && "font-[650]")}
       >
         {members.length > 1 ? (
           // Campfire's `.avatar__group` (avatars.css): two to a row, centered on the 24px a single avatar takes.
-          <span aria-hidden="true" className="grid size-6 shrink-0 grid-cols-2 grid-rows-[min-content] place-content-center gap-px">
+          <span aria-hidden="true" className={cn("grid size-6 shrink-0 grid-cols-2 grid-rows-[min-content] place-content-center gap-px", mutedId && MUTED_FACES)}>
             {members.slice(0, MAX_FACES).map((member) => (
               <UserAvatar key={member.id} user={member} className="size-3.5" />
             ))}
           </span>
         ) : (
           members.map((member) => (
-            <span key={member.id} className="relative shrink-0">
+            <span key={member.id} className={cn("relative shrink-0", mutedId && MUTED_FACES)}>
               <UserAvatar user={member} className="size-6" />
               {paused ? (
                 <PausedMark
