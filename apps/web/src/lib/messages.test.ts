@@ -1,7 +1,7 @@
 import type { EphemeralMessage, Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, ROOM_MENTION_CONTENT_TYPE, roomMentionContent, type MentionRoom } from "@ember/richtext/dom";
-import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline, visitedLabel } from "./messages";
+import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, recordedLabel, replyQuote, timeLabel, timeline, visitedLabel } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -103,6 +103,16 @@ describe("The Huddles page", () => {
     expect(huddleStartedLabel(new Date(2026, 9, 12, 9, 41), now)).toBe("Oct 12");
     expect(huddleStartedLabel(new Date(2025, 9, 12, 9, 41), now)).toBe("Oct 12, 2025");
     expect(huddleStartedLabel(lastNight, new Date(2026, 10, 1, 0, 5))).toBe(`Yesterday at ${timeLabel(lastNight)}`);
+  });
+});
+
+describe("Video clips", () => {
+  it("says when a clip was recorded: its day, with its year in another, at its time where its name tells it", () => {
+    const now = new Date(2026, 10, 24, 9, 0);
+    const at = new Date(2026, 10, 23, 10, 43);
+    expect(recordedLabel({ at, timed: true }, now)).toBe(`Recorded Nov 23 at ${timeLabel(at)}`);
+    expect(recordedLabel({ at, timed: false }, now)).toBe("Recorded Nov 23");
+    expect(recordedLabel({ at: new Date(2025, 10, 23), timed: false }, now)).toBe("Recorded Nov 23, 2025");
   });
 });
 

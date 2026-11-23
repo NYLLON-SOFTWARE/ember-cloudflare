@@ -86,25 +86,26 @@ describe("Image, video and file previews", () => {
     expect(shown.querySelector("source")).not.toBeInTheDocument();
   });
 
-  it("plays a video in place, in a box half its size, loading nothing until it's played behind its poster, or its first frame without one", () => {
-    const { container } = render(<Attachment file={stored("launch.mp4", "video/mp4", { width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4" })} />);
-    const video = container.querySelector("video")!;
-    expect(video).toHaveAttribute("src", "/files/k1/s1/launch.mp4");
-    expect(video).toHaveAttribute("poster", "/previews/k1/s1/launch.mp4");
+  it("plays a video in place, in its own player (video-player.test.tsx), loading nothing until it's played behind its poster, or its first frame without one", () => {
+    const launch = stored("launch.mp4", "video/mp4", { width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4", duration: 15 });
+    render(<Attachment file={launch} />);
+    const player = screen.getByRole("group", { name: "launch.mp4" });
+    const video = player.querySelector("video")!;
+    expect(video).toHaveAttribute("src", launch.url);
+    expect(video).toHaveAttribute("poster", launch.previewUrl);
     expect(video).toHaveAttribute("preload", "none");
-    expect(video).toHaveAttribute("controls");
-    expect(video).toHaveAccessibleName("launch.mp4");
-    expect(video.parentElement).toHaveAttribute("style", "width: 600px; aspect-ratio: 1200 / 675;");
-    expect(card("launch.mp4")).not.toBeInTheDocument();
+    expect(video).not.toHaveAttribute("controls");
+    expect(within(player).getByRole("button", { name: "Play" })).toBeInTheDocument();
+    // Its card has Download, as a file's does.
+    expect(card("launch.mp4")).toHaveAttribute("href", launch.downloadUrl);
     cleanup();
 
     // As a bot's, or one its uploader's browser couldn't play.
-    const { container: unplayed } = render(<Attachment file={stored("launch.mov", "video/quicktime")} />);
-    const without = unplayed.querySelector("video")!;
+    render(<Attachment file={stored("launch.mov", "video/quicktime")} />);
+    const without = screen.getByRole("group", { name: "launch.mov" }).querySelector("video")!;
     expect(without).toHaveAttribute("src", "/files/k1/s1/launch.mov");
     expect(without).not.toHaveAttribute("poster");
     expect(without).toHaveAttribute("preload", "metadata");
-    expect(without.parentElement).not.toHaveAttribute("style");
   });
 
   it("plays a recording of sound in place, as an audio clip, in its own player (audio-player.test.tsx), loading only how long it is until it's played", () => {
