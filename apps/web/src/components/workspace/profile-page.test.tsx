@@ -1611,4 +1611,38 @@ describe("Your mood", () => {
     expect(field("Words")).toHaveValue("Sailing the seas");
     expect(field("Clear at")).toHaveValue("never");
   });
+
+  it("keeps the mood a save left when a slower save that read before it lands after it, as a photo's upload can", async () => {
+    const worn = { emoji: "😌", text: "Pairing on the compiler", clearAt: null };
+    /** Each save of the profile answers when the test lets it, saying the mood it sent, if it sent one. */
+    const answers: Array<{ mood: PersonMood | null; resolve: (response: Response) => void }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/users/me/profile") return Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer);
+      if (request === "PATCH /api/users/me/profile") {
+        const { mood } = JSON.parse(String(init?.body)) as ProfileChanges;
+        return new Promise((resolve) => answers.push({ mood: mood ?? null, resolve }));
+      }
+      throw new Error(`Unexpected request for ${request}`);
+    });
+    const { user } = showPage();
+    await loaded();
+
+    // The bio's save goes out, and while it is still out, the mood is saved, whose save answers first.
+    await user.type(field("Bio"), "And more");
+    await user.click(saveButton());
+    await user.type(field("Emoji"), worn.emoji);
+    await user.type(field("Words"), worn.text);
+    await user.click(screen.getByRole("button", { name: "Save mood" }));
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => answers[1]!.resolve(Response.json({ profile: { ...profile, mood: worn }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(field("Emoji")).toHaveValue(worn.emoji));
+
+    // The bio's save lands then, having read the profile before the mood was saved: what it says of the
+    // mood is what it read, and saying it would take the save off again, so the mood it left shows.
+    await act(async () => answers[0]!.resolve(Response.json({ profile: { ...profile, bio: "And more" }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(field("Bio")).toHaveValue("And more"));
+    expect(field("Emoji")).toHaveValue(worn.emoji);
+    expect(field("Words")).toHaveValue(worn.text);
+  });
 });

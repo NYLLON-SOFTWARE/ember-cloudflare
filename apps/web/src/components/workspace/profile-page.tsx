@@ -229,6 +229,13 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
    * differ are changes made since the save, as another tab's newer save, and show.
    */
   const savedMood = useRef<PersonMood | null | undefined>(undefined);
+  /**
+   * When this page last began to save a mood, or 0 while it never has: an answer that began before then
+   * read the profile before the save, whatever long after the save it lands in, as a photo's upload
+   * can, and says the mood it read, which would take the save off again. Its mood is held off; the
+   * save's own answer has said the mood, and answers that began after the save show what they read.
+   */
+  const moodSaveBegun = useRef(0);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -248,6 +255,7 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
     let stopped = false;
     // What the page reads of the hush shows only if nothing was heard since it asked, as the account's
     // answers do, since the profile may have read before a change made meanwhile.
+    const askedAt = Date.now();
     const heard = askForDnd();
     fetchProfile().then(
       (answer) => {
@@ -259,7 +267,7 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
         setAskedFields(answer.profile.fields ?? []);
         setSavedName(answer.profile.name);
         setHasEmailAddress(answer.profile.emailAddress !== null);
-        showAnswer(answer);
+        showAnswer(answer, askedAt);
         // Only from here and the Ember AI section's own saves, as a save of the profile or a photo can
         // answer after a change there, with your model and levels from before it.
         setAssistant(answer.profile.assistant);
@@ -284,9 +292,10 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
   /**
    * Shows your avatar, whether you have a password, where you stand with Memberful and single sign-on and whether you need
    * it, and a new sign-in link, as an answer has them. An answer can arrive after a later one, as a
-   * profile's save can after a photo's, and the later avatar stays then.
+   * profile's save can after a photo's, and the later avatar stays then. `askedAt` says when its request
+   * began, against which a mood save this page began is held.
    */
-  function showAnswer({ profile, transferId }: ProfileAnswer) {
+  function showAnswer({ profile, transferId }: ProfileAnswer, askedAt: number = Date.now()) {
     const answered = { avatarUrl: profile.avatarUrl, avatar: profile.avatar };
     setPicture((shown) => (shown && avatarVersionOf(shown.avatarUrl) > avatarVersionOf(answered.avatarUrl) ? shown : answered));
     // Nothing takes a password away, so an answer arriving late doesn't hide the field.
@@ -304,7 +313,7 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
     // another tab's newer save, and show.
     if (savedMood.current === undefined || sameMood(profile.mood, savedMood.current)) {
       savedMood.current = undefined;
-      setMood(profile.mood);
+      if (askedAt >= moodSaveBegun.current) setMood(profile.mood);
     }
     setTransferId(transferId);
   }
@@ -320,18 +329,20 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
   function answered(answer: ProfileAnswer) {
     // The save's own answer says the profile as the save left it, so the wait it armed is over.
     savedMood.current = undefined;
-    showAnswer(answer);
+    showAnswer(answer, moodSaveBegun.current);
     flash("notice", "✓");
   }
 
-  /** Arms the wait with the mood `worn` a save of the mood section has sent, or none, that answers before its own are held against. */
+  /** Arms the wait with the mood `worn` a save of the mood section has sent, or none, that answers before its own are held against, and says when it began, so answers that read before it are held off however late they come. */
   function savingMood(worn: PersonMood | null) {
+    moodSaveBegun.current = Date.now();
     savedMood.current = worn;
   }
 
   /** Says why saving the mood failed, letting answers through again, since nothing was saved for them to take off. */
   function failedMood(error: unknown) {
     savedMood.current = undefined;
+    moodSaveBegun.current = 0;
     onFailed(error);
   }
   /** Shows your profile as disconnecting your account at the single sign-on provider answered it, with the notice. */
@@ -345,18 +356,19 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
   const saveAvatar = (file: File) => {
     if (file.size > MAX_AVATAR_SIZE) return flash("alert", AVATAR_TOO_LARGE);
     setPicked(URL.createObjectURL(file));
-    savePicture(avatarVariantOf(file).then((variant) => changeAvatar({ file, variant })), AVATAR_CHANGED);
+    const askedAt = Date.now();
+    savePicture(avatarVariantOf(file).then((variant) => changeAvatar({ file, variant })), AVATAR_CHANGED, askedAt);
   };
 
-  /** Shows your avatar as `change` saves it, flashing `notice` once it has. */
-  function savePicture(change: Promise<ProfileAnswer>, notice?: string) {
+  /** Shows your avatar as `change` saves it, flashing `notice` once it has. `askedAt` says when the save's request began. */
+  function savePicture(change: Promise<ProfileAnswer>, notice?: string, askedAt: number = Date.now()) {
     setSavingPicture(true);
     change.then(
       (answer) => {
         if (!mounted.current) return;
         setSavingPicture(false);
         setPicked(null);
-        showAnswer(answer);
+        showAnswer(answer, askedAt);
         if (notice) flash("notice", notice);
       },
       (error: unknown) => {
@@ -383,6 +395,7 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
     const password = passwordInput.current?.value ?? "";
     const currentPassword = currentPasswordInput.current?.value ?? "";
     const asked = fieldChangesOf(savedFieldValues.current, sentFieldValues);
+    const askedAt = Date.now();
     keepingThisBrowsersPush({ ...changesOf(saved.current, sent, password, currentPassword), ...(asked && { fieldValues: asked }) }).then(changeProfile).then(
       (answer) => {
         if (!mounted.current) return;
@@ -405,7 +418,7 @@ export function ProfilePage({ me, rooms, askForRoom, dndUntil, askForDnd, onDndC
           if (!answer.profile.memberful?.connected) disconnectedMemberful.current = true;
           if (!answer.profile.sso?.connected) disconnectedSso.current = true;
         }
-        showAnswer(answer);
+        showAnswer(answer, askedAt);
         flash("notice", "✓");
       },
       (error: unknown) => {
