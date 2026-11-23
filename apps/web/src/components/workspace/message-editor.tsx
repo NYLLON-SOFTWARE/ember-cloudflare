@@ -65,8 +65,13 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
     if (!directoryLoaded || knowsGroups || refreshed) return;
     let stopped = false;
     reloadDirectory()
-      .catch(() => {})
-      .finally(() => !stopped && setRefreshed(true));
+      // Only a refresh that came proves the group the message names is gone for good, so the editor
+      // keeps waiting for one: a refresh that couldn't be had says nothing, and opening on it would
+      // keep none of a mention the directory lists once it can be asked again.
+      .then(() => {
+        if (!stopped) setRefreshed(true);
+      })
+      .catch(() => {});
     return () => void (stopped = true);
   }, [directoryLoaded, knowsGroups, refreshed, reloadDirectory]);
   const knowsMentions =

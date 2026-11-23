@@ -275,9 +275,10 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
 
   const toggle = () => {
     if (!open) return show(false);
-    // With a mouse, Message options is the open bar's last button, and opens More actions.
-    if (overlapping) return toggleActions();
-    close();
+    // Message options is the open bar's last button, and opens More actions — with a mouse and on a
+    // touch screen alike, whose shortcuts and Remind me live in it alone: a second tap opens it rather
+    // than closing the bar, which a tap outside, or Escape, then closes.
+    return toggleActions();
   };
 
   const place = () => {
@@ -624,7 +625,10 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </>
             )}
-            <ShortcutItems onRun={runShortcut} />
+            {/* Mounted while More actions shows alone, so each opening reads the workspace's shortcuts
+                again: the panel only hides, and a list read as the bar first showed would stay whatever
+                it was then, however the workspace's shortcuts have changed since. */}
+            {actionsOpen && <ShortcutItems onRun={runShortcut} />}
           </div>
         </div>
       )}

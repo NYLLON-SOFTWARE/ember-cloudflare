@@ -160,6 +160,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 afterEach(() => vi.unstubAllGlobals());
+// The mock's answers are each test's to give: one that gives none hears of no shortcuts, as a workspace
+// whose reads fail, rather than whatever the last test left.
+afterEach(() => fetchShortcutsMock.mockReset());
 
 /**
  * Gives the browser `navigator.canShare` and a share sheet that closes without sharing, as closing it does,
@@ -186,6 +189,11 @@ function sharedFile(share: ReturnType<typeof vi.fn>) {
 /** Answers media queries as a page does where a mouse can hover. */
 const withMouse = () => {
   vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: hover) and (pointer: fine)", media, addEventListener() {}, removeEventListener() {} }));
+};
+
+/** Answers media queries as a page does where a finger touches, and no mouse hovers. */
+const withTouch = () => {
+  vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, addEventListener() {}, removeEventListener() {} }));
 };
 
 /**
@@ -620,6 +628,11 @@ describe("Message action bar", () => {
     expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Block Ada", "Report message"]);
 
     await user.click(options);
+    // A second tap opens More actions, where the shortcuts and Remind me live, rather than closing the bar.
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("group", { name: "More actions" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
     expect(options).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
   });
@@ -1050,12 +1063,12 @@ describe("More actions on a message", () => {
     expect(screen.queryByRole("group", { name: "More reactions" })).not.toBeInTheDocument();
   });
 
-  it("isn't offered without a mouse, where Message options opens and closes the bar", async () => {
+  it("isn't offered to a finger's hover, where Message options opens More actions on the second tap", async () => {
     const { user } = show(message());
     await user.click(optionsOn("Hello"));
     await user.click(optionsOn("Hello"));
-    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("group", { name: "More actions" })).toBeInTheDocument();
     // Nor is a tooltip, which fingers can't show.
     await user.hover(optionsOn("Hello"));
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
@@ -1146,6 +1159,39 @@ describe("More actions on a message", () => {
       const failed = show(message(), { me: grace });
       await openMoreActions(failed.user, failed.article);
       expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Remind me…", "Block Ada", "Report message"]);
+    });
+
+    it("reads them again each time More actions opens, so one registered since the last shows", async () => {
+      withMouse();
+      fetchShortcutsMock.mockReset();
+      fetchShortcutsMock.mockResolvedValue({ shortcuts: [translate] });
+      const { article, user } = show(message());
+      await openMoreActions(user, article);
+      expect(within(moreActions()).getByRole("button", { name: "Translate this" })).toBeInTheDocument();
+      // Escape shuts More actions, which only hides it, and the bar with the second.
+      await user.keyboard("{Escape}");
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+
+      fetchShortcutsMock.mockResolvedValue({ shortcuts: [translate, ship] });
+      await openMoreActions(user, article);
+      expect(await within(moreActions()).findByRole("button", { name: "Ship it" })).toBeInTheDocument();
+      expect(fetchShortcutsMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("open from Message options on a touch screen too, where they and Remind me live in More actions alone", async () => {
+      withTouch();
+      fetchShortcutsMock.mockResolvedValue({ shortcuts: [translate, ship] });
+      const { article, user } = show(message());
+      // The first tap opens the bar, and the second opens More actions rather than closing the bar.
+      await user.click(optionsOn("Hello"));
+      expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+      await user.click(optionsOn("Hello"));
+      expect(await within(moreActions()).findByRole("button", { name: "Translate this" })).toBeInTheDocument();
+      expect(within(moreActions()).getByRole("button", { name: "Remind me…" })).toBeInTheDocument();
+      // A tap outside shuts it, as Escape does.
+      await user.click(document.body);
+      expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
     });
   });
 });
@@ -1798,6 +1844,28 @@ describe("How mentions look", () => {
     expect(reloadDirectory).toHaveBeenCalledOnce();
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     // The answer has brought the group, and the edit opens with the mention kept.
+    rerender(editing(named, new Map([[hopper.id, listed]]), true, new Map([[design.id, design]]), reloadDirectory));
+    expect(await editBox()).toHaveValue("Thanks @design!");
+  });
+
+  it("keeps waiting when the directory can't be asked again, which proves nothing of the group, and opens once it can be asked", async () => {
+    const groupMention = (id: string) => `<action-text-attachment content-type="application/vnd.campfire.group-mention" sgid="group-${id}"></action-text-attachment>`;
+    const design = { id: "g000000000000000", name: "design", memberIds: [grace.id] };
+    const named = message({ body: `<p>Thanks ${groupMention(design.id)}!</p>`, plainText: "Thanks @design!", mentions: [hopper] });
+    // The asking is in the test's hand, which fails it first.
+    let finish!: (went: boolean) => void;
+    const reloadDirectory = vi.fn(() => new Promise<void>((resolve, reject) => (finish = (went) => (went ? resolve() : reject(new Error("offline"))))));
+    const { rerender } = render(editing(named, new Map([[hopper.id, listed]]), true, new Map(), reloadDirectory));
+    await act(() => Promise.resolve());
+    expect(reloadDirectory).toHaveBeenCalledOnce();
+
+    // A failed asking says nothing of the group, so the edit stays waiting for one that comes, rather
+    // than open knowing none for the mention and keep none of it once saved.
+    await act(async () => finish(false));
+    expect(reloadDirectory).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+
+    // The next answer has the group, and the edit opens with the mention kept.
     rerender(editing(named, new Map([[hopper.id, listed]]), true, new Map([[design.id, design]]), reloadDirectory));
     expect(await editBox()).toHaveValue("Thanks @design!");
   });
