@@ -33,18 +33,6 @@ export const TYPING_TTL_MS = 5_000;
 const TYPING_THROTTLE_MS = 1_000;
 
 /**
- * How many times the room has let the page in (`RoomState.connections`), for what shows a change as
- * made before the room confirms it: once the page reconnects, the room may never have had it.
- */
-export const RoomConnection = createContext(0);
-
-/**
- * How many times the room has refused to delete a reaction (`RoomState.refusedUnboosts`), for a reaction
- * shown as going before the room deletes it: once the room refuses one, it may have been that one.
- */
-export const RefusedUnboosts = createContext(0);
-
-/**
  * Whether the room would refuse `body`, whose plain text is `text`, as too long: more text than it
  * takes, or more markup than a frame carries, which only so much formatting makes.
  */

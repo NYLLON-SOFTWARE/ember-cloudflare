@@ -2,7 +2,6 @@ import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffec
 import { joinsWithLink, type Invitation, type Me, type User } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
-import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { ScrollIntoViewContext } from "@/hooks/use-scroll-into-view";
 import { dropTarget } from "@/lib/drop-target";
 import { dateLabel, dateTimeLabel, sameDay, timeline, type TimelineItem } from "@/lib/messages";
@@ -350,62 +349,58 @@ export function MessageList({
         aria-busy={waiting || newestFirst || undefined}
       >
         <div ref={content}>
-          <RoomConnection value={state.connections}>
-            <RefusedUnboosts value={state.refusedUnboosts}>
-              <ScrollIntoViewContext value={opened}>
-                {thread?.header}
-                <div ref={top} aria-hidden className="h-px" />
-                {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
+          <ScrollIntoViewContext value={opened}>
+            {thread?.header}
+            <div ref={top} aria-hidden className="h-px" />
+            {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
-                {welcomeCard && <InvitationCard joinCode={invitation.joinCode} onDismiss={onDismissInvitation} />}
+            {welcomeCard && <InvitationCard joinCode={invitation.joinCode} onDismiss={onDismissInvitation} />}
 
-                {!thread && state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
-                  <div className="p-6 text-center text-muted-foreground">
-                    <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
-                    <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
+            {!thread && state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
+              <div className="p-6 text-center text-muted-foreground">
+                <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
+                <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
+              </div>
+            )}
+
+            {joinedLine && (
+              <div data-row="joined">
+                <DaySeparator at={joinedLine.at} />
+                <JoinedItem user={joinedLine.user} at={joinedLine.at} />
+              </div>
+            )}
+
+            {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map((item) => {
+              const { message, threaded } = item;
+              if (item.ephemeral) {
+                const key = `ephemeral:${message.id}`;
+                return (
+                  <div key={key} data-row={key}>
+                    {dated(item) && <DaySeparator at={message.createdAt} />}
+                    <EphemeralItem message={item.message} actions={actions} />
                   </div>
-                )}
-
-                {joinedLine && (
-                  <div data-row="joined">
-                    <DaySeparator at={joinedLine.at} />
-                    <JoinedItem user={joinedLine.user} at={joinedLine.at} />
-                  </div>
-                )}
-
-                {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map((item) => {
-                  const { message, threaded } = item;
-                  if (item.ephemeral) {
-                    const key = `ephemeral:${message.id}`;
-                    return (
-                      <div key={key} data-row={key}>
-                        {dated(item) && <DaySeparator at={message.createdAt} />}
-                        <EphemeralItem message={item.message} actions={actions} />
-                      </div>
-                    );
-                  }
-                  // Stable from optimistic copy to stored message, and distinct across senders.
-                  const key = `${message.creator.id}:${item.message.clientMessageId}`;
-                  return (
-                    <div key={key} data-row={key} data-message-id={message.id}>
-                      {dated(item) && <DaySeparator at={message.createdAt} />}
-                      {message === newLineAt && <NewSeparator />}
-                      <MessageItem
-                        message={item.message}
-                        me={me}
-                        threaded={threaded}
-                        editing={editing.has(message.id)}
-                        actions={actions}
-                        editors={editors}
-                        thread={thread?.place}
-                        open={message.id === openThread}
-                      />
-                    </div>
-                  );
-                })}
-              </ScrollIntoViewContext>
-            </RefusedUnboosts>
-          </RoomConnection>
+                );
+              }
+              // Stable from optimistic copy to stored message, and distinct across senders.
+              const key = `${message.creator.id}:${item.message.clientMessageId}`;
+              return (
+                <div key={key} data-row={key} data-message-id={message.id}>
+                  {dated(item) && <DaySeparator at={message.createdAt} />}
+                  {message === newLineAt && <NewSeparator />}
+                  <MessageItem
+                    message={item.message}
+                    me={me}
+                    threaded={threaded}
+                    editing={editing.has(message.id)}
+                    actions={actions}
+                    editors={editors}
+                    thread={thread?.place}
+                    open={message.id === openThread}
+                  />
+                </div>
+              );
+            })}
+          </ScrollIntoViewContext>
           <div ref={bottom} aria-hidden className="h-px" />
         </div>
       </div>
