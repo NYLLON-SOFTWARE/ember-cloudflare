@@ -107,19 +107,16 @@ describe("Image, video and file previews", () => {
     expect(without.parentElement).not.toHaveAttribute("style");
   });
 
-  it("plays a recording of sound in place, as an audio clip, loading only how long it is until it's played", () => {
-    const clip = stored("Audio clip 2026-11-17 at 9.41.07 AM.m4a", "audio/mp4");
-    const { container } = render(<Attachment file={clip} />);
-    const audio = container.querySelector("audio")!;
-    expect(audio).toHaveAttribute("src", clip.url);
-    expect(audio).toHaveAttribute("preload", "metadata");
-    expect(audio).toHaveAttribute("controls");
-    expect(audio).toHaveAccessibleName(clip.name);
-    expect(card(clip.name)).not.toBeInTheDocument();
-    cleanup();
-
-    render(<Attachment file={stored("theme.mp3", "audio/mpeg")} />);
-    expect(screen.getByLabelText("theme.mp3")).toHaveAttribute("controls");
+  it("plays a recording of sound in place, as an audio clip, in its own player (audio-player.test.tsx), loading only how long it is until it's played", () => {
+    for (const file of [stored("Audio clip 2026-11-17 at 9.41.07 AM.m4a", "audio/mp4"), stored("theme.mp3", "audio/mpeg")]) {
+      render(<Attachment file={file} />);
+      const player = screen.getByRole("group", { name: file.name });
+      expect(within(player).getByRole("button", { name: "Play" })).toBeInTheDocument();
+      expect(player.querySelector("audio")).toHaveAttribute("src", file.url);
+      expect(player.querySelector("audio")).toHaveAttribute("preload", "metadata");
+      expect(card(file.name)).not.toBeInTheDocument();
+      cleanup();
+    }
   });
 
   it("shows any other file as its card", () => {

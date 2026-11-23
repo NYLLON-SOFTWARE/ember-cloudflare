@@ -44,6 +44,9 @@ export function clipName(kind: ClipKind, at: Date, type: string): string {
   return `${kind === "video" ? "Video" : "Audio"} clip ${day} at ${time}.${extensionOf(type)}`;
 }
 
+/** Whether `name` is an audio clip's, as `clipName` names one, rather than any other file's. */
+export const isAudioClipName = (name: string) => /^Audio clip \d{4}-\d\d-\d\d at .+\.(m4a|ogg|webm)$/.test(name);
+
 /** How much of a WebM's start holds what comes before its first picture or sound, its Info among it. */
 const WEBM_HEAD = 64 * 1024;
 

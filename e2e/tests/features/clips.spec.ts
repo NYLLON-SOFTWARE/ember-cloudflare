@@ -48,6 +48,12 @@ async function lengthOf(media: Locator): Promise<number | null> {
  */
 const TWO_SECOND_LENGTHS = [2, 3];
 
+/** The player of the audio clip a message holds, of a file ending in one of `extensions`. */
+const clipPlayer = (member: Member, extensions = "m4a|webm") => member.page.getByRole("article").getByRole("group", { name: new RegExp(`^Audio clip .+\\.(${extensions})$`) });
+
+/** How tall each bar of a player's waveform is, in pixels. */
+const barHeights = (player: Locator) => player.locator("clipPath rect").evaluateAll((bars) => bars.map((bar) => Number(bar.getAttribute("height"))));
+
 test.describe("Clips", () => {
   test.skip(({ browserName }) => !recordsClips(browserName), "Playwright's WebKit for Linux has no MediaRecorder, so it records no clips, and offers none");
 
@@ -88,9 +94,12 @@ test.describe("Clips", () => {
     }
   });
 
-  test("records an audio clip from the microphone at once, in the composer's place, keeping what's written, to go with it, which plays for everyone, saying how long it is", async ({ members }) => {
+  test("records an audio clip from the microphone at once, in the composer's place, keeping what's written, to go with it, which plays for everyone, saying how long it is, with the waveform its sender's browser worked out", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
+    // Grace's browser fetches no clip to work a waveform out from, as it came with the message.
+    const fetched: string[] = [];
+    grace.page.on("request", (request) => void (request.resourceType() === "fetch" && new URL(request.url()).pathname.startsWith("/files/") && fetched.push(request.url())));
     await ada.composer().pressSequentially("Hear this");
     await underText(ada, "Record audio clip").click();
     const recorder = audioRecorder(ada);
@@ -108,14 +117,29 @@ test.describe("Clips", () => {
     await ada.composer().press("Enter");
 
     await expect(grace.message("Hear this")).toBeVisible();
+    const waveforms: number[][] = [];
     for (const member of [ada, grace]) {
-      const sound = member.page.getByRole("article").locator("audio");
-      await expect(sound).toHaveAccessibleName(/^Audio clip .+\.(m4a|webm)$/);
-      await expect(sound).toHaveAttribute("controls");
+      const player = clipPlayer(member);
       // At its full width, though it follows its text as a message of its own, in a column only as wide as what it holds.
-      expect((await sound.boundingBox())?.width).toBe(360);
-      expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(sound));
+      expect((await player.boundingBox())?.width).toBe(380);
+      expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(player.locator("audio")));
+      await expect(player.getByRole("slider", { name: "Position" })).toHaveAttribute("aria-valuetext", /^0:00 of 0:0[23]$/);
+      // The fake microphone's beeps, between silences.
+      const heights = await barHeights(player);
+      expect(Math.max(...heights)).toBe(30);
+      expect(Math.min(...heights)).toBe(3);
+      waveforms.push(heights);
     }
+    expect(waveforms[1]).toEqual(waveforms[0]);
+    expect(fetched).toEqual([]);
+
+    // It plays, filling its waveform, then it's ready to play again from its start.
+    const player = clipPlayer(grace);
+    await player.getByRole("button", { name: "Play", exact: true }).click();
+    await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+    await expect(player.getByRole("slider", { name: "Position" })).toHaveAttribute("aria-valuetext", /^0:01 of /);
+    await expect(player.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+    await expect(player.getByRole("slider", { name: "Position" })).toHaveAttribute("aria-valuetext", /^0:00 of /);
   });
 
   test("writes how long a clip is into it where the browser records WebM alone, as Firefox does, as the browser leaves it out, so its player can say", async ({ members }) => {
@@ -131,9 +155,9 @@ test.describe("Clips", () => {
     await expect(clipChip(ada, "Audio")).toHaveAccessibleName(/\.webm$/);
     await ada.page.getByRole("button", { name: "Send Message" }).click();
 
-    const sound = ada.page.getByRole("article").locator("audio");
-    await expect(sound).toHaveAccessibleName(/^Audio clip .+\.webm$/);
-    expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(sound));
+    const player = clipPlayer(ada, "webm");
+    expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(player.locator("audio")));
+    await expect(player.getByRole("slider", { name: "Position" })).toHaveAttribute("aria-valuetext", /^0:00 of 0:0[23]$/);
   });
 
   test("discards an audio clip on Escape, and a video clip on Cancel, putting focus back in the text", async ({ members }) => {
