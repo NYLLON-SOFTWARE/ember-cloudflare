@@ -15,7 +15,7 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { hearsAllHuddleSounds } from "@ember/protocol/huddles";
-import { isHidden } from "./involvement";
+import { isHidden, isMuted } from "./involvement";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were put in them, which
 // `/` and `/rooms` go by. The sidebar lists their DMs apart from the other rooms, and lists the rooms
@@ -25,7 +25,8 @@ import { isHidden } from "./involvement";
 // The rooms in a section, but the starred ones, come after the rest, under its name, in that order too
 // (`inSections`). Their DMs go by when each was last active, latest first, as Campfire's
 // sorted_list_controller.js sorts them. The rooms someone has hidden, whose level is "invisible", are
-// listed too, for them to open, but their sidebar leaves them out.
+// listed too, for them to open, but their sidebar leaves them out. The ones they've muted, whose level
+// is "nothing", it shows dimmed, as Slack dims a muted channel, marked only for what's for them.
 
 /** A row in the sidebar's Rooms: a room shared by name, open or private. */
 export type SharedSidebarRoom = Extract<SidebarRoom, SharedRoom>;
@@ -140,9 +141,14 @@ export function movedBefore(order: RoomId[], roomId: RoomId, beforeId: RoomId | 
 /**
  * Whether the sidebar marks `room` unread, as rooms_list_controller.js marks its row: never the room
  * the tab shows, `currentRoomId`, which counts as read while it's open, or one it leaves out, hidden
- * after it was marked.
+ * after it was marked, and one muted only for what's for its person (`forThem`), as Slack still
+ * badges a muted channel's mentions and a muted DM's messages, so Activity leaves out the rest.
  */
-export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) => room.unread && room.id !== currentRoomId && !isHidden(room);
+export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) =>
+  room.unread && room.id !== currentRoomId && !isHidden(room) && (!isMuted(room) || forThem(room));
+
+/** Whether what marked `room` unread is for its person: in a DM, any message, and in a room, a mention of them it counts. */
+const forThem = (room: SidebarRoom) => room.kind === "direct" || room.mentionCount !== undefined;
 
 /**
  * `rooms` with `room` as it is now, in place of what it was, keeping its mark and level, or last, read

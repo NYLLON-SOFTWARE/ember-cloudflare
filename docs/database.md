@@ -670,7 +670,9 @@ Objects, D1 or speed call for something else.
   deleted since has none, and isn't pushed. The Workspace finds a message's recipients and badges in
   one query, in the batch that applies the room's events, just after the message's unread marks,
   through the memberships' key, the subscriptions' index led by the person and, for the badge,
-  `index_memberships_on_user_id_and_room_id`. A message that notifies the room with @channel, or
+  `index_memberships_on_user_id_and_room_id`, with the rooms' key for whether a muted one is a DM,
+  as the badge counts what Activity does: no room hidden, and of those muted only a DM or a room
+  with a mention of its owner. A message that notifies the room with @channel, or
   with @everyone in an open room, where everyone is, is pushed by a second query of that shape,
   which reaches everyone who hears the room's @mentions or more, and one with @here by the same
   query as any message, with the people whose Ember is in use, as the Workspace's presence has them,

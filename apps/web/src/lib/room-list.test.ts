@@ -495,7 +495,31 @@ describe("Hide a room", () => {
 
   it("marks no row of a room you've hidden unread, so Activity leaves it out", () => {
     expect(markedUnread(hidden(room("r1", "Design", true)), null)).toBe(false);
-    expect(markedUnread({ ...room("r1", "Design", true), involvement: "nothing" }, null)).toBe(true);
+    expect(markedUnread({ ...room("r1", "Design", true), involvement: "everything" }, null)).toBe(true);
+  });
+});
+
+describe("Mute a room", () => {
+  const muted = <T extends SidebarRoom>(listed: T): T => ({ ...listed, involvement: "nothing" });
+
+  it("marks the row of a room you've muted unread only for the mentions of you it counts, so Activity leaves the rest out", () => {
+    expect(markedUnread(muted(room("r1", "Design", true)), null)).toBe(false);
+    expect(markedUnread(muted({ ...room("r1", "Design", true), mentionCount: 2 }), null)).toBe(true);
+    expect(markedUnread(muted({ ...room("r1", "Design", true), mentionCount: 2 }), "r1")).toBe(false);
+  });
+
+  it("marks a DM you've muted for its messages, every one of which is for you, as Slack still badges a muted DM", () => {
+    expect(markedUnread(muted({ ...direct("d1", "Ada"), unread: true, unreadCount: 3 }), null)).toBe(true);
+    expect(markedUnread(muted({ ...direct("d1", "Ada"), unread: true, unreadCount: 3 }), "d1")).toBe(false);
+    expect(markedUnread(muted(direct("d1", "Ada")), null)).toBe(false);
+  });
+
+  it("marks a muted room's row once the server counts a mention of you, after a message that didn't mention you", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([muted(room("r1", "Design"))]) });
+    const marked = roomListReducer(loaded, { type: "marked", roomId: "r1", at: NOON });
+    expect(markedUnread(marked.list!.rooms[0]!, null)).toBe(false);
+    const mentioned = roomListReducer(marked, { type: "marked", roomId: "r1", at: NOON, mentions: 1 });
+    expect(markedUnread(mentioned.list!.rooms[0]!, null)).toBe(true);
   });
 });
 
