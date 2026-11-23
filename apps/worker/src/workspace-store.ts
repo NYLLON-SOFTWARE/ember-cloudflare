@@ -1130,17 +1130,19 @@ const DISCONNECT_IDENTITY = `DELETE FROM identities WHERE user_id = ?1 AND issue
 
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
- * while ?7 says guests can't stay signed in and no stay of a guest of one room still holds them at ?9,
- * or the session ?8 names, which showed the link at ?9, has ended, has ended the links it showed until
- * after then (`EndedByPassword`), is a guest's while ?7 says that and no such stay holds its person
- * either, or is neither theirs nor an active administrator's.
+ * whose stay has passed, whatever the flag says, or a guest of no stay while ?7 says guests can't stay
+ * signed in, or the session ?8 names, which showed the link at ?9, has ended, has ended the links it
+ * showed until after then (`EndedByPassword`), is a guest's under the same test, or is neither theirs
+ * nor an active administrator's.
  */
 const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}
-    AND (guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?10))
+    AND (guest = 0 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?10)
+      OR (?7 = 1 AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)))
     AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
       WHERE showing.id = ?8 AND showing.transfers_since <= ?9 AND shower.status = ${ACTIVE}
-        AND (shower.guest = 0 OR ?7 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?10))
+        AND (shower.guest = 0 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id AND guest_stays.until_at > ?10)
+          OR (?7 = 1 AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = shower.id)))
         AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /**
@@ -2242,8 +2244,6 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
   WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE}
     AND (users.guest = 0 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?9)
       OR (?6 = 1 AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)))
-    AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
-  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1)
     AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
     AND ((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
       AND (memberships.user_id IN (SELECT value FROM json_each(?4)) OR memberships.user_id IN (SELECT value FROM json_each(?8)))))
@@ -3144,7 +3144,7 @@ const ROOM_TO_DELETE = `SELECT rooms.kind, ${CAN_ADMINISTER}
 
 /**
  * Puts someone new in every open room, unless a stay of a guest of one room holds them, whose rooms
- * their stay bounds: unbanning or letting back a suspended guest puts them in none.
+ * their stay bounds: letting back a suspended guest puts them in none.
  */
 const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT id, ?, ?, ? FROM rooms WHERE kind = 'open' AND ? NOT IN (SELECT user_id FROM guest_stays)
@@ -3685,11 +3685,9 @@ export class WorkspaceStore {
         account.emailAddress,
         via,
       ),
-      statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
-      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now, person.id),
       ...this.keepingRefresh(account, kept),
       statement(INSERT_IDENTITY_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, account.issuer, kept.sid),
-      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now, person.id),
       statement(SPEND_EMAIL_LINKS, person.emailAddress),
       ...welcoming(person.id, welcomes, now),
     ]);
@@ -4498,7 +4496,6 @@ export class WorkspaceStore {
       statement(QUEUE_UNBANNED_ADDRESS_REVOCATIONS, ADDRESS_TAG_PREFIX, reconnect, dueAt, userId),
       statement(`DELETE FROM bans WHERE user_id = ?`, userId),
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status <> ${ACTIVE}`, now, userId),
-      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now, userId),
       statement(GRANT_OPEN_ROOMS_TO_UNBANNED, userId, now),
       // The outbox holds a row only until its room answers, so this reads it all rather than keep an index.
       statement(`UPDATE pending_purges SET lifted_at = ? WHERE user_id = ? AND lifted_at IS NULL`, now, userId),
@@ -4536,8 +4533,6 @@ export class WorkspaceStore {
     await this.db.batch([
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status = ${SUSPENDED}`, now, userId),
       statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now, userId),
-      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt),
-      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now),
       statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt, 0),
     ]);
   }

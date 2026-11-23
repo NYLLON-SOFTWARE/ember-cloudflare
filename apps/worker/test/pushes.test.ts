@@ -269,6 +269,24 @@ describe("Who gets a push", () => {
     expect(await workspaceStub().pushable(id)).toBe(false);
   });
 
+  it("pushes a guest of one room whose stay holds as their involvement asks: nothing they ask to hear only @mentions for, unless the message mentions them", async () => {
+    const ada = await setUp();
+    const { id: room } = await createRoom("Designers", { closedTo: [ada.user.id] });
+    const until = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString();
+    const added = await api(`/api/rooms/${room}/guests`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name: "Pat", until }) });
+    expect(added.status, await added.clone().text()).toBe(201);
+    const { userId } = ((await added.json()) as { guest: { userId: string } }).guest;
+    const signedIn = await api("/api/session", { method: "POST", body: JSON.stringify({ name: "Pat" }) });
+    expect(signedIn.status, await signedIn.clone().text()).toBe(201);
+    const pat = { user: { id: userId, name: "Pat" }, cookie: cookieOf(signedIn) };
+    await involve(pat, room, "mentions");
+    await subscribe(pat, "pat");
+
+    // Their stay holds them for the query, and their involvement still keeps the quiet message from them.
+    expect(labelsOf(await pushesFor(room, [message(ada, "Quiet")]))).toEqual([]);
+    expect(labelsOf(await pushesFor(room, [message(ada, "Hey @Pat", pat)]))).toEqual(["pat"]);
+  });
+
   it("finds a message's pushes through the memberships', people's and subscriptions' keys, and its text by the message's", async () => {
     const room = await freshRoom("plans");
     // Which makes the room's tables, on Durable Object SQLite.

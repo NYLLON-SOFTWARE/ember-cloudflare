@@ -979,6 +979,25 @@ describe("A guest's sign-in link", () => {
     await expire(userId);
     expect((await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/session/transfers", { method: "POST", body: JSON.stringify({ transferId }) })).status).toBe(400);
   });
+
+  it("signs no browser that is already signed in as itself in with a link whose stay has passed, and keeps that browser's session", async () => {
+    const host = await setUp();
+    const room = (await createRoom("Designers", { closedTo: [host.user.id] })).id;
+    const { userId } = await addGuest(host, room, "Pat");
+    const guest = await guestSession("Pat");
+    const page = await api("/api/users/me/profile", { headers: { Cookie: guest.cookie } });
+    expect(page.status).toBe(200);
+    const { transferId } = (await page.json()) as { transferId: string };
+
+    // The stay passes before the link is opened, whoever asks: the browser holding it, here the
+    // administrator's, keeps its own session, and no replacement cookie comes with the refusal.
+    await expire(userId);
+    const refused = await api("/api/session/transfers", { method: "POST", headers: { Cookie: host.cookie }, body: JSON.stringify({ transferId }) });
+    expect(refused.status).toBe(400);
+    expect(refused.headers.getSetCookie().filter((cookie) => cookie.startsWith("session_token="))).toEqual([]);
+    expect(await signedIn(host)).toBe(true);
+    expect(await opened(room, host)).toBe("welcome");
+  });
 });
 
 afterEach(() => {

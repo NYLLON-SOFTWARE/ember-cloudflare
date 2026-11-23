@@ -82,9 +82,6 @@ export async function transferPage(request: Request, env: Env): Promise<Response
  * `POST /api/session/transfers`, with the link's id (`LinkSignIn`): signs this browser in as the person
  * the id names, with a session of its own that replaces any it had without ending it, and answers who
  * that is. An id that's expired, tampered with or made up, or one for someone who's no longer active,
- * answers 400 with nothing else, as there, and so does a guest's while guests can't sign in and no stay
- * of a guest of one room holds them anymore, one whose session can no longer show it, or a body without
- * an id.
  * answers 400 with nothing else, as there, and so does a guest's while guests can't sign in, one whose
  * session can no longer show it or has ended the links it showed until then, or a body without an id.
  */
