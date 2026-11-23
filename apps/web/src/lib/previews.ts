@@ -6,12 +6,13 @@ import { posterTimeOf } from "./clips";
 // 1200×800, and a video's poster, which Campfire's ffmpeg takes from its first frame and Ember from a
 // tenth of a second in, past the blank frame some browsers draw at the start, or from where a clip's
 // thumbnail was chosen as it was recorded in the composer. Both are still, so an animated picture's is its
-// first frame. An avatar's variant is made as a picture's thumbnail is, to fit 512×512, as Campfire's
-// `:square` variant resizes it, and a logo's two as PNGs within 512×512 and 192×192, as its logo's
-// `:large` and `:small` variants are. None is made of a picture or video over 250 megapixels, which isn't
-// decoded, as Campfire makes none (`THUMBNAIL_MAX_PIXELS`). The Worker has Cloudflare Images make the
-// thumbnail of a picture that came without one, where the message would otherwise show it as a file
-// (apps/worker/src/files/previews.ts).
+// first frame, and a message shows a GIF of up to 5 MiB itself, which plays, unless reduced motion is
+// asked for (components/workspace/attachment.tsx). An avatar's variant is made as a picture's thumbnail
+// is, to fit 512×512, as Campfire's `:square` variant resizes it, and a logo's two as PNGs within 512×512
+// and 192×192, as its logo's `:large` and `:small` variants are. None is made of a picture or video over
+// 250 megapixels, which isn't decoded, as Campfire makes none (`THUMBNAIL_MAX_PIXELS`). The Worker has
+// Cloudflare Images make the thumbnail of a picture that came without one, where the message would
+// otherwise show it as a file (apps/worker/src/files/previews.ts).
 
 /** A picture's or video's width and height, in pixels. */
 export interface Size {

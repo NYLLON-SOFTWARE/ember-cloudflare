@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { uploadPartPath, uploadsPath, type Message, type Upload } from "@ember/protocol";
 import type { APIRequestContext, FileChooser, Locator, Page } from "@playwright/test";
-import { allowClipboard, cookieHeader, downloadName, drawnPicture, variantType } from "../../fixtures";
+import { allowClipboard, cookieHeader, downloadName, drawnPicture, shownPicture, variantType } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
 /**
@@ -22,6 +22,9 @@ async function upload(request: APIRequestContext, member: Member, roomId: string
 
 /** A second of video, 320 by 180, as a WebM file that Chromium plays. */
 const clip = resolve(import.meta.dirname, "files/clip.webm");
+
+/** A GIF 40 by 20 that's red, then blue, a quarter of a second each, over and over. */
+const blink = resolve(import.meta.dirname, "files/blink.gif");
 
 /** The width and height of the box `locator` takes up. */
 async function sizeOf(locator: Locator): Promise<[number, number]> {
@@ -191,6 +194,23 @@ test.describe("Image, video and file previews", () => {
     }
     const poster = await request.get((await ada.page.locator("video").getAttribute("poster"))!);
     expect(poster.headers()["content-type"]).toBe(await variantType(ada.page, { seeThrough: false }));
+  });
+
+  test("plays a GIF in place as itself, and shows the thumbnail its uploader's browser makes, its first frame, under reduced motion", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await grace.page.emulateMedia({ reducedMotion: "reduce" });
+    await attachFiles(ada, blink);
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+
+    const gif = ada.page.getByRole("img", { name: "blink.gif" });
+    await expect(gif).toHaveAttribute("src", /^\/files\/[0-9a-z]+\/[\w-]+\/blink\.gif$/);
+    expect(await shownPicture(gif)).toEqual({ type: "image/gif", width: 40, height: 20 });
+    expect(await sizeOf(ada.page.getByRole("link", { name: "blink.gif" }))).toEqual([20, 10]);
+
+    const still = grace.page.getByRole("img", { name: "blink.gif" });
+    expect(await shownPicture(still)).toEqual({ type: await variantType(grace.page), width: 40, height: 20 });
+    expect(await still.evaluate((image: HTMLImageElement) => image.currentSrc)).toMatch(/\/previews\/[0-9a-z]+\/[\w-]+\/blink\.\w+$/);
   });
 
   test("shows a picture without a thumbnail, as a bot's, as itself, and a file the browser couldn't make one of as its card", async ({ members, request, rooms }) => {
