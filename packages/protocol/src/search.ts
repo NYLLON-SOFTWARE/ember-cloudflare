@@ -69,6 +69,14 @@ export const isSearchable = (search: Search) => hasWords(search.q) || hasFilters
 /** The words of `q` once it's sanitized, as typed, every one of which a message has to have. */
 export const searchWords = (q: string) => sanitizeSearch(q).split(/\s+/u).filter((word) => word !== "");
 
+/**
+ * A character of the scripts that write words with nothing between them, as Chinese and Japanese do, or
+ * run a word on into its particles, as Korean does: a letter or number of Han, hiragana, katakana or
+ * hangul, or one they share, as ー, but none of their punctuation. A search finds a word of them inside
+ * any run of them, as nothing tells where one ends.
+ */
+export const CJK_CHARACTER = /(?=[\p{L}\p{N}])[\p{scx=Hani}\p{scx=Hira}\p{scx=Kana}\p{scx=Hang}]/u;
+
 /** `search` with only the filters it has on, in one order, and its words with their runs of spaces made one and none at either end. */
 export function normalizedSearch({ q, in: roomId, from, ...flags }: Search): Search {
   const search: Search = { q: q.trim().replace(/\s+/gu, " ") };

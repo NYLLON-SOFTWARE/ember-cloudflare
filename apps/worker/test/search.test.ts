@@ -21,7 +21,7 @@ import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { MIGRATIONS } from "../src/migrations";
 import { searchStatement, type IndexedMessage, type IndexSearch, type SearchFacts, type SearchIndex } from "../src/search-index";
-import { wordsOf, type Readers, type RoomReaders } from "../src/search-words";
+import { keyedText, termsOf, wordsOf, type Readers, type RoomReaders } from "../src/search-words";
 import type { Workspace } from "../src/workspace";
 import {
   api,
@@ -124,6 +124,12 @@ const indexed = (message: Omit<IndexedMessage, keyof SearchFacts> & Partial<Sear
   mentionIds: [],
   ...message,
 });
+
+/** The index's object, its SQL and storage as it sees them. */
+type Index = { sql: SqlStorage; ctx: DurableObjectState; env: Env };
+
+/** When the index's walk is next due, if it has one. */
+const walkDue = () => runInDurableObject(searchIndexStub(), (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.kv.get<number>("rekeyDue"));
 
 /** Edits `message` as `client`. */
 async function edit(client: Socket, message: Message, body: string): Promise<void> {
@@ -892,7 +898,7 @@ describe("Words kept by who can read them", () => {
     const index = searchIndexStub();
     await setReaders("closed", "members");
     // Each character the index keeps in a word, between an x and its code point in hex, which shows in any
-    // part of the word kept plainly.
+    // part of the word kept plainly. One of Chinese, Japanese or Korean is a term of its own (`termsOf`).
     const words: string[] = [];
     for (let code = 0; code <= 0x10ffff; code++) {
       const word = `x${String.fromCodePoint(code)}${code.toString(16)}`;
@@ -906,7 +912,7 @@ describe("Words kept by who can read them", () => {
     }
     await searchSql("CREATE VIRTUAL TABLE search_index_terms USING fts5vocab(search_index, 'row')");
     expect(await searchSql("SELECT term FROM search_index_terms WHERE substr(term, 1, 1) <> ?", "\ue000")).toEqual([]);
-    expect(await searchSql("SELECT sum(cnt) AS n FROM search_index_terms")).toEqual([{ n: words.length }]);
+    expect(await searchSql("SELECT sum(cnt) AS n FROM search_index_terms")).toEqual([{ n: words.flatMap((word) => termsOf(word)).length }]);
   });
 
   it("keeps a message's words plainly whatever keys its text writes out, which no key finds", async () => {
@@ -1027,19 +1033,186 @@ describe("Words kept by who can read them", () => {
     expect(await searched(hersAlone)).toEqual(beforeAlone);
     expect((await searched(hers)).found).toEqual(before.found);
   });
+
+  describe("Chinese, Japanese and Korean words", () => {
+    /** The issue's sentence: "Please check the schedule of tomorrow's meeting", whose 会議 is "meeting". */
+    const sentence = "明日の会議の予定を確認してください";
+
+    /** Has the index keep message `id`, of `text`, as it did before it paired runs of these characters (search migration 0007). */
+    const keptWhole = (id: string, text: string) =>
+      runInDurableObject(searchIndexStub(), (instance: SearchIndex) => {
+        const object = instance as unknown as Index & { keysOf(roomId: RoomId): number[] };
+        const { number, room } = object.sql.exec<{ number: number; room: RoomId }>("SELECT id AS number, room_id AS room FROM search_messages WHERE message_id = ?", id).one();
+        const keys = object.keysOf(room);
+        object.sql.exec("DELETE FROM search_index WHERE rowid = ?", number);
+        object.sql.exec("INSERT INTO search_index (rowid, body) VALUES (?, ?)", number, keys.length > 0 ? keyedText(wordsOf(text), keys) : text);
+        object.sql.exec("UPDATE search_messages SET paired = 0 WHERE id = ?", number);
+      });
+
+    /** Has the index walk the messages it holds to pair their runs, from its newest, as it does once it has updated to pair them. */
+    const walkFromNewest = () => searchSql("INSERT INTO search_pairing (before) SELECT max(id) + 1 FROM search_messages");
+
+    /** Takes the index's walk a run further, as its alarm does each hour. */
+    const walkOnce = () =>
+      runInDurableObject(searchIndexStub(), (instance: SearchIndex) => {
+        (instance as unknown as Index).ctx.storage.kv.put("rekeyDue", Date.now());
+        return instance.alarm();
+      });
+
+    it("finds a word inside a run of their characters, as a sentence of them has its words, plainly and under keys", async () => {
+      const index = searchIndexStub();
+      await setReaders("closed", "members");
+      await setReaders("ada-grace", ["ada", "grace"]);
+      // Chinese for "we meet tomorrow to discuss the budget", and Korean for "the meeting starts tomorrow".
+      const texts = [sentence, "我们明天开会讨论预算", "내일 회의를 시작합니다"];
+      const rooms = ["open", "closed", "ada-grace"];
+      for (const [at10, room] of rooms.entries()) await index.apply(room, 1, texts.map((text, second) => at(at10 * 10 + second, `${room}-${second}`, text)), []);
+      const searches: Array<[string, number]> = [["会議", 0], ["予定", 0], ["確認", 0], ["会議の予定", 0], [sentence, 0], ["开会", 1], ["预算", 1], ["회의", 2], ["회의를", 2]];
+      for (const [word, second] of searches) {
+        expect(await idsFound([word], rooms, "ada"), word).toEqual(rooms.toReversed().map((room) => `${room}-${second}`));
+      }
+      // Characters a run has, but not in a row.
+      for (const word of ["会予", "定確", "开预", "회시"]) expect(await idsFound([word], rooms, "ada"), word).toEqual([]);
+    });
+
+    it("finds a word of one character wherever a run has it, at its end or alone too", async () => {
+      const index = searchIndexStub();
+      await setReaders("closed", "members");
+      const texts = ["大会議室", "会", "会議", "社会", "議会で"];
+      await index.apply("open", 1, texts.map((text, second) => at(second, `open-${second}`, text)), []);
+      await index.apply("closed", 1, texts.map((text, second) => at(second + 10, `closed-${second}`, text)), []);
+      for (const room of ["open", "closed"]) {
+        expect(await idsFound(["会"], [room]), room).toEqual([4, 3, 2, 1, 0].map((second) => `${room}-${second}`));
+        expect(await idsFound(["室"], [room]), room).toEqual([`${room}-0`]);
+        expect(await idsFound(["で"], [room]), room).toEqual([`${room}-4`]);
+      }
+    });
+
+    it("finds a word beside a run as a word of its own, and a word that runs on into one", async () => {
+      const index = searchIndexStub();
+      await setReaders("closed", "members");
+      const texts = ["Emberを使う", "3月の会議はZoomで", "2026年3月", "使うEmberx"];
+      await index.apply("open", 1, texts.map((text, second) => at(second, `open-${second}`, text)), []);
+      await index.apply("closed", 1, texts.map((text, second) => at(second + 10, `closed-${second}`, text)), []);
+      const searches: Array<[string, number[]]> = [
+        ["Ember", [0]],
+        ["Zoom", [1]],
+        ["3", [2, 1]],
+        ["3月", [2, 1]],
+        ["2026年", [2]],
+        ["使う", [3, 0]],
+        ["会議はZoom", [1]],
+        ["Zoomで", [1]],
+        ["Emberを", [0]],
+        ["berを", []],
+        ["13月", []],
+      ];
+      for (const [word, seconds] of searches) {
+        for (const room of ["open", "closed"]) expect(await idsFound([word], [room]), `${word} in ${room}`).toEqual(seconds.map((second) => `${room}-${second}`));
+      }
+    });
+
+    it("answers the words each match matched: the search's runs as it writes them, and its other words as the text has them", async () => {
+      const index = searchIndexStub();
+      await setReaders("closed", "members");
+      await setReaders("ada-grace", ["ada", "grace"]);
+      const text = "明日の会議はDeployingの後、大会議室で deploys";
+      const rooms = ["open", "closed", "ada-grace"];
+      for (const [second, room] of rooms.entries()) await index.apply(room, 1, [at(second, `in-${room}`, text)], []);
+      const words = async (searched: string[]) => (await index.search(indexSearch(searched, rooms, { searcherId: "ada" }))).hits.map(({ words }) => words);
+
+      expect(await words(["会議", "deploy"])).toEqual(rooms.map(() => ["会議", "Deploying", "deploys"]));
+      // A pair the search's one character starts is more than it matched.
+      expect(await words(["会"])).toEqual(rooms.map(() => ["会"]));
+    });
+
+    it("finds what it took before it paired runs by the runs whole, as it did then, until its walk pairs them", async () => {
+      const index = searchIndexStub();
+      await setReaders("open", "everyone");
+      await setReaders("closed", "members");
+      await setReaders("ada-grace", ["ada", "grace"]);
+      const text = `${sentence}。Zoomで`;
+      const rooms = ["open", "closed", "ada-grace"];
+      for (const [second, room] of rooms.entries()) await index.apply(room, 1, [at(second, `in-${room}`, text)], []);
+      for (const room of rooms) await keptWhole(`in-${room}`, text);
+      await walkFromNewest();
+      const found = (word: string) => idsFound([word], rooms, "ada");
+      for (const word of [sentence, "Zoomで"]) expect(await found(word), word).toEqual(["in-ada-grace", "in-closed", "in-open"]);
+      expect(await found("会議")).toEqual([]);
+
+      await walkOnce();
+      for (const word of [sentence, "Zoomで", "会議", "予定"]) expect(await found(word), word).toEqual(["in-ada-grace", "in-closed", "in-open"]);
+      expect(await plainly("会議")).toHaveLength(1);
+      for (const room of ["closed", "ada-grace"]) expect((await wordsKeptOf(`in-${room}`)).every((word) => word.startsWith("\ue000")), room).toBe(true);
+      expect(await searchSql("SELECT count(*) AS n FROM search_messages WHERE paired = 0")).toEqual([{ n: 0 }]);
+      expect(await searchSql("SELECT before FROM search_pairing")).toEqual([]);
+      expect(await walkDue()).toBeUndefined();
+    });
+
+    it("pairs 125 messages a run at most, newest first, reading 5,000 a run, and passes those with no runs to pair", async () => {
+      const index = searchIndexStub();
+      const old = (Date.now() - 2 * 86_400_000) * 1024;
+      // 130 messages with Japanese in them, then 5,000 in English, as the index kept them before it paired runs.
+      await runInDurableObject(index, (instance: SearchIndex) => {
+        const { sql } = instance as unknown as Index;
+        for (let at = 0; at < 5_130; at++) {
+          sql.exec("INSERT INTO search_messages (id, message_id, room_id, message) VALUES (?, ?, 'open', '{}')", old + at, `m${at}`);
+          sql.exec("INSERT INTO search_index (rowid, body) VALUES (?, ?)", old + at, at < 130 ? `会議${at}の予定` : `meeting ${at}`);
+        }
+      });
+      await walkFromNewest();
+      const walked = async () => ({ paired: await searchSql("SELECT count(*) AS n FROM search_messages WHERE paired = 1"), walk: await searchSql("SELECT before FROM search_pairing") });
+
+      await walkOnce();
+      expect(await walked()).toEqual({ paired: [{ n: 0 }], walk: [{ before: old + 130 }] });
+      expect(await walkDue()).toBeGreaterThan(Date.now() + 59 * 60_000);
+      await walkOnce();
+      expect(await walked()).toEqual({ paired: [{ n: 125 }], walk: [{ before: old + 5 }] });
+      await walkOnce();
+      expect(await walked()).toEqual({ paired: [{ n: 130 }], walk: [] });
+      expect(await walkDue()).toBeUndefined();
+      expect(await idsFound(["予定"], ["open"])).toHaveLength(SEARCH_LIMIT);
+    });
+
+    it("pairs a message once, passing one an edit has paired since, or a change of who can read its room", async () => {
+      const index = searchIndexStub();
+      await setReaders("open", "everyone");
+      await setReaders("closing", "everyone");
+      await index.apply("open", 1, [at(0, "edited", sentence), at(1, "kept", sentence)], []);
+      await index.apply("closing", 1, [at(2, "rekeyed", sentence)], []);
+      for (const id of ["edited", "kept", "rekeyed"]) await keptWhole(id, sentence);
+      await walkFromNewest();
+      await index.apply("open", 2, [at(0, "edited", `${sentence}、会議室で`)], []);
+      // Its room going private, the walk keeps its earlier message under its key, paired, in the run that pairs the rest.
+      await setReaders("closing", "members");
+      await vi.waitFor(async () => expect(await searchSql("SELECT before FROM search_pairing")).toEqual([]));
+
+      expect(await idsFound(["会議の予定"], ["open", "closing"])).toEqual(["rekeyed", "kept", "edited"]);
+      expect(await idsFound(["会議室"], ["open", "closing"])).toEqual(["edited"]);
+      expect((await wordsKeptOf("rekeyed")).every((word) => word.startsWith("\ue000"))).toBe(true);
+    });
+
+    it("walks what it took before it paired runs as it starts, as when a copy updates", async () => {
+      const index = searchIndexStub();
+      await setReaders("open", "everyone");
+      await index.apply("open", 1, [at(0, "before", sentence)], []);
+      await keptWhole("before", sentence);
+      await walkFromNewest();
+      expect(await idsFound(["会議"], ["open"])).toEqual([]);
+
+      await evictDurableObject(index);
+      await vi.waitFor(async () => expect(await idsFound(["会議"], ["open"])).toEqual(["before"]));
+      expect(await walkDue()).toBeUndefined();
+    });
+  });
 });
 
 describe("Hearing who can read each room", () => {
-  /** The index's object, its SQL and storage as it sees them. */
-  type Index = { sql: SqlStorage; ctx: DurableObjectState; env: Env };
   /** A message of room `room` numbered `number`, its time in milliseconds times 1,024, as the index numbers them. */
   const numbered = (room: RoomId, number: number, text = "quokka") =>
     indexed({ id: `${room}-${number}`, createdAt: new Date(number / 1024).toISOString(), text, message: "{}" });
   /** The ids of the messages whose words the index keeps under keys, by number. */
   const keyedIds = async () => ((await searchSql("SELECT message_id FROM search_messages WHERE keyed = 1 ORDER BY id")) as Array<{ message_id: string }>).map(({ message_id }) => message_id);
-  /** When the index's walk is next due, if it has one. */
-  const walkDue = () => runInDurableObject(searchIndexStub(), (instance: SearchIndex) => (instance as unknown as Index).ctx.storage.kv.get<number>("rekeyDue"));
-
   it("keeps a room's last hour under its keys as soon as it hears who can read it, up to 200 messages, and leaves the rest to its walk", async () => {
     const index = searchIndexStub();
     const first = (Date.now() - 250_000) * 1024;
@@ -1266,7 +1439,7 @@ describe("Hearing who can read each room", () => {
     await index.apply("b", 1, [numbered("b", now - 2 * day)], []);
     await vi.waitFor(async () => expect(await searchSql("SELECT room_id FROM search_rooms WHERE heard = 0")).toEqual([]));
     const walked = await runInDurableObject(index, async (instance: SearchIndex) => {
-      const object = instance as unknown as Index & { walk(limit: number): boolean };
+      const object = instance as unknown as Index & { walk(limit: number): number };
       await instance.setReadersOf([
         { roomId: "a", readers: "members" },
         { roomId: "b", readers: "members" },

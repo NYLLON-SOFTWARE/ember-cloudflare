@@ -1,4 +1,4 @@
-import { normalizedSearch, SEARCH_FLAGS, type Search, type SearchFlag, type SearchResults, type SearchSort } from "@ember/protocol";
+import { CJK_CHARACTER, normalizedSearch, SEARCH_FLAGS, type Search, type SearchFlag, type SearchResults, type SearchSort } from "@ember/protocol";
 
 // Searches as the search box writes them: words, and filters, which Slack's modifiers name as they're
 // typed, such as `has:link`, and which the box shows as tokens beside the words.
@@ -59,12 +59,27 @@ export const withoutFromMe = (text: string) => text.replace(/(^|\s)from:@?me(?=\
 export const withoutFlag = (text: string, flag: SearchFlag) =>
   text.replace(/(^|\s)(has|is|with):(\S+)(?=\s|$)/giu, (whole, _space: string, key: string, value: string) => (flagNamed(key, value) === flag ? "" : whole)).trim();
 
-/** What marks the words a match matched in its text: each one whole, however it's cased, longest first. */
+/** A letter, mark or number a word would run on into: any but a `CJK_CHARACTER`, where the index ends a word of other letters. */
+const RUNS_ON = `(?!${CJK_CHARACTER.source})[\\p{L}\\p{M}\\p{N}]`;
+
+/** A word that starts with a `CJK_CHARACTER`, or one that ends with one, with any marks after it. */
+const STARTS_CJK = new RegExp(`^${CJK_CHARACTER.source}`, "u");
+const ENDS_CJK = new RegExp(`${CJK_CHARACTER.source}\\p{M}*$`, "u");
+
+/**
+ * What marks `word` in a match's text: the word whole, but at an end that's a `CJK_CHARACTER`, which can
+ * run on into more of them, as the index finds a word of them inside a run of them.
+ */
+function markOf(word: string): string {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return `${STARTS_CJK.test(word) ? "" : `(?<!${RUNS_ON})`}${escaped}${ENDS_CJK.test(word) ? "" : `(?!${RUNS_ON})`}`;
+}
+
+/** What marks the words a match matched in its text: each one as `markOf` marks it, however it's cased, longest first. */
 export function marksFor(words: readonly string[]): RegExp | null {
   const marked = words.filter((word) => word !== "");
   if (marked.length === 0) return null;
-  const escaped = marked.toSorted((a, b) => b.length - a.length).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{M}\\p{N}])`, "giu");
+  return new RegExp(marked.toSorted((a, b) => b.length - a.length).map(markOf).join("|"), "giu");
 }
 
 /** Whether `a` and `b` search for the same: the same words, once spaces are made one, and the same filters. */
