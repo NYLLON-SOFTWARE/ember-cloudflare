@@ -16,6 +16,7 @@ import {
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
+import { MAX_MARKDOWN_LENGTH } from "../src/bots/markdown";
 import { NOT_FOUND } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { AUTHORIZATION_TTL_MS } from "../src/revocations";
@@ -416,13 +417,25 @@ describe("Bots post messages", () => {
     const { bot, general } = await withBot();
     // One long address, written once and linked from every use, far outgrows its Markdown.
     const markdown = `${"[x][r] ".repeat(100)}\n\n[r]: https://example.com/${"a".repeat(5_000)}`;
-    expect(markdown.length).toBeLessThan(MAX_MESSAGE_HTML_LENGTH);
+    expect(markdown.length).toBeLessThanOrEqual(MAX_MARKDOWN_LENGTH);
     const headers = { "Content-Type": "text/markdown" };
 
     expect((await postAs(bot.key, general, markdown, headers)).status).toBe(413);
     const id = await posted(bot.key, general, "Deploying...");
     expect((await editAs(bot.key, general, id, markdown, "PATCH", headers)).status).toBe(413);
     expect((await storedIn(general)).map((message) => message.body)).toEqual(["Deploying..."]);
+  });
+
+  it("answers 413 to more Markdown than a Slack payload's markdown blocks hold, posted or edited, though as text it would fit", async () => {
+    const { bot, general } = await withBot();
+    const longest = "a".repeat(MAX_MARKDOWN_LENGTH);
+    const headers = { "Content-Type": "text/markdown" };
+
+    expect((await postAs(bot.key, general, `${longest}a`, headers)).status).toBe(413);
+    expect((await postAs(bot.key, general, longest, headers)).status).toBe(201);
+    const id = await posted(bot.key, general, "Deploying...");
+    expect((await editAs(bot.key, general, id, `${longest}a`, "PATCH", headers)).status).toBe(413);
+    expect((await storedIn(general)).map((message) => message.body)).toEqual([`<p>${longest}</p>`, "Deploying..."]);
   });
 
   it("answers 201 with an empty body and the message's permalink, on the host it was asked at", async () => {

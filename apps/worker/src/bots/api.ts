@@ -27,7 +27,7 @@ import { urlOf } from "../request-url";
 import type { PageCursor } from "../store";
 import { workspace, type BotKeyAccess } from "../workspace";
 import { botKeyParts } from "./keys";
-import { markdownHtml } from "./markdown";
+import { markdownHtml, MAX_MARKDOWN_LENGTH } from "./markdown";
 import { contentTypeOf } from "./mime";
 import { railsJson } from "./rails-json";
 import { payloadOf, slackMessage, slackPayloadOf, type SlackError, type SlackPayload } from "./slack";
@@ -451,11 +451,15 @@ async function bodyText(request: Request): Promise<string | null> {
  * where Campfire has no such type, a `text/markdown` body read as Markdown, as a Slack payload's
  * markdown block is (markdown.ts), so a bot that writes Markdown needn't write HTML. Null when the body,
  * or the markup its Markdown becomes, is longer than a message's markup can be: a reference link's
- * address is written once and repeated wherever it's used, so a short body can become a long one.
+ * address is written once and repeated wherever it's used, so a short body can become a long one. The
+ * markup is only measured once it's whole, so the Markdown is first held to what a Slack payload's
+ * markdown blocks can hold: a message's length of it, an address of 50,000 characters linked 7,000
+ * times, would become hundreds of megabytes, past the Worker's memory.
  */
 async function bodyMarkup(request: Request): Promise<string | null> {
   const text = await bodyText(request);
   if (text === null || contentTypeOf(request.headers.get("Content-Type"))?.toLowerCase() !== "text/markdown") return text;
+  if (text.length > MAX_MARKDOWN_LENGTH) return null;
   const markup = markdownHtml(text);
   return markup.length <= MAX_MESSAGE_HTML_LENGTH ? markup : null;
 }

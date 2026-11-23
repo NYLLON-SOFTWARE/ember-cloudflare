@@ -38,7 +38,8 @@ generic webhook, which shows the same way.
 
 A bot's own address, `https://<your Worker>/rooms/<room id>/<bot key>/messages`, takes its text as
 HTML, as Campfire's does. To write Markdown there instead, with its links, bold, lists, quotes, code
-and tables, say so with `Content-Type: text/markdown`. Send the file with `--data-binary`, which keeps
+and tables, say so with `Content-Type: text/markdown`, in up to 12,000 characters, as a Slack
+payload's markdown blocks hold; more is answered 413. Send the file with `--data-binary`, which keeps
 its line breaks, where `-d @file` drops them:
 
 ```sh
