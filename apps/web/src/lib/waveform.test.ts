@@ -129,6 +129,24 @@ describe("Waveforms", () => {
     stop();
   });
 
+  it("decodes no sound whose five seconds ran out while it waited its turn, as its upload went without it", async () => {
+    lasting(35);
+    vi.useFakeTimers();
+    let finish!: () => void;
+    const decode = decodingAs([], vi.fn((_bytes: ArrayBuffer) => new Promise<ReturnType<typeof decodedAs>>((resolve) => (finish = () => resolve(decodedAs([samples(1_000, () => 0.5)]))))));
+    const first = waveformOf(new File(["one"], "one.m4a", { type: "audio/mp4" }));
+    const second = waveformOf(new File(["two"], "two.m4a", { type: "audio/mp4" }));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect([await first, await second]).toEqual([null, null]);
+
+    finish();
+    const third = waveformOf(new File(["three"], "three.m4a", { type: "audio/mp4" }));
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(2));
+    finish();
+    expect(await third).toEqual(Array(WAVEFORM_LENGTH).fill(100));
+    expect(decode.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes))).toEqual(["one", "three"]);
+  });
+
   it("works out none where the browser can't read how long a sound plays", async () => {
     const decode = decodingAs([samples(1_000, () => 0.5)]);
     lasting(35);

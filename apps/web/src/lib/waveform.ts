@@ -52,20 +52,21 @@ const waveforms = new WeakMap<File, Promise<number[] | null>>();
 export function waveformOf(file: File): Promise<number[] | null> {
   if (!file.type.startsWith("audio/") || file.size > MAX_HEARD_SIZE) return Promise.resolve(null);
   let waveform = waveforms.get(file);
-  if (!waveform) waveforms.set(file, (waveform = withinTimeout(waveformIn(file))));
+  if (!waveform) waveforms.set(file, (waveform = withinTimeout((late) => waveformIn(file, late))));
   return waveform;
 }
 
 /**
  * The waveform of `sound`, decoded as this browser would play it once every sound decoding before it is, or
- * null where it can't decode it or its header says it plays for over five minutes, or doesn't say.
+ * null where it can't decode it or its header says it plays for over five minutes, or doesn't say, and
+ * where `late` says its time ran out before its turn came, as its upload has gone without it.
  */
-async function waveformIn(sound: Blob): Promise<number[] | null> {
+async function waveformIn(sound: Blob, late: AbortSignal): Promise<number[] | null> {
   try {
     const context = new OfflineAudioContext(1, 1, SAMPLE_RATE);
     if (!((await durationOf(sound)) <= MAX_HEARD_SECONDS)) return null;
-    const decoded = await inTurn(async () => context.decodeAudioData(await sound.arrayBuffer()));
-    return levelsOf(Array.from({ length: decoded.numberOfChannels }, (_, channel) => decoded.getChannelData(channel)));
+    const decoded = await inTurn(async () => (late.aborted ? null : context.decodeAudioData(await sound.arrayBuffer())));
+    return decoded && levelsOf(Array.from({ length: decoded.numberOfChannels }, (_, channel) => decoded.getChannelData(channel)));
   } catch {
     return null;
   }
@@ -98,11 +99,20 @@ function inTurn<T>(decode: () => Promise<T>): Promise<T> {
   return turn;
 }
 
-/** What `working` answers, or null if it takes longer than five seconds, as decoding can't be stopped. */
-function withinTimeout(working: Promise<number[] | null>): Promise<number[] | null> {
+/**
+ * What `work` answers, or null if it takes longer than five seconds, as decoding can't be stopped once it's
+ * started, when the signal it's given says it's too late to start.
+ */
+function withinTimeout(work: (late: AbortSignal) => Promise<number[] | null>): Promise<number[] | null> {
+  const late = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), WAVEFORM_TIMEOUT)));
-  return Promise.race([working, late]).finally(() => clearTimeout(timer));
+  const timedOut = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      late.abort();
+      resolve(null);
+    }, WAVEFORM_TIMEOUT);
+  });
+  return Promise.race([work(late.signal), timedOut]).finally(() => clearTimeout(timer));
 }
 
 /**
