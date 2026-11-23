@@ -16,6 +16,7 @@ import type { Typist } from "@/lib/room-state";
 import { bodyAfter, commandIn, isBlankBody, nameWritten, withShrug, type CommandRunner, type SlashCommand } from "@/lib/slash-commands";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
+import { waveformOf } from "@/lib/waveform";
 import { AttachMenu } from "./attach-menu";
 import { DraftsMenu, type Drafts } from "./drafts-menu";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
@@ -389,6 +390,8 @@ function useThumbnail(file: File): string | undefined {
  */
 function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
   const thumbnail = useThumbnail(file);
+  // A sound's waveform goes as its upload starts, so the browser starts on it while the message is written.
+  useEffect(() => void waveformOf(file), [file]);
   const [name, extension] = splitName(file.name);
   const tile = "aspect-[5/4] w-full shrink-0 rounded-[1em] border border-muted-foreground";
   return (

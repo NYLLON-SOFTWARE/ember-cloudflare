@@ -1,4 +1,15 @@
-import { CloseCode, FILE_TOO_LARGE, MAX_FILE_SIZE, MAX_PREVIEW_SIZE, uploadPartPath, uploadPreviewPath, type RoomId, type Upload } from "@ember/protocol";
+import {
+  CloseCode,
+  FILE_TOO_LARGE,
+  MAX_FILE_SIZE,
+  MAX_PREVIEW_SIZE,
+  uploadPartPath,
+  uploadPreviewPath,
+  WAVEFORM_LENGTH,
+  WAVEFORM_REFUSED,
+  type RoomId,
+  type Upload,
+} from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
@@ -597,6 +608,63 @@ describe("Image, video and file previews", () => {
     const unbound = await started(ada, room, "screenshot.png", screenshot);
     expect((await finishWith(undefined, ada, room, unbound, screenshot)).attachment).toMatchObject({ width: 1600, height: 1200 });
     expect(warnings).not.toHaveBeenCalled();
+  });
+});
+
+describe("Waveforms", () => {
+  /** The first bytes of an AAC recording in MP4, as a browser records an audio clip: its file type box, which says it's a sound. */
+  const M4A = fileOf(2_000, new Uint8Array([0, 0, 0, 0x20, ...new TextEncoder().encode("ftypM4A "), 0, 0, 0, 0, ...new TextEncoder().encode("M4A isommp42")]));
+
+  /** A waveform that rises from a whisper to as loud as the sound gets. */
+  const RISING = Array.from({ length: WAVEFORM_LENGTH }, (_, level) => level + 1);
+
+  /** Starts uploading `bytes` as `session`, named `name`, of `type` and with `waveform`, then sends them, answering the message the room posts them as. */
+  async function uploadHeard(session: Session, room: RoomId, name: string, bytes: Uint8Array, type: string, waveform: unknown): Promise<FileMessage> {
+    const response = await startUpload(session, room, { ...newUpload(name, bytes.length, type), waveform });
+    expect(response.status, await response.clone().text()).toBe(201);
+    const { id } = (await response.json()) as Upload;
+    const last = await sendPart(session, room, id, 1, bytes);
+    expect(last.status, await last.clone().text()).toBe(201);
+    return (await last.json()) as FileMessage;
+  }
+
+  it("keeps the waveform its uploader's browser works out for a sound, which its message shows wherever the room's messages are read", async () => {
+    const room = await freshRoom("lobby");
+    const ada = await connect(room, "Ada");
+    const clip = await uploadHeard(ada.session, room, "Audio clip 2026-11-23 at 9.42.10 AM.m4a", M4A, "audio/mp4", RISING);
+    expect(clip.attachment).toMatchObject({ contentType: "audio/mp4", waveform: RISING });
+    expect((await ada.next("message.created")).message).toEqual(clip);
+    expect((await connect(room, ada.session)).welcome.messages).toEqual([clip]);
+    expect(await blobOf(room, clip.attachment.id)).toMatchObject({ waveform: JSON.stringify(RISING) });
+
+    // A sound in a thread keeps its own.
+    const reply = await startUpload(ada.session, room, { ...newUpload("reply.m4a", M4A.length, "audio/mp4"), parentId: clip.id, waveform: RISING.toReversed() });
+    const { id } = (await reply.json()) as Upload;
+    expect(((await (await sendPart(ada.session, room, id, 1, M4A)).json()) as FileMessage).attachment.waveform).toEqual(RISING.toReversed());
+  });
+
+  it("keeps no waveform for a file its bytes say isn't a sound, whatever its browser called it, or a sound sent without one", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const moon = await uploadHeard(ada, room, "moon.m4a", recordedImage("moon-thumb.jpg"), "audio/mp4", RISING);
+    expect(moon.attachment).toMatchObject({ contentType: "image/jpeg" });
+    expect(moon.attachment).not.toHaveProperty("waveform");
+    const unheard = await uploadFile(ada, room, "theme.m4a", M4A, "audio/mp4");
+    expect(unheard).toMatchObject({ contentType: "audio/mp4" });
+    expect(unheard).not.toHaveProperty("waveform");
+  });
+
+  it.each([
+    ["too few levels", RISING.slice(1)],
+    ["a level past 100", [...RISING.slice(1), 101]],
+    ["a level that isn't whole", [0.5, ...RISING.slice(1)]],
+    ["levels that aren't a list", RISING.join(",")],
+  ])("refuses to start an upload with %s for its waveform", async (_, waveform) => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const response = await startUpload(ada, room, { ...newUpload("theme.m4a", M4A.length, "audio/mp4"), waveform });
+    expect(response.status).toBe(422);
+    expect(await errorOf(response)).toBe(WAVEFORM_REFUSED);
   });
 });
 

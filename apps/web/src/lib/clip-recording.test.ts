@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clipName, clipTime, clipType, recordedClip } from "./clip-recording";
+import { clipName, clipTime, clipType, isAudioClipName, recordedClip } from "./clip-recording";
 
 /** A browser's MediaRecorder that records `supported` types alone. */
 function recorderRecording(...supported: string[]) {
@@ -39,6 +39,14 @@ describe("clip recording", () => {
     expect(clipName("audio", at, "audio/webm")).toBe(`Audio clip 2026-11-07 at ${time}.webm`);
     expect(clipName("audio", at, "audio/ogg")).toBe(`Audio clip 2026-11-07 at ${time}.ogg`);
     expect(time).not.toContain(":");
+  });
+
+  it("tells an audio clip's name from any other file's, which its player shows", () => {
+    const at = new Date(2026, 10, 7, 18, 5, 9);
+    for (const type of ["audio/mp4", "audio/webm", "audio/ogg"]) expect(isAudioClipName(clipName("audio", at, type))).toBe(true);
+    for (const name of ["launch-jingle-v2.mp3", "Audio clip.m4a", "Video clip 2026-11-07 at 6.05.09 PM.mp4", "Audio clip 2026-11-07 at 6.05.09 PM.mp3", "My Audio clip 2026-11-07 at 6.05.09 PM.m4a"]) {
+      expect(isAudioClipName(name), name).toBe(false);
+    }
   });
 
   it("makes a recording a file of its type without its codecs, writing a WebM's length into it, and leaving an MP4 as it is", async () => {

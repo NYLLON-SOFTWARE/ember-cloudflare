@@ -36,6 +36,16 @@ generic webhook, which shows the same way.
 
 ![Alerts from a monitoring bot, firing and resolved, in a room](screenshots/bots.png)
 
+A bot's own address, `https://<your Worker>/rooms/<room id>/<bot key>/messages`, takes its text as
+HTML, as Campfire's does. To write Markdown there instead, with its links, bold, lists, quotes, code
+and tables, say so with `Content-Type: text/markdown`, in up to 12,000 characters, as a Slack
+payload's markdown blocks hold; more is answered 413. Send the file with `--data-binary`, which keeps
+its line breaks, where `-d @file` drops them:
+
+```sh
+curl -H 'Content-Type: text/markdown' --data-binary @brief.md <url>
+```
+
 @ember and the [AI agents](self-hosting.md#ai-agents) post these cards too, as what Ember tells them
 teaches them to. An answer that writes a payload as JSON in a code block starting
 with ```` ```slack ```` shows the payload's cards under it, as the bot's message would, though only with

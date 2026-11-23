@@ -1094,6 +1094,71 @@ describe("Available Agents", () => {
   });
 });
 
+describe("Mute a room", () => {
+  /** The classes that dim a muted row's name, but under the pointer and while it's open. */
+  const DIMMED = ["text-muted-foreground", "hover:text-foreground", "aria-[current=page]:text-foreground"];
+  const muted = <T extends SidebarRoom>(listed: T): T => ({ ...listed, involvement: "nothing" });
+
+  afterEach(() => localStorage.clear());
+
+  it("dims the row of a room you've muted, never bold, with no dot for its messages, saying so to screen readers", () => {
+    renderSidebar({ rooms: [muted({ ...rooms[0]!, unread: true }), rooms[1]!] });
+    const [general, random] = rows();
+    expect(general).toHaveClass(...DIMMED);
+    expect(general).not.toHaveClass("text-foreground", "font-[650]");
+    expect(general).toHaveAccessibleDescription(`Muted ${HELP}`);
+    expect(general!.querySelector(".rounded-full")).toBeNull();
+
+    expect(random).toHaveClass("text-foreground");
+    expect(random).not.toHaveClass("text-muted-foreground");
+  });
+
+  it("counts the mentions of you in a room you've muted, as Slack still badges them, leaving its row dimmed and not bold", () => {
+    renderSidebar({ rooms: [muted({ ...rooms[0]!, unread: true, mentionCount: 2 }), rooms[1]!] });
+    const general = rows()[0]!;
+    expect(general).toHaveClass(...DIMMED);
+    expect(general).not.toHaveClass("font-[650]");
+    expect(within(general).getByText("2")).toHaveClass("rounded-full", "bg-mention", "text-mention-foreground");
+    expect(general).toHaveAccessibleDescription(`Unread 2 mentions Muted ${HELP}`);
+  });
+
+  it("shows a room you've muted in Activity, and in a folded section, only once a message mentions you", () => {
+    localStorage.setItem(FOLDED_SECTIONS_KEY, JSON.stringify(["s1"]));
+    const sections = [{ id: "s1", name: "Product", roomIds: ["design"] }];
+    const quiet = muted({ id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "mentions" as const });
+    const unmentioned = [muted({ ...rooms[0]!, unread: true }), rooms[1]!, quiet];
+    const mentioned = [muted({ ...rooms[0]!, unread: true }), rooms[1]!, { ...quiet, mentionCount: 1 }];
+    // The rows by their rooms' ids, since a count's words are part of a row's text.
+    const shown = () => rows().map((row) => row.dataset.roomId);
+    const { rerender } = renderSidebar({ rooms: unmentioned, sections });
+    expect(shown()).toEqual(["general", "random"]);
+    rerender({ unreadOnly: true });
+    expect(shown()).toEqual([]);
+    expect(screen.getByText("You’re all caught up. No unread conversations.")).toBeInTheDocument();
+
+    rerender({ rooms: mentioned });
+    expect(shown()).toEqual(["general", "random", "design"]);
+    rerender({ rooms: mentioned, unreadOnly: true });
+    expect(shown()).toEqual(["design"]);
+  });
+
+  it("dims the row of a DM you've muted, its avatars too, never bold, still counting its messages, as Slack badges a muted DM", () => {
+    const quiet: SidebarRoom = { ...muted(direct("d1", [ada!, grace!], true, at(2))), unreadCount: 2 };
+    renderSidebar({ rooms: [quiet, muted(direct("d2", [ada!, grace!, linus!], false, at(1))), direct("d3", [ada!, alan!])] });
+    const [one, group, other] = directRows();
+    expect(one).toHaveClass(...DIMMED);
+    expect(one).not.toHaveClass("font-[650]");
+    expect(within(one!).getByText("2")).toHaveClass("rounded-full", "bg-foreground");
+    expect(one).toHaveAccessibleDescription("2 unread messages Muted");
+    expect(one!.querySelector("img")!.parentElement).toHaveClass("opacity-50", "group-hover:opacity-100", "group-aria-[current=page]:opacity-100");
+    expect(group!.querySelector("img")!.parentElement).toHaveClass("grid-cols-2", "opacity-50");
+    expect(group).toHaveAccessibleDescription("Muted");
+
+    expect(other).not.toHaveClass("text-muted-foreground");
+    expect(other!.querySelector("img")!.parentElement).not.toHaveClass("opacity-50");
+  });
+});
+
 describe("Hide a room", () => {
   it("leaves out the rooms and DMs you've hidden, even the one open", () => {
     const hidden = { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "invisible" as const };

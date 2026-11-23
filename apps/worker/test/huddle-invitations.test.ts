@@ -591,7 +591,7 @@ describe("Pushing an invitation into a huddle", () => {
 
     const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${INVITATION_PUSHES}`, room, ada.user.id, "[]", 1, "2026-11-20T23:30:00.000Z")) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
     expect(plan).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
-    expect(plan).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|inviters)\b/);
+    expect(plan).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|conversations|inviters)\b/);
   });
 
   describe("through the room", () => {

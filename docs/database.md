@@ -670,7 +670,9 @@ Objects, D1 or speed call for something else.
   deleted since has none, and isn't pushed. The Workspace finds a message's recipients and badges in
   one query, in the batch that applies the room's events, just after the message's unread marks,
   through the memberships' key, the subscriptions' index led by the person and, for the badge,
-  `index_memberships_on_user_id_and_room_id`. A message that notifies the room with @channel, or
+  `index_memberships_on_user_id_and_room_id`, with the rooms' key for whether a muted one is a DM,
+  as the badge counts what Activity does: no room hidden, and of those muted only a DM or a room
+  with a mention of its owner. A message that notifies the room with @channel, or
   with @everyone in an open room, where everyone is, is pushed by a second query of that shape,
   which reaches everyone who hears the room's @mentions or more, and one with @here by the same
   query as any message, with the people whose Ember is in use, as the Workspace's presence has them,
@@ -700,8 +702,10 @@ Objects, D1 or speed call for something else.
 - **A message's file is part of its row.** Campfire attaches a file to its message through Active
   Storage's `active_storage_attachments`, a table of its own, which on D1 would cost a page of
   messages another round trip. A message has at most one file, so ours keeps it as the message shows
-  it, as JSON in `messages.attachment` (room migration 0029): its key, name, type, size, and an
-  image's width and height. A page of messages reads no other table for it, and its addresses are
+  it, as JSON in `messages.attachment` (room migration 0029): its key, name, type, size, an
+  image's width and height, and a sound's waveform, the 100 levels its uploader's browser works out
+  as the upload starts, which the upload's row in `blobs` keeps in `waveform` until the room posts it
+  (room migration 0088). A page of messages reads no other table for it, and its addresses are
   signed as the page is answered. An upload's row in `blobs` keeps the id the app gave its message
   and, once the room posts it, the message's, so a part sent again answers with the same message.
 - **Accounts elsewhere are linked by their issuer and subject.** Signing in with Memberful links
