@@ -1,7 +1,6 @@
 import { isPreviewableSize, isWebImage, MAX_PREVIEW_SIZE, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type StoredFile } from "@ember/protocol";
-import { useId, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Lightbox } from "@/components/lightbox";
-import { useLoadedNearView } from "@/hooks/use-loaded-near-view";
 import type { Size } from "@/lib/previews";
 import { svgDataUrl } from "@/lib/svg-preview";
 import { fileText, languageOf, showsText } from "@/lib/text-preview";
@@ -191,4 +190,39 @@ function TextPreview({ file }: { file: StoredFile }) {
       <FileCard file={file} />
     </div>
   );
+}
+
+/**
+ * What `load` finds at `url`, once `element` is within 200px of the timeline's view, or null until then,
+ * and where it finds nothing. It stops watching, or loading, when `element` goes.
+ */
+function useLoadedNearView<Found>(element: RefObject<HTMLElement | null>, url: string, load: (url: string, signal: AbortSignal) => Promise<Found | null>): Found | null {
+  const [found, setFound] = useState<Found | null>(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        void load(url, abort.signal).then((loaded) => {
+          if (!abort.signal.aborted) setFound(loaded);
+        });
+      },
+      { root: scrollerOf(element.current!), rootMargin: "200px" },
+    );
+    observer.observe(element.current!);
+    return () => {
+      observer.disconnect();
+      abort.abort();
+    };
+  }, [element, url, load]);
+  return found;
+}
+
+/** The nearest of `element`'s ancestors that scrolls, as the timeline does, or null for the page. */
+function scrollerOf(element: HTMLElement): HTMLElement | null {
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(ancestor).overflowY)) return ancestor;
+  }
+  return null;
 }

@@ -1,17 +1,19 @@
-import { MAX_PREVIEW_SIZE, WAVEFORM_LENGTH, WAVEFORM_LOUDEST } from "@ember/protocol";
-import { fileUpTo } from "./file-reading";
+import { WAVEFORM_LENGTH, WAVEFORM_LOUDEST } from "@ember/protocol";
+import { MAX_CLIP_SECONDS } from "./clip-recording";
 
 // Sounds' waveforms, which a message's player draws (components/workspace/audio-player.tsx): how loud a
 // sound is along its length, as 100 levels from 0 to 100. The uploader's browser works a sound's out as it
 // starts the upload, decoding it as it would play it, and the room keeps it with the file. A sound posted
-// without one, as a bot's is, or one sent before Ember kept them, has its own worked out where it's
-// shown, if it's no more than 5 MiB.
+// without one, as a bot's is, or one sent before Ember kept them, draws flat. Decoding holds a whole sound
+// in memory, uncompressed, which for a long one of few bytes a second is far more than its file, and a
+// file can say it's shorter than it is, so a browser decodes only the sounds it uploads, of up to five
+// minutes, one at a time.
 
-/**
- * The most bytes of sound the uploader's browser works a waveform out from: about ten minutes of music, as
- * decoding holds all of it in memory, uncompressed. An audio clip is never more than 4 MB.
- */
+/** The most bytes of sound the uploader's browser works a waveform out from. An audio clip is never more than 4 MB. */
 const MAX_HEARD_SIZE = 10 * 1024 * 1024;
+
+/** The longest sound the uploader's browser works a waveform out from, in seconds: as long as a clip can be. */
+const MAX_HEARD_SECONDS = MAX_CLIP_SECONDS;
 
 /** How long working a waveform out may take, after which the file goes without one. */
 const WAVEFORM_TIMEOUT = 5_000;
@@ -43,8 +45,9 @@ export function levelsOf(channels: readonly Float32Array[]): number[] {
 const waveforms = new WeakMap<File, Promise<number[] | null>>();
 
 /**
- * The waveform of `file` that the app sends as it starts the upload, or null for a file that isn't a sound
- * or is over 10 MiB, and where this browser can't decode it, or doesn't within five seconds.
+ * The waveform of `file` that the app sends as it starts the upload, or null for a file that isn't a sound,
+ * is over 10 MiB or plays for over five minutes, and where this browser can't decode it, or doesn't within
+ * five seconds.
  */
 export function waveformOf(file: File): Promise<number[] | null> {
   if (!file.type.startsWith("audio/") || file.size > MAX_HEARD_SIZE) return Promise.resolve(null);
@@ -54,26 +57,45 @@ export function waveformOf(file: File): Promise<number[] | null> {
 }
 
 /**
- * The waveform of the sound at `url`, worked out here for one posted without its own, or null for one over
- * 5 MiB, on another site, or that this browser can't decode, unless `signal` aborts first.
+ * The waveform of `sound`, decoded as this browser would play it once every sound decoding before it is, or
+ * null where it can't decode it or its header says it plays for over five minutes, or doesn't say.
  */
-export async function waveformAt(url: string, signal: AbortSignal): Promise<number[] | null> {
+async function waveformIn(sound: Blob): Promise<number[] | null> {
   try {
-    const sound = await fileUpTo(url, MAX_PREVIEW_SIZE, signal);
-    return sound && (await waveformIn(sound));
+    const context = new OfflineAudioContext(1, 1, SAMPLE_RATE);
+    if (!((await durationOf(sound)) <= MAX_HEARD_SECONDS)) return null;
+    const decoded = await inTurn(async () => context.decodeAudioData(await sound.arrayBuffer()));
+    return levelsOf(Array.from({ length: decoded.numberOfChannels }, (_, channel) => decoded.getChannelData(channel)));
   } catch {
     return null;
   }
 }
 
-/** The waveform of `sound`, decoded as this browser would play it, or null where it can't decode it. */
-async function waveformIn(sound: Blob): Promise<number[] | null> {
-  try {
-    const decoded = await new OfflineAudioContext(1, 1, SAMPLE_RATE).decodeAudioData(await sound.arrayBuffer());
-    return levelsOf(Array.from({ length: decoded.numberOfChannels }, (_, channel) => decoded.getChannelData(channel)));
-  } catch {
-    return null;
-  }
+/** How long `sound` plays, in seconds, as its header says, which the browser reads without decoding it, or NaN where it can't. */
+function durationOf(sound: Blob): Promise<number> {
+  const url = URL.createObjectURL(sound);
+  const audio = new Audio();
+  return new Promise<number>((resolve) => {
+    audio.addEventListener("loadedmetadata", () => resolve(audio.duration));
+    audio.addEventListener("error", () => resolve(NaN));
+    audio.preload = "metadata";
+    audio.src = url;
+  }).finally(() => {
+    // Lets the file go.
+    audio.removeAttribute("src");
+    audio.load();
+    URL.revokeObjectURL(url);
+  });
+}
+
+/** The sound decoding, which the next waits for, so that only one is in memory at once. */
+let decoding: Promise<unknown> = Promise.resolve();
+
+/** What `decode` decodes, once the sound decoding before it is. */
+function inTurn<T>(decode: () => Promise<T>): Promise<T> {
+  const turn = decoding.then(decode);
+  decoding = turn.catch(() => {});
+  return turn;
 }
 
 /** What `working` answers, or null if it takes longer than five seconds, as decoding can't be stopped. */

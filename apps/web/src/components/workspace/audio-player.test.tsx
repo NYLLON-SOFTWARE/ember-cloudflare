@@ -1,12 +1,8 @@
-import { MAX_PREVIEW_SIZE, WAVEFORM_LENGTH, type StoredFile } from "@ember/protocol";
+import { WAVEFORM_LENGTH, type StoredFile } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { waveformAt } from "@/lib/waveform";
 import { AudioPlayer } from "./audio-player";
-
-// jsdom decodes no sound, so lib/waveform.test.ts tests working waveforms out, and e2e/ plays real ones.
-vi.mock("@/lib/waveform", async (original) => ({ ...(await original<typeof import("@/lib/waveform")>()), waveformAt: vi.fn(async () => null) }));
 
 /** A sound called `name`, as a message has it. */
 const stored = (name: string, contentType: string, overrides: Partial<StoredFile> = {}): StoredFile => {
@@ -229,6 +225,28 @@ describe("Audio player", () => {
     expect(speed()).toHaveAccessibleName("Playback speed, 1 times");
   });
 
+  it("plays at the speed picked where the browser can't keep it, as one whose storage is full can't, over the one it kept", async () => {
+    localStorage.setItem("ember:playback-rate", "1.5");
+    render(<AudioPlayer file={clip()} />);
+    const speed = () => within(player()).getByRole("button", { name: /^Playback speed/ });
+    expect(speed()).toHaveAccessibleName("Playback speed, 1.5 times");
+
+    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    });
+    await userEvent.click(speed());
+    expect(speed()).toHaveAccessibleName("Playback speed, 2 times");
+    expect(sound().playbackRate).toBe(2);
+    await userEvent.click(speed());
+    expect(speed()).toHaveAccessibleName("Playback speed, 1 times");
+
+    // Once the browser keeps it again, every page plays at the speed it keeps.
+    full.mockRestore();
+    await userEvent.click(speed());
+    expect(speed()).toHaveAccessibleName("Playback speed, 1.5 times");
+    expect(localStorage.getItem("ember:playback-rate")).toBe("1.5");
+  });
+
   it("draws its uploader's waveform as bars across its width, the loudest full height, a silent stretch's 3px", () => {
     render(<AudioPlayer file={clip()} />);
     // 200px holds 44 bars 2.5px wide with at least 2px between them.
@@ -243,30 +261,12 @@ describe("Audio player", () => {
     expect(new Set(barHeights("theme.mp3"))).toEqual(new Set([3]));
   });
 
-  it("works out the waveform of a sound posted without one, of up to 5 MiB, once it's near the timeline's view, flat until then", async () => {
-    let near!: () => void;
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class {
-        constructor(callback: IntersectionObserverCallback) {
-          near = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
-        }
-        observe() {}
-        disconnect() {}
-      },
-    );
-    vi.mocked(waveformAt).mockResolvedValueOnce(RISING);
+  it("draws a sound posted without its waveform, as a bot's is, flat, fetching none of it", () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
     render(<AudioPlayer file={clip({ waveform: undefined })} />);
     expect(new Set(barHeights())).toEqual(new Set([3]));
-    await act(async () => near());
-    expect(waveformAt).toHaveBeenCalledWith(clip().url, expect.any(AbortSignal));
-    expect(barHeights().at(-1)).toBe(30);
-
-    // A bigger one stays flat.
-    vi.mocked(waveformAt).mockClear();
-    render(<AudioPlayer file={stored("mix.mp3", "audio/mpeg", { id: "k2", byteSize: MAX_PREVIEW_SIZE + 1 })} />);
-    expect(new Set(barHeights("mix.mp3"))).toEqual(new Set([3]));
-    expect(waveformAt).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("shows a sound the browser can't play as its file's card, to download it", () => {
@@ -274,5 +274,20 @@ describe("Audio player", () => {
     act(() => void sound("voice.amr").dispatchEvent(new Event("error")));
     expect(screen.queryByRole("group", { name: "voice.amr" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download voice.amr" })).toHaveAttribute("href", stored("voice.amr", "audio/amr").downloadUrl);
+  });
+
+  it("gives the sound a bot's edit puts in its message a player of its own, after one the browser couldn't play or one playing", async () => {
+    const { rerender } = render(<AudioPlayer file={stored("voice.amr", "audio/amr", { waveform: RISING })} />);
+    act(() => void sound("voice.amr").dispatchEvent(new Event("error")));
+    rerender(<AudioPlayer file={clip({ id: "k2" })} />);
+    expect(sound()).toHaveAttribute("src", clip().url);
+    await userEvent.click(playButton());
+    sound().currentTime = 13.4;
+    act(() => frames.at(-1)!(0));
+    expect(shownTime()).toBe("0:13");
+
+    rerender(<AudioPlayer file={stored("theme.mp3", "audio/mpeg", { id: "k3", waveform: RISING })} />);
+    expect(playButton("theme.mp3")).toHaveAccessibleName("Play");
+    expect(shownTime("theme.mp3")).toBe("0:35");
   });
 });

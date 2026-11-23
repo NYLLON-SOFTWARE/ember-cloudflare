@@ -1,10 +1,9 @@
-import { MAX_PREVIEW_SIZE, type StoredFile } from "@ember/protocol";
-import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent, type Ref, type RefObject } from "react";
+import type { StoredFile } from "@ember/protocol";
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import { PauseSolid, PlaySolid } from "@/components/icons/iconoir";
-import { useLoadedNearView } from "@/hooks/use-loaded-near-view";
 import { clipTime, isAudioClipName } from "@/lib/clip-recording";
 import { cn } from "@/lib/utils";
-import { barsOf, waveformAt } from "@/lib/waveform";
+import { barsOf } from "@/lib/waveform";
 import { FileCard } from "./file-card";
 
 // A message's sound, which plays in place as Slack plays a clip: a round Play in ink, the sound's waveform,
@@ -35,44 +34,26 @@ let playing: HTMLAudioElement | null = null;
 /**
  * A file message's sound, in a card named for its file, with its own Play, waveform, time and speed, loading
  * only how long it is until it's played. A sound that isn't one of the composer's clips shows its file's
- * name over its waveform. The waveform is the one its uploader's browser worked out (lib/waveform.ts), or for
- * one posted without it, as a bot's is, this browser's, once it's within 200px of the timeline's view, if
- * it's no more than 5 MiB, and flat until then. A sound this browser can't play shows its file's card instead,
- * to download it.
+ * name over its waveform. The waveform is the one its uploader's browser worked out (lib/waveform.ts), and
+ * flat for one posted without it, as a bot's is. A sound this browser can't play shows its file's card
+ * instead, to download it.
  */
 export function AudioPlayer({ file }: { file: StoredFile }) {
-  const [unplayable, setUnplayable] = useState(false);
-  const failed = () => setUnplayable(true);
-  if (unplayable) return <FileCard file={file} />;
-  if (file.waveform) return <Player file={file} levels={file.waveform} onFailed={failed} />;
-  if (file.byteSize <= MAX_PREVIEW_SIZE) return <PlayerHearingNearView file={file} onFailed={failed} />;
-  return <Player file={file} levels={null} onFailed={failed} />;
+  // The address of the sound this browser couldn't play. A bot's edit can give its message another, which
+  // gets a player of its own.
+  const [unplayable, setUnplayable] = useState<string | null>(null);
+  if (unplayable === file.url) return <FileCard file={file} />;
+  return <Player key={file.url} file={file} onFailed={() => setUnplayable(file.url)} />;
 }
 
-interface PlayerProps {
-  file: StoredFile;
-  /** Its waveform, or null for a flat one. */
-  levels: readonly number[] | null;
-  /** Says the browser can't play it. */
-  onFailed: () => void;
-  ref?: Ref<HTMLDivElement>;
-}
-
-/** A sound posted without its waveform, whose player works it out once it's near the timeline's view. */
-function PlayerHearingNearView({ file, onFailed }: Pick<PlayerProps, "file" | "onFailed">) {
-  const element = useRef<HTMLDivElement>(null);
-  const levels = useLoadedNearView(element, file.url, waveformAt);
-  return <Player ref={element} file={file} levels={levels} onFailed={onFailed} />;
-}
-
-function Player({ file, levels, onFailed, ref }: PlayerProps) {
+/** `file`'s player, which tells `onFailed` if the browser can't play it. */
+function Player({ file, onFailed }: { file: StoredFile; onFailed: () => void }) {
   const rate = useSyncExternalStore(followRate, pickedRate);
   const sound = useSound(rate, onFailed);
   const scrubbing = useScrubbing(sound);
   const named = !isAudioClipName(file.name);
   return (
     <div
-      ref={ref}
       role="group"
       aria-label={file.name}
       className={cn(
@@ -94,7 +75,7 @@ function Player({ file, levels, onFailed, ref }: PlayerProps) {
         {named && <p className="truncate text-[13px] leading-4 font-medium">{file.name}</p>}
         <div className={cn("relative cursor-pointer touch-pan-y rounded-sm", named ? "mt-1 h-6" : "h-9")} {...scrubbing.props}>
           <HoverTime at={scrubbing.hover} duration={sound.duration} />
-          <Waveform levels={levels} played={sound.duration ? Math.min(1, sound.time / sound.duration) : 0} hover={scrubbing.hover} tallest={named ? 20 : 30} />
+          <Waveform levels={file.waveform ?? null} played={sound.duration ? Math.min(1, sound.time / sound.duration) : 0} hover={scrubbing.hover} tallest={named ? 20 : 30} />
         </div>
       </div>
       {/* The slider says how far in it is, of how long, to screen readers. */}
@@ -160,11 +141,6 @@ function useSound(rate: number, onFailed: () => void): Sound {
         setStarted(false);
       },
       seeked: () => setTime(element.currentTime),
-      // Its file loaded again, as it is once its address changes, it's back at the start.
-      emptied() {
-        setTime(0);
-        setStarted(false);
-      },
       error: () => failed(),
     };
     for (const [type, listener] of Object.entries(listeners)) element.addEventListener(type, listener);
@@ -345,19 +321,20 @@ function useSize(element: RefObject<Element | null>): { width: number; height: n
   return size;
 }
 
-/** The speed picked on this page, where the browser won't keep it. */
-let rateHere = 1;
+/** The speed last picked on this page, where the browser couldn't keep it, as one whose storage is full can't, or null. */
+let rateHere: number | null = null;
 
 /** Each player, to tell when another speed is picked. */
 const rateFollowers = new Set<() => void>();
 
-/** The speed last picked, as the browser keeps it, or as it was picked on this page. */
+/** The speed last picked: on this page, where the browser couldn't keep it, or as the browser keeps it, or 1×. */
 function pickedRate(): number {
+  if (rateHere !== null) return rateHere;
   try {
     const kept = Number(localStorage.getItem(RATE_KEY));
-    return RATES.includes(kept) ? kept : rateHere;
+    return RATES.includes(kept) ? kept : 1;
   } catch {
-    return rateHere;
+    return 1;
   }
 }
 
@@ -365,6 +342,7 @@ function pickedRate(): number {
 function pickRate(rate: number) {
   try {
     localStorage.setItem(RATE_KEY, String(rate));
+    rateHere = null;
   } catch {
     rateHere = rate;
   }

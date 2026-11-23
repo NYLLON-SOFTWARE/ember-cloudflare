@@ -1,19 +1,34 @@
-import { MAX_PREVIEW_SIZE, WAVEFORM_LENGTH } from "@ember/protocol";
+import { WAVEFORM_LENGTH } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { barsOf, levelsOf, waveformAt, waveformOf } from "./waveform";
+import { barsOf, levelsOf, waveformOf } from "./waveform";
 
 /** Sound whose samples are `level` at sample `n` of `length`. */
 const samples = (length: number, level: (n: number) => number) => Float32Array.from({ length }, (_, n) => level(n));
 
 /** A browser's OfflineAudioContext, which decodes every sound into `channels`, or fails to as `decode` says. */
-function decodingAs(channels: Float32Array[], decode = vi.fn(async (_bytes: ArrayBuffer) => ({ numberOfChannels: channels.length, getChannelData: (channel: number) => channels[channel]! }))) {
+function decodingAs(channels: Float32Array[], decode = vi.fn(async (_bytes: ArrayBuffer) => decodedAs(channels))) {
   vi.stubGlobal("OfflineAudioContext", function OfflineAudioContext() {
     return { decodeAudioData: decode };
   });
   return decode;
 }
 
+/** A browser's `<audio>`, which reads every sound's header as saying it plays for `seconds`. */
+function lasting(seconds: number) {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:sound");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(seconds);
+  vi.spyOn(HTMLMediaElement.prototype, "src", "set").mockImplementation(function (this: HTMLMediaElement) {
+    void Promise.resolve().then(() => this.dispatchEvent(new Event("loadedmetadata")));
+  });
+}
+
+/** What a browser's decoding gives for `channels` of sound. */
+const decodedAs = (channels: Float32Array[]) => ({ numberOfChannels: channels.length, getChannelData: (channel: number) => channels[channel]! });
+
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -51,6 +66,7 @@ describe("Waveforms", () => {
   });
 
   it("works out a sound's waveform once, as it's picked to send, decoding it as the browser would play it", async () => {
+    lasting(35);
     const decode = decodingAs([samples(1_000, (n) => (n < 500 ? 0.1 : 0.2))]);
     const clip = new File(["sound"], "Audio clip 2026-11-23 at 9.42.10 AM.m4a", { type: "audio/mp4" });
     const waveform = await waveformOf(clip);
@@ -58,9 +74,43 @@ describe("Waveforms", () => {
     expect(await waveformOf(clip)).toBe(waveform);
     expect(decode).toHaveBeenCalledOnce();
     expect(new TextDecoder().decode(decode.mock.calls[0]![0])).toBe("sound");
+    expect(URL.createObjectURL).toHaveBeenCalledWith(clip);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sound");
+  });
+
+  it("decodes only a sound whose header says it plays for no more than five minutes, as an audio clip does", async () => {
+    const decode = decodingAs([samples(1_000, () => 0.5)]);
+    lasting(5 * 60 + 1);
+    expect(await waveformOf(new File(["talk"], "talk.m4a", { type: "audio/mp4" }))).toBeNull();
+    // A header that doesn't say, as a recording's can leave out.
+    lasting(Infinity);
+    expect(await waveformOf(new File(["memo"], "memo.webm", { type: "audio/webm" }))).toBeNull();
+    expect(decode).not.toHaveBeenCalled();
+
+    lasting(5 * 60);
+    expect(await waveformOf(new File(["song"], "song.mp3", { type: "audio/mpeg" }))).toEqual(Array(WAVEFORM_LENGTH).fill(100));
+    expect(decode).toHaveBeenCalledOnce();
+  });
+
+  it("decodes one sound at a time, so only one is in memory at once", async () => {
+    lasting(35);
+    const finishing: (() => void)[] = [];
+    const decode = decodingAs([], vi.fn((_bytes: ArrayBuffer) => new Promise<ReturnType<typeof decodedAs>>((resolve) => finishing.push(() => resolve(decodedAs([samples(1_000, () => 0.5)]))))));
+    const first = waveformOf(new File(["one"], "one.m4a", { type: "audio/mp4" }));
+    const second = waveformOf(new File(["two"], "two.m4a", { type: "audio/mp4" }));
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(decode).toHaveBeenCalledOnce();
+
+    finishing[0]!();
+    expect(await first).toEqual(Array(WAVEFORM_LENGTH).fill(100));
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(2));
+    finishing[1]!();
+    expect(await second).toEqual(Array(WAVEFORM_LENGTH).fill(100));
   });
 
   it("works out none for a file that isn't a sound, or is over 10 MiB, or that the browser can't decode, or doesn't within five seconds", async () => {
+    lasting(35);
     const decode = decodingAs([samples(1_000, () => 0.5)]);
     expect(await waveformOf(new File(["hi"], "notes.txt", { type: "text/plain" }))).toBeNull();
     expect(await waveformOf(new File([new Uint8Array(10 * 1024 * 1024 + 1)], "mix.mp3", { type: "audio/mpeg" }))).toBeNull();
@@ -70,22 +120,23 @@ describe("Waveforms", () => {
     expect(await waveformOf(new File(["noise"], "noise.wma", { type: "audio/x-ms-wma" }))).toBeNull();
 
     vi.useFakeTimers();
-    decodingAs([], vi.fn(() => new Promise<never>(() => {})));
+    let stop!: () => void;
+    decodingAs([], vi.fn(() => new Promise<never>((_, reject) => (stop = () => reject(new DOMException("Unable to decode audio data", "EncodingError"))))));
     const slow = waveformOf(new File(["long"], "long.m4a", { type: "audio/mp4" }));
     await vi.advanceTimersByTimeAsync(5_000);
     expect(await slow).toBeNull();
+    // Its decoding goes on, as it can't be stopped, until the browser gives up on it.
+    stop();
   });
 
-  it("works out the waveform of a sound posted without one from its file, of up to 5 MiB, from this site", async () => {
-    decodingAs([samples(1_000, () => 0.5)]);
-    const fetch = vi.fn(async () => new Response("sound", { headers: { "Content-Length": "5" } }));
-    vi.stubGlobal("fetch", fetch);
-    expect(await waveformAt("/files/k1/s1/song.mp3", new AbortController().signal)).toEqual(Array(WAVEFORM_LENGTH).fill(100));
-    expect(fetch).toHaveBeenCalledOnce();
-
-    fetch.mockResolvedValueOnce(new Response("big", { headers: { "Content-Length": String(MAX_PREVIEW_SIZE + 1) } }));
-    expect(await waveformAt("/files/k1/s1/song.mp3", new AbortController().signal)).toBeNull();
-    expect(await waveformAt("https://elsewhere.example/song.mp3", new AbortController().signal)).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(2);
+  it("works out none where the browser can't read how long a sound plays", async () => {
+    const decode = decodingAs([samples(1_000, () => 0.5)]);
+    lasting(35);
+    vi.spyOn(HTMLMediaElement.prototype, "src", "set").mockImplementation(function (this: HTMLMediaElement) {
+      void Promise.resolve().then(() => this.dispatchEvent(new Event("error")));
+    });
+    expect(await waveformOf(new File(["voice"], "voice.amr", { type: "audio/amr" }))).toBeNull();
+    expect(decode).not.toHaveBeenCalled();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sound");
   });
 });
