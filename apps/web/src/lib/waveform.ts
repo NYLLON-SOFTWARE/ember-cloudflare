@@ -64,7 +64,7 @@ export function waveformOf(file: File): Promise<number[] | null> {
 async function waveformIn(sound: Blob, late: AbortSignal): Promise<number[] | null> {
   try {
     const context = new OfflineAudioContext(1, 1, SAMPLE_RATE);
-    if (!((await durationOf(sound)) <= MAX_HEARD_SECONDS)) return null;
+    if (!((await durationOf(sound, late)) <= MAX_HEARD_SECONDS)) return null;
     const decoded = await inTurn(async () => (late.aborted ? null : context.decodeAudioData(await sound.arrayBuffer())));
     return decoded && levelsOf(Array.from({ length: decoded.numberOfChannels }, (_, channel) => decoded.getChannelData(channel)));
   } catch {
@@ -72,13 +72,17 @@ async function waveformIn(sound: Blob, late: AbortSignal): Promise<number[] | nu
   }
 }
 
-/** How long `sound` plays, in seconds, as its header says, which the browser reads without decoding it, or NaN where it can't. */
-function durationOf(sound: Blob): Promise<number> {
+/**
+ * How long `sound` plays, in seconds, as its header says, which the browser reads without decoding it, or NaN
+ * where it can't, or hasn't by the time `late` says the upload has gone without a waveform.
+ */
+function durationOf(sound: Blob, late: AbortSignal): Promise<number> {
   const url = URL.createObjectURL(sound);
   const audio = new Audio();
   return new Promise<number>((resolve) => {
     audio.addEventListener("loadedmetadata", () => resolve(audio.duration));
     audio.addEventListener("error", () => resolve(NaN));
+    late.addEventListener("abort", () => resolve(NaN), { once: true });
     audio.preload = "metadata";
     audio.src = url;
   }).finally(() => {

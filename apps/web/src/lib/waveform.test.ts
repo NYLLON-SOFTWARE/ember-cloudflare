@@ -157,4 +157,18 @@ describe("Waveforms", () => {
     expect(decode).not.toHaveBeenCalled();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sound");
   });
+
+  it("lets a sound go whose header the browser hasn't read within five seconds, as its upload went without a waveform", async () => {
+    const decode = decodingAs([samples(1_000, () => 0.5)]);
+    lasting(35);
+    // A browser that puts off reading it, as one can.
+    vi.spyOn(HTMLMediaElement.prototype, "src", "set").mockImplementation(() => {});
+    vi.useFakeTimers();
+    const stalled = waveformOf(new File(["voice"], "voice.m4a", { type: "audio/mp4" }));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await stalled).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sound");
+    expect(HTMLMediaElement.prototype.load).toHaveBeenCalled();
+    expect(decode).not.toHaveBeenCalled();
+  });
 });
