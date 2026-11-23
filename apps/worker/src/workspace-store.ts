@@ -3785,10 +3785,20 @@ const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId, reminded_at
 const IN_ROOM = `SELECT 1 FROM memberships WHERE user_id = ? AND room_id = ?`;
 
 /** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to, none of them a guest's while ?2 doesn't let guests stay signed in. */
+/**
+ * The push subscriptions of whoever has id ?1, to send a reminder's push to: all of a person's, and a
+ * guest's while they may still be pushed, which their stay of one room is, until it ends, and, while
+ * ?2 lets guests stay signed in, an open sign-in's guest's, which has no stay to end. As ?3 says when,
+ * a stay that ended before now is one no push waits for any more.
+ */
 const PUSH_DELIVERIES_FOR_USER = `SELECT push_subscriptions.id AS "subscriptionId", endpoint, p256dh_key AS "p256dhKey", auth_key AS "authKey",
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
   FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
-  WHERE push_subscriptions.user_id = ?1 AND (users.guest = 0 OR ?2 = 1) ORDER BY push_subscriptions.id`;
+  WHERE push_subscriptions.user_id = ?1
+    AND (users.guest = 0
+      OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id AND guest_stays.until_at > ?3)
+      OR (?2 = 1 AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)))
+  ORDER BY push_subscriptions.id`;
 
 /** How many sign-ins to apps can be under way at once: beginning another forgets the one begun longest ago. */
 const MAX_PENDING_APP_SIGN_INS = 20;
@@ -4058,11 +4068,12 @@ export class WorkspaceStore {
         account.emailAddress,
         via,
       ),
-      statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now, person.id),
       ...this.keepingRefresh(account, kept),
+      // The identity-aware insert alone starts the session, since the id it's given is the one this
+      // batch keeps: an INSERT_SESSION ahead of it would put the same id in twice, and sessions.id
+      // being a primary key, roll the whole join back.
       statement(INSERT_IDENTITY_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, account.issuer, kept.sid),
-      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
       statement(SPEND_EMAIL_LINKS, person.emailAddress),
       ...welcoming(person.id, welcomes, now),
     ]);
@@ -4913,8 +4924,6 @@ export class WorkspaceStore {
     await this.db.batch([
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status = ${SUSPENDED}`, now, userId),
       statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now, userId),
-      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt),
-      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now),
       statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt, 0),
     ]);
   }
@@ -6776,7 +6785,7 @@ export class WorkspaceStore {
   }
 
   /** The subscriptions someone's browsers have saved, or none of a guest's while guests can't stay signed in. */
-  async pushDeliveriesFor(userId: UserId, guests: boolean): Promise<PushDelivery[]> {
-    return this.db.all<PushDelivery>(PUSH_DELIVERIES_FOR_USER, userId, guests ? 1 : 0);
+  async pushDeliveriesFor(userId: UserId, guests: boolean, now: number): Promise<PushDelivery[]> {
+    return this.db.all<PushDelivery>(PUSH_DELIVERIES_FOR_USER, userId, guests ? 1 : 0, now);
   }
 }

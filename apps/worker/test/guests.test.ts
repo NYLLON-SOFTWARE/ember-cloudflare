@@ -402,12 +402,43 @@ describe("One room, and nothing else", () => {
     expect(await refused.json()).toEqual({ error: "You're a guest of this room, so only whoever added you can take you out" });
   });
 
+  it("reads only their room's pages of people, and each group of theirs with its members of the room alone", async () => {
+    // Grace signs in with just a name, which puts her in the open room, outside the guest's room.
+    const grace = await signIn("Grace Hopper");
+    const made = await api("/api/user_groups", { method: "POST", headers: { Cookie: host.cookie }, body: JSON.stringify({ name: "Illustrators", memberIds: [host.user.id, grace.user.id] }) });
+    expect(made.status, await made.clone().text()).toBe(201);
+
+    // The directory keeps its groups to what their room's people are of them, and the people it
+    // lists are the room's, as their stays keep them there.
+    const { users, groups } = (await (await api("/api/users", { headers: { Cookie: guest.cookie } })).json()) as Directory;
+    expect(users.map(({ id }) => id).sort()).toEqual([guest.user.id, host.user.id].sort());
+    expect(groups).toEqual([{ id: expect.any(String), name: "illustrators", memberIds: [host.user.id] }]);
+
+    // Their room's people's pages open, and nobody else's do, theirs alone apart.
+    expect((await api(`/api/users/${host.user.id}`, { headers: { Cookie: guest.cookie } })).status).toBe(200);
+    expect((await api(`/api/users/${guest.user.id}`, { headers: { Cookie: guest.cookie } })).status).toBe(200);
+    expect((await api(`/api/users/${grace.user.id}`, { headers: { Cookie: guest.cookie } })).status).toBe(404);
+
+    // A member reads the group whole, as the directory always gave it them.
+    const whole = (await (await api("/api/users", { headers: { Cookie: grace.cookie } })).json()) as Directory;
+    expect(whole.groups).toEqual([{ id: expect.any(String), name: "illustrators", memberIds: [grace.user.id, host.user.id].sort() }]);
+  });
+
+  it("takes no name that's blank however much spacing it has, which their stay signs them back in by", async () => {
+    const response = await api("/api/users/me/profile", { method: "PATCH", headers: { Cookie: guest.cookie }, body: JSON.stringify({ name: "      " }) });
+    expect(response.status).toBe(422);
+    expect(await workspaceSql("SELECT name FROM users WHERE id = ?", guest.user.id)).toEqual([{ name: "Pat" }]);
+    // Their stay still signs them in by the name they kept.
+    expect((await guestSession("Pat")).user.id).toBe(guest.user.id);
+  });
+
   it("hears their workspace socket's welcome, and has the workspace's join link kept from them", async () => {
     const tab = await openWorkspaceSocket(guest);
     expect(tab.welcome).toMatchObject({ you: { ...guest.user, administrator: false } });
     const bootstrap = (await (await api("/api/bootstrap", { headers: { Cookie: guest.cookie } })).json()) as { account: { joinCode: string | null } };
     expect(bootstrap.account.joinCode ?? null).toBeNull();
   });
+
 });
 
 describe("Expiry", () => {

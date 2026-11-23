@@ -4005,13 +4005,16 @@ export class Workspace extends DurableObject<Env> {
    * is read again before it's told, since a push can wait long enough that the person dismisses the
    * next reminder meanwhile. Answers how many it told.
    */
+  /**
+   * Tells the reminders that have come due, at most `limit` of them, within `requests` requests of the
+   * run's budget, answering what's left of the budget, so the sweep that follows keeps within it too.
+   */
   private async deliverReminders(limit: number, requests: number): Promise<number> {
     // The read of what's due and one reminder's own, at the least, before anything is worth asking.
-    if (requests < 2) return 0;
+    if (requests < 2) return requests;
     const now = Date.now();
     const due = await this.store.dueReminders(now, now - REMINDER_PUSH_GRACE_MS, limit);
     let left = requests - 1;
-    let told = 0;
     for (const { id, userId, untold } of due) {
       // A reminder is read again and has its subscriptions read, and one not yet told is marked told
       // and settled: four requests before any push.
@@ -4020,14 +4023,13 @@ export class Workspace extends DurableObject<Env> {
       left--;
       if (reminder === null) continue;
       const reached = deliveredIn(reminder.delivered);
-      const deliveries = (await this.store.pushDeliveriesFor(userId, guestSignIn(this.env))).filter(({ subscriptionId }) => !reached.includes(subscriptionId));
+      const deliveries = (await this.store.pushDeliveriesFor(userId, guestSignIn(this.env), now)).filter(({ subscriptionId }) => !reached.includes(subscriptionId));
       left--;
       if (untold) {
         // Marked told before it's said, so two runs can't both say it.
         if (!(await this.store.markReminderTold(id, Date.now()))) continue;
         left--;
         this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
-        told++;
       }
       // Each push is asked after and sent, two requests, and settling the pushes — or keeping that
       // they failed — takes one more.
@@ -4053,7 +4055,7 @@ export class Workspace extends DurableObject<Env> {
         left--;
       }
     }
-    return told;
+    return left;
   }
 
   /**
@@ -4392,11 +4394,17 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The workspace's groups, by name, for the people directory and the settings' list, to the person
-   * `credentials` signs in, or null without a valid session.
+   * `credentials` signs in, or null without a valid session. A guest of one room, whom only their
+   * room's people reach, reads each group's members as those of them it has in their room, since the
+   * members of a group elsewhere are people no page of theirs may name.
    */
   async userGroups(credentials: Credentials): Promise<UserGroup[] | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.userGroups();
+    if (!user) return null;
+    const stay = await this.stayOf(user.id);
+    if (!stay) return this.store.userGroups();
+    const inRoom = new Set((await this.store.roomPeople(stay.roomId)).map(({ id }) => id));
+    return (await this.store.userGroups()).map((group) => ({ ...group, memberIds: group.memberIds.filter((id) => inRoom.has(id)) }));
   }
 
   /**
@@ -4502,11 +4510,14 @@ export class Workspace extends DurableObject<Env> {
    * Someone as their page shows them to the person `credentials` signs in, whatever their status, and
    * with their email address and sign-in link to administrators: "not found" if nobody has id `userId`,
    * or it's an AI agent's only administrators' direct messages reach and they aren't one, or null without
-   * a valid session.
+   * a valid session. A guest of one room, whom their directory keeps to their room's people, finds
+   * nobody else's page here either: theirs and their room's are the only ones it answers.
    */
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
+    const stay = await this.stayOf(session.user.id);
+    if (stay && userId !== session.user.id && !(await this.store.roomPeople(stay.roomId)).some(({ id }) => id === userId)) return "not found";
     const [person, administrator, fields] = await Promise.all([
       this.store.personWithProfile(userId),
       this.store.isAdministrator(session.user.id),
@@ -6020,8 +6031,10 @@ export class Workspace extends DurableObject<Env> {
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
       // A guest of one room signs in by their name, so it takes no more characters than the sign-in form
-      // gives it: a longer one, and neither it nor any other would sign them back in once saved.
-      if (session.guest && profile.name.length > MAX_GUEST_NAME_LENGTH && (await this.stayOf(user.id))) return "guest's name too long";
+      // gives it, and no name all of which is spacing: the sign-in trims the name it's given, so a blank
+      // one saved would match no stay of theirs, which would keep them out.
+      if (session.guest && (await this.stayOf(user.id)) && (profile.name.trim() === "" || profile.name.length > MAX_GUEST_NAME_LENGTH))
+        return "guest's name too long";
       // A guest of one room signs in by their name, so theirs is the only stay under it, as adding one
       // can't take another's either. Renaming keeps it, and one they alone hold, while the stays last.
       if (
@@ -6784,20 +6797,19 @@ export class Workspace extends DurableObject<Env> {
       const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
       const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
       const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
-      await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
-      await this.checkMemberships();
       // What the sweep lapses keeps within the run's budget, its deliveries accounted for, so a crowd of
-      // stays ending at once can't spend past what the plan allows an invocation.
-      await this.lapseDueGuestStays(DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
+      // stays ending at once can't spend past what the plan allows an invocation. The reminders the sweep
+      // tells spend from the same budget, and what they spent comes off before the stays are lapsed.
+      await this.lapseDueGuestStays(
+        await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures),
+      );
+      await this.checkMemberships();
+      await this.checkSsoAccounts();
     } catch (error) {
       console.error("Could not deliver everything due; trying again later", error);
     }
-    const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
-    const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
-    const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
-    await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
-    await this.checkMemberships();
-    await this.checkSsoAccounts();
+    // Reached whatever became of the sweep, so what's left due waits for an alarm that's set, rather
+    // than for the next change to wake it.
     await this.scheduleDelivery();
   }
 

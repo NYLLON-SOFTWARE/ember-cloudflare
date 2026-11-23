@@ -1,11 +1,13 @@
-import type { Reminder, WorkspaceServerFrame } from "@ember/protocol";
+import type { Me, NewWorkspace, Reminder, WorkspaceServerFrame } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REMINDER_PUSH_GRACE_MS, type Workspace } from "../src/workspace";
 import { REMINDER_PUSH_RETRY_MS, type WorkspaceStore } from "../src/workspace-store";
 import {
   api,
+  apiWith,
   connect,
+  cookieOf,
   createRoom,
   freshDeploy,
   freshRoom,
@@ -13,6 +15,7 @@ import {
   post,
   pushBrowser,
   settle,
+  shown,
   signIn,
   withWorkspaceEnv,
   workspaceSql,
@@ -60,6 +63,13 @@ async function heard(socket: WorkspaceSocket): Promise<WorkspaceServerFrame[]> {
 
 /** A time a reminder may be asked for: a little over the soonest the Workspace takes. */
 const soon = () => new Date(Date.now() + 20_000).toISOString();
+
+/** Signs a guest of one room in by their stay's name, whatever EMBER_GUEST_SIGN_IN says of the others. */
+async function guestOf(name: string): Promise<Session> {
+  const response = await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/session", { method: "POST", body: JSON.stringify({ name }) });
+  expect(response.status, await response.clone().text()).toBe(201);
+  return { user: shown(((await response.json()) as { user: Me }).user), cookie: cookieOf(response) };
+}
 
 /**
  * The alarm the tests run fires at once, whenever it was set for, so a reminder set for `soon()` isn't
@@ -284,6 +294,42 @@ describe("Reminders", () => {
       expect(await workspaceSql("SELECT count(*) AS n FROM push_subscriptions")).toEqual([{ n: 1 }]);
       // Told all the same, since the reminder was due and nobody is there to show it to.
       expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]);
+    });
+  });
+
+  it("pushes a reminder to a guest of one room whose stay holds, and none to one whose stay has passed, while open-sign-in guests may not stay signed in", async () => {
+    const pushed = pushServices();
+    const setUp = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
+    expect(setUp.status).toBe(201);
+    const ada = { user: shown(((await setUp.json()) as NewWorkspace).user), cookie: cookieOf(setUp) };
+    const made = await api("/api/rooms", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ kind: "open", name: "One room's guests" }) });
+    const room = ((await made.json()) as { room: { id: string } }).room.id;
+    for (const name of ["Pat", "Drew"]) {
+      const added = await api(`/api/rooms/${room}/guests`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name, until: new Date(Date.now() + 60_000).toISOString() }) });
+      expect(added.status, await added.clone().text()).toBe(201);
+    }
+    const tab = await connect(room, ada);
+
+    // Their stays sign both in whatever the flag says, and Pat's holds while the reminder comes due.
+    const pat = await guestOf("Pat");
+    const drew = await guestOf("Drew");
+    const browser = await pushBrowser();
+    const endpoint = await subscribe(pat, "pat", browser);
+    await subscribe(drew, "drew", browser);
+    const message = await post(tab, "<p>Back to this</p>");
+    await remind(pat, room, message.id, soon());
+    await remind(drew, room, message.id, soon());
+    // Drew's stay ends before the alarm runs, and their reminders then wait for nobody it pushes.
+    await workspaceSql("UPDATE guest_stays SET until_at = ? WHERE user_id = ?", Date.now() - 1, drew.user.id);
+    await makeRemindersDue();
+
+    await withWorkspaceEnv({ EMBER_GUEST_SIGN_IN: undefined }, async () => {
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+      await vi.waitFor(() => expect(pushed).toHaveLength(1));
+      expect(pushed[0]!.endpoint).toBe(endpoint);
+      expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "Back to this" } });
+      // Told all the same, both of them, since both were due.
+      expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 2 }]);
     });
   });
 
