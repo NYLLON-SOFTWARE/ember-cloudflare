@@ -64,6 +64,7 @@ const SEARCH_TABLES = [
   "search_keys",
   "search_mentions",
   "search_messages",
+  "search_pairing",
   "search_readers",
   "search_rekeys",
   "search_rooms",
@@ -442,6 +443,30 @@ describe("Durable Object SQLite or D1", () => {
       "index_search_messages_with_links_on_room_id_and_id",
     ]);
     expect(found).toEqual({ all: [11, 9, 7, 5, 3, 1], from: [9, 5, 1], links: [9, 5, 1], files: [7, 1], threads: [1] });
+  });
+
+  it("has a search index from before it paired runs of Chinese, Japanese and Korean characters walk what it held from its newest, and one that held nothing walk nothing", async () => {
+    const walks = [];
+    for (const [name, held] of [["search-pairs-before", [3, 1, 2]], ["search-pairs-empty", []]] as const) {
+      // As above, a new room's storage stands in for the search index's from before.
+      const room = await freshRoom(name);
+      const walk = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+        const { sql } = state.storage;
+        sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+        for (const { name, sql: migration } of SEARCH_MIGRATIONS.filter(({ name }) => name < "0007")) {
+          sql.exec(migration);
+          sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+        }
+        for (const number of held) sql.exec("INSERT INTO search_messages (id, message_id, room_id, message) VALUES (?, ?, 'general', '{}')", number, `m${number}`);
+        migrate(state.storage, "search");
+        return { pairing: sql.exec("SELECT before FROM search_pairing").toArray(), paired: sql.exec("SELECT paired FROM search_messages ORDER BY id").toArray() };
+      });
+      walks.push(walk);
+    }
+    expect(walks).toEqual([
+      { pairing: [{ before: 4 }], paired: [{ paired: 0 }, { paired: 0 }, { paired: 0 }] },
+      { pairing: [], paired: [] },
+    ]);
   });
 
   it("runs a batch as one transaction: if a statement fails, the ones before it are undone", async () => {

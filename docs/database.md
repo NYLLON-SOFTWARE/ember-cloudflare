@@ -169,6 +169,24 @@ Objects, D1 or speed call for something else.
   keeps to the same tenth. `search_rekeys` notes each room with messages left and one more than the
   number of its newest, so a run goes on where the last stopped, and the index's storage keeps when
   the next run is due. Until the walk reaches a message, a search finds it as before, plainly.
+- **The index keeps Chinese, Japanese and Korean as pairs of characters.** Their words have nothing
+  between them, so FTS5's tokenizer takes a run of their characters for one word, and a search for 会議
+  (meeting) found nothing in 明日の会議の予定を確認してください (please check the schedule of tomorrow's
+  meeting). The index keeps each run as a term for each of its characters with the next, and its last
+  character alone (`termsOf` in `search-words.ts`), plainly or under keys, and a search looks for a
+  word of them as the terms of it a longer run has too, in a row: its pairs but its last character's,
+  or, for one character, any term it starts. A letter or number beside a run is a word of its own, as
+  the 3 of 3月. Over 100,000 Japanese messages, pairs make the index 42 MB where it was 25, and a
+  search for two characters takes 0.1 ms of SQLite, for one 1.4 ms, and for の, in nearly every
+  message, 6.5 ms. The words a match matched are the search's own runs, as a pair can hold more than
+  it searched for. Search migration 0007 adds `search_messages.paired`, and `search_pairing`, a walk
+  through the messages the index held before, newest first, that the walk above takes further each
+  hour: a run reads up to 5,000 of them, about 10,000 rows, so a day's runs read a twentieth of the 5
+  million rows Workers Free lets a day read, and pairs those with runs in them as far as what's left
+  of its 125 goes, passing the rest, which the index keeps the same either way. Until it reaches a
+  message, a search finds it by its runs whole, as before, since it looks for each word as the index
+  kept it then too. A copy that goes back to the release before this one finds the messages this one
+  paired by their other words alone, and coming back, finds what that release took by its runs whole.
 - **Search filters are conditions on the index's own rows.** Slack narrows a search with modifiers
   such as `in:`, `from:` and `has:link`, which Campfire has none of. The index keeps what they narrow
   by beside each message (search migration 0003): who wrote it, the thread it's in, whether it has a

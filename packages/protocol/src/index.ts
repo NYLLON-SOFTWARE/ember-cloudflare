@@ -180,6 +180,7 @@ export {
 } from "./push.ts";
 export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
 export {
+  CJK_CHARACTER,
   hasFilters,
   hasWords,
   isSearchable,
