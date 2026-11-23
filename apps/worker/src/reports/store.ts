@@ -11,7 +11,7 @@ import {
   type ReportSubject,
 } from "@ember/protocol/reports";
 import { statement, type Db } from "../db";
-import { ACTIVE, ADMINISTRATOR, deliveryOf, notPaused, type DeliveryRow, type PushDelivery } from "../workspace-store";
+import { ACTIVE, ADMINISTRATOR, badgeOf, deliveryOf, notPaused, type DeliveryRow, type PushDelivery } from "../workspace-store";
 
 // What the Workspace keeps of reports (migrations/0073_reports.sql): who reported whom, for which of
 // their messages or for themselves, why, and the message or the person as they were then, until an
@@ -106,7 +106,7 @@ export const OPEN_REPORTS_BY_ADMINISTRATOR = `SELECT id AS user_id, (SELECT coun
  * badge to, as a message's does.
  */
 export const REPORT_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
-    (SELECT count(*) FROM memberships WHERE memberships.user_id = users.id AND memberships.unread_at IS NOT NULL) AS badge
+    ${badgeOf("users.id")} AS badge
   FROM users JOIN push_subscriptions ON push_subscriptions.user_id = users.id
   WHERE users.role = ${ADMINISTRATOR} AND users.status = ${ACTIVE} AND users.id <> ?1 AND users.id <> ?2
     AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocks.user_id = users.id AND blocks.blocked_id = ?1) AND ${notPaused("?3")}

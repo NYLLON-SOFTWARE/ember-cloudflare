@@ -26,6 +26,9 @@ export function nextInvolvement(room: Room, involvement: Involvement): Involveme
 /** Whether someone has hidden `room` from their sidebar, which still lists it for them to open. */
 export const isHidden = (room: SidebarRoom) => room.involvement === "invisible";
 
+/** Whether someone has muted `room`, turning its notifications off, which their sidebar shows dimmed. */
+export const isMuted = (room: SidebarRoom) => room.involvement === "nothing";
+
 /**
  * `rooms` as your profile lists your levels in them: the rooms by name, compared as SQLite compares
  * `LOWER(name)`, as people are listed, and by id where names match, which SQLite leaves in no particular

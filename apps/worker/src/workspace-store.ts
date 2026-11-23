@@ -2077,6 +2077,16 @@ const blockedBy = (blocked: string) => `EXISTS (SELECT 1 FROM blocks WHERE block
 export const notPaused = (now: string) => `(users.notifications_paused_until IS NULL OR users.notifications_paused_until <= ${now})`;
 
 /**
+ * How many of the conversations of `userId`, a column, a push sets the app's badge to, as the web app's
+ * Activity counts them: those marked unread but the ones they've hidden, and of the ones they've muted,
+ * turning notifications off, only a room with a mention of them, or a DM, every message of which is for
+ * them, as Slack still badges a muted channel's mentions and a muted DM's messages.
+ */
+export const badgeOf = (userId: string) => `(SELECT count(*) FROM memberships AS marked WHERE marked.user_id = ${userId} AND marked.unread_at IS NOT NULL
+    AND marked.involvement <> 'invisible' AND (marked.involvement <> 'nothing' OR marked.mention_count > 0
+      OR EXISTS (SELECT 1 FROM rooms AS conversations WHERE conversations.id = marked.room_id AND conversations.kind = 'direct')))`;
+
+/**
  * Who of the people a JSON list ?2 names an invitation into room ?1's huddle by ?3 reaches: those in the
  * room, active, who hear its @mentions of them or more, since an invitation names them as a mention does,
  * and haven't blocked ?3.
@@ -2093,7 +2103,7 @@ export const HUDDLE_INVITEES = `SELECT memberships.user_id FROM memberships JOIN
  * its push sets the badge to, as a message's does.
  */
 export const INVITATION_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
-    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
+    ${badgeOf("memberships.user_id")} AS badge,
     rooms.kind, rooms.name, (SELECT name FROM users AS inviters WHERE inviters.id = ?2) AS inviter_name
   FROM rooms
     JOIN memberships ON memberships.room_id = rooms.id
@@ -2424,11 +2434,11 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  * it, or its thread for a reply sent only there, those at all messages first, then those at @mentions,
  * each in the order they were saved. Guests are left out unless ?5 says they can stay signed in, and
  * anyone whose notifications are paused past ?6, now (`notPaused`). Each comes with the room, its author's
- * name and the count its push sets the badge to: how many of its owner's conversations are marked unread.
- * Nothing once the Workspace has applied the message's event.
+ * name and the count its push sets the badge to: how many of its owner's conversations Activity counts
+ * (`badgeOf`). Nothing once the Workspace has applied the message's event.
  */
 const pushesOfMessage = (whom: string) => `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
-    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
+    ${badgeOf("memberships.user_id")} AS badge,
     rooms.kind, rooms.name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
   FROM rooms
     JOIN memberships ON memberships.room_id = rooms.id
@@ -2544,7 +2554,7 @@ interface InvitationPushRow extends DeliveryRow {
  * `MESSAGE_PUSHES` counts it, and nothing when it's someone else's, ?2 being whose it should be.
  */
 const TEST_PUSH = `SELECT id, endpoint, p256dh_key, auth_key,
-    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
+    ${badgeOf("push_subscriptions.user_id")} AS badge
   FROM push_subscriptions WHERE id = ?1 AND user_id = ?2`;
 
 export const deliveryOf = (row: DeliveryRow): PushDelivery => ({
