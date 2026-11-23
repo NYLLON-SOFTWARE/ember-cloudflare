@@ -186,6 +186,8 @@ const railCurrent = () =>
     .map((link) => link.getAttribute("aria-label") ?? link.textContent);
 /** How many times the room list was asked for. */
 const roomListRequests = () => vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === "/api/sidebar").length;
+/** How many times the saves list was asked for. */
+const savesAsked = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/saves" && (init?.method ?? "GET") === "GET").length;
 /** Community settings' heading for the section of workspace settings that's shown first. */
 const communitySettings = () => screen.findByRole("heading", { level: 1, name: "Basic community settings" });
 
@@ -1181,6 +1183,16 @@ describe("Saved pane", () => {
     expect(screen.getByRole("button", { name: "Activity" })).toHaveAccessibleDescription("1 unread");
     await waitFor(() => expect(badges).toEqual([1]));
   });
+
+  it("asks for the saves again when the workspace socket says another tab has saved or removed one", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    expect(savesAsked()).toBe(1);
+    await workspaceSends({ type: "saves.changed" });
+    await waitFor(() => expect(savesAsked()).toBe(2));
+  });
 });
 
 describe("Layout", () => {
@@ -1193,6 +1205,7 @@ describe("Layout", () => {
     expect(screen.getAllByRole("navigation", { name: "Workspace" })).toHaveLength(1);
   });
 });
+
 describe("New releases", () => {
   const NOTES = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases/tag/v0.2.0";
   const asAdministrator = { ...ada, administrator: true };
