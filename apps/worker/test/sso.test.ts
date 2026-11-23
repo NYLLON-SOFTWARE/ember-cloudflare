@@ -3,6 +3,7 @@ import {
   MEMBERFUL_CONNECTIONS_PATH,
   memberfulSignInPath,
   type AccountSettings,
+  type ApiTokenCreated,
   type Bootstrap,
   type Directory,
   type Me,
@@ -1290,6 +1291,56 @@ describe("Checking accounts with their refresh tokens", () => {
     await due();
     expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
     expect(await signsIn(member)).toBe(true);
+  });
+
+  /** Makes one of `session`'s personal access tokens, answering what its MCP asks look like. */
+  async function tokenOf(session: Session): Promise<{ token: string; opens: () => Promise<Response> }> {
+    const made = await api("/api/account/tokens", { method: "POST", headers: as(session), body: JSON.stringify({ name: "Deploy bot" }) });
+    expect(made.status, await made.clone().text()).toBe(201);
+    const { token } = (await made.json()) as ApiTokenCreated;
+    return { token, opens: () => api("/mcp", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) }) };
+  }
+
+  it("revokes a member's personal access tokens too while SSO only is on, as the provider no longer takes their refresh token", async () => {
+    const administrator = await setUpWithSso();
+    const member = await connectedGrace(administrator);
+    const { opens } = await tokenOf(member);
+    expect((await opens()).status).toBe(200);
+
+    provider.revoked.add(gracesAccount.sub);
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(member)).toBe(false);
+    // The token, which opened without a session, went with the sessions.
+    expect((await opens()).status).toBe(401);
+    const [revoked] = (await workspaceSql("SELECT revoked_at FROM api_tokens")) as Array<{ revoked_at: number | null }>;
+    expect(revoked!.revoked_at).not.toBeNull();
+    expect(await statusOf(administrator, member.user.id)).toBe("active");
+  });
+
+  it("leaves an invited person's personal access tokens be, whose password is a way in of its own", async () => {
+    const administrator = await setUpWithSso();
+    const invited = await connectedGrace(administrator, joinWithInvitation);
+    const { opens } = await tokenOf(invited);
+    provider.revoked.add(gracesAccount.sub);
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(invited)).toBe(true);
+    expect((await opens()).status).toBe(200);
+    const [kept] = (await workspaceSql("SELECT revoked_at FROM api_tokens")) as Array<{ revoked_at: number | null }>;
+    expect(kept!.revoked_at).toBeNull();
+  });
+
+  it("leaves a member's personal access tokens be while SSO only is off, when their password is a way in of its own", async () => {
+    const administrator = await setUpWithSso();
+    const member = await connectedGrace(administrator);
+    await turn(administrator, { ssoSignIn: false });
+    const { opens } = await tokenOf(member);
+    provider.revoked.add(gracesAccount.sub);
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(member)).toBe(true);
+    expect((await opens()).status).toBe(200);
   });
 
   it("counts a refresh whose userinfo endpoint doesn't answer as no answer, suspending nobody for groups it may give alone", async () => {

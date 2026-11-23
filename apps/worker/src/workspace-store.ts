@@ -421,7 +421,8 @@ export interface LoggedOut {
   sid: string | null;
   /**
    * Whether it ends every session of whoever the account with `subject` is linked to, however they
-   * signed in, as long as they need a membership, rather than only those the account signed in.
+   * signed in, as long as they need a membership, rather than only those the account signed in. It
+   * revokes their personal API tokens too, which open without a session the provider's word once kept.
    */
   everywhere?: boolean;
   /** The sessions it ends are those started by then, in milliseconds, so that one signed in after the provider said so stays. */
@@ -902,6 +903,11 @@ const TOUCH_API_TOKEN = `UPDATE api_tokens SET last_used_at = ?1 WHERE id = ?2 A
 
 /** Revokes one of someone's tokens, unless it's gone already, answering its id. */
 const REVOKE_API_TOKEN = `UPDATE api_tokens SET revoked_at = ?1 WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL RETURNING id`;
+
+/** Revokes the personal API tokens of whoever the account at issuer ?2 with subject ?3 is linked to, and who needs a membership to stay, as a provider that no longer vouches for the account while SSO alone is the way in does (`LoggedOut.everywhere`): they open without a session. One whose person has a password to sign in with keeps them, as their password sessions do. */
+const REVOKE_UNVOUCHED_API_TOKENS = `UPDATE api_tokens SET revoked_at = ?1 WHERE revoked_at IS NULL AND user_id IN (
+  SELECT identities.user_id FROM identities WHERE issuer = ?2 AND subject = ?3
+    AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = identities.user_id AND ${NEEDS_NO_MEMBERSHIP}))`;
 
 /** Keeps one of someone's API tokens only while the session ?6 names is still one to sign in with, as SESSION reads it: it's theirs, its person is active, it's no guest's while ?8 says guests are away, and it isn't idle past ?7. One statement, so a password reset ending the session as the token is kept keeps no token. */
 const CREATE_API_TOKEN = `INSERT INTO api_tokens (id, user_id, name, token_digest, created_at)
@@ -3817,10 +3823,12 @@ export class WorkspaceStore {
   /**
    * Ends the sessions signed in with an account at `issuer` that `loggedOut` names, in one transaction:
    * queues closing their sockets with `code` in every room their people are in, due at `dueAt`, and
-   * forgets the push subscriptions of anyone it leaves without a session. Answers the sessions it ended,
-   * and whether it queued any revocations.
+   * forgets the push subscriptions of anyone it leaves without a session. `revokeTokens`, which
+   * `LoggedOut.everywhere` says, revokes the personal API tokens of whoever the account is linked to in
+   * the same transaction, since they open without a session the provider's word once kept. Answers the
+   * sessions it ended, and whether it queued any revocations.
    */
-  async endLoggedOutSessions(issuer: string, named: LoggedOut, code: CloseCode, dueAt: number): Promise<LoggedOutSessions> {
+  async endLoggedOutSessions(issuer: string, named: LoggedOut, code: CloseCode, dueAt: number, revokeTokens = false): Promise<LoggedOutSessions> {
     const loggedOut = loggingOut(loggedOutBy(named));
     const { subject, sid } = named;
     const startedBy = new Date(named.startedBy).toISOString();
@@ -3829,6 +3837,7 @@ export class WorkspaceStore {
       statement(loggedOut.queue, issuer, sid, subject, startedBy, SESSION_TAG_PREFIX, code, dueAt),
       statement(loggedOut.forgetPushes, issuer, sid, subject, startedBy),
       statement(loggedOut.end, issuer, sid, subject, startedBy),
+      ...(revokeTokens && subject !== null ? [statement(REVOKE_UNVOUCHED_API_TOKENS, dueAt, issuer, subject)] : []),
     ]);
     return { ended: (ended as Array<{ id: string; user_id: UserId }>).map((row) => ({ id: row.id, userId: row.user_id })), queued: queued!.length > 0 };
   }

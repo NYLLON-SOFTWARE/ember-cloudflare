@@ -6094,9 +6094,10 @@ export class Workspace extends DurableObject<Env> {
    * Stops asking the provider at `issuer` about the account with `subject` with the refresh token `asked`,
    * and ends the sessions it signed in, or, `everywhere`, every session of a member it links, unless a
    * sign-in has kept another token since. Those it signed in while the provider was asked end too, since
-   * their sign-ins kept no token of their own, without which nothing would ask after them again. Should
-   * ending them fail, the token is put back, to try again in a few minutes, as having failed since
-   * `failingSince`.
+   * their sign-ins kept no token of their own, without which nothing would ask after them again. While
+   * SSO alone is the way in, the personal API tokens of whoever it links go with their sessions, which
+   * they open without. Should ending them fail, the token is put back, to try again in a few minutes, as
+   * having failed since `failingSince`.
    */
   private endUnvouched(issuer: string, subject: string, asked: string, everywhere: boolean, failingSince: number | null): Promise<void> {
     // One at a time with sign-ins, so that none keeps its token between forgetting this one and ending them.
@@ -6131,7 +6132,7 @@ export class Workspace extends DurableObject<Env> {
     try {
       done = await this.sessions.change(
         (session) => people.includes(session.user.id),
-        () => this.store.endLoggedOutSessions(issuer, loggedOut, CloseCode.Reconnect, now),
+        () => this.store.endLoggedOutSessions(issuer, loggedOut, CloseCode.Reconnect, now, loggedOut.everywhere === true),
       );
       return done.ended.length;
     } finally {
