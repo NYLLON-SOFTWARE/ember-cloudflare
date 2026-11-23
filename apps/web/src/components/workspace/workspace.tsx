@@ -1157,21 +1157,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   return (
     <PeopleContext value={directory.people}>
       <DirectoryLoaded value={directory.loaded}>
-        <SettingsLayout value={settings}>
-          <OpenSearchContext value={openSearch}>
-            <SavesContext value={saver}>
-              <HuddlesContext value={huddles}>{layout}</HuddlesContext>
-            </SavesContext>
-          </OpenSearchContext>
-        </SettingsLayout>
         <ActivePeople value={active}>
           <SettingsLayout value={settings}>
             <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>
-                <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
-                </BlockingContext>
-              </HuddlesContext>
+              <SavesContext value={saver}>
+                <HuddlesContext value={huddles}>
+                  <BlockingContext value={blocking}>
+                    <ReportingContext value={openReport}>{layout}</ReportingContext>
+                  </BlockingContext>
+                </HuddlesContext>
+              </SavesContext>
             </OpenSearchContext>
           </SettingsLayout>
         </ActivePeople>

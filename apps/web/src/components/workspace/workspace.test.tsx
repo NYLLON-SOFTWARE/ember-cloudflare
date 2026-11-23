@@ -1183,6 +1183,16 @@ describe("Saved pane", () => {
   });
 });
 
+describe("Layout", () => {
+  it("shows the room, its sidebar and the rail once", async () => {
+    serve({ "GET /api/saves": () => Response.json({ saves: [] }) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getAllByRole("complementary", { name: "Conversations" })).toHaveLength(1);
+    expect(screen.getAllByRole("navigation", { name: "Workspace" })).toHaveLength(1);
+  });
+});
 describe("New releases", () => {
   const NOTES = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases/tag/v0.2.0";
   const asAdministrator = { ...ada, administrator: true };
