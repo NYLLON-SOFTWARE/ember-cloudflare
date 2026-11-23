@@ -1764,7 +1764,12 @@ What a self-hoster should know, beyond keeping the setup password and link to th
   webhooks holds the bot's key and for the join link its code; Reset key and Regenerate join link are
   the remedies if a log is shared, and
   `"logs": { "invocation_logs": false }` under `observability` in `wrangler.jsonc` drops the
-  per-request record.
+  per-request record. A bot can keep its key out of a log by sending it as
+  `Authorization: Bearer <bot key>` to an address with none in it: `POST` or `GET`
+  `/bot/rooms/<room id>/messages`, and under it `/<message id>` to edit (`PUT`, `PATCH`) or delete, and
+  `/<message id>/boosts` to boost, as the addresses with the key do. The Chat bots page still shows the
+  addresses with the key. A request whose address and header hold different keys is refused with 400,
+  and the Slack-compatible webhook has to keep its key in its address.
 - A new password takes at least 8 characters, at setup, on joining, in a profile or in a reset,
   though a shorter one set before keeps working. Passwords are kept as scrypt digests at OWASP's
   cost, which takes about a quarter of a second of CPU in a Durable Object of its own; digests from
