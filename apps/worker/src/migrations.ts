@@ -227,9 +227,12 @@ export function migrate(storage: DurableObjectStorage, scope: Scope): void {
     ["0064_guests.sql", "0071_guests.sql"],
     ["0065_commands.sql", "0072_commands.sql"],
     ["0066_tokens.sql", "0073_tokens.sql"],
+    ["0067_reminders.sql", "0080_reminders.sql"],
     ["0073_reminder_push_retries.sql", "0081_reminder_push_retries.sql"],
+    ["0068_reminder_push_retries.sql", "0081_reminder_push_retries.sql"],
     ["0062_reminder_pushes.sql", "0082_reminder_pushes.sql"],
     ["0072_reminder_pushes.sql", "0082_reminder_pushes.sql"],
+    ["0074_reminder_pushes.sql", "0082_reminder_pushes.sql"],
   ] as const) {
     storage.sql.exec(
       "UPDATE d1_migrations SET name = ? WHERE name = ? AND NOT EXISTS (SELECT 1 FROM (SELECT name FROM d1_migrations WHERE name = ?) AS there)",

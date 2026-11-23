@@ -2,6 +2,7 @@ import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomI
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { migrate, MIGRATIONS } from "../src/migrations";
 import { UNDELIVERED_EVENTS, type RoomEvent } from "../src/room-log";
 import type { Workspace } from "../src/workspace";
 import { MESSAGE_PUSHES, type MessagePush, type WorkspaceStore } from "../src/workspace-store";
@@ -19,6 +20,7 @@ import {
   recordedImage,
   roomSql,
   roomStub,
+  sharedD1,
   shown,
   signIn,
   upload,
@@ -269,6 +271,52 @@ describe("Who gets a push", () => {
 
     await workspaceStub().forgetPushSubscriptions([id]);
     expect(await workspaceSql("SELECT id > ? AS later, endpoint FROM push_subscriptions", id)).toEqual([{ later: 1, endpoint: "https://fcm.googleapis.com/fcm/send/lin" }]);
+  });
+
+  it("keeps when a workspace's reminder pushes were tried and settled under those migrations' first numbers, and applies no migration twice", async () => {
+    // D1 runs the same SQL, at setup, with no reminder pushes from before to keep.
+    if (sharedD1()) return;
+    // A new room's storage stands in for a Workspace's from before, since a Workspace migrates as it opens.
+    const room = await freshRoom("reminder-pushes-renumbered");
+    const { kept, recorded } = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      const { sql } = state.storage;
+      sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+      for (const { name, sql: migration } of MIGRATIONS.filter(({ scope, name }) => scope === "workspace" && name < "0067")) {
+        sql.exec(migration);
+        sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+      }
+      sql.exec("INSERT INTO users (id, name, created_at, updated_at) VALUES ('u1', 'Grace', 'now', 'now')");
+      // The retries and settling migrations as a workspace that ran the branch before upstream took its
+      // slots has them recorded.
+      const sqlOf = (name: string) => MIGRATIONS.find(({ name: applied }) => applied === name)!.sql;
+      sql.exec(sqlOf("0080_reminders.sql"));
+      sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", "0067_reminders.sql");
+      sql.exec(sqlOf("0081_reminder_push_retries.sql"));
+      sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", "0068_reminder_push_retries.sql");
+      sql.exec(sqlOf("0082_reminder_pushes.sql"));
+      sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", "0074_reminder_pushes.sql");
+      const at = Date.now();
+      sql.exec(
+        `INSERT INTO reminders (id, user_id, room_id, message_id, creator_id, creator_name, excerpt, remind_at, reminded_at, push_tried_at, delivered, pushed_at, created_at)
+         VALUES ('r1', 'u1', 'general', 'm1', 'u1', 'Ada', 'Told once', ?, ?, ?, '["b1"]', ?, ?)`,
+        at + 60_000,
+        at - 1_000,
+        at - 1_000,
+        at - 1_000,
+        at,
+      );
+
+      migrate(state.storage, "workspace");
+
+      return {
+        kept: sql.exec("SELECT id, push_tried_at IS NOT NULL AS tried, delivered, pushed_at IS NOT NULL AS settled FROM reminders").toArray(),
+        recorded: sql.exec<{ name: string }>("SELECT name FROM d1_migrations WHERE name GLOB '*remind*' ORDER BY name").toArray().map(({ name }) => name),
+      };
+    });
+    // What the workspace kept of its reminder's pushes survives the migrations' new names, which ran no
+    // column onto the table again.
+    expect(kept).toEqual([{ id: "r1", tried: 1, delivered: '["b1"]', settled: 1 }]);
+    expect(recorded).toEqual(["0080_reminders.sql", "0081_reminder_push_retries.sql", "0082_reminder_pushes.sql"]);
   });
 });
 
