@@ -1102,7 +1102,7 @@ describe("Save a message for later", () => {
     withMouse();
     const { saver, user, open } = showSaved(false);
     await open();
-    expect(items()).toEqual(["Save for later", "Quote", "Copy text", "Copy link"]);
+    expect(items()).toEqual(["Save for later", "Quote", "Copy text", "Copy link", "Block Ada", "Report message"]);
     const item = within(moreActions()).getByRole("button", { name: "Save for later" });
     expect(item).toHaveAttribute("aria-pressed", "false");
     await user.click(item);
