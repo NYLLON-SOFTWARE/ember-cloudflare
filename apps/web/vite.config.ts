@@ -146,5 +146,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
+    // Node 26 has web storage of its own, whose localStorage is undefined without --localstorage-file, and
+    // Vitest gives the tests jsdom's localStorage and sessionStorage only where Node has none, so the tests'
+    // workers turn Node's off. Node 22 and 24 take the flag too.
+    execArgv: ["--no-experimental-webstorage"],
   },
 });
