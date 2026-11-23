@@ -129,6 +129,14 @@ describe("The Pinned panel", () => {
     expect(onUnpin).toHaveBeenCalledWith("m1");
   });
 
+  it("pads the list above the phone's bottom safe area, and gives Jump and Unpin touch-sized hit areas", () => {
+    const { panel } = show([{ messageId: "m1", by: grace, at: "2026-11-13T10:01:00.000Z" }], [first]);
+    expect(within(panel).getByRole("list")).toHaveClass("pb-[max(8px,env(safe-area-inset-bottom))]");
+    const item = within(panel).getByRole("listitem");
+    expect(within(item).getByRole("link", { name: "Jump" })).toHaveClass("touch:min-h-11", "touch:min-w-11");
+    expect(within(item).getByRole("button", { name: "Unpin" })).toHaveClass("touch:min-h-11", "touch:min-w-11");
+  });
+
   it("asks for the room's pins while one's time waits for its listing, and once they've all come it doesn't", () => {
     const waiting = show([{ messageId: "m1", by: grace, at: null }], [first]);
     expect(waiting.refresh).toHaveBeenCalledOnce();

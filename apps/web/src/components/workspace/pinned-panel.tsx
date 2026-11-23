@@ -87,7 +87,7 @@ export function PinnedPanel({ room, name, me, pins, messages, onUnpin, refresh, 
         </button>
       </header>
       <RoomNotice notice={roomNotice} onDismiss={onDismissRoomNotice} />
-      <div role="list" className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2">
+      <div role="list" className="min-h-0 flex-1 overflow-y-auto overscroll-contain pt-2 pb-[max(8px,env(safe-area-inset-bottom))]">
         {pins !== null && pins.length === 0 && <p className="px-5 py-2 text-[15px] leading-[22px] text-message-muted max-md:px-3">Nothing pinned yet.</p>}
         {pins?.map((pin) => {
           const message = messages.get(pin.messageId);
@@ -128,4 +128,4 @@ export function PinnedPanel({ room, name, me, pins, messages, onUnpin, refresh, 
 }
 
 const ROOM_NAME = "max-w-full min-w-0 truncate text-sm leading-5 text-muted-foreground";
-const PANEL_LINK = "cursor-pointer rounded text-link no-underline hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground";
+const PANEL_LINK = "cursor-pointer rounded text-link no-underline hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:min-h-11 touch:min-w-11";
