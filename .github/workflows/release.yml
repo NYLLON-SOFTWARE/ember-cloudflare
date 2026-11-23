@@ -1,7 +1,8 @@
 name: Release
 
 # Releases Ember whenever main's version, apps/worker/package.json's, is a new one: tags the commit
-# v<version> and publishes the release, with notes that list the pull requests merged since the last.
+# v<version> and publishes the release, with notes that list the pull requests merged since the last,
+# after what's new in it in words, where docs/releases/<version>.md has them.
 # Copies of Ember update from release to release (docs/self-hosting.md#updating), so a pull request
 # that changes the version is how to release (docs/development.md#releasing). A beta's version, such
 # as 0.5.0-beta.1, is published as a pre-release, which GitHub never takes for the latest release,
@@ -63,6 +64,9 @@ jobs:
             gh release create "v$version" --target "$GITHUB_SHA" --title "$title" --prerelease --notes "$intro" --generate-notes "${from[@]}"
           else
             title="Ember $version"
-            gh release create "v$version" --target "$GITHUB_SHA" --title "$title" --generate-notes "${from[@]}"
+            # What's new in the release, in words, which gh puts ahead of the list of pull requests.
+            words=()
+            if [ -f "docs/releases/$version.md" ]; then words=(--notes-file "docs/releases/$version.md"); fi
+            gh release create "v$version" --target "$GITHUB_SHA" --title "$title" "${words[@]}" --generate-notes "${from[@]}"
           fi
           echo "Released [$title]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$version)." >> "$GITHUB_STEP_SUMMARY"
