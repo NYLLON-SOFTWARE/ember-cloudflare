@@ -226,6 +226,30 @@ describe("Video player", () => {
     expect(localStorage.getItem("ember:playback-rate")).toBe("1.5");
   });
 
+  it("keeps a speed picked in the browser's own player, as full screen shows it, as every player's", async () => {
+    const sound = stored("Audio clip 2026-11-23 at 9.42.10 AM.m4a", "audio/mp4", { id: "k2", waveform: Array(WAVEFORM_LENGTH).fill(50) });
+    render(
+      <>
+        <VideoPlayer file={clip()} />
+        <AudioPlayer file={sound} />
+      </>,
+    );
+    const speed = (name = CLIP) => within(player(name)).getByRole("button", { name: /^Playback speed/ });
+    act(() => {
+      video().playbackRate = 1.25;
+      video().dispatchEvent(new Event("ratechange"));
+    });
+    expect(speed()).toHaveAccessibleName("Playback speed, 1.25 times");
+    expect(speed(sound.name)).toHaveTextContent("1.25×");
+    expect(player(sound.name).querySelector("audio")!.playbackRate).toBe(1.25);
+    expect(localStorage.getItem("ember:playback-rate")).toBe("1.25");
+
+    // The card's button goes on from it to 1×.
+    await userEvent.click(speed());
+    expect(speed()).toHaveAccessibleName("Playback speed, 1 times");
+    expect(video().playbackRate).toBe(1);
+  });
+
   it("plays full screen in the browser's own player, with its controls, until it leaves full screen", async () => {
     let shown: Element | null = null;
     fullScreenable(true, () => shown);

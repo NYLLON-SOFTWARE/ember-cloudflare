@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils";
 /** The speeds a sound or video plays at, which its speed button goes through in turn. */
 const RATES = [1, 1.5, 2];
 
+/** Whether `rate` is a speed to keep: one of the button's, or one a browser's own player offers, as Chrome's full-screen one does from 0.25× to 2×. */
+const isRate = (rate: number) => rate >= 0.25 && rate <= 2;
+
 /** Where the browser keeps the speed last picked. */
 const RATE_KEY = "ember:playback-rate";
 
@@ -76,6 +79,10 @@ export function usePlayback<Media extends HTMLMediaElement>(onFailed: () => void
         setStarted(false);
       },
       seeked: () => setTime(element.currentTime),
+      // A speed picked in the browser's own player, as full screen shows it, is every sound's and video's from then on.
+      ratechange() {
+        if (element.playbackRate !== pickedRate() && isRate(element.playbackRate)) pickRate(element.playbackRate);
+      },
       error: () => failed(),
     };
     for (const [type, listener] of Object.entries(listeners)) element.addEventListener(type, listener);
@@ -211,7 +218,10 @@ export function HoverTime({ at, duration }: { at: number | null; duration: numbe
   );
 }
 
-/** The button that plays every sound and video at the next speed, 1×, 1.5× or 2× in turn, saying the speed now. */
+/**
+ * The button that plays every sound and video at the next speed, 1×, 1.5× or 2× in turn, saying the speed now. From
+ * one picked in the browser's own player, as 1.25×, it goes to 1×.
+ */
 export function SpeedButton({ className }: { className?: string }) {
   const rate = usePickedRate();
   return (
@@ -243,7 +253,7 @@ function pickedRate(): number {
   if (rateHere !== null) return rateHere;
   try {
     const kept = Number(localStorage.getItem(RATE_KEY));
-    return RATES.includes(kept) ? kept : 1;
+    return isRate(kept) ? kept : 1;
   } catch {
     return 1;
   }
