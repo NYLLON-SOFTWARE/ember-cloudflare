@@ -89,8 +89,23 @@ describe("Image, video and file previews", () => {
     expect(without.parentElement).not.toHaveAttribute("style");
   });
 
+  it("plays a recording of sound in place, as an audio clip, loading only how long it is until it's played", () => {
+    const clip = stored("Audio clip 2026-11-17 at 9.41.07 AM.m4a", "audio/mp4");
+    const { container } = render(<Attachment file={clip} />);
+    const audio = container.querySelector("audio")!;
+    expect(audio).toHaveAttribute("src", clip.url);
+    expect(audio).toHaveAttribute("preload", "metadata");
+    expect(audio).toHaveAttribute("controls");
+    expect(audio).toHaveAccessibleName(clip.name);
+    expect(card(clip.name)).not.toBeInTheDocument();
+    cleanup();
+
+    render(<Attachment file={stored("theme.mp3", "audio/mpeg")} />);
+    expect(screen.getByLabelText("theme.mp3")).toHaveAttribute("controls");
+  });
+
   it("shows any other file as its card", () => {
-    for (const file of [stored("Q3 report.pdf", "application/pdf"), stored("theme.mp3", "audio/mpeg")]) {
+    for (const file of [stored("Q3 report.pdf", "application/pdf"), stored("notes.zip", "application/zip")]) {
       const { container } = render(<Attachment file={file} />);
       expect(card(file.name)).toBeInTheDocument();
       expect(screen.queryByRole("img")).not.toBeInTheDocument();

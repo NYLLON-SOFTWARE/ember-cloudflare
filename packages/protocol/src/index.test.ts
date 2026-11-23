@@ -187,6 +187,44 @@ describe("Link previews after sending", () => {
   });
 });
 
+describe("Schedule a message", () => {
+  const scheduled = { type: "message.schedule", clientMessageId: "c1", body: "<p>hi</p>", sendAt: "2026-11-18T17:00:00.000Z" };
+
+  it("schedules a message as message.create sends one, in a thread too, for a time it writes as toISOString does", () => {
+    expect(parse(scheduled)).toEqual(scheduled);
+    expect(parse({ ...scheduled, sendAt: "2026-11-18T09:00:00-08:00" })).toEqual(scheduled);
+    expect(parse({ ...scheduled, parentId: "m1" })).toEqual({ ...scheduled, parentId: "m1", alsoSend: false });
+    expect(parse({ ...scheduled, parentId: "m1", alsoSend: true })).toEqual({ ...scheduled, parentId: "m1", alsoSend: true });
+  });
+
+  it("refuses a time that isn't one, and what message.create would refuse", () => {
+    for (const sendAt of [undefined, null, 1_795_000_000_000, "", "tomorrow", "2026-13-01T00:00:00Z", `2026-11-18T17:00:00.000Z${" ".repeat(7)}`]) {
+      expect(parse({ ...scheduled, sendAt }), String(sendAt)).toBeNull();
+    }
+    expect(parse({ ...scheduled, body: 7 })).toBeNull();
+    expect(parse({ ...scheduled, body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    expect(parse({ ...scheduled, clientMessageId: "" })).toBeNull();
+    expect(parse({ ...scheduled, parentId: "" })).toBeNull();
+  });
+
+  it("edits, moves, sends now or deletes a scheduled message by its id", () => {
+    const edited = { type: "scheduled.edit", scheduledId: "s1", body: "<p>hello</p>" };
+    expect(parse(edited)).toEqual(edited);
+    expect(parse({ ...edited, body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    const moved = { type: "scheduled.reschedule", scheduledId: "s1", sendAt: "2026-11-23T17:00:00Z" };
+    expect(parse(moved)).toEqual({ ...moved, sendAt: "2026-11-23T17:00:00.000Z" });
+    expect(parse({ ...moved, sendAt: "soon" })).toBeNull();
+    expect(parse({ type: "scheduled.send", scheduledId: "s1" })).toEqual({ type: "scheduled.send", scheduledId: "s1" });
+    expect(parse({ type: "scheduled.delete", scheduledId: "s1" })).toEqual({ type: "scheduled.delete", scheduledId: "s1" });
+    for (const scheduledId of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ ...edited, scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ ...moved, scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ type: "scheduled.send", scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ type: "scheduled.delete", scheduledId }), String(scheduledId)).toBeNull();
+    }
+  });
+});
+
 describe("Threads", () => {
   it("sends a reply to a message's thread, and to the room too only when it says so", () => {
     const reply = { type: "message.create", clientMessageId: "c1", body: "<p>hi</p>", parentId: "m1" };

@@ -5194,6 +5194,15 @@ export class Workspace extends DurableObject<Env> {
     return this.store.roomMember(roomId, clickerId);
   }
 
+  /**
+   * `writerId` as they're named now, while they're in room `roomId`, for a message they scheduled there,
+   * which the room sends as theirs only then: null once they've left it, been removed from it, or can't
+   * sign in to Ember.
+   */
+  async scheduledWriter(roomId: RoomId, writerId: UserId): Promise<User | null> {
+    return (await this.store.roomMember(roomId, writerId))?.member ?? null;
+  }
+
   /** Whether `agentId` is one tools are picked for: @ember, whether or not it has answered yet, or an agent. */
   private async usesTools(agentId: UserId): Promise<boolean> {
     return agentId === ASSISTANT_ID || (await this.store.isAgent(agentId));
@@ -6047,10 +6056,18 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Whether room `roomId` is private by now, a DM or a private room, or gone, as an answer asks once it
-   * has searched the room, which may have been made private since the answer began (`roomSearch`).
+   * has read the room, which may have been made private since the answer began (`roomTools`).
    */
   async isPrivateRoom(roomId: RoomId): Promise<boolean> {
     return isPrivate(await this.store.roomKind(roomId));
+  }
+
+  /**
+   * The ids of the first few people named `name`, ignoring the case of ASCII letters, whose messages an
+   * answer's search of a room finds for it (`roomTools`), as a person's name is all its model knows of them.
+   */
+  async peopleNamed(name: string): Promise<UserId[]> {
+    return this.store.peopleNamed(name);
   }
 
   /**

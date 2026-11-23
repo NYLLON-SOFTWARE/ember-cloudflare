@@ -867,6 +867,13 @@ test.describe("A huddle", () => {
     // As in a room's thread, Also send to the room has a line of its own over the composer's buttons, and isn't cut short.
     const alsoSend = threadOf(adasHuddle).getByRole("checkbox", { name: `Also send to #${room.name}` });
     expect(await alsoSend.evaluate((box) => box.nextElementSibling!.scrollWidth <= box.nextElementSibling!.clientWidth)).toBe(true);
+    // Its buttons, the clips' among them, keep to one line, and so does Manage drafts, there once something's written.
+    const underReply = (name: string) => threadOf(adasHuddle).getByRole("button", { name, exact: true });
+    await expect(underReply("Record audio clip")).toBeVisible();
+    expect((await underReply("Send Message").boundingBox())!.y).toBe((await underReply("Attach").boundingBox())!.y);
+    await replyBox(adasHuddle).fill("Agenda");
+    await expect(underReply("Manage drafts")).toBeVisible();
+    expect((await underReply("Manage drafts").boundingBox())!.y).toBe((await underReply("Attach").boundingBox())!.y);
 
     // Grace joins by the huddle's link, and has its thread too. What Ada writes there she reads, and Ada what she answers.
     const { user: her, context } = await newcomer(browser, baseURL, request, "Grace");

@@ -18,8 +18,8 @@ files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log, its log of messages for the search index, its recent deletions, its files and the
-calls of apps' tools that wait to be allowed, and
+room's change log, its log of messages for the search index, its recent deletions, its files, the
+calls of apps' tools that wait to be allowed and the messages people have scheduled there, and
 `workspace` for the workspace-wide tables (the account, people, sessions and the addresses their sockets come from, linked accounts, push
 subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
 purges and reindexes, the rooms deleted, the apps connected, the tools picked for each agent, and the AI apps people connect to Ember). On DO SQLite, an object applies only its own scope's
@@ -29,7 +29,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
+`message_deletions`, `blobs`, `waiting_calls` and `scheduled_messages`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`, `sections`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,
@@ -92,7 +92,10 @@ Objects, D1 or speed call for something else.
   skip Campfire's `connections` and `connected_at` columns: each room's object knows from its
   sockets who's viewing it, and sends that list with its messages. And ours writes only the rows it
   changes, so `unread_at` is the time of the first message since someone last read the room; nothing
-  reads it but to ask whether it's set. In a DM the same `UPDATE` writes every unread row, adding one
+  reads it but to ask whether it's set. A room tells the Workspace of a message a moment after it,
+  longer in a burst, when someone may have joined meanwhile, so the `UPDATE` leaves out each
+  membership whose `created_at` is after the message was written, as the mention counts and pushes
+  below do. In a DM the same `UPDATE` writes every unread row, adding one
   to `memberships.unread_count` (workspace migration 0065), so a DM's row counts its messages since,
   as Slack's do; a read sets it back to 0. A shared room's row counts the messages since that
   notify its member instead, in `memberships.mention_count` (workspace migration 0085), which the

@@ -189,6 +189,11 @@ const shortcutOf = ({ key, shift: shifted, option: optioned }: FormattingKeys, a
   aria: [apple ? "Meta" : "Control", ...(optioned ? ["Alt"] : []), ...(shifted ? ["Shift"] : []), key].join("+"),
 });
 
+/** Whether a key pressed in a message's text is Cmd or Ctrl+B, I or U, which the editor takes itself. */
+export function editorsOwnShortcut(event: KeyboardEvent): boolean {
+  return [...EDITORS_OWN].some((action) => FORMATTING_KEYS[action]!.some((combination) => pressedKeys(event, combination)));
+}
+
 /** The keys of a formatting button that has them, on this keyboard, as its tooltip shows them. */
 export function formattingKeys(action: FormattingKey, apple = appleKeyboard()): Shortcut | undefined {
   const keys = FORMATTING_KEYS[action]?.[0];

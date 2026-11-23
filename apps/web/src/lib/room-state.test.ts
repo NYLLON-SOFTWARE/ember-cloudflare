@@ -114,6 +114,12 @@ describe("See your message before it's saved", () => {
     expect(state.notice).toBe("nope");
   });
 
+  it("says why a change to a scheduled message was refused, but an edit, which their list says as it keeps the edit", () => {
+    const refused = (failed: "scheduled.send" | "scheduled.edit") => frame(initialRoomState, { type: "frame", frame: { type: "error", message: "nope", scheduledId: "s1", failed }, now: 0 });
+    expect(refused("scheduled.send").notice).toBe("nope");
+    expect(refused("scheduled.edit")).toBe(initialRoomState);
+  });
+
   describe("A message refused for what it says", () => {
     const WHY = "This community doesn't allow one of these words.";
     const refused = () => {

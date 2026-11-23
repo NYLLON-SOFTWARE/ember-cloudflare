@@ -157,6 +157,11 @@ Cloudflare button for it and list what's changed since the release or beta befor
 offered it unless it asks for one, or runs an earlier beta ([Betas](self-hosting.md#betas)). The
 tests that name the release expect it named "0.5 beta 1". The release itself then sets `0.5.0`, and
 its notes list what's changed since the release before, as the copies it's offered come from there.
+A release whose list is long can open its notes with what's new in it, in words: the pull request that
+raises the version adds them as `docs/releases/<version>.md`, as `docs/releases/0.5.0.md` does, and the
+Release workflow puts them ahead of the list. Write [at]ember there, as [at]channel and the rest, never
+@ and the name, which GitHub reads in a release's notes as one of its accounts, and lists among the
+release's contributors.
 Ember's version is a release's or a beta's, which the Release workflow checks, since copies tell
 them apart by their tags and know no other kind.
 

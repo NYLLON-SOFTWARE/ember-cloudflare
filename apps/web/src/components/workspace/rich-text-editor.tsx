@@ -15,7 +15,7 @@ import { roomIconUrl } from "@/components/icons/room-icon";
 import type { RoomCard, Rooms } from "@/hooks/use-rooms";
 import { sameFormat, type FormattingCommand, type LinkDraft, type TextFormat } from "@/lib/formatting";
 import type { SlashCommand } from "@/lib/slash-commands";
-import { registerQuoteLines } from "./quote-lines";
+import { registerLineStyles } from "./line-styles";
 import { $applyFormatting, $formatOf, $linkDraft, $unlink, linkText, startNewBlock, type FormattedEditor } from "./text-formatting";
 import "./rich-text-editor.css";
 
@@ -76,7 +76,7 @@ class CampfireRichTextExtension extends Extension {
   }
 
   get lexicalExtension() {
-    return this.defineExtension({ name: "campfire/rich-text", nodes: [CiteNode], register: registerQuoteLines });
+    return this.defineExtension({ name: "campfire/rich-text", nodes: [CiteNode], register: registerLineStyles });
   }
 }
 
@@ -647,11 +647,13 @@ export default function RichTextEditor({
     isBlank: () => editor.current?.isBlank ?? true,
     hasOpenPrompt: () => editor.current?.hasOpenPrompt ?? false,
     focus: () => editor.current?.focus(),
-    // Campfire's composer_controller.js#replaceMessageContent, for what Quote writes.
+    // Campfire's composer_controller.js#replaceMessageContent, for what Quote writes, and a draft opened, whose
+    // rooms show as they are now, as those of the draft the editor opens with do.
     replace: (markup) => {
       const lexxy = editor.current;
       if (!lexxy) return;
       lexxy.value = markup;
+      if (rooms) showRoomsAsTheyAre(lexxy, rooms);
       lexxy.focus();
       lexxy.selection.placeCursorAtTheEnd();
     },

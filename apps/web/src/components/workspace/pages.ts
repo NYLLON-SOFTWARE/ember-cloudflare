@@ -1,11 +1,14 @@
 // The pages few visits need, Available Agents, Report, a huddle's preview, bar and view, the invitations into one, the
-// Huddles page, and first run's question about huddles, which load together apart from the rest of the app
-// (`rarePage` in workspace.tsx, `loadSetupHuddles` in setup-page.tsx).
+// Huddles page, the composer's clip recorders, and first run's question about huddles, which load together apart from
+// the rest of the app (`rarePage` in workspace.tsx, `loadSetupHuddles` in setup-page.tsx, and the composer's clips).
+// Loading them apart would split what they share, the huddles' cameras among it, into a chunk of its own, and the
+// app's script with it (see oneAppScript in vite.config.ts).
 export { SetupHuddles } from "../setup-huddles";
 export { AgentSettingsPage, NewAgentPage } from "./agent-page";
 export { AppSettingsPage, NewAppPage } from "./app-page";
 export { AppSignedInPage } from "./app-signed-in-page";
 export { AvailableAgentsDialog } from "./available-agents";
+export { AudioClipRecorder, VideoClipDialog } from "./clip-recorders";
 export { BotSettingsPage, NewBotPage } from "./bot-settings-page";
 export { BotsPage } from "./bots-page";
 export { CustomStylesPage } from "./custom-styles-page";
