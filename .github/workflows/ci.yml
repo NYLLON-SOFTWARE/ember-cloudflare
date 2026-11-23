@@ -51,6 +51,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      # Ember runs on Node 22, 24 and 26 (package.json's engines), and Node 26's own web storage hid jsdom's
+      # from the web app's tests until apps/web/vite.config.ts turned it off, so they run on Node 26 too.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - run: pnpm --filter @ember/web test
 
   e2e:
     if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare'
