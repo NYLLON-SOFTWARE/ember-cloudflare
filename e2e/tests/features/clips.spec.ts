@@ -48,6 +48,9 @@ async function lengthOf(media: Locator): Promise<number | null> {
  */
 const TWO_SECOND_LENGTHS = [2, 3];
 
+/** The player of the video clip a message holds. */
+const videoPlayer = (member: Member) => member.page.getByRole("article").getByRole("group", { name: /^Video clip .+\.(mp4|webm)$/ });
+
 /** The player of the audio clip a message holds, of a file ending in one of `extensions`. */
 const clipPlayer = (member: Member, extensions = "m4a|webm") => member.page.getByRole("article").getByRole("group", { name: new RegExp(`^Audio clip .+\\.(${extensions})$`) });
 
@@ -57,7 +60,7 @@ const barHeights = (player: Locator) => player.locator("clipPath rect").evaluate
 test.describe("Clips", () => {
   test.skip(({ browserName }) => !recordsClips(browserName), "Playwright's WebKit for Linux has no MediaRecorder, so it records no clips, and offers none");
 
-  test("records a video clip from the camera, as a mirror shows you, choosing its thumbnail, to go with the next message, which plays for everyone, saying how long it is", async ({ members }) => {
+  test("records a video clip from the camera, as a mirror shows you, choosing its thumbnail, to go with the next message, which plays in place for everyone, saying when it was recorded and how long it is", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const grace = await members.signIn("Grace");
     await underText(ada, "Record video clip").click();
@@ -87,11 +90,23 @@ test.describe("Clips", () => {
     await ada.page.getByRole("button", { name: "Send Message" }).click();
 
     for (const member of [ada, grace]) {
-      const video = member.page.getByRole("article").locator("video");
-      await expect(video).toHaveAccessibleName(/^Video clip .+\.(mp4|webm)$/);
+      const player = videoPlayer(member);
+      // Its card says when it was recorded and how long it is, which Ada's browser read as she sent it, loading none of it.
+      await expect(player.getByText("Video clip", { exact: true })).toBeVisible();
+      await expect(player.getByText(/^Recorded \w+ \d+ at .+ · 0:0[23]$/)).toBeVisible();
+      const video = player.locator("video");
       await expect(video).toHaveAttribute("poster", /^\/previews\//);
+      expect(await video.evaluate((element: HTMLVideoElement) => element.readyState)).toBe(0);
       expect(TWO_SECOND_LENGTHS).toContain(await lengthOf(video));
     }
+
+    // It plays in place, filling its line, then it's ready to play again from its start.
+    const player = videoPlayer(grace);
+    await player.getByRole("button", { name: "Play", exact: true }).click();
+    await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+    await expect(player.getByRole("slider", { name: "Position" })).toHaveAttribute("aria-valuetext", /^0:01 of /);
+    await expect(player.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+    await expect(player.getByRole("slider", { name: "Position" })).toHaveAttribute("aria-valuetext", /^0:00 of /);
   });
 
   test("records an audio clip from the microphone at once, in the composer's place, keeping what's written, to go with it, which plays for everyone, saying how long it is, with the waveform its sender's browser worked out", async ({ members }) => {

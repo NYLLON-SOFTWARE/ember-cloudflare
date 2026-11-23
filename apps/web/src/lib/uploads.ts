@@ -1,5 +1,6 @@
 import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type Upload } from "@ember/protocol";
 import { previewOf } from "./previews";
+import { videoLengthOf } from "./video-length";
 import { waveformOf } from "./waveform";
 
 // Uploading a file as a message of its own, as Campfire's FileUploader does, but in parts that R2 puts
@@ -86,11 +87,11 @@ export interface UploadThread {
  */
 export async function uploadFile(roomId: RoomId, file: File, clientMessageId: string, onProgress: (percent: number) => void, thread?: UploadThread): Promise<Message> {
   if (file.size > MAX_FILE_SIZE) throw new UploadError(FILE_TOO_LARGE);
-  const waveform = await waveformOf(file);
+  const [waveform, duration] = await Promise.all([waveformOf(file), videoLengthOf(file)]);
   const started = await fetch(uploadsPath(roomId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: file.name, type: file.type, size: file.size, clientMessageId, ...thread, ...(waveform && { waveform }) }),
+    body: JSON.stringify({ name: file.name, type: file.type, size: file.size, clientMessageId, ...thread, ...(waveform && { waveform }), ...(duration && { duration }) }),
   }).catch(() => {
     throw new UploadError(CONNECTION_LOST);
   });

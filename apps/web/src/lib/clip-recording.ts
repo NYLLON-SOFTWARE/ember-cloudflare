@@ -47,6 +47,30 @@ export function clipName(kind: ClipKind, at: Date, type: string): string {
 /** Whether `name` is an audio clip's, as `clipName` names one, rather than any other file's. */
 export const isAudioClipName = (name: string) => /^Audio clip \d{4}-\d\d-\d\d at .+\.(m4a|ogg|webm)$/.test(name);
 
+/** A video clip's name, as `clipName` names one: its day, then its time of day as the browser that recorded it writes one. */
+const VIDEO_CLIP_NAME = /^Video clip (\d{4})-(\d\d)-(\d\d) at (.+)\.(mp4|ogg|webm)$/;
+
+/** A time of day as `clipName` writes one in numbers, with dots for colons, as 6.45.12 PM or 18.45.12. */
+const CLIP_TIME = /^(\d{1,2})\.(\d\d)\.\d\d(?: ?([ap])\.? ?m\.?)?$/i;
+
+/**
+ * When the video clip named `name` was recorded, by the clock of the browser that recorded it, as `clipName`
+ * names one, or null for any other file's name. Its time of day counts where the name writes it in numbers,
+ * as most languages do, which `timed` says, and otherwise only its day does.
+ */
+export function videoClipRecordedAt(name: string): { at: Date; timed: boolean } | null {
+  const clip = VIDEO_CLIP_NAME.exec(name);
+  if (!clip) return null;
+  const [, year, month, day, time] = clip;
+  const at = new Date(Number(year), Number(month) - 1, Number(day));
+  if (at.getDate() !== Number(day)) return null;
+  const [, hours, minutes, half] = CLIP_TIME.exec(time!) ?? [];
+  const hour = half ? (Number(hours) % 12) + (half.toLowerCase() === "p" ? 12 : 0) : Number(hours);
+  if (hours === undefined || hour > 23 || Number(minutes) > 59 || (half !== undefined && Number(hours) > 12)) return { at, timed: false };
+  at.setHours(hour, Number(minutes));
+  return { at, timed: true };
+}
+
 /** How much of a WebM's start holds what comes before its first picture or sound, its Info among it. */
 const WEBM_HEAD = 64 * 1024;
 
