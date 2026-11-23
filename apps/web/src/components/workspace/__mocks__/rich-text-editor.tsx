@@ -107,7 +107,20 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
       text.setRangeText(/\S$/.test(before) ? " @" : "@", text.selectionStart, text.selectionEnd, "end");
       onChange?.();
     },
-    startNewBlock: () => false,
+    startNewBlock: () => {
+      // In a list, or in a heading, the next item or paragraph is a new line here, which the composer's
+      // having asked for is told of on the box, since it keeps the key from the editor otherwise.
+      const text = box.current!;
+      const inBlock = format.current.list !== null || format.current.heading !== null;
+      if (inBlock) {
+        text.setRangeText("\n", text.selectionStart, text.selectionEnd, "end");
+        text.dataset.newBlock = "true";
+        onChange?.();
+      } else {
+        delete text.dataset.newBlock;
+      }
+      return inBlock;
+    },
     catchUp: () => {},
   }));
 

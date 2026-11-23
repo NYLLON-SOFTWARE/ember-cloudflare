@@ -405,6 +405,20 @@ describe("Send from the keyboard", () => {
     expect(onSend).toHaveBeenCalledWith("<p>line one<br>line two</p>", false);
   });
 
+  it("starts a list's next item on Shift+Enter itself, which is then no line of the editor's own", async () => {
+    const { onSend, input, user } = await showComposer();
+    await user.click(tool("Bulleted list"));
+    await user.type(input, "first");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    // The composer asked the editor for the list's next item, which it started, and kept the key from it.
+    expect(input).toHaveAttribute("data-new-block", "true");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("first\n");
+
+    await user.type(input, "second{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>first<br>second</p>", false);
+  });
+
   it("sends on Enter with the formatting row showing, as Slack's does, and keeps the row", async () => {
     const { onSend, input, user } = await showComposer();
     await user.type(input, "one{Enter}");
@@ -602,6 +616,13 @@ describe("The buttons under the text", () => {
     await user.type(input, "{Enter}");
     expect(sendButton()).toHaveAttribute("data-empty");
     await user.upload(fileField(), fileOf("a.txt"));
+    expect(sendButton()).not.toHaveAttribute("data-empty");
+  });
+
+  it("greys Send out in a thread's composer until something's written, which looks for no commands", async () => {
+    const { input, user } = await showComposer({ threadId: "t1" });
+    expect(sendButton()).toHaveAttribute("data-empty");
+    await user.type(input, "A reply");
     expect(sendButton()).not.toHaveAttribute("data-empty");
   });
 
