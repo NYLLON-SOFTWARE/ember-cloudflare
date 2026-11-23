@@ -33,6 +33,8 @@ export function ApiTokens({ onFailed }: Props) {
   const [tokens, setTokens] = useState<ApiToken[] | null>(null);
   /** The token just made, whose secret is on its way out of the only place it's ever shown. */
   const [made, setMade] = useState<ApiTokenCreated | null>(null);
+  /** Whether one is being made, while the form takes no second one, whose answer would hide the first's only shown secret. */
+  const [making, setMaking] = useState(false);
   /** The tokens made while this page has been open, newest first, since the list was asked for. */
   const madeTokens = useRef<ApiToken[]>([]);
   /** The tokens revoked while this page has been open, since the list was asked for. */
@@ -67,10 +69,13 @@ export function ApiTokens({ onFailed }: Props) {
 
   const make = (event: FormEvent) => {
     event.preventDefault();
+    if (making) return;
     const name = nameInput.current?.value.trim() ?? "";
     if (!name) return;
+    setMaking(true);
     createApiToken(name).then(
       (created) => {
+        setMaking(false);
         if (!mounted.current) return;
         madeTokens.current = [created, ...madeTokens.current];
         setMade(created);
@@ -79,6 +84,7 @@ export function ApiTokens({ onFailed }: Props) {
         if (nameInput.current) nameInput.current.value = "";
       },
       (error: unknown) => {
+        setMaking(false);
         if (mounted.current || isSignedOut(error)) onFailed(error);
       },
     );
@@ -120,7 +126,7 @@ export function ApiTokens({ onFailed }: Props) {
               ref={nameInput}
               className={FIELD_INPUT}
             />
-            <SubmitButton disabled={false} className="w-auto">
+            <SubmitButton disabled={making} className="w-auto">
               Create token
             </SubmitButton>
           </div>

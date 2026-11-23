@@ -28,7 +28,7 @@ function renderWaiting(onFailed = vi.fn()) {
     resolveMake(Response.json(made("t1", "Deploy bot")));
     await screen.findByTestId("made-token");
   };
-  return { onFailed, resolveList, makeIt };
+  return { onFailed, resolveList, resolveMake, makeIt };
 }
 
 describe("API tokens on your profile", () => {
@@ -51,6 +51,24 @@ describe("API tokens on your profile", () => {
     // It's on the list now, to revoke later.
     const list = screen.getByRole("list", { name: "API tokens" });
     expect(list).toHaveTextContent("Deploy bot");
+  });
+
+  it("makes one while the Create button is off, which a double-click takes no second of, and back on once it's made", async () => {
+    const { resolveMake, resolveList } = renderWaiting();
+    await userEvent.type(screen.getByLabelText("Name the token for what it opens"), "Deploy bot");
+    const create = screen.getByRole("button", { name: "Create token" });
+    await userEvent.click(create);
+    // While the making is on, the button is off, and clicking it sends no second making.
+    expect(create).toBeDisabled();
+    await userEvent.click(create);
+    const posts = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(posts).toHaveLength(1);
+    // Made, the one token is the only one there is, and its secret is the one shown.
+    resolveMake(Response.json(made("t1", "Deploy bot")));
+    await screen.findByTestId("made-token");
+    expect(screen.getByRole("status")).toHaveTextContent("pat_t1");
+    expect(create).toBeEnabled();
+    resolveList(Response.json({ tokens: [] }));
   });
 
   it("keeps a token made before the list has loaded, once a list read before it arrives", async () => {
@@ -116,9 +134,12 @@ describe("API tokens on your profile", () => {
     const { onFailed } = renderSection();
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
     await userEvent.type(screen.getByLabelText("Name the token for what it opens"), "Deploy bot");
-    await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+    const create = screen.getByRole("button", { name: "Create token" });
+    await userEvent.click(create);
     await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
     expect(screen.queryByTestId("made-token")).toBeNull();
+    // Failed, the form takes another try.
+    expect(create).toBeEnabled();
   });
 
   it("says why revoking failed", async () => {
