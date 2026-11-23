@@ -68,6 +68,24 @@ describe("Image, video and file previews", () => {
     expect(screen.getByRole("img", { name: "earth.webp" })).toHaveClass("max-h-[min(640px,70dvh)]", "max-w-full");
   });
 
+  it("plays a GIF of up to 5 MiB in place as itself, lazily, showing its thumbnail, its first frame, under reduced motion, and shows a larger one by its thumbnail", () => {
+    const spin = stored("spin.gif", "image/gif", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE, previewUrl: "/previews/k1/s1/spin.webp" });
+    const { container } = render(<Attachment file={spin} />);
+    const picture = screen.getByRole("img", { name: "spin.gif" });
+    expect(picture).toHaveAttribute("src", spin.url);
+    expect(picture).toHaveAttribute("loading", "lazy");
+    const still = container.querySelector("source");
+    expect(still).toHaveAttribute("srcset", spin.previewUrl);
+    expect(still).toHaveAttribute("media", "(prefers-reduced-motion: reduce)");
+    expect(screen.getByRole("link", { name: "spin.gif" })).toHaveAttribute("href", spin.url);
+    cleanup();
+
+    const large = { ...spin, byteSize: MAX_PREVIEW_SIZE + 1 };
+    const { container: shown } = render(<Attachment file={large} />);
+    expect(screen.getByRole("img", { name: "spin.gif" })).toHaveAttribute("src", large.previewUrl);
+    expect(shown.querySelector("source")).not.toBeInTheDocument();
+  });
+
   it("plays a video in place, in a box half its size, loading nothing until it's played behind its poster, or its first frame without one", () => {
     const { container } = render(<Attachment file={stored("launch.mp4", "video/mp4", { width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4" })} />);
     const video = container.querySelector("video")!;
@@ -164,6 +182,13 @@ describe("Image viewer", () => {
     await userEvent.click(screen.getByRole("link", { name: "panorama.jpg" }));
     expect(within(viewer()!).getByRole("img", { name: "panorama.jpg" })).toHaveAttribute("src", panorama.previewUrl);
     expect(within(viewer()!).getByRole("link", { name: "Download file" })).toHaveAttribute("href", panorama.downloadUrl);
+  });
+
+  it("opens a GIF over 5 MiB, which shows by its thumbnail, as itself, where it plays", async () => {
+    const spin = stored("spin.gif", "image/gif", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE + 1, previewUrl: "/previews/k1/s1/spin.webp" });
+    render(<Attachment file={spin} />);
+    await userEvent.click(screen.getByRole("link", { name: "spin.gif" }));
+    expect(within(viewer()!).getByRole("img", { name: "spin.gif" })).toHaveAttribute("src", spin.url);
   });
 
   it("opens a picture not every browser shows, such as a HEIC, as its thumbnail", async () => {
