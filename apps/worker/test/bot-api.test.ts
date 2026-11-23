@@ -418,11 +418,16 @@ describe("Bots post messages", () => {
     // One long address, written once and linked from every use, far outgrows its Markdown.
     const markdown = `${"[x][r] ".repeat(100)}\n\n[r]: https://example.com/${"a".repeat(5_000)}`;
     expect(markdown.length).toBeLessThanOrEqual(MAX_MARKDOWN_LENGTH);
+    // So does a table whose rows each write a cell of the header's 1,500.
+    const table = [`|${"h|".repeat(1_500)}`, `|${"-|".repeat(1_500)}`, ...Array<string>(2_990).fill("a")].join("\n");
+    expect(table.length).toBeLessThanOrEqual(MAX_MARKDOWN_LENGTH);
     const headers = { "Content-Type": "text/markdown" };
 
     expect((await postAs(bot.key, general, markdown, headers)).status).toBe(413);
+    expect((await postAs(bot.key, general, table, headers)).status).toBe(413);
     const id = await posted(bot.key, general, "Deploying...");
     expect((await editAs(bot.key, general, id, markdown, "PATCH", headers)).status).toBe(413);
+    expect((await editAs(bot.key, general, id, table, "PATCH", headers)).status).toBe(413);
     expect((await storedIn(general)).map((message) => message.body)).toEqual(["Deploying..."]);
   });
 

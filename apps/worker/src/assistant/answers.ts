@@ -4,7 +4,7 @@ import { AI_SETTINGS, promptAround, webPromptFor, withInstructions, type AskedIn
 import { linkedUrls, OPENGRAPH_EMBED_CONTENT_TYPE, prepareBody, previewContent } from "@ember/richtext";
 import { decodeHTMLStrict } from "entities/decode";
 import { Marked } from "marked";
-import { markdownHtml } from "../bots/markdown";
+import { MARKDOWN_LIMITS, markdownHtml } from "../bots/markdown";
 import { anchor, escapeText, linkHref } from "../bots/mrkdwn";
 import { payloadOf, slackMessage } from "../bots/slack";
 import { keptCards } from "../cards";
@@ -207,7 +207,7 @@ interface Fetchable {
   preview(url: string): boolean;
 }
 
-const markdown = new Marked({ gfm: true });
+const markdown = new Marked({ gfm: true }, MARKDOWN_LIMITS);
 
 /** The most characters of a page's title that its link among an answer's sources shows. */
 const MAX_SOURCE_TITLE_LENGTH = 80;
