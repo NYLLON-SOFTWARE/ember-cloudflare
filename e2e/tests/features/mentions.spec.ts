@@ -230,12 +230,18 @@ test.describe("Count mentions of you", () => {
     await ada.page.reload();
     await expect(general).toHaveAccessibleDescription(/^Unread 2 mentions /);
 
+    // Opening it reads it, once the room has let Ada's socket in.
     await general.click();
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await ada.connected();
     await expect(general).not.toHaveAccessibleDescription(/^Unread/);
     await expect(general.getByText("2", { exact: true })).toBeHidden();
 
-    // Reading it starts the count again.
+    // Reading it starts the count again, for what comes once Ada has left and her sidebar has heard of the read.
+    await expect(grace.presence()).toHaveText("2 here now");
     await row("random").click();
+    await expect(grace.presence()).toHaveText("1 here now");
+    await expect(general).not.toHaveAccessibleDescription(/^Unread/);
     await grace.send("Bye");
     await expect(general).toHaveAccessibleDescription(/^Unread/);
     await expect(general).not.toHaveAccessibleDescription(/mention/);
