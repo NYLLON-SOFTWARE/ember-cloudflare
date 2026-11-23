@@ -1,10 +1,12 @@
 import { isPreviewableSize, isWebImage, MAX_PREVIEW_SIZE, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type StoredFile } from "@ember/protocol";
-import { useEffect, useId, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import { Lightbox } from "@/components/lightbox";
+import { useLoadedNearView } from "@/hooks/use-loaded-near-view";
 import type { Size } from "@/lib/previews";
 import { svgDataUrl } from "@/lib/svg-preview";
 import { fileText, languageOf, showsText } from "@/lib/text-preview";
 import { cn } from "@/lib/utils";
+import { AudioPlayer } from "./audio-player";
 import { Code } from "./code-block";
 import { FileCard } from "./file-card";
 
@@ -22,15 +24,15 @@ const FOLDED = "max-h-[calc(5lh+2em+2px)] overflow-y-hidden after:sticky after:-
 /**
  * A file message's file:
  * an SVG of up to 5 MiB shows above its card, a video or a recording of sound, as a clip is, plays in
- * place, a text file of up to 64 KiB, as a snippet is, shows its text above its card, a GIF of up to 5 MiB
- * and 250 megapixels shows itself, so it plays in place, as Slack's do, a picture shows its thumbnail, or
- * without one, as a bot's has none, itself if it's a picture every browser shows of up to 5 MiB and 250
- * megapixels, and every other file shows its card.
+ * place, the sound in a player of its own (audio-player.tsx), a text file of up to 64 KiB, as a snippet is,
+ * shows its text above its card, a GIF of up to 5 MiB and 250 megapixels shows itself, so it plays in
+ * place, as Slack's do, a picture shows its thumbnail, or without one, as a bot's has none, itself if it's
+ * a picture every browser shows of up to 5 MiB and 250 megapixels, and every other file shows its card.
  */
 export function Attachment({ file }: { file: StoredFile }) {
   if (file.contentType === "image/svg+xml" && file.byteSize <= MAX_PREVIEW_SIZE) return <SvgPreview file={file} />;
   if (file.contentType.startsWith("video")) return <VideoPreview file={file} />;
-  if (file.contentType.startsWith("audio")) return <AudioPreview file={file} />;
+  if (file.contentType.startsWith("audio")) return <AudioPlayer file={file} />;
   if (showsText(file)) return <TextPreview file={file} />;
   // A GIF's thumbnail is its first frame, which shows in its place only where reduced motion is asked for.
   if (file.contentType === "image/gif" && showsInPlace(file)) return <PicturePreview file={file} src={file.url} still={file.previewUrl} />;
@@ -123,14 +125,6 @@ function VideoPreview({ file }: { file: StoredFile }) {
 }
 
 /**
- * A recording of sound, as an audio clip is, which plays in place, loading only how long it is until it's played. It's
- * named for its file. Its width is a length, which a follow-up's column fits, as it can't fit a percentage.
- */
-function AudioPreview({ file }: { file: StoredFile }) {
-  return <audio src={file.url} controls preload="metadata" aria-label={file.name} className="block w-[360px] max-w-full" />;
-}
-
-/**
  * An SVG, which shows above its card once it's within 200px of the timeline's view: from a data URL
  * (lib/svg-preview.ts), and only once it's decoded, so one that's too big, broken or not an SVG leaves the
  * card alone. Its alt text is the file's name.
@@ -197,39 +191,4 @@ function TextPreview({ file }: { file: StoredFile }) {
       <FileCard file={file} />
     </div>
   );
-}
-
-/**
- * What `load` finds at `url`, once `element` is within 200px of the timeline's view, or null until then,
- * and where it finds nothing. It stops watching, or loading, when `element` goes.
- */
-function useLoadedNearView<Found>(element: RefObject<HTMLElement | null>, url: string, load: (url: string, signal: AbortSignal) => Promise<Found | null>): Found | null {
-  const [found, setFound] = useState<Found | null>(null);
-  useEffect(() => {
-    const abort = new AbortController();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        void load(url, abort.signal).then((loaded) => {
-          if (!abort.signal.aborted) setFound(loaded);
-        });
-      },
-      { root: scrollerOf(element.current!), rootMargin: "200px" },
-    );
-    observer.observe(element.current!);
-    return () => {
-      observer.disconnect();
-      abort.abort();
-    };
-  }, [element, url, load]);
-  return found;
-}
-
-/** The nearest of `element`'s ancestors that scrolls, as the timeline does, or null for the page. */
-function scrollerOf(element: HTMLElement): HTMLElement | null {
-  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-    if (/auto|scroll/.test(getComputedStyle(ancestor).overflowY)) return ancestor;
-  }
-  return null;
 }
