@@ -127,30 +127,20 @@ function disconnectsWithNewPassword(memberful: MemberfulStatus | null, sso: SsoS
 /**
  * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
  * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
- * everywhere.", and Remove avatar takes away, then your name, email address, a new password, unless
- * Memberful signs you in without one, your current password while you have one, which changing your
- * email address or password takes, and your
- * bio, which Save changes saves with the notice "✓", keeping the page, then your mood, an emoji and a
- * few words beside your name, which Save mood wears and Clear takes off, and which comes off by itself
- * when the Clear-at menu says, then, while members sign in with
- * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
- * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
- * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
- * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
- * returns to the page it was opened from. Your avatar, name, bio and mood reach everyone's open pages at
- * once, through the workspace socket, as they reach the rail.
  * everywhere.", and Remove avatar takes away, then your name, username, email address, a new password,
  * unless Memberful or single sign-on signs you in without one, your current password while you have
  * one, which changing your email address or password takes, and your
- * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
- * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
- * unlinks with the notice "Your Memberful account is disconnected.", then, likewise, while members sign
- * in with single sign-on, connecting your account at the provider, then, while Ember AI is on, how much
- * @ember thinks and how long it answers you, then, while huddles are on, which of a huddle's sounds you
- * hear, then your notification level in each of your rooms and DMs, then a sign-in
- * link for you, a new one each time the page loads or saves, then Delete my account, and Log out in
- * the top bar. Go Back returns to the page it was opened from. Your avatar, name, username and bio
- * reach everyone's open pages at once, through the workspace socket, as they reach the rail.
+ * bio, which Save changes saves with the notice "✓", keeping the page, then your mood, an emoji and a
+ * few words beside your name, which Save mood wears and Clear takes off, and which comes off by itself
+ * when the Clear-at menu says, then, while members sign in with Memberful, connecting your Memberful
+ * account, or the one you've connected, which Disconnect Memberful unlinks with the notice "Your
+ * Memberful account is disconnected.", then, likewise, while members sign in with single sign-on,
+ * connecting your account at the provider, then, while Ember AI is on, how much @ember thinks and how
+ * long it answers you, then, while huddles are on, which of a huddle's sounds you hear, then your
+ * notification level in each of your rooms and DMs, then a sign-in link for you, a new one each time
+ * the page loads or saves, then Delete my account, and Log out in the top bar. Go Back returns to the
+ * page it was opened from. Your avatar, name, username, bio and mood reach everyone's open pages at
+ * once, through the workspace socket, as they reach the rail.
  */
 export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleSounds, onSignOut, onDeleteAccount, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
@@ -183,7 +173,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const [membershipNeeded, setMembershipNeeded] = useState(true);
   /** Which model @ember answers you with, how much it thinks and how long its answers are, or null while Ember AI is off. */
   const [assistant, setAssistant] = useState<Profile["assistant"]>(null);
-/** The connected apps you can sign in to yourself, each with your sign-in to it, if you've made one. */
+  /** The connected apps you can sign in to yourself, each with your sign-in to it, if you've made one. */
   const [apps, setApps] = useState<Profile["apps"]>([]);
   const [outsideAi, setOutsideAi] = useState<Profile["outsideAi"]>(null);
   /** The mood you wear beside your name, or null while you wear none. */

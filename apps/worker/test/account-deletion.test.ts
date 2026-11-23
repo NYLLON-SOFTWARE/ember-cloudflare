@@ -109,7 +109,7 @@ async function listed(viewer: Session, userId: UserId): Promise<DirectoryUser> {
 /** What's stored of someone. */
 const stored = async (userId: UserId) =>
   ((await workspaceSql(
-    `SELECT name, email_address, password_digest, username, bio, avatar_key, avatar_variant, role, status, deleted_at, updated_at FROM users WHERE id = ?`,
+    `SELECT name, email_address, password_digest, username, bio, mood, avatar_key, avatar_variant, role, status, deleted_at, updated_at FROM users WHERE id = ?`,
     userId,
   )) as Array<Record<string, string | number | null>>)[0]!;
 
@@ -176,11 +176,11 @@ describe("Delete my account", () => {
     expect(await signedIn(administrator)).toBe(true);
   });
 
-  it("leaves nothing of you but your row, deactivated and named Deleted person, without an email address, password, username, bio or avatar", async () => {
+  it("leaves nothing of you but your row, deactivated and named Deleted person, without an email address, password, username, bio, mood or avatar", async () => {
     const administrator = await setUp();
     const member = await join(grace);
     await workspaceSql(
-      "UPDATE users SET username = 'amazing.grace', bio = 'Admiral', avatar_key = 'avatars/grace', avatar_variant = 'webp', assistant_model = 'some-model', role = 1 WHERE id = ?",
+      "UPDATE users SET username = 'amazing.grace', bio = 'Admiral', mood = '{\"emoji\":\"😌\",\"text\":\"Pairing on the compiler\",\"clearAt\":null}', avatar_key = 'avatars/grace', avatar_variant = 'webp', assistant_model = 'some-model', role = 1 WHERE id = ?",
       member.user.id,
     );
     await bindings.FILES!.put("avatars/grace", recordedImage("moon-thumb.jpg"));
@@ -193,6 +193,7 @@ describe("Delete my account", () => {
       password_digest: null,
       username: null,
       bio: null,
+      mood: null,
       avatar_key: null,
       avatar_variant: null,
       role: 0,
@@ -200,7 +201,7 @@ describe("Delete my account", () => {
     });
     expect(row.deleted_at).toBe(row.updated_at);
     const listing = await listed(administrator, member.user.id);
-    expect(listing).toMatchObject({ id: member.user.id, name: DELETED_PERSON_NAME, bio: null, role: "member", status: "deactivated" });
+    expect(listing).toMatchObject({ id: member.user.id, name: DELETED_PERSON_NAME, bio: null, mood: null, role: "member", status: "deactivated" });
     expect(listing).not.toHaveProperty("username");
     // R2 deletes the avatar they had.
     await vi.waitFor(async () => expect(await bindings.FILES!.head("avatars/grace")).toBeNull(), { timeout: 5_000 });

@@ -5313,8 +5313,8 @@ export class Workspace extends DurableObject<Env> {
    * directory lists. A new name can't be @ember's ("name reserved"), or an agent's ("agent's name"),
    * unless it was theirs before, and a blank username is saved as none, while one that's someone
    * else's, whatever their status, or @ember's or an agent's name, is "username taken". A new name,
-   * username or bio with a word Blocked words keeps out is "blocked words", though one kept from before
-   * the word was blocked can stay.
+   * username, bio or mood with a word Blocked words keeps out is "blocked words", though one kept from
+   * before the word was blocked can stay.
    */
   async changeProfile(
     credentials: Credentials,
@@ -5343,7 +5343,8 @@ export class Workspace extends DurableObject<Env> {
       if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
-      if (await this.hasBlockedWord(...(["name", "username", "bio"] as const).filter((field) => profile[field] !== person[field]).map((field) => profile[field]))) return "blocked words";
+      const moodWords = !sameMood(profile.mood, person.mood) && profile.mood !== null ? profile.mood.text : null;
+      if (await this.hasBlockedWord(...(["name", "username", "bio"] as const).filter((field) => profile[field] !== person[field]).map((field) => profile[field]), moodWords)) return "blocked words";
       if (profile.username !== person.username && profile.username !== null && (await this.usernameTaken(profile.username, user.id))) return "username taken";
       // Read again here, since a reset ahead of this in line, or another change, can have replaced the password checked.
       if (person.password && changesSignIn(person, changes.emailAddress, passwordDigest !== null) && (await this.store.signInOf(user.id))?.passwordDigest !== checked) {

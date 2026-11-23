@@ -282,13 +282,14 @@ describe("names of rooms and files", () => {
 });
 
 describe("people", () => {
-  it("refuses a new name, username or bio with a blocked word, but keeps one from before it was blocked", async () => {
+  it("refuses a new name, username, bio or mood with a blocked word, but keeps one from before it was blocked", async () => {
     const { ada } = await setUp();
     const grace = await signIn("Grace");
     expect((await saveProfile(grace, { bio: "Fudge maker" })).status).toBe(200);
+    expect((await saveProfile(grace, { mood: { emoji: "😌", text: "Fudge maker", clearAt: null } })).status).toBe(200);
     await block(ada, "fudge");
 
-    for (const changes of [{ name: "Fudge Hopper" }, { username: "fudge" }, { bio: "I make fudge" }]) {
+    for (const changes of [{ name: "Fudge Hopper" }, { username: "fudge" }, { bio: "I make fudge" }, { mood: { emoji: "😌", text: "I make fudge", clearAt: null } }]) {
       const saved = await saveProfile(grace, changes);
       expect(saved.status, JSON.stringify(changes)).toBe(422);
       expect(await saved.json()).toEqual({ error: BLOCKED_WORDS_REFUSED });
@@ -296,6 +297,10 @@ describe("people", () => {
     const renamed = await saveProfile(grace, { name: "Grace Hopper" });
     expect(renamed.status).toBe(200);
     expect(await renamed.json()).toMatchObject({ profile: { name: "Grace Hopper", bio: "Fudge maker" } });
+    // The mood they wore before the word was blocked, and one with clean words, stay and save.
+    const sailing = await saveProfile(grace, { mood: { emoji: "🚀", text: "Sailing the seas", clearAt: null } });
+    expect(sailing.status).toBe(200);
+    expect(((await sailing.json()) as { profile: { mood: unknown } }).profile.mood).toEqual({ emoji: "🚀", text: "Sailing the seas", clearAt: null });
   });
 
   it("turns away someone joining, or signing in with just a name, with a blocked word in their name", async () => {
