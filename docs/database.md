@@ -18,8 +18,8 @@ files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log, its log of messages for the search index, its recent deletions, its files and the
-calls of apps' tools that wait to be allowed, and
+room's change log, its log of messages for the search index, its recent deletions, its files, the
+calls of apps' tools that wait to be allowed and the messages people have scheduled there, and
 `workspace` for the workspace-wide tables (the account, people, sessions and the addresses their sockets come from, linked accounts, push
 subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
 purges and reindexes, the rooms deleted, the apps connected, the tools picked for each agent, and the AI apps people connect to Ember). On DO SQLite, an object applies only its own scope's
@@ -29,7 +29,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
+`message_deletions`, `blobs`, `waiting_calls` and `scheduled_messages`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`, `sections`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,
@@ -92,9 +92,16 @@ Objects, D1 or speed call for something else.
   skip Campfire's `connections` and `connected_at` columns: each room's object knows from its
   sockets who's viewing it, and sends that list with its messages. And ours writes only the rows it
   changes, so `unread_at` is the time of the first message since someone last read the room; nothing
-  reads it but to ask whether it's set. In a DM the same `UPDATE` writes every unread row, adding one
+  reads it but to ask whether it's set. A room tells the Workspace of a message a moment after it,
+  longer in a burst, when someone may have joined meanwhile, so the `UPDATE` leaves out each
+  membership whose `created_at` is after the message was written, as the mention counts and pushes
+  below do. In a DM the same `UPDATE` writes every unread row, adding one
   to `memberships.unread_count` (workspace migration 0065), so a DM's row counts its messages since,
-  as Slack's do; a read sets it back to 0.
+  as Slack's do; a read sets it back to 0. A shared room's row counts the messages since that
+  notify its member instead, in `memberships.mention_count` (workspace migration 0085), which the
+  sidebar shows as Slack's mention badge: one more `UPDATE` in the batch that marks the room raises
+  it, for everyone `@channel` or `@everyone` notifies, or for the people a JSON list names, those a
+  message mentions and those `@here` finds active. A read sets it back to 0 with the mark.
 - **No unbounded lists of bound values.** Durable Object SQLite and D1 bind at most 100 values a
   statement, and binding a page's message ids made a 100-message page fail on both.
 - **Tabs that connect again find what changed through an index on messages.** Campfire's
@@ -224,15 +231,30 @@ Objects, D1 or speed call for something else.
   when a message's text last changed. Room migration 0012 turned the plain-text bodies from before
   it into the paragraph Lexxy sends for typed text, in SQL, and set `edited_at` from `updated_at`
   for the messages already edited.
+- **A room mention keeps only the room's id.** A room picked after # is an attachment of
+  `application/vnd.campfire.room` whose sgid is the room's id, with no name in it, so a rename shows
+  at once and no message stores a private room's name. Its plain text says `#name` for an open room
+  and `#private room` for a private one, whoever wrote it, since notifications and search reach
+  people who aren't in the room, and the Worker reads no private room's name for it
+  (`MENTIONED_ROOMS`). Each client names the rooms its sidebar lists, and no others.
 - **A message keeps whom it notified.** Slack's @here, @channel and @everyone mention no one: each is
-  an attachment whose sgid is its name, which no user id can be. As a message is written its room asks
+  an attachment whose sgid is its name, which no user id can be, as a bot's Slack payload makes one
+  of its text's `<!here>`, `<!channel>` or `<!everyone>`. As a message is written its room asks
   the Workspace whether it may notify the room, which only a message sent to a room's timeline does,
   not one in a DM, a reply in a thread, a bot's reply or an AI's answer, and never one from an AI
   agent, and whether it may with @everyone, which only an open room takes, from anyone but a guest.
+  The Workspace answers in one statement, which reads too the account's settings, where
+  administrators can keep @channel and @here, or @everyone, to themselves, and
+  `rooms.channel_mentions_allowed` (workspace migration 0083), 1 until an administrator turns them
+  off in the room's settings. A special mention the answer leaves out is stored as the text it
+  shows, so it notifies nobody, and doesn't look as if it did.
   `messages.notifies` (room migration 0082) keeps the widest it made, `here`, `channel` or `everyone`,
   or null for none, and an edit can only narrow it, since an edit notifies nobody. The room's log
   reads it with the message's text, and history sends it, which highlights the message as one that
-  mentions everyone.
+  mentions everyone. Before a message making one goes, the composer asks the Workspace how many people
+  the room holds and how many each mention would notify (`GET /api/rooms/<id>/notified`), to ask its
+  writer first in a room of six or more, as Slack does: one batch of two counts over the room's
+  memberships, @here's of those whose tabs are in use, which it binds as one JSON list, as the pushes do.
 - **Sessions keep a digest of their token.** Campfire stores each session's token as it is and signs
   the cookie that carries it. We store an HMAC of the token, keyed by `SESSION_SECRET`, so a leaked
   database or backup holds no live sessions; changing the secret still signs everyone out, as
@@ -521,6 +543,17 @@ Objects, D1 or speed call for something else.
   switch names, keeps the rest, and returns all three, which the Workspace tells that person's
   tabs, one change at a time, so that the last a tab hears of is the last kept. Deleting an account
   puts all three back to 1, with the rest of the person's picks.
+- **A pause of someone's notifications is a column of the person.** `users.notifications_paused_until`
+  (workspace migration 0086) is when their pause ends, as an ISO 8601 time in UTC, which the browser
+  works out, since Ember keeps nobody's time zone, or null while they've paused none. The queries
+  that find a message's pushes, the room's for one that notifies it, and an invitation's into a
+  huddle each leave out whoever's pause ends after the time they bind, which ISO times in UTC let
+  SQLite compare as text, so a pause costs them no statement, and one that has passed needs no write
+  to end, nor keeps anything to send once it has. The people directory reads the column with the
+  rest of the person and lists it only while it's ahead, so their half-moon is in the list everyone
+  already loads, and one `UPDATE`, batched with reading the person back, saves a pause or ends it,
+  which the Workspace tells everyone's tabs as `user.updated`, as it does a rename. Deleting an
+  account clears it.
 - **Each group of people has one DM, found by its key.** Ember keeps each DM's members' ids, sorted,
   as a JSON array in `rooms.direct_key` (workspace migration 0016), under a unique index. Starting a
   DM is one batch: it adds the room unless the key has one (`ON CONFLICT DO NOTHING`), puts the

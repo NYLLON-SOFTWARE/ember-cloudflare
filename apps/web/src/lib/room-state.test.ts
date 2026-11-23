@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, type ClientFrame, type EphemeralMessage, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { timeline } from "./messages";
 import { initialRoomState, isPending, MAX_MESSAGES, roomReducer, type PendingMessage, type PendingUpload, type RoomState } from "./room-state";
@@ -112,6 +112,12 @@ describe("See your message before it's saved", () => {
     expect(state.messages[0]).toMatchObject({ failed: true });
     expect(state.messages[0]).not.toHaveProperty("rewrite");
     expect(state.notice).toBe("nope");
+  });
+
+  it("says why a change to a scheduled message was refused, but an edit, which their list says as it keeps the edit", () => {
+    const refused = (failed: "scheduled.send" | "scheduled.edit") => frame(initialRoomState, { type: "frame", frame: { type: "error", message: "nope", scheduledId: "s1", failed }, now: 0 });
+    expect(refused("scheduled.send").notice).toBe("nope");
+    expect(refused("scheduled.edit")).toBe(initialRoomState);
   });
 
   describe("A message refused for what it says", () => {
@@ -680,5 +686,51 @@ describe("Threads", () => {
 
   it("says why something written didn't go, as the room says why it refused something", () => {
     expect(roomReducer(initialRoomState, { type: "warn", message: "Too long" }).notice).toBe("Too long");
+  });
+});
+
+describe("Messages only you see", () => {
+  const ember: User = { id: "ember", name: "Ember" };
+  /** The card of a call that waits on Ada, which only she sees. */
+  const card = (overrides: Partial<EphemeralMessage> = {}): EphemeralMessage => ({
+    id: "e1",
+    roomId: "general",
+    creator: ember,
+    body: "",
+    plainText: "Ember wants to use Tracker",
+    cards: [],
+    createdAt: "2026-10-12T10:00:30.000Z",
+    ...overrides,
+  });
+  const shownAlone = (state: RoomState, m: EphemeralMessage) => frame(state, { type: "frame", frame: { type: "message.ephemeral", message: m }, now: 0 });
+
+  it("shows each as it comes, apart from the room's messages, and changes one in its place, as its call is answered", () => {
+    let state = shownAlone(opened(stored(1, 2)), card());
+    state = shownAlone(state, card({ id: "e2" }));
+    state = shownAlone(state, card({ plainText: "Allowed by you." }));
+    expect(state.ephemeral.map((m) => [m.id, m.plainText])).toEqual([
+      ["e1", "Allowed by you."],
+      ["e2", "Ember wants to use Tracker"],
+    ]);
+    expect(ids(state)).toEqual(["m001", "m002"]);
+    // Each new one came as a message does, which a reader away from the end is offered the way to, but not a change.
+    expect(state.arrivals).toBe(2);
+  });
+
+  it("leaves one about a question asked in a thread to the thread", () => {
+    const state = opened(stored(1, 2));
+    expect(shownAlone(state, card({ parentId: "m001" }))).toBe(state);
+  });
+
+  it("takes those the room lets the page in again with in their place, those still waiting", () => {
+    const state = shownAlone(shownAlone(opened(stored(1, 2)), card()), card({ id: "e2" }));
+    const waiting = [card({ id: "e2" })];
+    const welcome: ServerFrame = { type: "welcome", you: ada, messages: stored(1, 2), present: [ada], hasMore: false, hasNewer: false, around: null, seq: 1 };
+    expect(frame(state, { type: "frame", frame: welcome, now: 0 }).ephemeral).toEqual([]);
+    expect(frame(state, { type: "frame", frame: { ...welcome, ephemeral: waiting }, now: 0 }).ephemeral).toEqual(waiting);
+    const resume: ServerFrame = { type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 1 };
+    expect(frame(state, { type: "frame", frame: resume, now: 0 }).ephemeral).toEqual([]);
+    const back = frame(state, { type: "frame", frame: { ...resume, ephemeral: waiting }, now: 0 });
+    expect([back.ephemeral, back.arrivals]).toEqual([waiting, state.arrivals]);
   });
 });

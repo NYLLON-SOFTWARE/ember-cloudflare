@@ -3,6 +3,8 @@ import type { Message } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
 import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
 import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { useMounted } from "@/hooks/use-mounted";
+import { RoomsContext } from "@/hooks/use-rooms";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
@@ -18,9 +20,13 @@ import { avatarUrlOf } from "./user-avatar";
 const ROUND_BUTTON = "grid size-9 shrink-0 cursor-pointer place-items-center rounded-full touch:size-11 hover:not-active:brightness-70";
 
 interface Props {
-  message: Message;
-  /** Saves the message as written, answering whether the change went: one that didn't stays to be tried again. */
-  onSave: (body: string) => boolean;
+  /** The message, or what's been written to be sent as one, as a scheduled message has been. */
+  message: Pick<Message, "body" | "mentions" | "roomId">;
+  /**
+   * Saves the message as written, answering whether the change went: one that didn't stays to be tried
+   * again. One the room is to answer answers once it has.
+   */
+  onSave: (body: string) => boolean | Promise<boolean>;
   onDelete: () => void;
   /** Closes the editor, discarding what's written in it. */
   onClose: () => void;
@@ -37,15 +43,19 @@ export interface MessageEditorHandle {
  * text in Lexxy, with the composer's formatting row above the text on wide screens with a mouse, ruled
  * off from it across the field, and round Save changes and Delete message buttons under it, beside a
  * button that closes it. Ctrl or Cmd+Enter saves, Escape closes it, and Enter starts a new paragraph.
- * The formatting keys format, as they do in the composer, and @ offers the room's people, as its @ does.
- * It takes no files and tells no one you're typing.
+ * The formatting keys format, as they do in the composer, and @ offers the room's people, and # the rooms
+ * you're in, as the composer's do. It takes no files and tells no one you're typing.
  */
 export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
+  // Whether a change is being saved, as the room's answer comes.
+  const saving = useRef(false);
+  const mounted = useMounted();
   const formatting = useFormatting(editor);
   const people = useContext(PeopleContext);
-  // The editable body: its mentions as the editor draws them, of the people as they are now, and its link previews
+  const rooms = useContext(RoomsContext);
+  // The editable body: its mentions as the editor draws them, of the people and rooms as they are now, and its link previews
   // as the message shows them here. It drops a mention of no one, and a message from before messages named the
   // people they mention knows them only from the directory, so for such a message the editor waits for the
   // directory to load, when it lists everyone.
@@ -58,6 +68,7 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
         return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
       },
       location.hostname,
+      (roomId) => rooms?.get(roomId),
     );
   const [editable, setEditable] = useState(() => (knowsMentions ? editableNow() : null));
   if (editable === null && knowsMentions) setEditable(editableNow());
@@ -68,12 +79,23 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const loading = <div className="min-h-6" />;
 
   const save = () => {
+    if (saving.current) return;
     const written = editor.current;
     // Saving a message left blank or as it was only closes the editor. An edit that couldn't be sent
     // keeps it open, so what was written isn't lost. Lexxy writes mentions with their content, so a
     // message with them is sent as it was, which the room keeps as it is.
-    if (written && !written.isBlank() && written.value() !== message.body && !onSave(written.value())) return;
-    onClose();
+    const body = written && !written.isBlank() ? written.value() : null;
+    if (body === null || body === message.body) return onClose();
+    const went = onSave(body);
+    if (went === true) return onClose();
+    if (went === false) return;
+    // One the room's to answer saves nothing more meanwhile, and closes the editor once it's gone, unless
+    // something else has been written since, which stays to be saved, or the editor has closed.
+    saving.current = true;
+    void went.then((gone) => {
+      saving.current = false;
+      if (gone && mounted.current && editor.current?.value() === body) onClose();
+    });
   };
 
   return (
@@ -115,6 +137,7 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
                   rows={1}
                   initialValue={editable}
                   mentionsFrom={mentionPromptSrc(message.roomId)}
+                  rooms={rooms}
                   autoFocus
                   onFormatChange={formatting.setFormat}
                   onKeyDown={formatting.keyDown}

@@ -1,6 +1,6 @@
 import type { BotAnswer, BotSettings, Bootstrap, Me, NewWorkspace, RoomId, SharedRoom, User, WorkspaceSettings } from "@ember/protocol";
 import { BLOCKED_WORDS_REFUSED, blockedWordUnmatchable } from "@ember/protocol/blocked-words";
-import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
+import { MENTION_CONTENT_TYPE, mentionSgid, ROOM_MENTION_CONTENT_TYPE } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BLOCKED_WORDS_KEPT_MS } from "../src/blocked-words";
 import { api, connect, cookieOf, createRoom, cutOff, freshDeploy, post, roomSql, settle, shown, signIn, startUpload, stopTheClock, upload, workspaceSql, type Session } from "./support";
@@ -45,6 +45,9 @@ const storedSettings = async () => ((await workspaceSql("SELECT settings, update
 
 /** How a message mentioning `person` is written. */
 const mention = (person: Pick<User, "id">) => `<action-text-attachment sgid="${mentionSgid(person.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+
+/** How a message mentioning `room` is written. */
+const roomMention = (room: Pick<SharedRoom, "id">) => `<action-text-attachment sgid="${room.id}" content-type="${ROOM_MENTION_CONTENT_TYPE}"></action-text-attachment>`;
 
 /** Sends `body` as a new message over `client`'s socket, answering the error the room refuses it with. */
 async function refused(client: Awaited<ReturnType<typeof connect>>, body: string) {
@@ -140,6 +143,18 @@ describe("messages", () => {
     for (const body of [`<p>${mention(fudge.user)} @Fudge Smith</p>`, `<p>${mention(fu.user)} @Fudge</p>`]) {
       expect((await refused(client, body)).error.message).toBe(BLOCKED_WORDS_REFUSED);
     }
+  });
+
+  it("doesn't count the names of the rooms a message mentions as its words", async () => {
+    const { ada, general } = await setUp();
+    const factory = await createRoom("Fudge Factory", { as: ada });
+    const tasting = await createRoom("Private tasting", { closedTo: [ada.user.id], as: ada });
+    await block(ada, "fudge", "private");
+    const client = await connect(general, ada);
+
+    const kept = await post(client, `<p>Off to ${roomMention(factory)}, then ${roomMention(tasting)}!</p>`);
+    expect(kept.plainText).toBe("Off to #Fudge Factory, then #private room!");
+    expect((await refused(client, `<p>${roomMention(factory)} sells fudge</p>`)).error.message).toBe(BLOCKED_WORDS_REFUSED);
   });
 
   it("refuses a bot's message or reaction with a blocked word, or a phrase split between its text and a card", async () => {

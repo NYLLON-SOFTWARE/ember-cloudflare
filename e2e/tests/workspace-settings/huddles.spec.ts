@@ -366,6 +366,26 @@ const picturesOf = (page: Page, label: string) =>
 const widthOf = (page: Page, label: string) =>
   page.evaluate((label) => [...document.querySelectorAll<HTMLVideoElement>("#huddle video")].find((video) => video.ariaLabel === label)?.videoWidth ?? 0, label);
 
+/** Where `measuresRoundTrips` has a page keep how long its browser says round trips to the SFU take, in seconds, or null for as long as they do. */
+type MeasuresRoundTrips = Window & { huddleRoundTrip: number | null };
+
+/** Has `page`'s browser say, of each connection it measures, that round trips to the SFU take as long as the page's `huddleRoundTrip` says. */
+const measuresRoundTrips = (page: Page) =>
+  page.addInitScript(() => {
+    const measures = window as unknown as MeasuresRoundTrips;
+    measures.huddleRoundTrip = null;
+    const getStats = RTCPeerConnection.prototype.getStats;
+    RTCPeerConnection.prototype.getStats = async function (this: RTCPeerConnection, selector?: MediaStreamTrack | null) {
+      const stats = await getStats.call(this, selector);
+      const roundTrip = measures.huddleRoundTrip;
+      if (roundTrip === null) return stats;
+      return new Map([...stats].map(([id, stat]) => [id, stat.type === "candidate-pair" ? { ...stat, currentRoundTripTime: roundTrip } : stat])) as unknown as RTCStatsReport;
+    };
+  });
+
+/** Has it say they take `seconds` from now, or with null, as long as they do. */
+const roundTripsTake = (page: Page, seconds: number | null) => page.evaluate((seconds) => void ((window as unknown as MeasuresRoundTrips).huddleRoundTrip = seconds), seconds);
+
 /** Where `refuseDevices` has a page keep what lets it use its devices after all. */
 type RefusesDevices = Window & { letUseDevices(): void };
 
@@ -844,9 +864,16 @@ test.describe("A huddle", () => {
     // Its composer is there to write in, and has left the focus on the huddle, which took it as it opened.
     await expect(replyBox(adasHuddle)).toBeVisible();
     await expect(adasHuddle).toBeFocused();
-    // The panel is narrower than a room's thread, so Also send to the room has a line of its own over the composer's buttons, and isn't cut short.
+    // As in a room's thread, Also send to the room has a line of its own over the composer's buttons, and isn't cut short.
     const alsoSend = threadOf(adasHuddle).getByRole("checkbox", { name: `Also send to #${room.name}` });
     expect(await alsoSend.evaluate((box) => box.nextElementSibling!.scrollWidth <= box.nextElementSibling!.clientWidth)).toBe(true);
+    // Its buttons, the clips' among them, keep to one line, and so does Manage drafts, there once something's written.
+    const underReply = (name: string) => threadOf(adasHuddle).getByRole("button", { name, exact: true });
+    await expect(underReply("Record audio clip")).toBeVisible();
+    expect((await underReply("Send Message").boundingBox())!.y).toBe((await underReply("Attach").boundingBox())!.y);
+    await replyBox(adasHuddle).fill("Agenda");
+    await expect(underReply("Manage drafts")).toBeVisible();
+    expect((await underReply("Manage drafts").boundingBox())!.y).toBe((await underReply("Attach").boundingBox())!.y);
 
     // Grace joins by the huddle's link, and has its thread too. What Ada writes there she reads, and Ada what she answers.
     const { user: her, context } = await newcomer(browser, baseURL, request, "Grace");
@@ -1289,6 +1316,67 @@ test.describe("A huddle", () => {
     expect(sizesAsked(askedBefore)).toEqual(sizesChanged);
 
     // They leave, and the room has had the SFU close what each of them published, the camera's sizes as one, and what each heard and saw.
+    for (const huddle of [gracesHuddle, adasHuddle]) await huddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(adasHuddle).toHaveCount(0);
+    await expect.poll(sessionsLeftOpen).toEqual([]);
+    await context.close();
+  });
+
+  test("someone whose connection becomes unstable is told so, and the others see it on their tile, while they're sent cameras a size smaller and then smaller still, and larger again a while after it's steady", async ({ page, browser, baseURL, request }) => {
+    // Two browsers, and the half a minute and more a connection takes to be found unstable and steady again.
+    test.slow();
+    const administrator = await administratorSession(request);
+    const room = await roomOfItsOwn(request);
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+    const askedBefore = sfu.asked.length;
+
+    // Ada starts the room's huddle and turns her camera on. Grace joins, in a window whose tiles are tall, and is sent the large size.
+    await useOwnAddress(page);
+    await page.goto(`/rooms/${room.id}`);
+    await signInAsAdministrator(page);
+    await page.getByRole("button", { name: "Start huddle", exact: true }).click();
+    await page.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const adasHuddle = huddleOpened(page, room);
+    await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
+    await expect.poll(() => sees(page, "Your camera"), { timeout: 15_000 }).toBe(true);
+    const { user, context } = await newcomer(browser, baseURL, request, "Grace");
+    const grace = await context.newPage();
+    await grace.setViewportSize({ width: 1280, height: 1000 });
+    await measuresRoundTrips(grace);
+    const gracesHuddle = await joinByLink(grace, room);
+    const adasCamera = `${administrator.user.name}'s camera`;
+    /** Which of the camera's sizes the pictures Grace is shown of Ada's are in: the small one's are 320px wide, the medium's 640 and the large one's 1280, at HD. */
+    const shownIn = async () => {
+      const width = await widthOf(grace, adasCamera);
+      return width === 0 ? "nothing" : width <= 320 ? "small" : width <= 640 ? "medium" : "large";
+    };
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    const warning = gracesHuddle.getByText("Your connection is unstable", { exact: true });
+    const mark = tiles(adasHuddle).filter({ hasText: user.name }).getByRole("img", { name: "Unstable connection" });
+    await expect(warning).toHaveCount(0);
+    await expect(mark).toHaveCount(0);
+
+    // Round trips to the SFU from Grace's browser come to take a second and a half. In a few seconds her huddle says
+    // that her connection is unstable, Ada sees that on her tile, and Grace is sent Ada's camera a size smaller, and a
+    // few seconds after that, the smallest.
+    await roundTripsTake(grace, 1.5);
+    await expect(warning).toBeVisible({ timeout: 15_000 });
+    await expect(mark).toBeVisible();
+    await expect(tiles(gracesHuddle).filter({ hasText: `${user.name} (you)` }).getByRole("img", { name: "Unstable connection" })).toBeVisible();
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("medium");
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("small");
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to c"]);
+
+    // They're quick again. Ten seconds later her connection is steady, and the others see it is, and ten seconds after
+    // that she's sent the medium size again, and ten more, the large one.
+    await roundTripsTake(grace, null);
+    await expect(warning).toHaveCount(0, { timeout: 20_000 });
+    await expect(mark).toHaveCount(0);
+    await expect.poll(shownIn, { timeout: 25_000 }).toBe("medium");
+    await expect.poll(shownIn, { timeout: 25_000 }).toBe("large");
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to c", "changed to b", "changed to a"]);
+
     for (const huddle of [gracesHuddle, adasHuddle]) await huddle.getByRole("button", { name: "Leave", exact: true }).click();
     await expect(adasHuddle).toHaveCount(0);
     await expect.poll(sessionsLeftOpen).toEqual([]);
@@ -1799,9 +1887,10 @@ test.describe("A huddle", () => {
     await grace.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
 
-    // In a window too short for the emoji picker, the panel stops as far under the huddle's header as it
-    // is over its buttons, with its tabs beside the emoji, which have the room that leaves.
-    await grace.setViewportSize({ width: 1280, height: 280 });
+    // In a window too short for the emoji picker, 280px under the top bar, the panel stops as far under
+    // the huddle's header as it is over its buttons, with its tabs beside the emoji, which have the room
+    // that leaves.
+    await grace.setViewportSize({ width: 1280, height: 280 + 44 });
     await react.click();
     await expect(panel.getByRole("tablist")).toHaveAttribute("aria-orientation", "vertical");
     await expect(panel.getByRole("gridcell", { name: "Grinning face", exact: true })).toBeInViewport({ ratio: 0.9 });

@@ -136,6 +136,8 @@ export function useSidebar(
   const roomFrames = useRef({ count: 0, lastOf: new Map<RoomId, number>() });
   // How many of them have said which of a huddle's sounds this person hears.
   const soundFrames = useRef(0);
+  // How many of them have said what became of this person.
+  const youFrames = useRef(0);
   const [huddleChanges, huddlesChanged] = useReducer((heard: number) => heard + 1, 0);
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.
@@ -255,7 +257,7 @@ export function useSidebar(
           invitation({ type: "over", roomId: frame.roomId });
           return change({ type: "gone", roomId: frame.roomId });
         case "room.unread":
-          return change({ type: "marked", roomId: frame.roomId, at: frame.at, count: frame.count });
+          return change({ type: "marked", roomId: frame.roomId, at: frame.at, count: frame.count, mentions: frame.mentions });
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, at: null });
         case "room.active":
@@ -273,6 +275,7 @@ export function useSidebar(
           return huddlesChanged();
         case "user.updated":
           if (!isSomeoneElse(frame.user)) {
+            youFrames.current++;
             toldOf.you = true;
             // Only administrators are given the welcome card with their rooms, and told of the AI agents
             // only their direct messages reach, so a new role loads the rooms and the people again.
@@ -382,5 +385,19 @@ export function useSidebar(
     };
   }, []);
 
-  return { list, answered, change, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard };
+  /**
+   * Called as this person pauses their notifications, or resumes them: what lists them in the people
+   * directory as the server answers, unless the workspace socket has said what became of them since,
+   * which the answer could undo, as with a pause ended in another tab just after. The socket brings this
+   * change too, in its turn.
+   */
+  const update = directory.update;
+  const askForYou = useCallback(() => {
+    const asked = youFrames.current;
+    return (you: DirectoryUser) => {
+      if (youFrames.current === asked) update(you);
+    };
+  }, [update]);
+
+  return { list, answered, change, refresh, askForRoom, askForHuddleSounds, askForYou, active, huddleChanges, reportsHeard };
 }

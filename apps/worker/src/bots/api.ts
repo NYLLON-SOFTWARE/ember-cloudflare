@@ -179,7 +179,7 @@ async function postSlackMessage(request: Request, env: Env, roomId: RoomId, key:
   // Again now the body has arrived, as `createMessage` checks text.
   const arrived = await slackBotIn(env, roomId, key);
   if (arrived instanceof Response) return arrived;
-  const message = slackMessage(payload, arrived.takesClicks);
+  const message = slackMessage(payload, arrived.takesClicks, true);
   if (typeof message === "string") return slackAnswer(400, message);
   const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, arrived, message.markup, message.cards);
   if (!created) return slackAnswer(404, "channel_not_found");
@@ -202,7 +202,7 @@ async function replaceWithSlackMessage(request: Request, env: Env, roomId: RoomI
   const arrived = await slackBotIn(env, roomId, key);
   if (arrived instanceof Response) return arrived;
   const room = env.CHAT_ROOM.getByName(roomId);
-  const message = payload.delete_original === true ? null : slackMessage(payload, arrived.takesClicks);
+  const message = payload.delete_original === true ? null : slackMessage(payload, arrived.takesClicks, true);
   if (typeof message === "string") return slackAnswer(400, message);
   const refused = message ? await room.editBotMessage(roomId, arrived, messageId, message.markup, message.cards) : await room.deleteBotMessage(roomId, arrived, messageId);
   if (refused === NOT_FOUND) return slackAnswer(404, "message_not_found");

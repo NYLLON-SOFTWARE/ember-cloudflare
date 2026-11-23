@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   backShortcut,
   breaksLine,
+  editorsOwnShortcut,
   formattingKeys,
   forwardShortcut,
   formattingShortcut,
@@ -171,6 +172,18 @@ describe("formattingShortcut", () => {
     expect(formattingShortcut(press("X", { code: "KeyX", metaKey: true, shiftKey: true, altKey: true }))).toBeNull();
     expect(formattingShortcut(press("X", { code: "KeyX", metaKey: true, shiftKey: true, isComposing: true }))).toBeNull();
     expect(formattingShortcut(press("X", { code: "KeyX", shiftKey: true }))).toBeNull();
+  });
+});
+
+describe("editorsOwnShortcut", () => {
+  it("knows Cmd or Ctrl+B, I and U, which the editor takes itself, and nothing else", () => {
+    on("MacIntel");
+    for (const key of ["b", "i", "u"]) expect(editorsOwnShortcut(press(key, { code: `Key${key.toUpperCase()}`, metaKey: true })), key).toBe(true);
+    expect(editorsOwnShortcut(press("b", { code: "KeyB", ctrlKey: true }))).toBe(false);
+    expect(editorsOwnShortcut(press("B", { code: "KeyB", metaKey: true, shiftKey: true }))).toBe(false);
+    expect(editorsOwnShortcut(press("X", { code: "KeyX", metaKey: true, shiftKey: true }))).toBe(false);
+    on("Linux x86_64");
+    expect(editorsOwnShortcut(press("b", { code: "KeyB", ctrlKey: true }))).toBe(true);
   });
 });
 

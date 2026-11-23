@@ -417,6 +417,25 @@ test.describe("Ember AI", () => {
 });
 
 test.describe("@ember", () => {
+  test("someone asks @ember from the top bar's end, while Ember AI is on, which opens their DM with it", async ({ page, request }) => {
+    await useOwnAddress(page);
+    await page.goto("/");
+    await signInAsAdministrator(page);
+    const bar = page.getByRole("banner");
+    await expect(bar.getByRole("button", { name: /^Search / })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Ask @ember" })).toHaveCount(0);
+
+    await setUpAssistant(request);
+    await page.reload();
+    const ask = bar.getByRole("button", { name: "Ask @ember" });
+    // @ember's own picture, which is Ember's flame until an administrator uploads another.
+    await expect(ask.locator("img")).toBeVisible();
+    await ask.click();
+    await expect(page).toHaveURL(/\/rooms\/[^/]+$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Ember");
+    await expect(page.getByRole("region", { name: "DMs" }).locator("a[aria-current=page]")).toHaveAccessibleName(/Ember/);
+  });
+
   test("someone mentions @ember in a room, sees it typing, and reads its answer there", async ({ page, request }) => {
     await setUpAssistant(request);
     await useOwnAddress(page);
@@ -511,9 +530,9 @@ test.describe("@ember", () => {
     await expect(answer).toContainText(`Ada Lovelace: The offsite is in ${word}`);
     await expect(answer).not.toContainText("I'll look.");
     await expect(answer.getByRole("heading", { level: 3 })).toHaveText(/^Ember Agent/);
-    // Its model was asked twice: with the tool, and again with its call and what the search found.
+    // Its model was asked twice: with the room's tools, and again with its call of the search and what it found.
     const [called, answered] = gateway.asked.slice(-2).map(({ body }) => body as { tools: Array<{ name: string }>; messages: Array<{ role: string; content: unknown }> });
-    expect(called!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    expect(called!.tools.map(({ name }) => name)).toEqual(["search_messages", "read_room", "read_thread"]);
     expect(answered!.messages.slice(called!.messages.length)).toEqual([
       { role: "assistant", content: [{ type: "text", text: "I'll look." }, { type: "tool_use", id: "toolu_e2e", name: "search_messages", input: { words: word } }] },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_e2e", content: expect.stringContaining(`Ada Lovelace: The offsite is in ${word}`) }] },

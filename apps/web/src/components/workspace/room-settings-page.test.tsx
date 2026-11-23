@@ -1,4 +1,4 @@
-import type { Room, RoomSettings } from "@ember/protocol";
+import type { Me, Room, RoomSettings } from "@ember/protocol";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
-import { ApiError } from "@/lib/api";
+import { ApiError, CONFIRM_LEAVE } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { HuddlesContext, type Huddles } from "./huddle-button";
-import { HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED } from "./room-form";
-import { CONFIRM_DELETE, CONFIRM_LEAVE, RoomSettingsPage } from "./room-settings-page";
+import { CHANNEL_MENTIONS_ALLOWED, CHANNEL_MENTIONS_NOT_ALLOWED, HUDDLE_ENDS, HUDDLES_ALLOWED, HUDDLES_NOT_ALLOWED } from "./room-form";
+import { CONFIRM_DELETE, RoomSettingsPage } from "./room-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace = { id: "u2", name: "Grace Hopper" };
@@ -23,6 +23,7 @@ const openSettings = (canAdminister = true): RoomSettings => ({
   room: design,
   canAdminister,
   canChangeHuddles: canAdminister,
+  canChangeChannelMentions: canAdminister,
   people: [ada, grace, linus].map((person) => ({ ...person, member: true })),
   section: null,
   sections: [],
@@ -31,6 +32,7 @@ const closedSettings: RoomSettings = {
   room: leads,
   canAdminister: true,
   canChangeHuddles: true,
+  canChangeChannelMentions: true,
   people: [
     { ...ada, member: true },
     { ...grace, member: false },
@@ -60,22 +62,22 @@ function holdChange(settings: RoomSettings, method: "PATCH" | "DELETE" = "PATCH"
 
 type Callbacks = Pick<Parameters<typeof RoomSettingsPage>[0], "askForRoom" | "onMissing" | "onFailed">;
 
-/** The page, as Ada, at the form its address names, as the workspace shows it. */
-function SettingsRoute(callbacks: Callbacks) {
+/** The page, as Ada unless it says otherwise, at the form its address names, as the workspace shows it. */
+function SettingsRoute({ me, ...callbacks }: Callbacks & { me: Me }) {
   const route = useRoute();
   return route.page === "room-settings" ? (
-    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={ada} {...callbacks} />
+    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={me} {...callbacks} />
   ) : null;
 }
 
-function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`, wrapper?: (props: { children: ReactNode }) => ReactNode) {
+function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`, wrapper?: (props: { children: ReactNode }) => ReactNode, me: Me = ada) {
   const [onSaved, onLeft, onMissing, onFailed] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
   // The answers the page lists: rooms saved, and those it took Ada out of or deleted.
   const askForRoom = () => (answer: RoomAnswer) => (answer.type === "saved" ? onSaved(answer.room) : onLeft(answer.roomId));
   history.replaceState(null, "", path);
   const { unmount } = render(
     <Sheet>
-      <SettingsRoute askForRoom={askForRoom} onMissing={onMissing} onFailed={onFailed} />
+      <SettingsRoute me={me} askForRoom={askForRoom} onMissing={onMissing} onFailed={onFailed} />
     </Sheet>,
     { wrapper },
   );
@@ -112,7 +114,7 @@ describe("Room settings page", () => {
     serve(openSettings());
     showPage(design);
     await roomName();
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Room-wide mentions"]);
     expect(screen.getByRole("switch", { name: "Give only some access to this room" })).toBeChecked();
     for (const person of [ada, grace, linus]) {
       expect(hasCheckMark(person.name)).toBe(true);
@@ -124,10 +126,10 @@ describe("Room settings page", () => {
     serve(closedSettings);
     showPage(leads);
     await roomName();
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Linus Torvalds", "Grace Hopper"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Linus Torvalds", "Grace Hopper", "Room-wide mentions"]);
     expect(screen.getByRole("switch", { name: "Give everyone access to this room" })).not.toBeChecked();
     // One line under Everyone, and one between the members and everyone else.
-    expect(screen.getByRole("list").querySelectorAll(":scope > hr")).toHaveLength(2);
+    expect(screen.getAllByRole("list")[0]!.querySelectorAll(":scope > hr")).toHaveLength(2);
     expect([ada, grace, linus].map((person) => accessSwitch(person).getAttribute("aria-checked"))).toEqual(["true", "false", "true"]);
   });
 
@@ -278,6 +280,117 @@ describe("Sidebar section", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Design" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sidebar section" })).not.toBeInTheDocument();
   });
+
+  it("shows a section the dialog made by its name, should the page stay, as it does when signing out fails", async () => {
+    let settings: RoomSettings = { ...openSettings(), sections };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method !== "PATCH") return Response.json(settings);
+      settings = { ...settings, section: { id: "s3", name: "Design work" }, sections: [...sections, { id: "s3", name: "Design work", rooms: 1 }] };
+      return Response.json({ room: design });
+    });
+    const { user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    expect(sent()).toEqual({ name: "Design", icon: "", kind: "open", section: { name: "Design work" } });
+
+    await waitFor(() => expect(field()).toHaveTextContent("Design work"));
+    expect(screen.queryByRole("textbox", { name: "New section’s name" })).not.toBeInTheDocument();
+    await user.click(field());
+    expect(screen.getByRole("menuitemradio", { name: /^Design work/ })).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{Escape}");
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(2);
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("leaves the section a later save chose, should the settings loaded for one made answer after it", async () => {
+    const madeSettings: RoomSettings = { ...openSettings(), section: { id: "s3", name: "Design work" }, sections: [...sections, { id: "s3", name: "Design work", rooms: 1 }] };
+    let answerReload = (_: Response) => {};
+    const gets = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method !== "PATCH").length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      if (init?.method === "PATCH") return Promise.resolve(Response.json({ room: design }));
+      // The settings the page loads again once the section is made answer only when the test says.
+      if (gets() === 2) return new Promise((resolve) => (answerReload = resolve));
+      return Promise.resolve(Response.json({ ...openSettings(), sections }));
+    });
+    const { user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(gets()).toBe(2));
+
+    // Sales is picked and saved before they answer.
+    await user.click(field());
+    await user.click(screen.getByRole("menuitemradio", { name: /^Sales/ }));
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(2));
+    await act(async () => answerReload(Response.json(madeSettings)));
+    expect(field()).toHaveTextContent("Sales");
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(3);
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("leaves a later save to say how it went, should the settings loaded for a section made fail during it", async () => {
+    let [answerReload, answerSave] = [(_: Response) => {}, (_: Response) => {}];
+    const calls = (method: "GET" | "PATCH") => vi.mocked(fetch).mock.calls.filter(([, init]) => (init?.method ?? "GET") === method).length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      // The dialog's save answers at once, and the form's own Save once the test says.
+      if (init?.method === "PATCH") return calls("PATCH") === 1 ? Promise.resolve(Response.json({ room: design })) : new Promise((resolve) => (answerSave = resolve));
+      return calls("GET") === 1 ? Promise.resolve(Response.json({ ...openSettings(), sections })) : new Promise((resolve) => (answerReload = resolve));
+    });
+    const { onFailed, onMissing, user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls("GET")).toBe(2));
+
+    await user.type(await roomName(), " team");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await act(async () => answerReload(Response.json({ error: "Workspace unavailable" }, { status: 503 })));
+    expect(screen.getByRole("button", { name: "Delete Design" })).toBeDisabled();
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(onMissing).not.toHaveBeenCalled();
+    await act(async () => answerSave(Response.json({ room: { ...design, name: "Design team" } })));
+    expect(location.pathname).toBe("/rooms/design");
+  });
+
+  it("goes to sign in when the settings loaded for a section made find the session gone, though the page was left", async () => {
+    let answerReload = (_: Response) => {};
+    const gets = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method !== "PATCH").length;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      if (init?.method === "PATCH") return Promise.resolve(Response.json({ room: design }));
+      return gets() === 1 ? Promise.resolve(Response.json({ ...openSettings(), sections })) : new Promise((resolve) => (answerReload = resolve));
+    });
+    const { onFailed, user } = showPage(design, undefined, undefined, { ...ada, administrator: true });
+    await roomName();
+    await user.click(field());
+    await user.click(screen.getByRole("menuitem", { name: "New section…" }));
+    await user.type(screen.getByRole("textbox", { name: "New section’s name" }), "Design work");
+    act(() => leave(vi.fn(async () => false)));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(gets()).toBe(2));
+
+    act(() => navigate("/rooms/general"));
+    expect(screen.queryByRole("textbox", { name: "Room name" })).not.toBeInTheDocument();
+    await act(async () => answerReload(Response.json({ error: "Not signed in" }, { status: 401 })));
+    expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
+  });
 });
 
 describe("Switch a room between open and private", () => {
@@ -400,7 +513,7 @@ describe("Who can change a room", () => {
   });
 
   it("shows them a private room's members, then everyone else, with no Everyone row or switches", async () => {
-    serve({ ...closedSettings, canAdminister: false, canChangeHuddles: false });
+    serve({ ...closedSettings, canAdminister: false, canChangeHuddles: false, canChangeChannelMentions: false });
     showPage(leads);
     expect(await screen.findByRole("heading", { level: 2, name: "Leads" })).toBeInTheDocument();
     expect(names()).toEqual(["Ada Lovelace", "Linus Torvalds", "Grace Hopper"]);
@@ -458,8 +571,8 @@ describe("Allow huddles in a room", () => {
   /** The page where huddles are on. */
   const showWithHuddles = (room: Room, live?: Huddles["live"]) => showPage(room, undefined, huddlesOn(live));
   const withoutHuddles = (settings: RoomSettings): RoomSettings => ({ ...settings, room: { ...settings.room, huddles: false } });
-  /** The settings of whoever made the room and isn't an administrator: theirs to change, but for its huddles. */
-  const asCreator = (settings: RoomSettings): RoomSettings => ({ ...settings, canChangeHuddles: false });
+  /** The settings of whoever made the room and isn't an administrator: theirs to change, but for its huddles and room-wide mentions. */
+  const asCreator = (settings: RoomSettings): RoomSettings => ({ ...settings, canChangeHuddles: false, canChangeChannelMentions: false });
   const huddlesSwitch = () => screen.findByRole("switch", { name: "Allow huddles in this room" });
   const huddle = { startedAt: "2026-11-17T09:00:00.000Z", userIds: [grace.id] };
 
@@ -467,7 +580,7 @@ describe("Allow huddles in a room", () => {
     serve(withoutHuddles(openSettings()), { saved: { ...design, name: "Design team", huddles: false } });
     const { onSaved, user } = showPage(design);
     await user.type(await roomName(), " team");
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Room-wide mentions"]);
     expect(screen.queryByRole("switch", { name: "Allow huddles in this room" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
@@ -479,7 +592,7 @@ describe("Allow huddles in a room", () => {
     const allowed = showWithHuddles(design);
     expect(await huddlesSwitch()).toBeChecked();
     expect(await huddlesSwitch()).toHaveAccessibleDescription(HUDDLES_ALLOWED);
-    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Huddles"]);
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds", "Huddles", "Room-wide mentions"]);
     allowed.unmount();
 
     vi.restoreAllMocks();
@@ -588,6 +701,59 @@ describe("Allow huddles in a room", () => {
   });
 });
 
+describe("Allow @channel, @here and @everyone in a room", () => {
+  const mentionsSwitch = () => screen.findByRole("switch", { name: "Allow @channel, @here and @everyone in this room" });
+  const quiet = (settings: RoomSettings): RoomSettings => ({ ...settings, room: { ...settings.room, channelMentions: false } });
+
+  it("gives an administrator the Room-wide mentions switch under the people, on for a room they notify and off for one they don't", async () => {
+    serve(openSettings());
+    const allowed = showPage(design);
+    expect(await mentionsSwitch()).toBeChecked();
+    expect(await mentionsSwitch()).toHaveAccessibleDescription(CHANNEL_MENTIONS_ALLOWED);
+    expect(rowOf("Room-wide mentions").querySelector("svg")).toHaveClass("iconoir-at-sign");
+    allowed.unmount();
+
+    vi.restoreAllMocks();
+    serve(quiet(closedSettings));
+    showPage(leads);
+    expect(await mentionsSwitch()).not.toBeChecked();
+    expect(await mentionsSwitch()).toHaveAccessibleDescription(CHANNEL_MENTIONS_NOT_ALLOWED);
+  });
+
+  it("turns them off with Save, sending the switch only once it's moved, and counts it as a change to ask about", async () => {
+    const saved: Room = { ...design, channelMentions: false };
+    serve(openSettings(), { saved });
+    const { onSaved, user } = showPage(design);
+    await user.click(await mentionsSwitch());
+    act(() => navigate("/rooms/general"));
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    expect(sent()).toEqual({ name: "Design", icon: "", channelMentions: false, kind: "open" });
+  });
+
+  it("only tells whoever can't change them that they notify nobody, the room's creator too, and nothing of a room they notify", async () => {
+    const asCreator = (settings: RoomSettings): RoomSettings => ({ ...settings, canChangeChannelMentions: false });
+    serve(asCreator(quiet(openSettings())), { saved: { ...design, name: "Design team", channelMentions: false } });
+    const creator = showPage(design);
+    expect(await screen.findByText(CHANNEL_MENTIONS_NOT_ALLOWED)).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Allow @channel, @here and @everyone in this room" })).not.toBeInTheDocument();
+    await creator.user.type(await roomName(), " team{Enter}");
+    await waitFor(() => expect(creator.onSaved).toHaveBeenCalledOnce());
+    expect(sent()).toEqual({ name: "Design team", icon: "", kind: "open" });
+    creator.unmount();
+
+    vi.restoreAllMocks();
+    serve(openSettings(false));
+    showPage(design);
+    expect(await screen.findByRole("heading", { level: 2, name: "Design" })).toBeInTheDocument();
+    expect(names()).toEqual(["Everyone", "Ada Lovelace", "Grace Hopper", "Linus Torvalds"]);
+    expect(screen.queryByText(CHANNEL_MENTIONS_ALLOWED)).not.toBeInTheDocument();
+  });
+});
+
 describe("Delete a room", () => {
   const deleteButton = () => screen.findByRole("button", { name: "Delete Design" });
   const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
@@ -674,7 +840,7 @@ describe("Delete a room", () => {
 describe("Leave a private room", () => {
   const leaveButton = () => screen.findByRole("button", { name: "Leave Leads" });
   const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
-  const asMember: RoomSettings = { ...closedSettings, canAdminister: false, canChangeHuddles: false };
+  const asMember: RoomSettings = { ...closedSettings, canAdminister: false, canChangeHuddles: false, canChangeChannelMentions: false };
 
   it("offers Leave to someone in a private room they can't change, in its own panel", async () => {
     serve(asMember);

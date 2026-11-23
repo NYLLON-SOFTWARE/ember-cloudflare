@@ -27,7 +27,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   signInWithSso: null,
   turnstileSiteKey: null,
   passwordResetCodes: false,
-  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
+  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -136,6 +136,21 @@ describe("Sign in with email and password", () => {
     await signIn("correct horse");
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
+    expect(screen.getByLabelText("Password")).toHaveValue("correct horse");
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+    expect(card()).not.toHaveClass("motion-safe:animate-shake");
+  });
+
+  it.each([
+    ["the Worker's own failure", () => respond(500, { error: "Something went wrong" })],
+    ["an answer from in front of it with nothing in it", () => vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 502 }))],
+  ])("says Ember couldn't sign them in, rather than that the password is wrong, keeping what was typed, at %s", async (_, answer) => {
+    answer();
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await signIn("correct horse");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ember couldn't sign you in just now. Please try again.");
+    expect(card()).not.toContainElement(screen.getByRole("alert"));
     expect(screen.getByLabelText("Password")).toHaveValue("correct horse");
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
     expect(card()).not.toHaveClass("motion-safe:animate-shake");

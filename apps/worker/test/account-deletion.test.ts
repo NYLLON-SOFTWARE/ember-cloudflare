@@ -50,7 +50,8 @@ import {
 } from "./support";
 
 // Delete my account, on your profile, which Apple asks of every app with accounts: everything removing
-// someone does, then their messages and boosts in every room, and everything else of them but their row.
+// someone does, then what they've scheduled, their messages and boosts in every room, and everything else
+// of them but their row.
 
 const bindings = env as unknown as Env;
 
@@ -434,6 +435,24 @@ describe("What deleting your account deletes", () => {
       { id: parent.id, creator_name: DELETED_PERSON_NAME, body: "", deleted: 1 },
     ]);
     expect(await written(lobby, linus.user.id)).toEqual([answer.id]);
+  });
+
+  it("forgets the messages you scheduled, so none of them is sent, or kept", async () => {
+    await setUp();
+    const member = await join(grace);
+    const lobby = await freshRoom("lobby");
+    const graceInLobby = await connect(lobby, member);
+    const parent = await post(graceInLobby, "Plans?");
+    for (const thread of [{}, { parentId: parent.id }]) {
+      graceInLobby.send({ type: "message.schedule", clientMessageId: crypto.randomUUID(), body: "<p>Later</p>", sendAt: new Date(Date.now() + 60_000).toISOString(), ...thread });
+      await graceInLobby.next("scheduled");
+    }
+    const scheduled = () => roomSql(lobby, "SELECT count(*) AS count FROM scheduled_messages WHERE room_id = ?", lobby);
+    expect(await scheduled()).toEqual([{ count: 2 }]);
+
+    await deleteGraces(member);
+    await purged();
+    expect(await scheduled()).toEqual([{ count: 0 }]);
   });
 
   it("deletes a page of messages, then of boosts, at a time, each a change of its own that tabs catch up on", async () => {

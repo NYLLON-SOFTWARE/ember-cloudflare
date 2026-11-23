@@ -40,9 +40,11 @@ import {
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
+  parseMembersChange,
   parseRoomLayout,
   parseNewDirect,
   parseNewRoom,
+  parseNotificationsPause,
   parseProfileChanges,
   parseResendApiKey,
   parseRoleChange,
@@ -75,6 +77,8 @@ import {
   type MemberfulStatus,
   type NewJoinCode,
   type NewRoomForm,
+  type NotificationsPaused,
+  type NotifiedCounts,
   type PersonAnswer,
   type ProfileAnswer,
   type ReleaseCheck,
@@ -1110,6 +1114,21 @@ async function changeHuddleSounds(request: Request, env: Env): Promise<Response>
 }
 
 /**
+ * `PUT /api/users/me/notifications-pause`, `{ until }`: pauses the signed-in person's notifications until
+ * `until`, an ISO time no more than a week on, or resumes them with null, as the rail's Pause
+ * notifications does, answering them as the people directory lists them then: 422 for a time that has
+ * passed or isn't one.
+ */
+async function pauseNotifications(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const pause = parseNotificationsPause(await jsonBodyOf(request), Date.now());
+  if (typeof pause === "string") return problem(422, pause);
+  const user = await workspace(env).pauseNotifications(credentials, pause.until);
+  return user ? json({ user } satisfies NotificationsPaused) : problem(401, "Not signed in");
+}
+
+/**
  * `GET /api/huddles`: the huddles that are over in the rooms the signed-in person is in and hasn't
  * hidden, the latest to have started first, which the Huddles page lists.
  */
@@ -1317,6 +1336,14 @@ async function newRoomForm(request: Request, env: Env): Promise<Response> {
   return form === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json(form satisfies NewRoomForm);
 }
 
+/** How many people a room holds, and how many each special mention the asker may use would notify there, for its members. */
+async function notified(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const counts = credentials && (await workspace(env).notified(credentials, roomId));
+  if (!counts) return problem(401, "Not signed in");
+  return counts === "not found" ? problem(404, ROOM_NOT_FOUND) : json(counts satisfies NotifiedCounts);
+}
+
 /** A room's settings page, for its members, read-only for those who can't change it. */
 async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1327,8 +1354,8 @@ async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise
 
 /**
  * Changes a room, as its settings page saves it. Someone who can't change it hears so before anything
- * they sent is checked, and whoever would turn huddles on or off in it hears that only an administrator
- * can, unless they're one.
+ * they sent is checked, and whoever would turn huddles, or @channel, @here and @everyone, on or off in it
+ * hears that only an administrator can, unless they're one.
  */
 async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1340,9 +1367,28 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   if (room === "not found") return problem(404, ROOM_NOT_FOUND);
   if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
   if (room === "administrators only") return problem(403, "Only administrators can turn huddles on or off in a room");
+  if (room === "mentions administrators only") return problem(403, "Only administrators can turn @channel, @here and @everyone on or off in a room");
   if (room === "blocked words") return problem(422, BLOCKED_WORDS_REFUSED);
   if (typeof room === "string") return sectionRefused(room);
   return typeof changes === "string" ? problem(422, changes) : json({ room });
+}
+
+/**
+ * Puts people in a private room, or takes them out, as /invite and /remove do, leaving everyone else as
+ * they are. As with changing a room, someone who can't change it hears so before anything they sent is
+ * checked.
+ */
+async function changeMembers(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseMembersChange(await jsonBodyOf(request));
+  // A change that doesn't parse changes nothing, but the room is still checked first.
+  const room = await workspace(env).changeMembers(credentials, roomId, typeof change === "string" ? { addedIds: [], removedIds: [] } : change);
+  if (!room) return problem(401, "Not signed in");
+  if (room === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
+  if (room === "open") return problem(409, "Everyone is in an open room, so nobody can be put in it or taken out");
+  return typeof change === "string" ? problem(422, change) : json({ room });
 }
 
 /**
@@ -1586,6 +1632,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me" && request.method === "DELETE") return () => deleteAccount(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
   if (pathname === "/api/users/me/huddle-sounds" && request.method === "PATCH") return () => changeHuddleSounds(request, env);
+  if (pathname === "/api/users/me/notifications-pause" && request.method === "PUT") return () => pauseNotifications(request, env);
   if (pathname === "/api/huddles" && request.method === "GET") return () => pastHuddles(request, env);
   const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
   if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);
@@ -1654,6 +1701,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const huddleInvitation = pathname.match(/^\/api\/rooms\/([^/]+)\/huddle\/invitation$/);
   if (huddleInvitation && request.method === "DELETE")
     return () => (isRoomId(huddleInvitation[1]!) ? answerHuddleInvitation(request, env, huddleInvitation[1]!) : problem(404, ROOM_NOT_FOUND));
+  const notifiedBy = pathname.match(/^\/api\/rooms\/([^/]+)\/notified$/);
+  if (notifiedBy && request.method === "GET") return () => (isRoomId(notifiedBy[1]!) ? notified(request, env, notifiedBy[1]!) : problem(404, ROOM_NOT_FOUND));
   const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
   if (settings && request.method === "GET") return () => (isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND));
   const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);
@@ -1663,6 +1712,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
     return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
   const membership = pathname.match(/^\/api\/rooms\/([^/]+)\/membership$/);
   if (membership && request.method === "DELETE") return () => (isRoomId(membership[1]!) ? leaveRoom(request, env, membership[1]!) : problem(404, ROOM_NOT_FOUND));
+  const members = pathname.match(/^\/api\/rooms\/([^/]+)\/members$/);
+  if (members && request.method === "PATCH") return () => (isRoomId(members[1]!) ? changeMembers(request, env, members[1]!) : problem(404, ROOM_NOT_FOUND));
   const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
   if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
   // A file's key never needs percent-encoding either, so an encoded segment names no upload.

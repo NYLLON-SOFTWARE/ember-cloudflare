@@ -1,7 +1,7 @@
-import type { Message } from "@ember/protocol";
+import type { EphemeralMessage, Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline } from "./messages";
+import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, ROOM_MENTION_CONTENT_TYPE, roomMentionContent, type MentionRoom } from "@ember/richtext/dom";
+import { dateLabel, dateTimeLabel, huddleStartedLabel, lastReplyLabel, newestWrittenBy, replyQuote, timeLabel, timeline, visitedLabel } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -43,6 +43,23 @@ describe("Group messages by author", () => {
     const huddle: Message = { ...at("2026-10-12T09:01:00"), huddle: { startedAt: "2026-10-12T09:01:00.000Z" } };
     const items = timeline([at("2026-10-12T09:00:00"), huddle, at("2026-10-12T09:02:00")]);
     expect(items.map((i) => i.threaded)).toEqual([false, false, false]);
+  });
+
+  it("puts each message only you see after those that came before it, ahead of any still sending, and groups nothing under it, nor it under anything", () => {
+    const shownAlone = (iso: string, creatorId = "u1"): EphemeralMessage => ({ ...at(iso, creatorId), id: `e${iso}`, cards: [] });
+    const sending = { ...at("2026-10-12T09:00:30"), pending: true as const };
+    const items = timeline(
+      [at("2026-10-12T09:00:00"), at("2026-10-12T09:02:00"), at("2026-10-12T09:03:00", "u2"), sending],
+      [shownAlone("2026-10-12T09:01:00"), shownAlone("2026-10-12T09:04:00", "u2")],
+    );
+    expect(items.map(({ message, ephemeral = false, threaded }) => [message.id, ephemeral, threaded])).toEqual([
+      ["2026-10-12T09:00:00", false, false],
+      ["e2026-10-12T09:01:00", true, false],
+      ["2026-10-12T09:02:00", false, false],
+      ["2026-10-12T09:03:00", false, false],
+      ["e2026-10-12T09:04:00", true, false],
+      ["2026-10-12T09:00:30", false, false],
+    ]);
   });
 });
 
@@ -86,6 +103,20 @@ describe("The Huddles page", () => {
     expect(huddleStartedLabel(new Date(2026, 9, 12, 9, 41), now)).toBe("Oct 12");
     expect(huddleStartedLabel(new Date(2025, 9, 12, 9, 41), now)).toBe("Oct 12, 2025");
     expect(huddleStartedLabel(lastNight, new Date(2026, 10, 1, 0, 5))).toBe(`Yesterday at ${timeLabel(lastNight)}`);
+  });
+});
+
+describe("History", () => {
+  it("says how long ago a page was shown: just now, in minutes or hours today, yesterday, or the day, with its year in another", () => {
+    const now = new Date(2026, 9, 30, 15, 0);
+    expect(visitedLabel(new Date(2026, 9, 30, 14, 59, 30), now)).toBe("Just now");
+    expect(visitedLabel(new Date(2026, 9, 30, 14, 55), now)).toBe("5 min");
+    expect(visitedLabel(new Date(2026, 9, 30, 14, 0, 30), now)).toBe("59 min");
+    expect(visitedLabel(new Date(2026, 9, 30, 12, 59), now)).toBe("2 hr");
+    expect(visitedLabel(new Date(2026, 9, 30, 0, 5), now)).toBe("14 hr");
+    expect(visitedLabel(new Date(2026, 9, 29, 23, 0), now)).toBe("Yesterday");
+    expect(visitedLabel(new Date(2026, 9, 12, 9, 41), now)).toBe("Oct 12");
+    expect(visitedLabel(new Date(2025, 9, 12, 9, 41), now)).toBe("Oct 12, 2025");
   });
 });
 
@@ -133,16 +164,38 @@ describe("Quote a message", () => {
     return attachment.outerHTML;
   }
 
-  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace");
+  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace", () => undefined);
 
   it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
     const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`, "", "");
     const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
-    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
+    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!, () => undefined)).toBe(
       "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
         '<a href="https://example.com">https://example.com</a></p></blockquote>' +
         '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
     );
+  });
+
+  it("keeps each room it mentions, as the quoting reader sees it or as a private room, where no link preview stands in for it", () => {
+    const room = (roomId: string) => `<action-text-attachment content-type="${ROOM_MENTION_CONTENT_TYPE}" sgid="${roomId}"></action-text-attachment>`;
+    const rooms: Record<string, MentionRoom> = { r1: { id: "r1", name: "R&D" } };
+    const quoted = (body: string) => replyQuote(displayBody(body, "", ""), "Ada", LINK, () => "Grace", (roomId) => rooms[roomId]);
+    /** The quote with each mention in it as a #, and the mentions, each by its sgid and content. */
+    const read = (quote: string) => [
+      quote.replaceAll(/<action-text-attachment [^>]+><\/action-text-attachment>/g, "#"),
+      [...new DOMParser().parseFromString(quote, "text/html").querySelectorAll("action-text-attachment")].map((mention) => [mention.getAttribute("sgid"), mention.getAttribute("content")]),
+    ];
+    expect(read(quoted(`<p>See ${room("r1")} or ${room("r2")}</p>`))).toEqual([
+      `<blockquote><p>See # or #</p></blockquote>${CITE}`,
+      [
+        ["r1", roomMentionContent(rooms.r1)],
+        ["r2", roomMentionContent(undefined)],
+      ],
+    ]);
+    expect(read(quoted(`<p>${room("r1")}</p>${preview({ href: "https://basecamp.com/", filename: "Basecamp" })}`))).toEqual([
+      `<blockquote><p>#</p></blockquote>${CITE}`,
+      [["r1", roomMentionContent(rooms.r1)]],
+    ]);
   });
 
   it("leaves out the message's link previews", () => {

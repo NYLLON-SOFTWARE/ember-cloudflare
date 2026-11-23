@@ -2,13 +2,26 @@
 // special mentions, by its name. Ember's sgid is the user's id. Campfire's are signed global ids, but
 // any member can list every user's, so a signature protects nothing; and Lexxy, the composer, drops an
 // sgid that starts like a URL, as `gid://` does, since DOMPurify vets every attribute's value as one.
+// A room mention's sgid is a room's id, which can look like a user's, so what reads mentions skips
+// room mentions (room-mentions.ts).
 
 import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH, sanitizeContentAttribute } from "./content";
-import { detach, getAttr, setAttr, textContent, type Element } from "./tree";
-import { OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode, specialMentionOf, type MentionUser, type ResolveMention, type SpecialMention } from "./attachments";
+import { createText, detach, getAttr, replaceEach, setAttr, textContent, type Element, type Text } from "./tree";
+import {
+  isRoomMention,
+  noRooms,
+  OPENGRAPH_EMBED_CONTENT_TYPE,
+  opengraphEmbedFromNode,
+  specialMentionOf,
+  type MentionUser,
+  type ResolveMention,
+  type ResolveRoom,
+  type SpecialMention,
+} from "./attachments";
 import { BODY, ParseLimitError, type HtmlParser } from "./markup";
 import { isPlainParagraph } from "./plain-paragraph";
 import { previewContent } from "./previews";
+import { roomMentionContent } from "./room-mentions";
 import { htmlEscape } from "./ruby";
 import { toHtml } from "./serialize";
 
@@ -97,11 +110,13 @@ export function specialMentionPromptItem(mention: SpecialMention): string {
 
 /**
  * The markup the editor opens with for a body Ember stored: each mention given the content Lexxy shows
- * it by, since Lexxy drops an attachment without content. A mention of someone `card` doesn't know goes.
- * Each link preview is written again from what it shows on `host`, the one the page is served from, so
- * that the editor no more loads an image from this Ember than the message does.
+ * it by, since Lexxy drops an attachment without content. A mention of someone `card` doesn't know goes,
+ * but a room mention stays, as a private room where `room` doesn't know the room, since the room is
+ * there for those who can see it. Each link preview is written again from what it shows on `host`, the
+ * one the page is served from, so that the editor no more loads an image from this Ember than the
+ * message does.
  */
-export function editableBody(parse: HtmlParser, stored: string, card: (userId: string) => MentionCard | undefined, host: string): string {
+export function editableBody(parse: HtmlParser, stored: string, card: (userId: string) => MentionCard | undefined, host: string, room: ResolveRoom = noRooms): string {
   if (isPlainParagraph(stored)) return stored;
   const content = parse(stored, BODY);
   for (const attachment of attachmentNodes(content)) {
@@ -111,6 +126,10 @@ export function editableBody(parse: HtmlParser, stored: string, card: (userId: s
       continue;
     }
     const sgid = getAttr(attachment, "sgid") ?? "";
+    if (isRoomMention(attachment)) {
+      setAttr(attachment, "content", roomMentionContent(room(sgid)));
+      continue;
+    }
     const special = specialMentionOf(sgid);
     const userId = userIdFromSgid(sgid);
     const person = userId === undefined ? undefined : card(userId);
@@ -118,6 +137,23 @@ export function editableBody(parse: HtmlParser, stored: string, card: (userId: s
     else if (person) setAttr(attachment, "content", mentionContent(person));
     else detach(attachment);
   }
+  return toHtml(content, { escapeAttributeBrackets: true });
+}
+
+/**
+ * Stored markup with each special mention it makes that `refused` names as the text it shows, "@here" and
+ * the like, as one its sender may not use is kept: it notifies nobody, and shows as what it says. Its
+ * plain text stays as it was.
+ */
+export function specialMentionsAsText(parse: HtmlParser, stored: string, refused: readonly SpecialMention[]): string {
+  if (refused.length === 0 || isPlainParagraph(stored)) return stored;
+  const content = parse(stored, BODY);
+  const asText = new Map<Element, Text[]>();
+  for (const attachment of attachmentNodes(content)) {
+    const mention = isRoomMention(attachment) ? undefined : specialMentionOf(getAttr(attachment, "sgid") ?? "");
+    if (mention !== undefined && refused.includes(mention)) asText.set(attachment, [createText(`@${mention}`)]);
+  }
+  replaceEach(asText);
   return toHtml(content, { escapeAttributeBrackets: true });
 }
 
@@ -130,7 +166,7 @@ export function writtenMentions(parse: HtmlParser, markup: string): MentionUser[
   if (isPlainParagraph(markup)) return [];
   const people = new Map<string, MentionUser>();
   for (const attachment of attachmentNodes(parse(markup, BODY))) {
-    const id = userIdFromSgid(getAttr(attachment, "sgid") ?? "");
+    const id = isRoomMention(attachment) ? undefined : userIdFromSgid(getAttr(attachment, "sgid") ?? "");
     if (id === undefined || people.has(id)) continue;
     people.set(id, { id, name: textContent(parse(getAttr(attachment, "content") ?? "", BODY)).trim() });
   }
@@ -160,14 +196,25 @@ export function userIdsIn(parse: HtmlParser, markup: string): string[] {
 
 /** The users `userIdsIn` finds, with the special mentions the same attachments make, once each. */
 export function mentionsIn(parse: HtmlParser, markup: string): Mentions {
-  const sgids = sgidsIn(parse, markup);
+  const sgids = sgidsIn(parse, markup, (attachment) => !isRoomMention(attachment));
   const userIds = sgids.flatMap((sgid) => userIdFromSgid(sgid) ?? []);
   const specialMentions = sgids.flatMap((sgid) => specialMentionOf(sgid) ?? []);
   return { userIds, specialMentions };
 }
 
-/** Every attachment's sgid, in the body or in the content attachments that render inside it, once each. */
-function sgidsIn(parse: HtmlParser, markup: string): string[] {
+/**
+ * Every room a room mention's sgid names, in the body or in the content attachments that render inside
+ * it, once each: the rooms to look up before resolving its room mentions, read as `userIdsIn` reads users.
+ */
+export function roomIdsIn(parse: HtmlParser, markup: string): string[] {
+  return sgidsIn(parse, markup, isRoomMention);
+}
+
+/**
+ * The sgid of every attachment `counted` counts, in the body or in the content attachments that render
+ * inside it, once each.
+ */
+function sgidsIn(parse: HtmlParser, markup: string, counted: (attachment: Element) => boolean): string[] {
   if (isPlainParagraph(markup)) return [];
   const sgids = new Set<string>();
   const collect = (markup: string, depth: number) => {
@@ -180,7 +227,7 @@ function sgidsIn(parse: HtmlParser, markup: string): string[] {
     }
     for (const attachment of attachments) {
       const sgid = getAttr(attachment, "sgid");
-      if (sgid !== undefined) sgids.add(sgid);
+      if (sgid !== undefined && counted(attachment)) sgids.add(sgid);
       const content = getAttr(attachment, "content");
       if (content !== undefined && depth < MAX_CONTENT_ATTACHMENT_DEPTH) collect(content, depth + 1);
     }
@@ -201,7 +248,7 @@ export function mentionedUsers(parse: HtmlParser, markup: string, resolve: Resol
 export function usersAttached(attachments: Element[], resolve: ResolveMention): MentionUser[] {
   const users = new Map<string, MentionUser>();
   for (const node of attachments) {
-    const sgid = getAttr(node, "sgid");
+    const sgid = isRoomMention(node) ? undefined : getAttr(node, "sgid");
     const user = sgid === undefined ? undefined : resolve(sgid);
     if (user && !users.has(user.id)) users.set(user.id, user);
   }
@@ -210,5 +257,5 @@ export function usersAttached(attachments: Element[], resolve: ResolveMention): 
 
 /** The special mentions attachments of a loaded body make, once each, in order. */
 export function specialMentionsAttached(attachments: Element[]): SpecialMention[] {
-  return [...new Set(attachments.flatMap((node) => specialMentionOf(getAttr(node, "sgid") ?? "") ?? []))];
+  return [...new Set(attachments.flatMap((node) => (isRoomMention(node) ? [] : (specialMentionOf(getAttr(node, "sgid") ?? "") ?? []))))];
 }

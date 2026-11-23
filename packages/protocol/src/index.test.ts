@@ -71,6 +71,7 @@ import {
   parseInvitationRequest,
   parseEmailLinkSignUp,
   parseInvolvementChange,
+  parseMembersChange,
   parseNewDirect,
   parseNewRoom,
   parseOpenSignUp,
@@ -153,7 +154,7 @@ describe("Send a message", () => {
   });
 
   it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {
-    expect(ROOM_PROTOCOL).toBe(4);
+    expect(ROOM_PROTOCOL).toBe(5);
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
@@ -183,6 +184,44 @@ describe("Link previews after sending", () => {
       expect(parse({ type: "message.preview", clientMessageId: "c1", preview: bad }), JSON.stringify(bad)).toBeNull();
     }
     expect(parse({ type: "message.preview", clientMessageId: "", preview })).toBeNull();
+  });
+});
+
+describe("Schedule a message", () => {
+  const scheduled = { type: "message.schedule", clientMessageId: "c1", body: "<p>hi</p>", sendAt: "2026-11-18T17:00:00.000Z" };
+
+  it("schedules a message as message.create sends one, in a thread too, for a time it writes as toISOString does", () => {
+    expect(parse(scheduled)).toEqual(scheduled);
+    expect(parse({ ...scheduled, sendAt: "2026-11-18T09:00:00-08:00" })).toEqual(scheduled);
+    expect(parse({ ...scheduled, parentId: "m1" })).toEqual({ ...scheduled, parentId: "m1", alsoSend: false });
+    expect(parse({ ...scheduled, parentId: "m1", alsoSend: true })).toEqual({ ...scheduled, parentId: "m1", alsoSend: true });
+  });
+
+  it("refuses a time that isn't one, and what message.create would refuse", () => {
+    for (const sendAt of [undefined, null, 1_795_000_000_000, "", "tomorrow", "2026-13-01T00:00:00Z", `2026-11-18T17:00:00.000Z${" ".repeat(7)}`]) {
+      expect(parse({ ...scheduled, sendAt }), String(sendAt)).toBeNull();
+    }
+    expect(parse({ ...scheduled, body: 7 })).toBeNull();
+    expect(parse({ ...scheduled, body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    expect(parse({ ...scheduled, clientMessageId: "" })).toBeNull();
+    expect(parse({ ...scheduled, parentId: "" })).toBeNull();
+  });
+
+  it("edits, moves, sends now or deletes a scheduled message by its id", () => {
+    const edited = { type: "scheduled.edit", scheduledId: "s1", body: "<p>hello</p>" };
+    expect(parse(edited)).toEqual(edited);
+    expect(parse({ ...edited, body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    const moved = { type: "scheduled.reschedule", scheduledId: "s1", sendAt: "2026-11-23T17:00:00Z" };
+    expect(parse(moved)).toEqual({ ...moved, sendAt: "2026-11-23T17:00:00.000Z" });
+    expect(parse({ ...moved, sendAt: "soon" })).toBeNull();
+    expect(parse({ type: "scheduled.send", scheduledId: "s1" })).toEqual({ type: "scheduled.send", scheduledId: "s1" });
+    expect(parse({ type: "scheduled.delete", scheduledId: "s1" })).toEqual({ type: "scheduled.delete", scheduledId: "s1" });
+    for (const scheduledId of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ ...edited, scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ ...moved, scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ type: "scheduled.send", scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ type: "scheduled.delete", scheduledId }), String(scheduledId)).toBeNull();
+    }
   });
 });
 
@@ -366,7 +405,7 @@ describe("One live connection per tab outside the open room", () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -505,6 +544,24 @@ describe("Add and remove private room members", () => {
     for (const memberIds of [undefined, "u1", [1], [""], tooMany]) {
       expect(parseRoomChanges({ kind: "closed", memberIds }), JSON.stringify(memberIds)?.slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
     }
+  });
+
+  it("takes whom to put in a private room and take out of it, as /invite and /remove do, either of them left out for nobody", () => {
+    expect(parseMembersChange({ addedIds: ["u1", "u2"], removedIds: ["u3"] })).toEqual({ addedIds: ["u1", "u2"], removedIds: ["u3"] });
+    expect(parseMembersChange({ addedIds: ["u1"] })).toEqual({ addedIds: ["u1"], removedIds: [] });
+    expect(parseMembersChange({ removedIds: ["u3"] })).toEqual({ addedIds: [], removedIds: ["u3"] });
+    expect(parseMembersChange({})).toEqual({ addedIds: [], removedIds: [] });
+  });
+
+  it("refuses people to put in or take out that aren't listed as user ids, or that are both", () => {
+    const tooMany = Array.from({ length: MAX_LISTED_USERS + 1 }, (_, i) => `u${i}`);
+    for (const ids of [null, "u1", [1], [""], tooMany]) {
+      for (const change of [{ addedIds: ids }, { removedIds: ids }]) {
+        expect(parseMembersChange(change), JSON.stringify(change).slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
+      }
+    }
+    expect(parseMembersChange({ addedIds: ["u1", "u2"], removedIds: ["u2"] })).toBe("Nobody can be put in a room and taken out of it at once");
+    for (const data of [null, "u1", ["u1"]]) expect(parseMembersChange(data)).toBe("Expected a JSON object");
   });
 });
 
@@ -776,6 +833,16 @@ describe("Only administrators create rooms (setting)", () => {
       settings: { restrictRoomCreation: false, hideTranslationButtons: true },
     });
     expect(parseAccountChanges({ settings: { restrictRoomCreation: "true" } })).toBe("Must be admin to create new rooms must be true or false");
+  });
+});
+
+describe("Warn before notifying a room of six or more (setting)", () => {
+  it("takes the warning's switch as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: false } })).toEqual({ settings: { warnBeforeNotifying: false } });
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: true, hideTranslationButtons: false } })).toEqual({
+      settings: { warnBeforeNotifying: true, hideTranslationButtons: false },
+    });
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: "no" } })).toBe("Warn before notifying a room of six or more must be true or false");
   });
 });
 

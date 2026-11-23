@@ -53,6 +53,7 @@ import {
   type MemberfulConnection,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
+  type MembersChange,
   type NewAssistantModel,
   type OfferedModels,
   type NewDirect,
@@ -61,6 +62,9 @@ import {
   type NewRoomForm,
   type NewBot,
   type NewWorkspace,
+  type NotificationsPause,
+  type NotificationsPaused,
+  type NotifiedCounts,
   type OpenSignUp,
   type PastHuddle,
   type PastHuddles,
@@ -950,6 +954,14 @@ export async function changeHuddleSounds(changes: HuddleSoundChanges): Promise<H
 }
 
 /**
+ * Pauses this person's notifications until `until`, an ISO time, or resumes them with null, wherever
+ * they're signed in, answering them as the people directory lists them then.
+ */
+export async function pauseNotifications(until: string | null): Promise<DirectoryUser> {
+  return (await request<NotificationsPaused>("/api/users/me/notifications-pause", { method: "PUT", body: JSON.stringify({ until } satisfies NotificationsPause) })).user;
+}
+
+/**
  * Invites each of `emailAddresses`, no more than `INVITATIONS_AT_ONCE`, by email, answering what came of
  * each, in order. Fails with a 422 ApiError for a list it doesn't take, and a 403 one for anyone but an
  * administrator.
@@ -1103,9 +1115,22 @@ export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
   return request<RoomSettings>(`/api/rooms/${encodeURIComponent(roomId)}/settings`);
 }
 
+/**
+ * How many people each special mention this person may use in a room would notify there, as their
+ * composer asks before sending one. Fails with a 404 ApiError for a room this person isn't in.
+ */
+export async function fetchNotified(roomId: RoomId): Promise<NotifiedCounts> {
+  return request<NotifiedCounts>(`/api/rooms/${encodeURIComponent(roomId)}/notified`);
+}
+
 /** Changes a room, answering it as it is then. */
 export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<SharedRoom> {
   return (await request<{ room: SharedRoom }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
+}
+
+/** Puts people in a private room, and takes people out of it, leaving everyone else as they are, answering the room. */
+export async function changeMembers(roomId: RoomId, change: MembersChange): Promise<SharedRoom> {
+  return (await request<{ room: SharedRoom }>(`/api/rooms/${encodeURIComponent(roomId)}/members`, { method: "PATCH", body: JSON.stringify(change) })).room;
 }
 
 /**
@@ -1166,6 +1191,9 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
 }
 
+/** What's asked before `leaveRoom`, by Leave on a room's settings page, and by /leave. */
+export const CONFIRM_LEAVE = "Are you sure you want to leave this room? Only someone in it who can change it can add you back.";
+
 /** Takes this person out of a private room they can't change, as Leave on its settings page does. */
 export async function leaveRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}/membership`, { method: "DELETE" });
@@ -1201,10 +1229,13 @@ export async function clearSearches(): Promise<void> {
 /**
  * Where a room's @ prompt asks for the people it offers, and with `specialMentions` the special mentions
  * too, @here, @channel and, in an open room, @everyone, which only a room's own composer offers: Lexxy
- * adds what's typed after the @ as `filter`, and the answer is its prompt items.
+ * adds what's typed after the @ as `filter`, and the answer is its prompt items. Without a room, it
+ * offers everyone, and no special mentions.
  */
-export const mentionPromptSrc = (roomId: RoomId, specialMentions = false) =>
-  `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}${specialMentions ? "&special_mentions=1" : ""}`;
+export const mentionPromptSrc = (roomId: RoomId | null, specialMentions = false) =>
+  roomId === null
+    ? "/api/autocompletable/users"
+    : `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}${specialMentions ? "&special_mentions=1" : ""}`;
 
 /** The address of a socket at `path` on this page's host, over wss on https pages. */
 export function socketUrl(path: string): string {

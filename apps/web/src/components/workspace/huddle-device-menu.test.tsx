@@ -13,6 +13,7 @@ const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
   people: [{ user: ada, muted: false, audio: true, video: false, screen: false }],
   muted: false,
   sticker: null,
+  unstable: false,
   microphone: true,
   microphoneId: "mic-1",
   speakerId: "",

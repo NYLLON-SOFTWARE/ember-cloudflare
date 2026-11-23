@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useReducer, useState, useSyncExternalStore } from "react";
 import type { DirectoryUser, User, UserId } from "@ember/protocol";
 import { fetchDirectory, type DirectoryCopy } from "@/lib/api";
+import { pausedUntilOf } from "@/lib/notifications-pause";
 import { NOT_HEARD, type ActiveStore } from "@/lib/presence";
 import { oneAtATime } from "./use-sidebar";
 
@@ -31,6 +32,29 @@ export function usePresenceOf(): (user: User) => Presence | null {
   const active = useSyncExternalStore(store.watch, store.current);
   const people = useContext(PeopleContext);
   return useCallback((user: User) => (active === null || people.get(user.id)?.role === "bot" ? null : active.has(user.id) ? "active" : "away"), [active, people]);
+}
+
+/**
+ * When the pause of `userId`'s notifications ends, as the people directory lists them, or null while
+ * they haven't paused them, or nobody's asked about (`usePauseEnd`).
+ */
+export function usePausedUntil(userId: UserId | undefined): string | null {
+  return usePauseEnd(useContext(PeopleContext).get(userId ?? ""));
+}
+
+/**
+ * When the pause of `person`'s notifications ends, or null while they haven't paused them, or for
+ * nobody: the component asking renders again as it ends.
+ */
+export function usePauseEnd(person: DirectoryUser | undefined): string | null {
+  const until = pausedUntilOf(person);
+  const [, ended] = useReducer((times: number) => times + 1, 0);
+  useEffect(() => {
+    if (until === null) return;
+    const timer = setTimeout(ended, Date.parse(until) - Date.now());
+    return () => clearTimeout(timer);
+  }, [until]);
+  return until;
 }
 
 /**
@@ -69,11 +93,12 @@ function withChanges(people: People, changes: Change[]): People {
  * since has come or failed, `update` changes someone in, as the workspace socket or a change made
  * here says they are now, and `remove` takes someone out of, once the socket says this person is no
  * longer told of them. The people stay as they were when a load fails or the server says they haven't
- * changed. It has `loaded` once a load has come.
+ * changed. It has `loaded` once a load has come, and `settled` once one has come or failed.
  */
-export function useDirectory(): { people: People; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void; remove: (userId: UserId) => void } {
+export function useDirectory(): { people: People; loaded: boolean; settled: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void; remove: (userId: UserId) => void } {
   const [people, setPeople] = useState<People>(() => new Map());
   const [loaded, setLoaded] = useState(false);
+  const [settled, setSettled] = useState(false);
   const [directory] = useState(() => {
     // The last directory the server sent, which it says is still current rather than send again.
     let copy: DirectoryCopy | null = null;
@@ -89,6 +114,7 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
         setLoaded(true);
       } finally {
         changedSince = null;
+        setSettled(true);
       }
     });
     const make = (change: Change) => {
@@ -97,5 +123,5 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
     };
     return { reload: load, update: (user: DirectoryUser) => make(user), remove: (userId: UserId) => make(userId) };
   });
-  return { people, loaded, ...directory };
+  return { people, loaded, settled, ...directory };
 }

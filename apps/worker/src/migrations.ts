@@ -80,6 +80,11 @@ import sso from "../migrations/0079_sso.sql";
 import pendingReaders from "../migrations/0080_pending_readers.sql";
 import sidebarSections from "../migrations/0081_sidebar_sections.sql";
 import messageNotifies from "../migrations/0082_message_notifies.sql";
+import roomChannelMentions from "../migrations/0083_room_channel_mentions.sql";
+import waitingCallAskers from "../migrations/0084_waiting_call_askers.sql";
+import membershipMentionCounts from "../migrations/0085_membership_mention_counts.sql";
+import notificationsPausedUntil from "../migrations/0086_notifications_paused_until.sql";
+import scheduledMessages from "../migrations/0087_scheduled_messages.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -189,6 +194,11 @@ export const MIGRATIONS: Migration[] = [
   { name: "0080_pending_readers.sql", scope: "workspace", sql: pendingReaders },
   { name: "0081_sidebar_sections.sql", scope: "workspace", sql: sidebarSections },
   { name: "0082_message_notifies.sql", scope: "room", sql: messageNotifies },
+  { name: "0083_room_channel_mentions.sql", scope: "workspace", sql: roomChannelMentions },
+  { name: "0084_waiting_call_askers.sql", scope: "room", sql: waitingCallAskers },
+  { name: "0085_membership_mention_counts.sql", scope: "workspace", sql: membershipMentionCounts },
+  { name: "0086_notifications_paused_until.sql", scope: "workspace", sql: notificationsPausedUntil },
+  { name: "0087_scheduled_messages.sql", scope: "room", sql: scheduledMessages },
 ];
 
 /**

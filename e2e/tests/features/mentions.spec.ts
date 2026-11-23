@@ -207,10 +207,53 @@ test.describe("Highlight mentions of you", () => {
   });
 });
 
+// Slack's mention badges, counting what in an unread room asks for you.
+test.describe("Count mentions of you", () => {
+  test("counts the messages mentioning you in a room you're not in on its row, in place of its dot, through a reload, until you open it", async ({ members, rooms }) => {
+    const tag = newTag();
+    const ada = await members.signIn(`Ada ${tag}`, { path: `/rooms/${rooms.random.id}` });
+    const grace = await members.signIn(`Grace ${tag}`);
+    const row = (name: string) => ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name });
+    const general = row("general");
+
+    await grace.send("Lunch?");
+    await expect(general).toHaveAccessibleDescription(/^Unread/);
+    await expect(general).not.toHaveAccessibleDescription(/mention/);
+
+    await sendMention(grace, "Thanks ", tag, [`Ada ${tag}`, `Grace ${tag}`]);
+    await expect(general).toHaveAccessibleDescription(/^Unread 1 mention /);
+    await sendMention(grace, "And ", tag, [`Ada ${tag}`, `Grace ${tag}`]);
+    await expect(general).toHaveAccessibleDescription(/^Unread 2 mentions /);
+    await expect(general.getByText("2", { exact: true })).toHaveCSS("height", "18px");
+
+    // The server keeps the count.
+    await ada.page.reload();
+    await expect(general).toHaveAccessibleDescription(/^Unread 2 mentions /);
+
+    // Opening it reads it, once the room has let Ada's socket in.
+    await general.click();
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await ada.connected();
+    await expect(general).not.toHaveAccessibleDescription(/^Unread/);
+    await expect(general.getByText("2", { exact: true })).toBeHidden();
+
+    // Reading it starts the count again, for what comes once Ada has left and her sidebar has heard of the read.
+    await expect(grace.presence()).toHaveText("2 here now");
+    await row("random").click();
+    await expect(grace.presence()).toHaveText("1 here now");
+    await expect(general).not.toHaveAccessibleDescription(/^Unread/);
+    await grace.send("Bye");
+    await expect(general).toHaveAccessibleDescription(/^Unread/);
+    await expect(general).not.toHaveAccessibleDescription(/mention/);
+  });
+});
+
 // Slack's @here and @channel, which notify the room rather than someone.
 test.describe("Notify a room", () => {
-  test("offers @here and @channel after the people, and @here first once it's typed in full, which Space picks, highlighting the message for everyone", async ({ members }) => {
+  test("offers @here and @channel after the people, and @here first once it's typed in full, which Space picks, highlighting the message for everyone", async ({ members, participant }) => {
     const tag = newTag();
+    // With whoever made the room, and other tests' people, it holds more than six, so sending asks first.
+    for (const name of ["Hopper", "Joan", "Kay", "Lin"]) await participant(`${name} ${tag}`);
     const ada = await members.signIn(`Ada ${tag}`);
     const grace = await members.signIn(`Grace ${tag}`);
 
@@ -227,11 +270,44 @@ test.describe("Notify a room", () => {
     await listClosed(grace);
     await expect(grace.composer().getByText("@here", { exact: true })).toBeVisible();
     await grace.composer().press("Enter");
+    // Ada's tab is in use, so @here notifies someone.
+    await expect(grace.page.getByRole("dialog").getByRole("button", { name: "Send" })).toBeFocused();
+    await grace.page.keyboard.press("Enter");
 
     for (const member of [ada, grace]) {
       await expect(member.message("Lunch?")).toContainText("Lunch? @here");
       await expect(member.message("Lunch?").locator(".border-mention")).toHaveCSS("border-left-width", "2px");
     }
+  });
+
+  test("asks before @channel notifies a room of six or more, as Slack asks, going back to the message on Escape and sending it on Enter", async ({ members, participant }) => {
+    const tag = newTag();
+    // With whoever made the room, and other tests' people, it holds more than six.
+    for (const name of ["Hopper", "Joan", "Kay", "Lin"]) await participant(`${name} ${tag}`);
+    const ada = await members.signIn(`Ada ${tag}`);
+    const grace = await members.signIn(`Grace ${tag}`);
+
+    await grace.composer().pressSequentially("Standup ");
+    await typeMention(grace.composer(), "channel");
+    await expect(offered(grace).first()).toHaveText("@channel Notify everyone in this room");
+    await grace.composer().press("Tab");
+    await listClosed(grace);
+    await grace.composer().press("Enter");
+    const dialog = grace.page.getByRole("dialog");
+    await expect(dialog.getByRole("heading")).toHaveText(/^Notify [\d,]+ people\?$/);
+    await expect(dialog).toContainText("@channel notifies everyone in #general.");
+    await expect(dialog.getByRole("button", { name: "Send" })).toBeFocused();
+    await grace.page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(grace.composer()).toBeFocused();
+    await expect(grace.composer()).toContainText("Standup @channel");
+
+    await grace.composer().press("Enter");
+    await expect(dialog.getByRole("button", { name: "Send" })).toBeFocused();
+    await grace.page.keyboard.press("Enter");
+    await expect(dialog).toBeHidden();
+    for (const member of [ada, grace]) await expect(member.message("Standup")).toContainText("Standup @channel");
+    await expect(grace.composer()).toHaveText("");
   });
 });
 

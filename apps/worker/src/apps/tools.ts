@@ -9,7 +9,7 @@ import { appConnector } from "./connector";
 
 // Connected apps' tools as @ember and the agents use them: an administrator picks them for each
 // (Workspace.pickAgentTools), the room gives them to the model beside Ember's own (tool-calls.ts), and
-// every call asks first, on a card in the room, which whoever asked, or an administrator, allows or not,
+// every call asks first, on a card only whoever asked sees (waiting-calls.ts), which they allow or not,
 // unless the administrator has that agent's calls of the tool always allowed: those are made at once,
 // with nothing posted, as the room's typing line says which tool the agent is using, in a room open to
 // everyone, but never in a DM or a private room, where nothing said goes to an app unless someone there
@@ -236,7 +236,7 @@ const CALL_BLOCK = "ember.call";
 export const MAX_SHOWN_INPUT_LENGTH = 3_000;
 
 /** What a model is told of a call with more than a card shows. */
-export const TOO_LONG_TO_SHOW = `Not run: what you called it with is longer than the ${MAX_SHOWN_INPUT_LENGTH.toLocaleString("en-US")} characters, as JSON, that the call's card in the room can show. Call it with less.`;
+export const TOO_LONG_TO_SHOW = `Not run: what you called it with is longer than the ${MAX_SHOWN_INPUT_LENGTH.toLocaleString("en-US")} characters, as JSON, that the call's card can show. Call it with less.`;
 
 /** What a tool is called with as JSON, as its length is counted against what a card shows. */
 const written = (input: Record<string, unknown>) => JSON.stringify(input, null, 2);
@@ -314,19 +314,20 @@ function callBlocks(header: string, { name }: GivenTool, input: Record<string, u
   ];
 }
 
-/** What the card of a call that waits says of who can allow it, and as whom it goes: with Ember's token or sign-in, or, for a tool that's the asker's `own`, as them. */
-export const callNote = (askerName: string, { appName, own }: Pick<GivenTool, "appName" | "own">) =>
-  own
-    ? `${askerName} can allow this call. It goes to ${appName} as ${askerName}, with the sign-in they made to it themselves.`
-    : `${askerName} or an administrator can allow this call. It goes to ${appName} with the token an administrator connected it with.`;
+/**
+ * What the card of a call that waits says, to whoever asked, the only one who sees it, of as whom the call
+ * goes: with Ember's token or sign-in, or, for a tool that's their `own`, as them.
+ */
+export const callNote = ({ appName, own }: Pick<GivenTool, "appName" | "own">) =>
+  own ? `It goes to ${appName} as you, with the sign-in you made to it yourself.` : `It goes to ${appName} with the token an administrator connected it with.`;
 
 /**
- * The card a room posts for a call that waits, as a Slack payload: who wants to use which app, the tool
- * and what it's called with, and Allow once and Deny, or, once it's answered, `outcome` in their place.
+ * The card of a call that waits, as a Slack payload: who wants to use which app, the tool and what it's
+ * called with, and Allow once and Deny, or, once it's answered, `outcome` in their place.
  */
-export function callCard(botName: string, askerName: string, tool: GivenTool, input: Record<string, unknown>, outcome?: string): SlackPayload {
+export function callCard(botName: string, tool: GivenTool, input: Record<string, unknown>, outcome?: string): SlackPayload {
   const button = (decision: CallDecision, label: string, style?: string) => ({ type: "button", text: plainText(label), action_id: CALL_ACTIONS[decision], ...(style && { style }) });
-  const note = outcome ?? callNote(askerName, tool);
+  const note = outcome ?? callNote(tool);
   return {
     blocks: [
       ...callBlocks(`${botName} wants to use ${tool.appName}`, tool, input, note),

@@ -33,6 +33,7 @@ import worker from "../src/index";
 import { forgetNewestRelease } from "../src/releases";
 import { searchIndex } from "../src/search-index";
 import { workspace, type Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
 
 export const origin = "https://ember.test";
 
@@ -204,6 +205,31 @@ export async function cutOff(room: RoomId, calls: number[] = []): Promise<() => 
     runInDurableObject(roomStub(room), (instance: ChatRoom) => {
       (instance as unknown as { env: Env }).env = original!;
     });
+}
+
+/**
+ * Has the Workspace hold the next call room `room` makes to tell it what the room has logged until
+ * `release` is called, as a call can still be out while a busy room logs more, which waits for the call
+ * after it. `called` waits until the call has come.
+ */
+export async function holdNextCall(room: RoomId): Promise<{ called: () => Promise<void>; release: () => void }> {
+  let came = false;
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await runInDurableObject(workspaceStub(), (instance: Workspace) => {
+    const store = (instance as unknown as { store: WorkspaceStore }).store;
+    const apply = store.applyRoomEvents.bind(store);
+    store.applyRoomEvents = async (roomId, ...rest) => {
+      if (roomId === room) {
+        store.applyRoomEvents = apply;
+        came = true;
+        await released;
+      }
+      return apply(roomId, ...rest);
+    };
+  });
+  // Looked at again and again, since workerd can't wake a test from inside the Workspace.
+  return { called: () => vi.waitFor(() => expect(came).toBe(true), { interval: 2, timeout: 5000 }), release };
 }
 
 /** How `ws` closes, once it does. */
@@ -568,6 +594,13 @@ export type WorkspaceSocket = Awaited<ReturnType<typeof openWorkspaceSocket>>;
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 const encoder = new TextEncoder();
+
+/** Pauses `session`'s notifications for `ms` from now, as the rail's Pause notifications does, or resumes them with null. */
+export async function pauseNotifications(session: Session, ms: number | null): Promise<void> {
+  const until = ms === null ? null : new Date(Date.now() + ms).toISOString();
+  const response = await api("/api/users/me/notifications-pause", { method: "PUT", headers: { Cookie: session.cookie }, body: JSON.stringify({ until }) });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
 
 /** A browser that has subscribed to pushes: its keys, as its subscription gives them, and what reads the pushes made for them. */
 export interface PushBrowser {

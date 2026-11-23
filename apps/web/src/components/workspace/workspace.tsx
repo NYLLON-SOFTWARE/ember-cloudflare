@@ -9,13 +9,14 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@
 import { useAccount, useCamerasAllowed, useHuddleVideo, useScreensAllowed } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { BlockingContext, type Blocking } from "@/hooks/use-blocking";
-import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { ActivePeople, DirectoryLoaded, PeopleContext, useDirectory, usePauseEnd } from "@/hooks/use-directory";
+import { RoomsContext, useRoomCards } from "@/hooks/use-rooms";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
 import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/use-reporting";
 import { useSidebar } from "@/hooks/use-sidebar";
-import { agentsToAsk } from "@/lib/agents";
+import { agentsToAsk, canAsk } from "@/lib/agents";
 import { answerHuddleInvitation, ApiError, changeBlock, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
 import { hasHuddles } from "@/lib/huddle-people";
@@ -29,7 +30,7 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { isQuietWelcome, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
+import { afterNavigating, leave, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, useVisit, type Route } from "@/hooks/use-route";
 import { HuddlesContext, joinsNoHuddle, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
@@ -41,6 +42,7 @@ import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar } from "./sidebar";
+import { TopBar } from "./top-bar";
 import { UpdatedNotice } from "./updated-notice";
 import { WelcomePage } from "./welcome-page";
 
@@ -290,7 +292,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const directory = useDirectory();
   // The invitations into huddles that ring in this tab, as the workspace socket brings them and says they're answered.
   const [invitations, changeInvitations] = useReducer(invitationsReducer, NO_INVITATIONS);
-  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
+  const { list, answered, change: changeRooms, refresh, askForRoom, askForHuddleSounds, askForYou, active, huddleChanges, reportsHeard: heard } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, changeInvitations);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -312,6 +314,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const settings = useMemo<SettingsPlace | null>(() => section && { section, administrator, openReports, reportsHeard }, [section, administrator, openReports, reportsHeard]);
 
   const rooms = list?.rooms ?? null;
+  const roomCards = useRoomCards(rooms);
   const invitation = list?.invitation ?? null;
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
@@ -361,6 +364,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     setAgentsList({ opener });
   };
   const agents = useMemo(() => (directory.loaded ? agentsToAsk(directory.people.values(), me) : 0), [directory.loaded, directory.people, me]);
+  // @ember, which the top bar offers to ask while Ember AI is on and it answers you.
+  const listedEmber = directory.people.get(ASSISTANT_ID);
+  const ember = listedEmber?.agent && listedEmber.status === "active" && canAsk(listedEmber, me) ? listedEmber : null;
 
   // Report, while it's open, with what had focus as it opened, which gets it back unless what opened it says what does.
   const [reporting, setReporting] = useState<{ target: ReportTarget; opener: HTMLElement | null; returnFocus?: () => void } | null>(null);
@@ -369,8 +375,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     [],
   );
 
-  // The search box, while it's open, with what it opened with. On a phone, the drawer closes as it opens.
+  // The search box, while it's open, with what it opened with, over the top bar's search field where
+  // that shows. On a phone, the drawer closes as it opens.
   const [searchBox, setSearchBox] = useState<SearchBoxOptions | null>(null);
+  const searchField = useRef<HTMLButtonElement>(null);
   const openSearch = useCallback((options: SearchBoxOptions) => {
     setDrawerOpen(false);
     setSearchBox(options);
@@ -385,6 +393,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const [huddlePreview, setHuddlePreview] = useState<RoomId | null>(null);
   // Whether the keyboard shortcuts dialog is open.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const closeHuddlePreview = useCallback(() => setHuddlePreview(null), []);
   const liveHuddles = list?.huddles ?? NO_HUDDLES;
   const huddles = useMemo<Huddles>(() => ({ live: liveHuddles, preview: setHuddlePreview }), [liveHuddles]);
@@ -409,8 +418,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // any of their tabs: the huddle this tab is in, and the next it joins, plays only those.
   const soundsHeard = list?.huddleSounds ?? ALL_HUDDLE_SOUNDS;
   useEffect(() => hearSounds(soundsHeard), [soundsHeard]);
-  // An invitation's ring is one of them, which waits for the server's list to say they hear it.
-  const ringless = inAHuddle || !answered || !soundsHeard.ring;
+  // An invitation's ring is one of them, which waits for the server's list to say they hear it, and for
+  // the people directory to say whether they've paused their notifications, staying quiet while they
+  // have, and ringing as the pause ends. A directory that couldn't load leaves the ring to ring.
+  const paused = usePauseEnd(directory.people.get(me.id)) !== null;
+  const ringless = inAHuddle || !answered || !soundsHeard.ring || !directory.settled || paused;
   // The cameras turned on and the screens shared in this tab's huddles go out at the workspace's video
   // quality as it is then, which an administrator changes for everyone.
   const huddleVideo = useHuddleVideo();
@@ -557,21 +569,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const blockedKey = JSON.stringify((list?.blocks ?? NO_BLOCKS).userIds);
   const blocking = useMemo<Blocking>(() => ({ blocked: new Set(JSON.parse(blockedKey) as UserId[]), setBlocked }), [blockedKey, setBlocked]);
   // The sidebar loads again at once for the administrator who made, renamed or deleted a section, as it
-  // does soon for everyone else.
-  const reloadSections = useCallback(
-    () =>
-      refresh().catch((error) => {
-        if (mounted.current && isSignedOut(error)) onSessionChanged(null);
-      }),
-    [refresh, onSessionChanged, mounted],
-  );
+  // does soon for everyone else. Workspace settings show the sections it lists, so a list that doesn't
+  // come says why, rather than leave the change looking undone.
+  const reloadSections = useCallback(() => refresh().catch(failed), [refresh, failed]);
   // A save's answer can come after a newer order has loaded, so the rooms load again once it's taken.
+  // The answer has put the order it saved in place, so a list that doesn't come leaves that, saying nothing.
   const reorderedRooms = useCallback(
     ({ sharedOrder, sections }: SavedRoomLayout) => {
       changeRooms({ type: "reordered", sharedOrder, sections });
-      void reloadSections();
+      refresh().catch((error) => {
+        if (mounted.current && isSignedOut(error)) onSessionChanged(null);
+      });
     },
-    [reloadSections],
+    [refresh, onSessionChanged, mounted],
   );
 
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
@@ -771,7 +781,18 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} openReports={openReports} onNewDirect={openNewDirect} />
+    <Rail
+      me={me}
+      workspaceName={workspaceName}
+      current={RAIL_PAGES[route.page]}
+      activity={activity}
+      newRelease={newRelease}
+      openReports={openReports}
+      onNewDirect={openNewDirect}
+      searchInDrawer={settings !== null}
+      askForPause={askForYou}
+      onFailed={failed}
+    />
   );
   const sidebar = (
     <Sidebar
@@ -872,6 +893,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
             askForRoom={askForRoom}
             huddleSounds={huddlesOn && answered ? soundsHeard : null}
             askForHuddleSounds={askForHuddleSounds}
+            askForPause={askForYou}
             onSignOut={onSignOut}
             onDeleteAccount={onDeleteAccount}
             onFailed={failed}
@@ -920,6 +942,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
               newSince={opened.roomId === room.id ? opened.newSince : null}
               askForRoom={askForRoom}
+              rooms={rooms ?? NO_ROOMS}
+              onOpenDirects={openNewDirect}
+              onOpenShortcuts={openShortcuts}
               onSessionChanged={onSessionChanged}
               onFailed={failed}
               onGone={roomGone}
@@ -951,8 +976,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   };
 
   // The Sheet wraps the whole layout so the header's menu button can be its trigger, which gives it
-  // aria-expanded and gets focus back to it when the drawer closes. The skip link comes first, and the
-  // rail and conversations are landmarks in either layout. On a page of community settings, the header
+  // aria-expanded and gets focus back to it when the drawer closes. The skip link comes first, then the
+  // top bar, where it shows, across the window over the grid of the rest, whose columns it shares, and
+  // the rail and conversations are landmarks in either layout. On a page of community settings, the header
   // spans the column beside the rail, 244px wide there, and the links to their sections, which it
   // brings, fill that column under it, or at 900px and below, a row of their own. The layout contains
   // and clips whatever is placed absolutely inside it, such as text for screen readers only, and can't
@@ -962,148 +988,162 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const layout = (
     <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
       <DrawerOpen value={drawerOpen}>
-        <div
-          className={cn(
-            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
-            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
-            // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
-            "min-[1180px]:has-[[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
-          )}
-        >
-          <SkipLink to={huddle?.open ? OPEN_HUDDLE : undefined} />
-          <div className="contents max-md:hidden [&>*]:row-span-2" onClick={showAllForLink}>
-            {rail}
-            {!settings && (
-              <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
-                {sidebar}
-              </aside>
+        <div className={cn("relative flex h-dvh flex-col overflow-clip bg-surface", settings && "[--spacing-sidebar:244px]")}>
+          {/* Shown under the page's header, which the top bar is over where it shows. */}
+          <SkipLink to={huddle?.open ? OPEN_HUDDLE : undefined} className="md:focus:top-[calc(var(--spacing-top-bar)+var(--spacing-header)+4px)]" />
+          <TopBar
+            me={me}
+            workspaceName={workspaceName}
+            rooms={rooms ?? NO_ROOMS}
+            field={searchField}
+            ember={ember}
+            onAskEmber={() => {
+              // Once the page's guard lets it, as the button on someone's page does, so the DM isn't started for a page kept.
+              if (ember) leave(() => startDirectWith(ember));
+            }}
+          />
+          <div
+            className={cn(
+              "relative grid min-h-0 flex-1 grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
+              settings && "max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
+              // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
+              "min-[1180px]:has-[[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
             )}
-          </div>
-
-          <SheetContent
-            side="left"
-            showCloseButton={false}
-            // Opening it focuses its close button, or with the rail alone, its first link.
-            onOpenAutoFocus={(event) => {
-              event.preventDefault();
-              (settings ? drawerRail.current?.querySelector<HTMLElement>("a[href]") : closeDrawerButton.current)?.focus();
-            }}
-            // Closing gives focus back to the menu button once the drawer has slid away, but only if focus went
-            // with it: by then New direct message's search, or whatever was tapped as it slid, can have it.
-            onCloseAutoFocus={(event) => {
-              const focused = document.activeElement;
-              if (focused && focused !== document.body) event.preventDefault();
-            }}
-            onClick={(event) => {
-              closeForLinkHere(event);
-              showAllForLink(event);
-            }}
-            className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 shadow-none sm:max-w-[calc(100dvw-16px)] md:hidden"
           >
-            <SheetTitle className="sr-only">{settings ? "Navigation" : "Conversations"}</SheetTitle>
-            <SheetDescription className="sr-only">{settings ? "Ember’s pages" : "Rooms and direct messages"}</SheetDescription>
-            <div ref={drawerRail} className="pt-[env(safe-area-inset-top)]">
+            <div className="contents max-md:hidden [&>*]:row-span-2" onClick={showAllForLink}>
               {rail}
+              {!settings && (
+                <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
+                  {sidebar}
+                </aside>
+              )}
             </div>
-            {/* The drawer leaves at least 16px of the room showing. */}
-            {!settings && (
-              <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
-                {/* A 44px button clear of the status bar, first in the sidebar's tab order, with Iconoir's xmark. */}
-                <SheetClose
-                  ref={closeDrawerButton}
-                  aria-label="Close conversations"
-                  className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 z-[2] flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover"
-                >
-                  <Xmark className="size-5" />
-                </SheetClose>
-                {sidebar}
-              </aside>
-            )}
-          </SheetContent>
 
-          {/* The page, placed in the grid as if it were its own, with nothing of it to reach while the huddle opened covers it. */}
-          <div className="contents" inert={huddle?.open === true}>
-            {page()}
-          </div>
-          {huddle?.open && (
-            <RarePage show={({ HuddleView }) => <HuddleView huddle={huddle} room={huddleRoom} me={me} onFailed={failed} />} loading={null} onFailed={failed} />
-          )}
-          <Notices>
-            <MovedNotice />
-            <UpdatedNotice />
-          </Notices>
-          {huddlesOn && invitations.length > 0 && (
-            <RarePage
-              show={({ HuddleInvitations }) => (
-                <HuddleInvitations
-                  invitations={invitations}
-                  rooms={rooms ?? NO_ROOMS}
-                  quiet={ringless}
-                  onJoin={joinInvited}
-                  onDecline={answerInvitation}
-                  onUnanswered={invitationOver}
-                />
-              )}
-              loading={null}
-              onFailed={failed}
-            />
-          )}
-          {newDirect && (
-            <NewDirectDialog
-              opener={newDirect.opener}
-              me={me}
-              reloadPeople={directory.reload}
-              askForRoom={askForRoom}
-              onClose={(startedShown) => {
-                setNewDirect(null);
-                // The DM shown stays as it is when it's the one started, so its composer takes focus, as
-                // opening it would.
-                if (startedShown) roomView.current?.focusComposer();
+            <SheetContent
+              side="left"
+              showCloseButton={false}
+              // Opening it focuses its close button, or with the rail alone, its first link.
+              onOpenAutoFocus={(event) => {
+                event.preventDefault();
+                (settings ? drawerRail.current?.querySelector<HTMLElement>("a[href]") : closeDrawerButton.current)?.focus();
               }}
-              onLeftOut={(people) => flash("alert", startedWithout(people.map((person) => person.name)))}
-              onFailed={failed}
-            />
-          )}
-          {agentsList && (
-            <RarePage
-              show={({ AvailableAgentsDialog }) => (
-                <AvailableAgentsDialog
-                  me={me}
-                  rooms={rooms ?? NO_ROOMS}
-                  opener={agentsList.opener}
-                  onClose={(started) => {
-                    setAgentsList(null);
-                    // The dialog kept focus while the page went to the DM it started, whose composer takes it
-                    // now, as opening the DM would give it.
-                    if (started) roomView.current?.focusComposer();
-                  }}
-                  onStartDirect={startDirectWith}
-                  onFailed={agentsListFailed}
-                />
+              // Closing gives focus back to the menu button once the drawer has slid away, but only if focus went
+              // with it: by then New direct message's search, or whatever was tapped as it slid, can have it.
+              onCloseAutoFocus={(event) => {
+                const focused = document.activeElement;
+                if (focused && focused !== document.body) event.preventDefault();
+              }}
+              onClick={(event) => {
+                closeForLinkHere(event);
+                showAllForLink(event);
+              }}
+              className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 shadow-none sm:max-w-[calc(100dvw-16px)] md:hidden"
+            >
+              <SheetTitle className="sr-only">{settings ? "Navigation" : "Conversations"}</SheetTitle>
+              <SheetDescription className="sr-only">{settings ? "Ember’s pages" : "Rooms and direct messages"}</SheetDescription>
+              <div ref={drawerRail} className="pt-[env(safe-area-inset-top)]">
+                {rail}
+              </div>
+              {/* The drawer leaves at least 16px of the room showing. */}
+              {!settings && (
+                <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
+                  {/* A 44px button clear of the status bar, first in the sidebar's tab order, with Iconoir's xmark. */}
+                  <SheetClose
+                    ref={closeDrawerButton}
+                    aria-label="Close conversations"
+                    className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 z-[2] flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover"
+                  >
+                    <Xmark className="size-5" />
+                  </SheetClose>
+                  {sidebar}
+                </aside>
               )}
-              loading={null}
-              onFailed={agentsListFailed}
-            />
-          )}
-          <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-          {reporting && (
-            <RarePage
-              show={({ ReportDialog }) => <ReportDialog {...reporting} meId={me.id} onClose={() => setReporting(null)} onFailed={reportFailed} />}
-              loading={null}
-              onFailed={reportFailed}
-            />
-          )}
-          {searchBox && <SearchBox {...searchBox} me={me} rooms={rooms ?? NO_ROOMS} onClose={() => setSearchBox(null)} onFailed={failed} />}
-          {previewed && (
-            <RarePage
-              show={({ HuddlePreview }) => <HuddlePreview key={previewed.id} room={previewed} me={me} live={liveHuddles[previewed.id]} onClose={closeHuddlePreview} />}
-              loading={null}
-              onFailed={huddlePreviewFailed}
-            />
-          )}
-          {huddle && !huddle.open && (
-            <RarePage show={({ HuddleBar }) => <HuddleBar huddle={huddle} room={huddleRoom} meId={me.id} />} loading={null} onFailed={failed} />
-          )}
+            </SheetContent>
+
+            {/* The page, placed in the grid as if it were its own, with nothing of it to reach while the huddle opened covers it. */}
+            <div className="contents" inert={huddle?.open === true}>
+              {page()}
+            </div>
+            {huddle?.open && (
+              <RarePage show={({ HuddleView }) => <HuddleView huddle={huddle} room={huddleRoom} me={me} onFailed={failed} />} loading={null} onFailed={failed} />
+            )}
+            <Notices>
+              <MovedNotice />
+              <UpdatedNotice />
+            </Notices>
+            {huddlesOn && invitations.length > 0 && (
+              <RarePage
+                show={({ HuddleInvitations }) => (
+                  <HuddleInvitations
+                    invitations={invitations}
+                    rooms={rooms ?? NO_ROOMS}
+                    quiet={ringless}
+                    onJoin={joinInvited}
+                    onDecline={answerInvitation}
+                    onUnanswered={invitationOver}
+                  />
+                )}
+                loading={null}
+                onFailed={failed}
+              />
+            )}
+            {newDirect && (
+              <NewDirectDialog
+                opener={newDirect.opener}
+                me={me}
+                reloadPeople={directory.reload}
+                askForRoom={askForRoom}
+                onClose={(startedShown) => {
+                  setNewDirect(null);
+                  // The DM shown stays as it is when it's the one started, so its composer takes focus, as
+                  // opening it would.
+                  if (startedShown) roomView.current?.focusComposer();
+                }}
+                onLeftOut={(people) => flash("alert", startedWithout(people.map((person) => person.name)))}
+                onFailed={failed}
+              />
+            )}
+            {agentsList && (
+              <RarePage
+                show={({ AvailableAgentsDialog }) => (
+                  <AvailableAgentsDialog
+                    me={me}
+                    rooms={rooms ?? NO_ROOMS}
+                    opener={agentsList.opener}
+                    onClose={(started) => {
+                      setAgentsList(null);
+                      // The dialog kept focus while the page went to the DM it started, whose composer takes it
+                      // now, as opening the DM would give it.
+                      if (started) roomView.current?.focusComposer();
+                    }}
+                    onStartDirect={startDirectWith}
+                    onFailed={agentsListFailed}
+                  />
+                )}
+                loading={null}
+                onFailed={agentsListFailed}
+              />
+            )}
+            <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+            {reporting && (
+              <RarePage
+                show={({ ReportDialog }) => <ReportDialog {...reporting} meId={me.id} onClose={() => setReporting(null)} onFailed={reportFailed} />}
+                loading={null}
+                onFailed={reportFailed}
+              />
+            )}
+            {searchBox && <SearchBox {...searchBox} anchor={searchField} me={me} rooms={rooms ?? NO_ROOMS} onClose={() => setSearchBox(null)} onFailed={failed} />}
+            {previewed && (
+              <RarePage
+                show={({ HuddlePreview }) => <HuddlePreview key={previewed.id} room={previewed} me={me} live={liveHuddles[previewed.id]} onClose={closeHuddlePreview} />}
+                loading={null}
+                onFailed={huddlePreviewFailed}
+              />
+            )}
+            {huddle && !huddle.open && (
+              <RarePage show={({ HuddleBar }) => <HuddleBar huddle={huddle} room={huddleRoom} meId={me.id} />} loading={null} onFailed={failed} />
+            )}
+          </div>
         </div>
       </DrawerOpen>
     </Sheet>
@@ -1112,15 +1152,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
     <PeopleContext value={directory.people}>
       <DirectoryLoaded value={directory.loaded}>
         <ActivePeople value={active}>
-          <SettingsLayout value={settings}>
-            <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>
-                <BlockingContext value={blocking}>
-                  <ReportingContext value={openReport}>{layout}</ReportingContext>
-                </BlockingContext>
-              </HuddlesContext>
-            </OpenSearchContext>
-          </SettingsLayout>
+          <RoomsContext value={roomCards}>
+            <SettingsLayout value={settings}>
+              <OpenSearchContext value={openSearch}>
+                <HuddlesContext value={huddles}>
+                  <BlockingContext value={blocking}>
+                    <ReportingContext value={openReport}>{layout}</ReportingContext>
+                  </BlockingContext>
+                </HuddlesContext>
+              </OpenSearchContext>
+            </SettingsLayout>
+          </RoomsContext>
         </ActivePeople>
       </DirectoryLoaded>
     </PeopleContext>
