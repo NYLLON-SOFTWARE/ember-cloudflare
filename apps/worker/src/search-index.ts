@@ -99,8 +99,9 @@ const REKEY_RUNS_EVERY_MS = 60 * 60 * 1000;
 /**
  * How many of the messages the index took before it paired runs of Chinese, Japanese and Korean
  * characters (search migration 0007) the walk reads a run, to find the ones with such runs, which it
- * pairs as far as the run's `REKEYED_PER_RUN` goes, passing the rest without a write. Each is about two
- * rows read, so a day's runs read about a twentieth of the 5 million rows Workers Free lets a day read.
+ * pairs as far as the run's `REKEYED_PER_RUN` goes, passing the rest without a write. Each is a row read,
+ * and one more for what's kept of one it hasn't paired, so a day's runs read about a twentieth of the 5
+ * million rows Workers Free lets a day read.
  */
 const PAIRING_READS_PER_RUN = 5_000;
 
@@ -340,13 +341,10 @@ const PLAIN_MESSAGES = `SELECT search_messages.id AS number, search_messages.pai
 
 /**
  * Up to ?2 of the messages numbered below ?1, newest first, with whether the index keeps their words
- * under keys and has paired their characters (`termsOf`), and what it keeps of them. The CROSS JOIN reads
- * them in the order of their numbers, each taking what's kept of it by its number, so a run reads no more
- * of them than it takes, however many it has paired since, as an edit does.
+ * under keys and has paired their characters (`termsOf`): those it has paired since too, as an edit
+ * does, so a run reads no more of them than it takes, however many those are.
  */
-const MESSAGES_BELOW = `SELECT search_messages.id AS number, search_messages.keyed, search_messages.paired, search_index.body
-  FROM search_messages CROSS JOIN search_index ON search_index.rowid = search_messages.id
-  WHERE search_messages.id < ?1 ORDER BY search_messages.id DESC LIMIT ?2`;
+const MESSAGES_BELOW = `SELECT id AS number, keyed, paired FROM search_messages WHERE id < ?1 ORDER BY id DESC LIMIT ?2`;
 
 /** The first number a message of the millisecond of `createdAt` can have. */
 const firstNumber = (createdAt: string) => Date.parse(createdAt) * PER_MILLISECOND;
@@ -559,21 +557,23 @@ export class SearchIndex extends DurableObject<Env> {
    * Pairs the characters of up to `limit` of the messages the index took before it paired them, as it
    * keeps their words (`plainText`, `pairedKeyedText`), newest first, reading up to
    * `PAIRING_READS_PER_RUN` of them, and passes the rest it reads: those it has paired since, and those
-   * with no `CJK_CHARACTER`s, whose words it keeps the same either way. The walk goes on below the last it
-   * passes, until it has read them all (search-migrations/0007_search_pairs.sql).
+   * with no `CJK_CHARACTER`s, whose words it keeps the same either way. It reads what it keeps of each one
+   * alone, so a run holds one message's at a time, however long they are. The walk goes on below the last
+   * it passes, until it has read them all (search-migrations/0007_search_pairs.sql).
    */
   private pair(limit: number): void {
     this.ctx.storage.transactionSync(() => {
       const [walk] = this.sql.exec<{ before: number }>(`SELECT before FROM search_pairing`).toArray();
       if (!walk) return;
-      const read = this.sql.exec<{ number: number; keyed: number; paired: number; body: string }>(MESSAGES_BELOW, walk.before, PAIRING_READS_PER_RUN).toArray();
+      const read = this.sql.exec<{ number: number; keyed: number; paired: number }>(MESSAGES_BELOW, walk.before, PAIRING_READS_PER_RUN).toArray();
       const numbers: number[] = [];
       let passed = 0;
-      for (const { number, keyed, paired, body } of read) {
-        if (paired === 0 && CJK_CHARACTER.test(body)) {
+      for (const { number, keyed, paired } of read) {
+        const [kept] = paired === 0 ? this.sql.exec<{ body: string }>(`SELECT body FROM search_index WHERE rowid = ?`, number).toArray() : [];
+        if (kept && CJK_CHARACTER.test(kept.body)) {
           if (numbers.length === limit) break;
           this.sql.exec(`DELETE FROM search_index WHERE rowid = ?`, number);
-          this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keyed ? pairedKeyedText(body) : plainText(body));
+          this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keyed ? pairedKeyedText(kept.body) : plainText(kept.body));
           numbers.push(number);
         }
         passed++;
