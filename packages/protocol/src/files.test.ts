@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  DURATION_REFUSED,
   FILE_TOO_LARGE,
   isPreviewableSize,
   isPreviewed,
   isWebImage,
+  MAX_DURATION,
   MAX_FILE_NAME_LENGTH,
   MAX_FILE_SIZE,
   MAX_ID_LENGTH,
@@ -69,6 +71,28 @@ describe("Waveforms", () => {
     ["no waveform at all", null],
   ])("refuses %s and says why", (_, waveform) => {
     expect(parseNewUpload({ name: "theme.mp3", type: "audio/mpeg", size: 42, clientMessageId, waveform })).toBe(WAVEFORM_REFUSED);
+  });
+});
+
+describe("Video lengths", () => {
+  it("takes how long a video plays, as the app reads it, up to a day, in a thread too", () => {
+    const upload = { name: "Video clip 2026-11-23 at 10.43.12 AM.mp4", type: "video/mp4", size: 1_482_034, clientMessageId, duration: 15.023 };
+    expect(parseNewUpload(upload)).toEqual(upload);
+    expect(parseNewUpload({ ...upload, duration: MAX_DURATION })).toEqual({ ...upload, duration: MAX_DURATION });
+    expect(parseNewUpload({ ...upload, parentId: "m1" })).toEqual({ ...upload, parentId: "m1", alsoSend: false });
+    const { duration: _, ...without } = upload;
+    expect(parseNewUpload(without)).toEqual(without);
+  });
+
+  it.each([
+    ["a length of nothing", 0],
+    ["a length under 0", -3],
+    ["a length past a day", MAX_DURATION + 1],
+    ["a length that never ends", Infinity],
+    ["a length that isn't a number", "0:15"],
+    ["no length at all", null],
+  ])("refuses %s and says why", (_, duration) => {
+    expect(parseNewUpload({ name: "launch.mp4", type: "video/mp4", size: 42, clientMessageId, duration })).toBe(DURATION_REFUSED);
   });
 });
 

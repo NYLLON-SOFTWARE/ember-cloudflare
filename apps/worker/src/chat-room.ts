@@ -986,6 +986,7 @@ export class ChatRoom extends DurableObject<Env> {
         parentId: file.parentId ?? null,
         alsoSent: file.alsoSend === true,
         waveform: file.waveform ?? null,
+        duration: file.duration ?? null,
       };
       await this.blobsFor(roomId).create(blob, new Date(startedAt).toISOString());
       return { key };
@@ -1534,7 +1535,7 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async startArriving(roomId: RoomId, uploaderId: UserId, { filename, declaredType }: Pick<ArrivingFile, "filename" | "declaredType">, startedAt: number): Promise<string> {
     const key = base36(KEY_LENGTH);
-    const blob = { id: key, uploaderId, filename, contentType: declaredType, byteSize: 0, clientMessageId: null, parentId: null, alsoSent: false, waveform: null };
+    const blob = { id: key, uploaderId, filename, contentType: declaredType, byteSize: 0, clientMessageId: null, parentId: null, alsoSent: false, waveform: null, duration: null };
     await this.blobsFor(roomId).create(blob, new Date(startedAt).toISOString());
     return key;
   }
