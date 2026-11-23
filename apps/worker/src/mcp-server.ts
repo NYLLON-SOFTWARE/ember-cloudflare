@@ -109,6 +109,9 @@ export async function mcpAction(request: Request, env: Env): Promise<Response> {
   }
   const batched = Array.isArray(body);
   const calls: unknown[] = batched ? (body as unknown[]) : [body];
+  // An empty batch is a request that names no call, which JSON-RPC asks be refused with one error, as
+  // a body that couldn't be read is.
+  if (batched && calls.length === 0) return mcpProblem(400, INVALID_REQUEST, "An empty batch isn't a JSON-RPC request");
   const answered = await Promise.all(calls.map((call) => answerOfCall(call, user, scopes, env, request)));
   const answers = answered.filter((answer) => answer !== null);
   if (answers.length === 0) return new Response(null, { status: 202 });
@@ -339,7 +342,7 @@ async function historyAnswer(id: unknown, args: Record<string, unknown>, user: U
   if (after === null) return errorOf(id, INVALID_PARAMS, "after has to be a message id");
   const access = await roomAccessIn(env, user, roomId, request);
   if (access === null) return refusedRoom(id);
-  const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, { before, after }, limitOf(args.limit, HISTORY_LIMIT) ?? undefined);
+  const page = await readWhileIn(env, user, roomId, request, env.CHAT_ROOM.getByName(roomId).botPage(roomId, { before, after }, limitOf(args.limit, HISTORY_LIMIT) ?? undefined));
   if (page === null) return refusedRoom(id);
   const origin = originFor(request, access.customDomain);
   // Where the next page starts, from the room's page before a deleted message kept for its replies is
@@ -379,7 +382,13 @@ async function searchAnswer(id: unknown, args: Record<string, unknown>, user: Us
   };
   const { hits } = await searchIndex(env).search(search);
   const origin = originFor(request, searcher.customDomain);
-  const matches = (await matchesOf(env, hits.slice(0, limit))).map(({ message, words }) => ({ message: shownOf(message, origin), words }));
+  // Where its person is may have changed while the matches were found, so it looks again, as
+  // `readWhileIn` does for a room's read, and answers from the rooms they're still in alone.
+  const stillIn = new Set((await workspace(env).apiTokenSearcher(user.id)).rooms.map(({ id }) => id));
+  if (roomId !== null && !stillIn.has(roomId)) return refusedRoom(id);
+  const matches = (await matchesOf(env, hits.slice(0, limit)))
+    .filter(({ message }) => stillIn.has(message.roomId))
+    .map(({ message, words }) => ({ message: shownOf(message, origin), words }));
   return resultOf(id, { matches });
 }
 
@@ -391,7 +400,7 @@ async function threadAnswer(id: unknown, args: Record<string, unknown>, user: Us
   if (messageId === null) return errorOf(id, INVALID_PARAMS, "message_id has to be a message id");
   const access = await roomAccessIn(env, user, roomId, request);
   if (access === null) return refusedRoom(id);
-  const thread = await env.CHAT_ROOM.getByName(roomId).botThread(roomId, messageId);
+  const thread = await readWhileIn(env, user, roomId, request, env.CHAT_ROOM.getByName(roomId).botThread(roomId, messageId));
   if (thread === null) return refusedRoom(id);
   // A parent deleted while its replies are left is a tombstone with nothing to read, which the bot
   // API's thread leaves out too (src/bots/api.ts), though its replies stay there to be read.
@@ -429,3 +438,13 @@ async function postAnswer(id: unknown, args: Record<string, unknown>, user: User
 /** What the Workspace says about the token's person in room `roomId`. */
 const roomAccessIn = (env: Env, user: User, roomId: RoomId, request: Request): Promise<TokenRoomAccess | null> =>
   workspace(env).apiTokenRoomAccess(user.id, roomId, request.headers.get("CF-Connecting-IP"));
+
+/**
+ * What `reading` reads, once the token's person is still in the room, which it looks again at after the
+ * read, as `readIn` looks again for connected apps (src/outside/tools.ts): they may have been taken out
+ * while it went on, and what was read then is nothing they may have. Null once the room refuses alike.
+ */
+async function readWhileIn<T>(env: Env, user: User, roomId: RoomId, request: Request, reading: Promise<T>): Promise<T | null> {
+  const read = await reading;
+  return (await roomAccessIn(env, user, roomId, request)) === null ? null : read;
+}

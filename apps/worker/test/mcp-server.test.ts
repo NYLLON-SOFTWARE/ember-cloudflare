@@ -1,5 +1,7 @@
-import { MAX_MESSAGE_LENGTH, type ApiTokenCreated, type ApiTokens, type Me, type Message, type RoomId } from "@ember/protocol";
+import { MAX_MESSAGE_LENGTH, type ApiTokenCreated, type ApiTokens, type Me, type Message, type NewWorkspace, type RoomId } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ChatRoom } from "../src/chat-room";
+import { SearchIndex } from "../src/search-index";
 import {
   api,
   connect,
@@ -15,6 +17,7 @@ import {
   type Session,
   type Socket,
   withWorkspaceEnv,
+  workspaceSql,
 } from "./support";
 
 // The MCP server at /mcp, and the personal access tokens it opens with, which the API tokens section
@@ -84,6 +87,37 @@ async function deleteParent(client: Socket, messageId: string): Promise<void> {
   }
 }
 
+/** Waits by looking, as a Durable Object's held work and the test go on from neither's promises. */
+const until = async (done: () => boolean): Promise<void> => {
+  while (!done()) await new Promise((resolve) => setTimeout(resolve, 5));
+};
+
+/**
+ * Holds each call of `method` of `prototype`'s objects as it begins, until the test lets them `go` on,
+ * with what waits until as many `calls` have `reached` it.
+ */
+function holding<T extends object>(prototype: T, method: keyof T & string): { reached: (calls?: number) => Promise<void>; go: () => void } {
+  let [arrived, gone] = [0, false];
+  const held = prototype[method] as (...args: unknown[]) => unknown;
+  vi.spyOn(prototype as Record<string, (...args: unknown[]) => unknown>, method).mockImplementation(async function (this: T, ...args: unknown[]) {
+    arrived++;
+    await until(() => gone);
+    return held.apply(this, args);
+  });
+  return { reached: (calls = 1) => until(() => arrived >= calls), go: () => void (gone = true) };
+}
+
+/** Takes `session` out of `room` as its maker `as`, and puts them back in with `putIn`. */
+async function takeOut(room: RoomId, as: Session, session: Session): Promise<void> {
+  const changed = await api(`/api/rooms/${room}`, { method: "PATCH", headers: { Cookie: as.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [as.user.id] }) });
+  expect(changed.status, await changed.clone().text()).toBe(200);
+}
+
+async function putIn(room: RoomId, as: Session, session: Session): Promise<void> {
+  const changed = await api(`/api/rooms/${room}`, { method: "PATCH", headers: { Cookie: as.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [as.user.id, session.user.id] }) });
+  expect(changed.status, await changed.clone().text()).toBe(200);
+}
+
 describe("Personal access tokens", () => {
   it("are made with a name, shown once, listed without their secret, and used", async () => {
     const ada = await signIn("Ada");
@@ -127,6 +161,27 @@ describe("Personal access tokens", () => {
     const limited = await mcp("pat_wrong-once-more", { jsonrpc: "2.0", id: 1, method: "tools/list" });
     expect(limited.status).toBe(429);
   });
+
+  it("open nothing once their person is deactivated, banned or removed, though the token itself is untouched", async () => {
+    const founded = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
+    expect(founded.status).toBe(201);
+    const host = { user: shown(((await founded.json()) as NewWorkspace).user), cookie: cookieOf(founded) };
+    const grace = await signIn("Grace");
+    const { token } = await tokenOf(grace);
+    const list = () => mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect((await list()).status).toBe(200);
+
+    await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", grace.user.id);
+    expect((await list()).status).toBe(401);
+    await workspaceSql("UPDATE users SET status = 2 WHERE id = ?", grace.user.id);
+    expect((await list()).status).toBe(401);
+    // Back as they were, it opens again, which removal doesn't let it: a removed person is deactivated for good.
+    await workspaceSql("UPDATE users SET status = 0 WHERE id = ?", grace.user.id);
+    expect((await list()).status).toBe(200);
+    const removed = await api(`/api/account/users/${grace.user.id}`, { method: "DELETE", headers: { Cookie: host.cookie } });
+    expect(removed.status, await removed.clone().text()).toBe(200);
+    expect((await list()).status).toBe(401);
+  });
 });
 
 describe("The MCP server", () => {
@@ -164,6 +219,13 @@ describe("The MCP server", () => {
     expect(await notification.text()).toBe("");
     const ping = await mcp(token, { jsonrpc: "2.0", id: 3, method: "ping" });
     expect(((await ping.json()) as { result: Record<string, unknown> }).result).toEqual({});
+  });
+
+  it("refuses an empty batch, which JSON-RPC names no request of, with one error", async () => {
+    const { token } = await tokenOf(await signIn("Ada"));
+    const refused = await mcp(token, []);
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: { code: number } }).error.code).toBe(-32600);
   });
 
   it("refuses a method and a tool it doesn't have", async () => {
@@ -430,5 +492,63 @@ describe("The MCP server", () => {
     const people = dataOf(await toolOf(token, "get_people")).people as Array<Record<string, unknown>>;
     expect(people.map(({ name }) => name).sort()).toEqual(["Ada", "Grace", "Host"]);
     for (const person of people) expect(Object.keys(person).sort()).toEqual(["id", "name", "role", "status"]);
+  });
+
+  it("answers nothing of a room its person is taken out of while it was being read", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await createRoom("midread", { as: ada });
+    const client = await connect(room.id, ada);
+    await post(client, "before the removal");
+    const { token } = await tokenOf(grace);
+
+    // The page is held once it begins, past the access check, while Grace is taken out of the room.
+    const page = holding(ChatRoom.prototype, "botPage");
+    const history = toolOf(token, "get_room_history", { room_id: room.id });
+    await page.reached();
+    await takeOut(room.id, ada, grace);
+    page.go();
+    expect(said((await history) as never)).toBe("Room not found or inaccessible");
+
+    // Back in, it reads as before.
+    await putIn(room.id, ada, grace);
+    const again = dataOf(await toolOf(token, "get_room_history", { room_id: room.id }));
+    expect((again.messages as Array<{ plain_text: string }>).map(({ plain_text }) => plain_text)).toEqual(["before the removal"]);
+
+    // The same for a thread read as it goes.
+    const parent = await post(client, "a question");
+    await postReply(client, "an answer", parent.id);
+    const thread = holding(ChatRoom.prototype, "botThread");
+    const reading = toolOf(token, "get_thread", { room_id: room.id, message_id: parent.id });
+    await thread.reached();
+    await takeOut(room.id, ada, grace);
+    thread.go();
+    expect(said((await reading) as never)).toBe("Room not found or inaccessible");
+  });
+
+  it("answers a search from the rooms its person still has, once one was taken from them as it searched", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const kept = await freshRoom("kept");
+    const lost = await createRoom("lost", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const inKept = await connect(kept, ada);
+    const inLost = await connect(lost.id, ada);
+    await post(inKept, "kumquat kept");
+    await post(inLost, "kumquat lost");
+    await caughtUp(kept);
+    await caughtUp(lost.id);
+    const { token } = await tokenOf(grace);
+
+    const search = holding(SearchIndex.prototype, "search");
+    const found = toolOf(token, "search_messages", { query: "kumquat" });
+    await search.reached();
+    await takeOut(lost.id, ada, grace);
+    search.go();
+    // What it found in the room Grace still has is all it's told of.
+    expect((dataOf(await found).matches as Array<{ message: { room_id: string } }>).map(({ message }) => message.room_id)).toEqual([kept]);
+
+    // Kept to the room she lost, it refuses, as it looks again before it answers.
+    const elsewhere = await toolOf(token, "search_messages", { query: "kumquat", room_id: lost.id });
+    expect(said(elsewhere as never)).toBe("Room not found or inaccessible");
   });
 });
