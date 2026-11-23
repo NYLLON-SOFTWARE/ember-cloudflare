@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { dataOf } from "./jsonc.ts";
+import { MIGRATION_RENAMES as DEPLOY_RENAMES } from "./deploy.ts";
+import { MIGRATION_RENAMES as STORE_RENAMES } from "../src/migration-renames.ts";
 
 const SCRIPT = fileURLToPath(new URL("./deploy.ts", import.meta.url));
 const SECRET = /^[0-9a-f]{64}$/;
@@ -486,11 +488,27 @@ describe("Where messages live", () => {
     expect(logs).toContain(`STORAGE_BACKEND must be "do-sqlite" or "d1", not ${JSON.stringify(backend)}`);
   });
 
-  it("applies Ember's migrations to a copy's D1 database before deploying the Worker that reads it, from the config as it is", () => {
-    const options = copysConfig("d1");
+  it("renames a copy's D1 records by the same list the objects rename theirs by", () => {
+    expect(DEPLOY_RENAMES).toEqual(STORE_RENAMES);
+  });
+
+  it("applies Ember's migrations to a copy's D1 database before deploying the Worker that reads it, from the config as it is", () => {    const options = copysConfig("d1");
     const { status } = deploy("no worker", options);
     expect(status).toBe(0);
-    expect(commands()).toEqual(["secret list", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
+    expect(commands()).toEqual(["secret list", "d1 execute", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
+    // The records of migrations a copy ran under the numbers it numbered them by move to the files of
+    // today first, since wrangler applies by name and would make what the tables already are twice:
+    // one ask carries the table and every rename, the shortcuts' slot among them, and the reminders'
+    // two eras each.
+    const asked = output("d1-calls") ?? "";
+    expect(asked).toContain("UPDATE d1_migrations SET name = '0091_shortcuts.sql' WHERE name = '0075_shortcuts.sql'");
+    expect(asked).toContain("UPDATE d1_migrations SET name = '0084_reminders.sql' WHERE name = '0067_reminders.sql'");
+    expect(asked).toContain("UPDATE d1_migrations SET name = '0084_reminders.sql' WHERE name = '0061_reminders.sql'");
+    // A database that ran the reminders migration while it kept no reminder's thread has the column
+    // added, once its tables are named as they are today.
+    expect(asked).toContain(
+      "d1 execute DB --remote --json --yes --command SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reminders') AS kept, (SELECT count(*) FROM pragma_table_info('reminders') WHERE name = 'parent_id') AS thread",
+    );
     // In CI, which answers wrangler's question before it applies them.
     expect(output("d1-calls")).toContain(`d1 migrations apply DB --remote --config ${options[1]}\nCI=true`);
     expect(output("deploy-args")).toBe(options.join(" "));
@@ -500,7 +518,7 @@ describe("Where messages live", () => {
     const options = copysConfig("d1", [DATABASE]);
     const { status, logs } = deploy("no worker", options);
     expect(status).toBe(0);
-    expect(commands()).toEqual(["secret list", "d1 list", "d1 create", "d1 migrations", "deploy --secrets-file"]);
+    expect(commands()).toEqual(["secret list", "d1 list", "d1 create", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
     expect(output("d1-calls")).toContain(`d1 create ember --no-update-config --config ${options[1]}`);
     expect(logs).toContain("Making the D1 database ember, which keeps this Ember's messages");
   });
@@ -512,7 +530,7 @@ describe("Where messages live", () => {
     ]);
     const { status } = deploy("no worker", copysConfig("d1", [DATABASE]), { env: { D1_DATABASES } });
     expect(status).toBe(0);
-    expect(commands()).toEqual(["secret list", "d1 list", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
+    expect(commands()).toEqual(["secret list", "d1 list", "d1 execute", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
   });
 
   it("refuses a D1 database another Ember is set up in for a new Worker, before migrating it or deploying", () => {
@@ -544,13 +562,13 @@ describe("Where messages live", () => {
   it("takes a D1 database that's migrated but not set up, as a first deploy that failed after migrating leaves it", () => {
     const { status } = deploy("no worker", copysConfig("d1"), { env: { D1_STATE: "migrated" } });
     expect(status).toBe(0);
-    expect(commands()).toEqual(["secret list", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
+    expect(commands()).toEqual(["secret list", "d1 execute", "d1 execute", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
   });
 
   it("migrates the database a Worker deployed before is bound to without asking whether an Ember is set up in it, as its own is", () => {
     const { status } = deploy(EVERY_SECRET, copysConfig("d1"), { env: { D1_STATE: "set up", BOUND_D1: MADE.database_id } });
     expect(status).toBe(0);
-    expect(commands()).toEqual(["secret list", "deployments status", "versions view", "d1 migrations", "deploy --secrets-file"]);
+    expect(commands()).toEqual(["secret list", "deployments status", "versions view", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
   });
 
   it("stops where it can't tell which D1 database a Worker deployed before is bound to", () => {
@@ -571,7 +589,7 @@ describe("Where messages live", () => {
   it.each([[["--dry-run=false"]], [["--dry-run", "false"]]])("readies the D1 database where the options turn the dry run off (%j)", (dryRun) => {
     const { status } = deploy("no worker", [...copysConfig("d1"), ...dryRun]);
     expect(status).toBe(0);
-    expect(commands()).toEqual(["secret list", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
+    expect(commands()).toEqual(["secret list", "d1 execute", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]);
   });
 
   it.each([[[]], [["--var", "STORAGE_BACKEND:d1"]]])(
@@ -603,7 +621,7 @@ describe("Where messages live", () => {
   });
 
   it.each([
-    ["do-sqlite", "d1", ["secret list", "deployments status", "versions view", "d1 execute", "d1 migrations", "deploy --secrets-file"]],
+    ["do-sqlite", "d1", ["secret list", "deployments status", "versions view", "d1 execute", "d1 execute", "d1 execute", "d1 migrations", "deploy --secrets-file"]],
     ["d1", "do-sqlite", ["secret list", "deploy --secrets-file"]],
   ])("keeps messages where a --var says, over a config's %s (%s)", (configured, given, expected) => {
     const { status } = deploy(EVERY_SECRET, [...copysConfig(configured), "--var", `STORAGE_BACKEND:${given}`]);

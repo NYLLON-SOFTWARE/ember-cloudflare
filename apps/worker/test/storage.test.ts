@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { openDb, statement } from "../src/db";
 import type { Env } from "../src/env";
 import { MIGRATIONS, migrate, SEARCH_MIGRATIONS, type Scope } from "../src/migrations";
+import { MIGRATION_RENAMES } from "../src/migration-renames";
 import { searchStatement, type IndexSearch } from "../src/search-index";
 import { WorkspaceStore } from "../src/workspace-store";
 import { apiWith, connect, freshRoom, objectSql, post, roomSql, roomStub, searchIndexStub, sharedD1, workspaceStub } from "./support";
@@ -107,6 +108,53 @@ describe("Durable Object SQLite or D1", () => {
     const { TEST_MIGRATIONS, TEST_SEARCH_MIGRATIONS } = env as unknown as Record<string, Array<{ name: string }>>;
     expect(MIGRATIONS.map((m) => m.name)).toEqual(TEST_MIGRATIONS!.map((m) => m.name));
     expect(SEARCH_MIGRATIONS.map((m) => m.name)).toEqual(TEST_SEARCH_MIGRATIONS!.map((m) => m.name));
+  });
+
+  it("renames the migrations a fork ran under its older numbers, and repairs a reminders table of before its threads", async () => {
+    if (sharedD1()) return;
+    // The room's storage stands in for one that ran two of the campaign's migrations as this fork once
+    // numbered them, whose reminders kept no reminder's thread, and whose shortcuts sat in 0075's slot.
+    const room = await freshRoom("renamed");
+    const { names, columns } = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      state.storage.sql.exec(
+        `CREATE TABLE reminders (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          room_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          creator_id TEXT NOT NULL,
+          creator_name TEXT NOT NULL,
+          excerpt TEXT NOT NULL,
+          remind_at INTEGER NOT NULL,
+          reminded_at INTEGER,
+          created_at INTEGER NOT NULL
+        )`,
+      );
+      state.storage.sql.exec("CREATE TABLE shortcuts (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT, bot_id TEXT NOT NULL REFERENCES users (id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");
+      state.storage.sql.exec("CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)");
+      for (const name of ["0067_reminders.sql", "0075_shortcuts.sql"]) state.storage.sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+      migrate(state.storage, "workspace");
+      return {
+        names: state.storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations ORDER BY id").toArray().map(({ name }) => name),
+        columns: state.storage.sql.exec<{ name: string }>("PRAGMA table_info(reminders)").toArray().map(({ name }) => name),
+      };
+    });
+    // Both records moved with their tables, so neither migration applies twice, and nothing of either
+    // older name is left.
+    expect(names.filter((name) => name === "0084_reminders.sql" || name === "0091_shortcuts.sql")).toHaveLength(2);
+    expect(names).not.toContain("0067_reminders.sql");
+    expect(names).not.toContain("0075_shortcuts.sql");
+    // The reminders table keeps what it made, with the thread its queries read added.
+    expect(columns).toContain("parent_id");
+  });
+
+  it("renames only to migrations of today, or one whose tables no query keeps any more", () => {
+    const names = new Set([...MIGRATIONS, ...SEARCH_MIGRATIONS].map(({ name }) => name));
+    for (const [, now] of MIGRATION_RENAMES) {
+      // The personal access tokens that file made keep no queries: the apps sign in with their own.
+      if (now === "0073_tokens.sql") continue;
+      expect(names.has(now), now).toBe(true);
+    }
   });
 
   it("gives each kind of object only its own tables, and D1 every kind's", async () => {

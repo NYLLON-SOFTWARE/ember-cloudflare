@@ -72,6 +72,7 @@ import guests from "../migrations/0088_guests.sql";
 import commands from "../migrations/0089_commands.sql";
 import reminderPushes from "../migrations/0090_reminder_pushes.sql";
 import shortcuts from "../migrations/0091_shortcuts.sql";
+import { MIGRATION_RENAMES } from "./migration-renames";
 import agentAccess from "../migrations/0063_agent_access.sql";
 import sessionTransfers from "../migrations/0064_session_transfers.sql";
 import newcomersAndUnreadCounts from "../migrations/0065_newcomers_and_unread_counts.sql";
@@ -231,24 +232,11 @@ export function migrate(storage: DurableObjectStorage, scope: Scope): void {
     name TEXT UNIQUE,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`);
-  // The fork's deploys numbered these files before upstream took the slots they sat in, so a storage
-  // that ran one under its old name keeps the tables it made and the record moves with them: renamed
-  // before the check below, it applies no migration twice.
-  for (const [was, now] of [
-    ["0057_pins.sql", "0080_pins.sql"],
-    ["0058_user_groups.sql", "0081_user_groups.sql"],
-    ["0059_dnd.sql", "0082_dnd.sql"],
-    ["0060_profile_fields.sql", "0083_profile_fields.sql"],
-    ["0061_reminders.sql", "0084_reminders.sql"],
-    ["0062_statuses.sql", "0086_statuses.sql"],
-    ["0063_saves.sql", "0087_saves.sql"],
-    ["0064_guests.sql", "0088_guests.sql"],
-    ["0065_commands.sql", "0089_commands.sql"],
-    ["0066_tokens.sql", "0073_tokens.sql"],
-    ["0073_reminder_push_retries.sql", "0085_reminder_push_retries.sql"],
-    ["0062_reminder_pushes.sql", "0090_reminder_pushes.sql"],
-    ["0072_reminder_pushes.sql", "0090_reminder_pushes.sql"],
-  ] as const) {
+  // This fork's deploys numbered these files before it numbered them as it does now, so a storage that
+  // ran one under its old name keeps the tables it made and the record moves with them: renamed before
+  // the check below, it applies no migration twice. The same renames run for D1, whose migrations
+  // wrangler applies, where no runner of ours is in (scripts/deploy.ts).
+  for (const [was, now] of MIGRATION_RENAMES) {
     storage.sql.exec(
       "UPDATE d1_migrations SET name = ? WHERE name = ? AND NOT EXISTS (SELECT 1 FROM (SELECT name FROM d1_migrations WHERE name = ?) AS there)",
       now,
@@ -256,6 +244,11 @@ export function migrate(storage: DurableObjectStorage, scope: Scope): void {
       now,
     );
   }
+  // A storage that ran the reminders migration while it kept no reminder's thread has the table it
+  // made, which the queries read now, and its migration, renamed above, is marked as run: the column
+  // is added here, where applying its file again would find the table and make nothing.
+  const reminderColumns = storage.sql.exec<{ name: string }>("PRAGMA table_info(reminders)").toArray().map(({ name }) => name);
+  if (reminderColumns.length > 0 && !reminderColumns.includes("parent_id")) storage.sql.exec("ALTER TABLE reminders ADD COLUMN parent_id TEXT");
   const applied = new Set(storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations").toArray().map((row) => row.name));
   for (const migration of scope === "search" ? SEARCH_MIGRATIONS : MIGRATIONS) {
     if (migration.scope !== scope || applied.has(migration.name)) continue;
