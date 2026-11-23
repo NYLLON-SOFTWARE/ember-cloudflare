@@ -46,6 +46,10 @@ async function replyIn(client: Socket, parentId: string, body: string): Promise<
   }
 }
 
+/** The address the next request comes from, as Cloudflare's `CF-Connecting-IP` says. */
+let addresses = 0;
+const nextAddress = () => `192.0.2.${++addresses % 250}`;
+
 beforeEach(freshDeploy);
 
 describe("Save a message for later", () => {
@@ -325,5 +329,29 @@ describe("Forget a save", () => {
     expect((await phone.next()).type).toBe("saves.changed");
     // A remove that isn't theirs tells no one.
     expect((await forget(ada, mine.id)).status).toBe(404);
+  });
+});
+
+describe("Deleting the account", () => {
+  it("deletes the person's saves with their account, and another person's stay", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await createRoom("Design");
+    const { message, done } = await messageIn(room.id, ada, "Kept for a moment");
+    const mine = await saved(save(ada, room.id, message.id));
+    const theirs = await saved(save(grace, room.id, message.id));
+    await done();
+
+    // Ada has no password, so she says she means it by typing her name.
+    const response = await api("/api/users/me", {
+      method: "DELETE",
+      headers: { "CF-Connecting-IP": nextAddress(), Cookie: ada.cookie },
+      body: JSON.stringify({ name: "Ada" }),
+    });
+    expect(response.status, await response.clone().text()).toBe(204);
+    expect(await storedSaves(ada)).toEqual([]);
+    expect(await storedSaves(grace)).toEqual([theirs.id]);
+    // Their sessions went with the account, so the API answers nobody for them either.
+    expect((await api("/api/saves", { headers: { Cookie: ada.cookie } })).status).toBe(401);
   });
 });

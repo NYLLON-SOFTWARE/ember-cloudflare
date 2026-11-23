@@ -167,7 +167,7 @@ describe("Delete my account", () => {
     expect(await workspaceSql("SELECT object_key FROM pending_picture_deletions")).toEqual([]);
   });
 
-  it("forgets everything else of yours: your rooms but DMs, starred rooms, searches, push subscriptions and accounts elsewhere", async () => {
+  it("forgets everything else of yours: your rooms but DMs, starred rooms, saves, searches, push subscriptions and accounts elsewhere", async () => {
     const administrator = await setUp();
     const member = await join(grace);
     const lobby = await freshRoom("lobby");
@@ -182,9 +182,10 @@ describe("Delete my account", () => {
       now,
     );
     await workspaceSql("INSERT INTO identities (issuer, subject, user_id, created_at, updated_at) VALUES ('https://fernwood.memberful.com', '42', ?, ?, ?)", member.user.id, now, now);
+    await workspaceSql("INSERT INTO saves (id, user_id, room_id, message_id, created_at) VALUES ('save-1', ?, ?, 'message-1', ?)", member.user.id, lobby, now);
 
     await deleteGraces(member);
-    for (const table of ["favorites", "recent_searches", "push_subscriptions", "identities", "sessions"]) expect(await rowsOf(table, member.user.id), table).toBe(0);
+    for (const table of ["favorites", "saves", "recent_searches", "push_subscriptions", "identities", "sessions"]) expect(await rowsOf(table, member.user.id), table).toBe(0);
     // Their DMs keep them, so the people in them still see whom they were with.
     expect(((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", member.user.id)) as Array<{ room_id: string }>).map(({ room_id }) => room_id)).toEqual([dm]);
   });
