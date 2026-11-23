@@ -413,6 +413,8 @@ describe("What deleting your account deletes", () => {
     const room = roomStub(lobby);
 
     expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(true);
+    expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(true);
+    expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(false);
     expect(await room.removeEverythingBy(lobby, member.user.id, 2)).toBe(false);
     const changes = [];
     for (let i = 0; i < 6; i++) changes.push(await watcher.next("message.deleted", "boost.deleted"));

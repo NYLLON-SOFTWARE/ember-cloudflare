@@ -582,6 +582,7 @@ describe("Signing in to an app", () => {
     asked = [];
 
     expect((await readAgain(administrator, app.id)).status).toBe(200);
+    expect((await readAgain(administrator, app.id)).status).toBe(200);
     expect(tokenRequests().map(({ refresh_token }) => refresh_token)).toEqual(["refresh-1", "refresh-2"]);
     expect(auth.access).toBe("access-3");
     expect((await appOf(await show(administrator, app.id))).signIn?.ended).toBe(false);
