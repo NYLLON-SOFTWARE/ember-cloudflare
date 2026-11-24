@@ -2,7 +2,7 @@ import { BrowserWindow, dialog, nativeTheme, screen, shell, type WebContents } f
 import { pageAddress } from "./app-pages.ts";
 import { contextMenuOf } from "./context-menu.ts";
 import { destinationOf, mayBeMoving, mayBeSigningIn, onwardPassageOf, passageOf } from "./navigation.ts";
-import { checkSite, memberfulSiteOf } from "./site-check.ts";
+import { checkSite, signInSitesOf } from "./site-check.ts";
 import { fetchFollowing, redirectOf } from "./site-fetch.ts";
 import { sessionOf } from "./site-session.ts";
 import type { Bounds, Site, SiteChanges, Sites } from "./sites.ts";
@@ -21,8 +21,8 @@ const ABORTED = -3;
 interface Leaving {
   /** Whether the page still wants to move: it hasn't moved again, nor its window closed, since. */
   stillWanted(): boolean;
-  /** Lets the window pass through the Memberful site at the origin `memberful` until it's back on its own site. */
-  passThrough(memberful: string): void;
+  /** Lets the window pass through the site where someone signs in at the origin `signIn` until it's back on its own site. */
+  passThrough(signIn: string): void;
 }
 
 /**
@@ -138,10 +138,10 @@ export class SiteWindows {
 
   /**
    * Keeps `contents`, a window of the site with `id` or one its pages opened, on the site's own pages,
-   * opening anything elsewhere outside the app, but for the site's Memberful site, or the custom domain it
-   * sends them on to, which signing in with Memberful, and connecting an account there, pass through, and
-   * the site's move to another address, a custom domain its pages move to or one its server redirects
-   * them to, which the window follows.
+   * opening anything elsewhere outside the app, but for the site's Memberful site or single sign-on
+   * provider, or the custom domain one sends them on to, which signing in with Memberful or SSO, and
+   * connecting an account there, pass through, and the site's move to another address, a custom domain its
+   * pages move to or one its server redirects them to, which the window follows.
    */
   #keepToSite(contents: WebContents, id: string): void {
     const address = () => this.#addressOf(id);
@@ -164,8 +164,8 @@ export class SiteWindows {
       const asked = moves;
       void this.#leave(contents, id, from, url, {
         stillWanted: () => !contents.isDestroyed() && moves === asked,
-        passThrough: (memberful) => {
-          passingThrough = memberful;
+        passThrough: (signIn) => {
+          passingThrough = signIn;
         },
       });
     };
@@ -211,7 +211,7 @@ export class SiteWindows {
     contents.on("context-menu", (_event, params) => contextMenuOf(contents, params)?.popup());
     contents.on("did-fail-load", (_event, code, _description, url, isMainFrame) => {
       if (!isMainFrame || code === ABORTED) return;
-      // Trying again opens the site, where what failed elsewhere starts again, as signing in at its Memberful site does.
+      // Trying again opens the site, where what failed elsewhere starts again, as signing in at its Memberful site or provider does.
       const query = new URLSearchParams({ site: address(), ...(isCertificateError(code) ? { problem: "certificate" } : {}) });
       void contents.loadURL(`${pageAddress("unreachable.html")}?${query}#${encodeURIComponent(URL.parse(url)?.origin ?? address())}`);
     });
@@ -222,10 +222,10 @@ export class SiteWindows {
 
   /**
    * Opens `url`, where the page at `from` is going, outside the app, unless it's where the site with `id`
-   * has moved, which the window follows, or the sign-in at the site's Memberful site, where connecting an
-   * account there goes, which the window passes through, as it tells `leaving`. Should the page move again
-   * before the site answers, or its window close, the move is dropped, as a browser drops a page it was
-   * opening once another is asked for.
+   * has moved, which the window follows, or the sign-in at the site's Memberful site or single sign-on
+   * provider, where connecting an account there goes, which the window passes through, as it tells
+   * `leaving`. Should the page move again before the site answers, or its window close, the move is
+   * dropped, as a browser drops a page it was opening once another is asked for.
    */
   async #leave(contents: WebContents, id: string, from: string, url: string, leaving: Leaving): Promise<void> {
     const { origin } = new URL(url);
@@ -239,9 +239,9 @@ export class SiteWindows {
       }
     }
     if (mayBeSigningIn(url)) {
-      const memberful = await memberfulSiteOf(this.#addressOf(id), redirectOf);
+      const signIns = await signInSitesOf(this.#addressOf(id), redirectOf);
       if (!leaving.stillWanted()) return;
-      if (memberful === origin) {
+      if (signIns.includes(origin)) {
         leaving.passThrough(origin);
         void contents.loadURL(url);
         return;

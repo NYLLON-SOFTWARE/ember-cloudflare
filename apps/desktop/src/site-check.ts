@@ -1,4 +1,4 @@
-import { MEMBERFUL_SIGN_IN_PATH, passageOf } from "./navigation.ts";
+import { passageOf, SIGN_IN_PATHS } from "./navigation.ts";
 import { isSecure } from "./site-address.ts";
 
 /** An Ember site, as checking its address finds it. */
@@ -80,11 +80,17 @@ function isBootstrap(body: unknown): body is { account: { name: string; customDo
 }
 
 /**
- * The origin of the Memberful site that the site at `address` sends Sign in with Memberful to, which it
- * says by redirecting there, or null while it sends it nowhere else: without Memberful, or unreachable.
+ * The origins of the Memberful site and single sign-on provider that the site at `address` sends Sign in
+ * with Memberful and SSO to, which it says by redirecting there: none for either it sends nowhere else,
+ * as without Memberful or single sign-on, or while it can't be reached.
  */
-export async function memberfulSiteOf(address: string, redirectOf: RedirectOf): Promise<string | null> {
-  const signIn = new URL(MEMBERFUL_SIGN_IN_PATH, address).href;
-  const location = await redirectOf(signIn, AbortSignal.timeout(PATIENCE_MS)).catch(() => null);
-  return location === null ? null : passageOf(signIn, location, address);
+export async function signInSitesOf(address: string, redirectOf: RedirectOf): Promise<string[]> {
+  const sites = await Promise.all(
+    SIGN_IN_PATHS.map(async (path) => {
+      const signIn = new URL(path, address).href;
+      const location = await redirectOf(signIn, AbortSignal.timeout(PATIENCE_MS)).catch(() => null);
+      return location === null ? null : passageOf(signIn, location, address);
+    }),
+  );
+  return sites.filter((site) => site !== null);
 }

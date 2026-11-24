@@ -3,6 +3,7 @@ import { destinationOf, mayBeMoving, mayBeSigningIn, onwardPassageOf, passageOf 
 
 const SITE = "https://chat.example.com";
 const MEMBERFUL = "https://fernwood.memberful.com";
+const PROVIDER = "https://sso.example.org";
 
 describe("destinationOf", () => {
   it("keeps the site's own pages, and what they make, in its window", () => {
@@ -30,9 +31,10 @@ describe("destinationOf", () => {
 });
 
 describe("passageOf", () => {
-  it("passes through the Memberful site the site's Sign in with Memberful redirects to", () => {
+  it("passes through the Memberful site or single sign-on provider the site's Sign in with Memberful or SSO redirects to", () => {
     expect(passageOf(`${SITE}/auth/memberful?return_to=%2Frooms%2F1`, `${MEMBERFUL}/oauth?client_id=1&state=2`, SITE)).toBe(MEMBERFUL);
     expect(passageOf(`${SITE}/auth/memberful`, "https://members.example.org/oauth", SITE)).toBe("https://members.example.org");
+    expect(passageOf(`${SITE}/auth/sso?return_to=%2Frooms%2F1`, `${PROVIDER}/oauth2/authorize?client_id=1&state=2`, SITE)).toBe(PROVIDER);
   });
 
   it("passes through nothing on any other redirect, or to an insecure site", () => {
@@ -40,6 +42,7 @@ describe("passageOf", () => {
     expect(passageOf(`https://example.com/auth/memberful`, `${MEMBERFUL}/oauth`, SITE)).toBeNull();
     expect(passageOf(`${SITE}/auth/memberful`, "http://fernwood.memberful.com/oauth", SITE)).toBeNull();
     expect(passageOf(`${SITE}/auth/memberful`, `${SITE}/session/new`, SITE)).toBeNull();
+    expect(passageOf(`${SITE}/auth/sso/callback?code=1&state=2`, `${PROVIDER}/oauth2/authorize`, SITE)).toBeNull();
   });
 });
 
@@ -72,15 +75,17 @@ describe("mayBeMoving", () => {
 });
 
 describe("mayBeSigningIn", () => {
-  it("takes Memberful's sign-in for Ember, with its state, at a secure address", () => {
+  it("takes a sign-in for Ember at Memberful or a single sign-on provider, naming the app, with its state, at a secure address", () => {
     expect(mayBeSigningIn(`${MEMBERFUL}/oauth?response_type=code&client_id=1&state=2`)).toBe(true);
-    expect(mayBeSigningIn("http://127.0.0.1:8790/oauth?state=2")).toBe(true);
+    expect(mayBeSigningIn(`${PROVIDER}/oauth2/authorize?response_type=code&client_id=ember&redirect_uri=${encodeURIComponent(`${SITE}/auth/sso/callback`)}&state=2`)).toBe(true);
+    expect(mayBeSigningIn("http://127.0.0.1:8790/oauth?client_id=1&state=2")).toBe(true);
   });
 
-  it("takes another page, one without a state or an insecure one for something else", () => {
+  it("takes another page, one without the app or a state, or an insecure one for something else", () => {
     expect(mayBeSigningIn(`${MEMBERFUL}/account`)).toBe(false);
-    expect(mayBeSigningIn(`${MEMBERFUL}/oauth`)).toBe(false);
-    expect(mayBeSigningIn("http://fernwood.memberful.com/oauth?state=2")).toBe(false);
+    expect(mayBeSigningIn(`${MEMBERFUL}/oauth?client_id=1`)).toBe(false);
+    expect(mayBeSigningIn(`${MEMBERFUL}/oauth?state=2`)).toBe(false);
+    expect(mayBeSigningIn("http://fernwood.memberful.com/oauth?client_id=1&state=2")).toBe(false);
     expect(mayBeSigningIn("mailto:ada@example.com")).toBe(false);
   });
 });

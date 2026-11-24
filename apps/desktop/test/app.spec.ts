@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fakeElsewhere, fakeEmber, fakeEndless, fakeMemberful, fakeRedirect } from "./fake-sites.ts";
+import { fakeElsewhere, fakeEmber, fakeEndless, fakeMemberful, fakeRedirect, fakeSso } from "./fake-sites.ts";
 import { expect, test } from "./fixtures.ts";
 
 // When the app keeps a page where it is, opening a link outside or nowhere, Playwright, having seen the
@@ -193,6 +193,24 @@ test("follows the site's Memberful site on to its custom domain to sign in there
 
   await page.getByRole("link", { name: "Connect Memberful" }).click({ force: true, noWaitAfter: true });
   await expect.poll(() => page.url()).toMatch(new RegExp(`^${memberful.origin}/oauth\\?`));
+  await page.getByRole("link", { name: "Allow" }).click({ force: true });
+  await expect(page.getByRole("heading")).toHaveText("Signed in at Fernwood");
+  expect(await app.openedOutside()).toEqual([]);
+});
+
+test("passes through the site's single sign-on provider to sign in there, and connect, and back", async ({ app }) => {
+  const [fernwood, provider] = [await fakeEmber("Fernwood"), await fakeSso()];
+  fernwood.sso = provider.origin;
+  const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
+
+  await page.getByRole("link", { name: "Sign in with SSO" }).click({ force: true });
+  await expect(page).toHaveURL(new RegExp(`^${provider.origin}/authorize\\?`));
+  await page.getByRole("link", { name: "Allow" }).click({ force: true });
+  await expect(page.getByRole("heading")).toHaveText("Signed in at Fernwood");
+
+  // As the profile's Connect and the sign-in page's do, the page goes straight to the provider.
+  await page.getByRole("link", { name: "Connect SSO" }).click({ force: true, noWaitAfter: true });
+  await expect.poll(() => page.url()).toMatch(new RegExp(`^${provider.origin}/authorize\\?`));
   await page.getByRole("link", { name: "Allow" }).click({ force: true });
   await expect(page.getByRole("heading")).toHaveText("Signed in at Fernwood");
   expect(await app.openedOutside()).toEqual([]);

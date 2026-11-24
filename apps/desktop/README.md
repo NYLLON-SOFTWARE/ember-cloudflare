@@ -16,11 +16,13 @@ removes the one in front, which forgets its address and your sign-in there.
 - Each site keeps its sign-in, storage and permissions apart from every other site's, as a browser
   profile would, and the app remembers which windows were open, and where, as it quits.
 - A site's window stays on the site. Links elsewhere open in your browser, email addresses in your
-  email app, and Sign in with Memberful, and connecting your account there, pass through the site's
-  Memberful site, at its custom domain if it has one, and come back. Where Memberful emails you a link to
-  sign in, the link opens in your browser rather than the app, so type the code in the same email into
-  the app's window instead. A site that moves to its custom domain is followed there. A page of the
-  site that opens in a new tab opens in a window of its own, which is the site's too.
+  email app, and Sign in with Memberful or SSO, and connecting your account there, pass through the
+  site's Memberful site or single sign-on provider, at its custom domain if it has one, and come back.
+  A provider that sends you on to another site to sign in opens that one in your browser instead.
+  Where Memberful emails you a link to sign in, the link opens in your browser rather than the app, so
+  type the code in the same email into the app's window instead. A site that moves to its custom
+  domain is followed there. A page of the site that opens in a new tab opens in a window of its own,
+  which is the site's too.
 - The site's own pages may use the camera, microphone and speakers for huddles, notifications, the
   clipboard, full screen and keeping the screen awake, and nothing else. On a Mac, macOS asks once whether Ember
   may use the camera and microphone, and the app says where in System Settings to allow them if not.

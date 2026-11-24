@@ -2,18 +2,15 @@ import { isSecure } from "./site-address.ts";
 
 // Where a site's window may go. It stays on the site, as a browser tab would for a site that's an app,
 // and opens anything elsewhere outside the app: web pages in the person's browser, and email addresses
-// in their email app. The one way off the site is its Memberful site, which Sign in with Memberful, and
-// connecting an account there, go through and come back from, at the custom domain it sends them on to
-// if it has one.
+// in their email app. The one way off the site is where it signs people in, its Memberful site or single
+// sign-on provider, which Sign in with Memberful or SSO, and connecting an account there, go through and
+// come back from, at the custom domain one sends them on to if it has one.
 
 /** Where the site's window goes for an address: to it, outside the app, or nowhere. */
 export type Destination = "window" | "outside" | "nowhere";
 
-/** Where Ember's sign-in page sends Sign in with Memberful, which the site redirects to its Memberful site. */
-export const MEMBERFUL_SIGN_IN_PATH = "/auth/memberful";
-
-/** Where a Memberful site signs someone in for Ember, which comes back to the site with the state it went with. */
-const MEMBERFUL_OAUTH_PATH = "/oauth";
+/** Where Ember's sign-in page sends Sign in with Memberful and SSO, which the site redirects to its Memberful site or single sign-on provider. */
+export const SIGN_IN_PATHS = ["/auth/memberful", "/auth/sso"];
 
 /** The schemes the app opens outside itself. */
 const OUTSIDE = new Set(["http:", "https:", "mailto:"]);
@@ -31,18 +28,19 @@ export function destinationOf(url: string, site: string, passingThrough: string 
 
 /**
  * The origin a window of the site at `site` passes through as someone signs in, as the site redirects
- * its Sign in with Memberful, `from`, to its Memberful site, `to`; or null for any other redirect.
+ * its Sign in with Memberful or SSO, `from`, to its Memberful site or single sign-on provider, `to`; or
+ * null for any other redirect.
  */
 export function passageOf(from: string, to: string, site: string): string | null {
   const [leaving, arriving] = [URL.parse(from), URL.parse(to)];
-  if (leaving?.origin !== site || leaving.pathname !== MEMBERFUL_SIGN_IN_PATH) return null;
+  if (leaving?.origin !== site || !SIGN_IN_PATHS.includes(leaving.pathname)) return null;
   return arriving !== null && isSecure(arriving) && arriving.origin !== site ? arriving.origin : null;
 }
 
 /**
- * The origin a window passing through the Memberful site at `passingThrough` passes through instead as
- * that site redirects its page at `from` to the same page at `to`, another secure address: its custom
- * domain, which a Memberful site with one sends its pages on to. Null for any other redirect.
+ * The origin a window passing through the site at `passingThrough`, where someone signs in, passes through
+ * instead as that site redirects its page at `from` to the same page at `to`, another secure address: its
+ * custom domain, which a Memberful site with one sends its pages on to. Null for any other redirect.
  */
 export function onwardPassageOf(from: string, to: string, passingThrough: string | null): string | null {
   const [leaving, arriving] = [URL.parse(from), URL.parse(to)];
@@ -60,11 +58,12 @@ export function mayBeMoving(from: string, to: string): boolean {
 }
 
 /**
- * Whether `url` may be the sign-in at the site's Memberful site, which its pages go straight to as someone
- * connects their account there: Memberful's sign-in for Ember, with the state the site keeps for the round
- * trip, at a secure address. Asking the site where it sends Sign in with Memberful says for sure.
+ * Whether `url` may be the sign-in at the site's Memberful site or single sign-on provider, which its pages
+ * go straight to as someone connects their account there: a sign-in for Ember, naming the app it's for and
+ * the state the site keeps for the round trip, at a secure address. Asking the site where it sends Sign in
+ * with Memberful and SSO says for sure.
  */
 export function mayBeSigningIn(url: string): boolean {
   const to = URL.parse(url);
-  return to !== null && isSecure(to) && to.pathname === MEMBERFUL_OAUTH_PATH && to.searchParams.has("state");
+  return to !== null && isSecure(to) && to.searchParams.has("client_id") && to.searchParams.has("state");
 }

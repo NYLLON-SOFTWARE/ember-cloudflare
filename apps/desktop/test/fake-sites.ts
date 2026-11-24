@@ -3,8 +3,8 @@ import type { AddressInfo } from "node:net";
 
 // Made-up sites for the app's tests, on this computer, each at an origin of its own: Ember sites, which
 // answer `/api/bootstrap` as Ember does and show a page of what a site's window can be asked to do; a
-// Memberful site to sign in at; a site that isn't Ember; one that sends everything on to another; and one
-// that never stops answering.
+// Memberful site and a single sign-on provider to sign in at; a site that isn't Ember; one that sends
+// everything on to another; and one that never stops answering.
 
 /** A made-up site, listening until it's closed. */
 export interface FakeSite {
@@ -27,6 +27,8 @@ export interface FakeEmber extends FakeSite {
   redirectsTo: string | null;
   /** Where its Sign in with Memberful sends people: a Memberful site's origin. */
   memberful: string | null;
+  /** Where its Sign in with SSO sends people: a single sign-on provider's origin, or null while it has none. */
+  sso: string | null;
   /** How many times it's been asked where its Sign in with Memberful goes. */
   signInsAsked: number;
   /** Keeps it from saying where its Sign in with Memberful goes, as a slow site would, until the function it returns is called. */
@@ -65,9 +67,9 @@ const redirect = (response: http.ServerResponse, location: string, cookie?: stri
 
 /**
  * An Ember site whose workspace is `name`. Its pages say whether this browser is signed in, which
- * /sign-in or Sign in with Memberful do, and link to the site's next room, to a site elsewhere, to a
- * file to download, to Sign in with Memberful, and straight to the Memberful site's sign-in, as
- * connecting an account there does.
+ * /sign-in or Sign in with Memberful or SSO do, and link to the site's next room, to a site elsewhere, to
+ * a file to download, to Sign in with Memberful and SSO, and straight to the Memberful site's and the
+ * provider's sign-ins, as connecting an account there does.
  */
 export async function fakeEmber(name: string): Promise<FakeEmber> {
   let signInHeld = Promise.resolve();
@@ -86,6 +88,10 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
           return void signInHeld.then(() => redirect(response, `${site.memberful}/oauth?client_id=ember&state=1&site=${encodeURIComponent(url.origin)}`));
         case "/auth/memberful/callback":
           return redirect(response, "/", "session=ada-from-memberful; Path=/; HttpOnly; Max-Age=86400");
+        case "/auth/sso":
+          return redirect(response, site.sso === null ? "/?sso=off" : ssoSignInAt(site.sso, url.origin, "3"));
+        case "/auth/sso/callback":
+          return redirect(response, "/", "session=ada-from-sso; Path=/; HttpOnly; Max-Age=86400");
         case "/files/report.txt":
           response.writeHead(200, { "Content-Type": "text/plain", "Content-Disposition": 'attachment; filename="Q3 report.txt"' });
           return response.end("Sales are up.");
@@ -98,7 +104,9 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
             <a href="https://example.com/elsewhere">Elsewhere</a>
             <a href="/files/report.txt" download>Download the report</a>
             <a href="/auth/memberful">Sign in with Memberful</a>
-            <a href="${site.memberful}/oauth?client_id=ember&state=2&site=${encodeURIComponent(url.origin)}">Connect Memberful</a>`,
+            <a href="${site.memberful}/oauth?client_id=ember&state=2&site=${encodeURIComponent(url.origin)}">Connect Memberful</a>
+            <a href="/auth/sso">Sign in with SSO</a>
+            <a href="${site.sso === null ? "/" : ssoSignInAt(site.sso, url.origin, "4")}">Connect SSO</a>`,
           );
       }
     }),
@@ -107,6 +115,7 @@ export async function fakeEmber(name: string): Promise<FakeEmber> {
       customDomain: null,
       redirectsTo: null,
       memberful: null,
+      sso: null,
       signInsAsked: 0,
       holdSignIn() {
         let answer = () => {};
@@ -124,6 +133,19 @@ export function fakeMemberful(): Promise<FakeSite> {
     if (url.pathname !== "/oauth") return html(response, "<title>Not found</title>", 404);
     const back = `${url.searchParams.get("site")}/auth/memberful/callback?code=1&state=${url.searchParams.get("state")}`;
     html(response, `<title>Sign in</title><h1>Sign in to Fernwood's Memberful</h1><a href="${back}">Allow</a> <a href="https://example.com/terms">Terms</a>`);
+  });
+}
+
+/** The sign-in at the single sign-on provider at `provider` for the Ember site at `site`, with `state`, as Ember sends people there. */
+const ssoSignInAt = (provider: string, site: string, state: string) =>
+  `${provider}/authorize?response_type=code&client_id=ember&redirect_uri=${encodeURIComponent(`${site}/auth/sso/callback`)}&state=${state}`;
+
+/** A single sign-on provider, whose sign-in page sends people back to the Ember site they came from. */
+export function fakeSso(): Promise<FakeSite> {
+  return serve((_request, response, url) => {
+    if (url.pathname !== "/authorize") return html(response, "<title>Not found</title>", 404);
+    const back = `${url.searchParams.get("redirect_uri")}?code=1&state=${url.searchParams.get("state")}`;
+    html(response, `<title>Sign in</title><h1>Sign in to Fernwood's provider</h1><a href="${back}">Allow</a>`);
   });
 }
 
