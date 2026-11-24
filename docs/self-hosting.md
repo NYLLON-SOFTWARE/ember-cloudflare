@@ -209,10 +209,11 @@ To try a beta:
   `pnpm build`, which `pnpm dev` serves the app from, `pnpm dev`, and `pnpm seed` for a community
   to try it in, as [Development](development.md#getting-started) says.
 - On a copy you have: run its beta workflow, **Update Ember to its newest beta**, from the Actions
-  tab, and merge the pull request it opens, which closes any update still open for an earlier
-  version. For a copy the deploy told the Worker about, General's **Open GitHub action to try it**
-  opens the workflow on GitHub, where **Run workflow** runs it, or, while the copy hasn't the
-  workflow, **Add GitHub action to try betas** opens GitHub's editor with Ember's filled in,
+  tab, and merge the pull request it opens. As it opens that, the run closes any update still open
+  for an earlier version, deleting its branch, which turns its release down, as closing it would.
+  For a copy the deploy told the Worker about, General's **Open GitHub action to try it** opens the
+  workflow on GitHub, where **Run workflow** runs it, or, while the copy hasn't the workflow,
+  **Add GitHub action to try betas** opens GitHub's editor with Ember's filled in,
   `apps/worker/scripts/update-ember-beta.yml`, for you to commit. It runs the update script from
   Ember's newest release or beta rather than the copy's own, so it works however old the copy is.
   Update Ember's **Take Ember's newest beta** box, in the workflow Ember has had since 0.5 beta 1,

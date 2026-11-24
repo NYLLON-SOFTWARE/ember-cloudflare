@@ -1108,7 +1108,8 @@ export interface ReleaseCheck {
   /**
    * Ember's newest beta while it's ahead of the newest release, named as "0.6 beta 1", with its version,
    * "0.6.0-beta.1", its notes and whether it's newer than this one, or null when it isn't ahead, or GitHub
-   * didn't say: what General offers a release to try, and a beta to update to (docs/self-hosting.md#betas).
+   * didn't say: what General offers to try, beside any release to update to, and as the update of a beta
+   * no release has passed (docs/self-hosting.md#betas).
    */
   newestBeta: { release: string; version: string; notes: string; newer: boolean } | null;
   /** The copy of Ember this is on GitHub, as its deploy said, or null where it said none. */
