@@ -2199,8 +2199,23 @@ export type WorkspaceServerFrame =
    * first may be a moment behind, as the frame that follows it brings it up to date.
    */
   | { type: "presence"; active: UserId[]; away: UserId[] }
+  /**
+   * What a push would show them, sent on the workspace sockets of an app that shows notifications itself,
+   * as the desktop app does, which can't be pushed to: a new message, an invitation into a huddle while
+   * they have Ember in view nowhere, and to an administrator a new report. Their browsers are pushed it
+   * as ever. `id` names what it's of, the same on every socket, so that an app with several of a site's
+   * windows open shows it once.
+   */
+  | ({ type: "notification"; id: string } & AppNotification)
   | { type: "error"; message: string }
   | { type: "pong" };
+
+/** What an app's notification shows, and the page opening it opens, as a push's would. */
+export interface AppNotification {
+  title: string;
+  body: string;
+  path: string;
+}
 
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
@@ -2270,10 +2285,12 @@ export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams & {
 export interface WorkspaceSocketParams {
   /** Whether the tab is shown, which `presence.visible` frames update. */
   visible: boolean;
+  /** Whether the tab is in an app that shows notifications itself, and so is sent them (`notification`). */
+  notifications?: true;
 }
 
 /** The query that carries `params` on a workspace socket's address. */
-export const workspaceSocketQuery = ({ visible }: WorkspaceSocketParams) => `?visible=${visible ? 1 : 0}`;
+export const workspaceSocketQuery = ({ visible, notifications }: WorkspaceSocketParams) => `?visible=${visible ? 1 : 0}${notifications ? "&notifications=1" : ""}`;
 
 /**
  * What a workspace socket's address says about its tab, as `workspaceSocketQuery` wrote it. A tab that
@@ -2281,7 +2298,10 @@ export const workspaceSocketQuery = ({ visible }: WorkspaceSocketParams) => `?vi
  * loaded, which once said nothing here, and counting it would keep an invitation's push from someone
  * who has such a tab open and isn't at it.
  */
-export const parseWorkspaceSocketParams = (query: SearchParams): WorkspaceSocketParams => ({ visible: query.get("visible") === "1" });
+export const parseWorkspaceSocketParams = (query: SearchParams): WorkspaceSocketParams => ({
+  visible: query.get("visible") === "1",
+  ...(query.get("notifications") === "1" && { notifications: true }),
+});
 
 /** The most characters a message's plain text can have: Slack's most, room for a long paste. */
 export const MAX_MESSAGE_LENGTH = 40_000;

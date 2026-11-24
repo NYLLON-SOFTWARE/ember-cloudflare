@@ -2,6 +2,7 @@ import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AWAY_AFTER_MS } from "@/lib/presence";
+import { inTheDesktopApp } from "@/test-desktop-app";
 import { RELOAD_AFTER_HIDDEN_MS, RELOAD_SPREAD_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
@@ -579,6 +580,19 @@ describe("Huddles in your rooms", () => {
     expect(socket().url).toMatch(/visible=0$/);
     socket().connect();
     expect(socket().shown).toEqual([]);
+  });
+
+  it("says in the desktop app, which shows notifications itself, that the socket is to bring them, and hands the app each one it brings", async () => {
+    const app = inTheDesktopApp();
+    await showSidebar();
+    expect(socket().url).toBe("ws://localhost:3000/api/socket?visible=1&notifications=1");
+    socket().connect();
+    socket().receive({ type: "notification", id: "message:m1", title: "Design", body: "Grace: Lunch?", path: "/rooms/r1" });
+    expect(app.notified).toEqual([{ id: "message:m1", title: "Design", body: "Grace: Lunch?", path: "/rooms/r1" }]);
+
+    socket().drop();
+    await wait(1_000);
+    expect(socket().url).toBe("ws://localhost:3000/api/socket?visible=1&notifications=1");
   });
 
   it("stops following the tab once it's gone", async () => {

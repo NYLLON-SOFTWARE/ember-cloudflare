@@ -749,6 +749,8 @@ export interface AppliedEvents {
   active: { at: string; userIds: UserId[] } | null;
   /** The new messages' pushes, oldest message first, when they were asked for. */
   pushes: MessagePush[];
+  /** The new messages' notifications, oldest message first, for the apps of those asked about that show them themselves. */
+  notifications: AppNotifications[];
   /** The new messages' deliveries to bots' webhooks, oldest message first. */
   webhooks: MessageWebhook[];
   /** The new messages @ember and the agents are to answer, oldest first, each agent mentioned once. */
@@ -783,6 +785,16 @@ export interface MessagePush {
  */
 export interface InvitationPush extends MessagePush {
   ttl: number;
+}
+
+/**
+ * A notification, as a push would show it, for the apps of `userIds` that show notifications themselves,
+ * as the desktop app does, which can't be pushed to: `id` names what it's of, as every app is told it.
+ */
+export interface AppNotifications {
+  id: string;
+  notification: PushPayload;
+  userIds: UserId[];
 }
 
 /** One of someone's push subscriptions, with the user agent of the browser that saved it, if it sent one. */
@@ -1839,6 +1851,15 @@ function invitationPushes(roomId: RoomId, rows: InvitationPushRow[]): Invitation
   return [{ payload: invitationPayload(roomId, { kind, name }, inviter_name), deliveries: rows.map(deliveryOf), ttl: INVITATION_TTL_SECONDS }];
 }
 
+/** A new message's notification, for the people `MESSAGE_NOTIFICATIONS` found it reaches: none when it found nobody. */
+function messageNotifications(roomId: RoomId, { message }: RoomEvent, rows: NotifiedRow[]): AppNotifications[] {
+  if (rows.length === 0) return [];
+  const [{ kind, name, author_name }] = rows as [NotifiedRow];
+  const { id, plainText, parentId } = message!;
+  const notification = messagePayload(roomId, { kind, name }, author_name, plainText, parentId === undefined ? undefined : { parentId, replyId: id });
+  return [{ id: `message:${id}`, notification, userIds: userIdsOf(rows) }];
+}
+
 /** Whether `ROOM_RANKED` found that the shared order ranks the room. */
 const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ranked === 1;
 
@@ -2096,6 +2117,15 @@ export const HUDDLE_INVITEES = `SELECT memberships.user_id FROM memberships JOIN
     AND memberships.involvement IN ('everything', 'mentions') AND users.status = ${ACTIVE} AND NOT ${blockedBy("?3")}`;
 
 /**
+ * Whom of the people a JSON list ?3 names an invitation into room ?1's huddle by ?2 reaches, as
+ * `HUDDLE_INVITEES` has it, for the rows `memberships` and `users` read, leaving out guests unless ?4
+ * says they can stay signed in, and anyone whose notifications are paused past ?5, now (`notPaused`).
+ */
+const REACHED_BY_INVITATION = `rooms.id = ?1 AND memberships.user_id IN (SELECT value FROM json_each(?3))
+    AND memberships.involvement IN ('everything', 'mentions') AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?4 = 1) AND ${notPaused("?5")}
+    AND NOT ${blockedBy("?2")}`;
+
+/**
  * Where an invitation into room ?1's huddle by ?2 is pushed: to the subscriptions of those of the
  * people a JSON list ?3 names whom it reaches, as `HUDDLE_INVITEES` has it, in the order they were
  * saved. Guests are left out unless ?4 says they can stay signed in, and anyone whose notifications are
@@ -2109,10 +2139,18 @@ export const INVITATION_PUSHES = `SELECT push_subscriptions.id, push_subscriptio
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND memberships.user_id IN (SELECT value FROM json_each(?3))
-    AND memberships.involvement IN ('everything', 'mentions') AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?4 = 1) AND ${notPaused("?5")}
-    AND NOT ${blockedBy("?2")}
+  WHERE ${REACHED_BY_INVITATION}
   ORDER BY push_subscriptions.id`;
+
+/**
+ * Whose apps an invitation is sent to as a notification, as `INVITATION_PUSHES` has it pushed, with the
+ * same parameters: each of those it reaches once, with the room and the name of whoever invites.
+ */
+export const INVITATION_NOTIFICATIONS = `SELECT memberships.user_id, rooms.kind, rooms.name, (SELECT name FROM users AS inviters WHERE inviters.id = ?2) AS inviter_name
+  FROM rooms
+    JOIN memberships ON memberships.room_id = rooms.id
+    JOIN users ON users.id = memberships.user_id
+  WHERE ${REACHED_BY_INVITATION}`;
 
 /** A room's huddle, as its row keeps it. */
 const HUDDLE = `SELECT huddle_started_at, huddle_user_ids FROM rooms WHERE id = ?`;
@@ -2444,25 +2482,55 @@ const pushesOfMessage = (whom: string) => `SELECT push_subscriptions.id, push_su
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND ?4 > rooms.applied_seq AND memberships.user_id <> ?2 AND memberships.created_at <= ?7 AND users.status = ${ACTIVE}
-    AND (users.guest = 0 OR ?5 = 1) AND ${notPaused("?6")} AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
-    AND ${whom}
+  WHERE ${reachedByMessage(whom)}
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
 
 /**
- * Where a new message is pushed (`pushesOfMessage`): to those at all messages, when it's in the room's
- * timeline, as ?8 says, and those at @mentions or all messages whom it mentions, a JSON list ?9, or who
- * follow the thread it's a reply in, a JSON list ?10.
+ * Whom of room ?1's members a new message, numbered ?4 and written at ?7, by ?2 reaches, as
+ * `pushesOfMessage` says, for the rows `memberships` and `users` read: those `whom` picks.
  */
-export const MESSAGE_PUSHES = pushesOfMessage(`((memberships.involvement = 'everything' AND ?8 = 1) OR (memberships.involvement IN ('everything', 'mentions')
-      AND (memberships.user_id IN (SELECT value FROM json_each(?9)) OR memberships.user_id IN (SELECT value FROM json_each(?10)))))`);
+const reachedByMessage = (whom: string) => `rooms.id = ?1 AND ?4 > rooms.applied_seq AND memberships.user_id <> ?2 AND memberships.created_at <= ?7 AND users.status = ${ACTIVE}
+    AND (users.guest = 0 OR ?5 = 1) AND ${notPaused("?6")} AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND NOT ${blockedBy("?2")}
+    AND ${whom}`;
 
 /**
- * Where a new message that notifies everyone in its room, as @channel does, and @everyone in an open
- * room, where everyone is, is pushed (`pushesOfMessage`): to those at @mentions or all messages, as a
- * mention of each of them would be.
+ * Whose apps a new message is sent to as a notification: whom it reaches, as `pushesOfMessage` pushes it
+ * to their subscriptions, of those the JSON list `apps`, a parameter, names, whose apps show notifications
+ * themselves. Each comes once, with the room and its author's name.
  */
-export const ROOM_MENTION_PUSHES = pushesOfMessage(`memberships.involvement IN ('everything', 'mentions')`);
+const notificationsOfMessage = (whom: string, apps: string) => `SELECT memberships.user_id, rooms.kind, rooms.name,
+    (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
+  FROM rooms
+    JOIN memberships ON memberships.room_id = rooms.id
+    JOIN users ON users.id = memberships.user_id
+  WHERE ${reachedByMessage(whom)} AND memberships.user_id IN (SELECT value FROM json_each(${apps}))`;
+
+/**
+ * Whom a new message reaches, for `MESSAGE_PUSHES` and `MESSAGE_NOTIFICATIONS`: those at all messages,
+ * when it's in the room's timeline, as ?8 says, and those at @mentions or all messages whom it mentions,
+ * a JSON list ?9, or who follow the thread it's a reply in, a JSON list ?10.
+ */
+const REACHED_BY_MESSAGE = `((memberships.involvement = 'everything' AND ?8 = 1) OR (memberships.involvement IN ('everything', 'mentions')
+      AND (memberships.user_id IN (SELECT value FROM json_each(?9)) OR memberships.user_id IN (SELECT value FROM json_each(?10)))))`;
+
+/**
+ * Whom a new message that notifies everyone in its room, as @channel does, and @everyone in an open room,
+ * where everyone is, reaches, for `ROOM_MENTION_PUSHES` and `ROOM_MENTION_NOTIFICATIONS`: those at
+ * @mentions or all messages, as a mention of each of them would.
+ */
+const REACHED_BY_ROOM_MENTION = `memberships.involvement IN ('everything', 'mentions')`;
+
+/** Where a new message is pushed (`pushesOfMessage`), to those `REACHED_BY_MESSAGE` picks. */
+export const MESSAGE_PUSHES = pushesOfMessage(REACHED_BY_MESSAGE);
+
+/** Where a new message that notifies everyone in its room is pushed (`pushesOfMessage`), to those `REACHED_BY_ROOM_MENTION` picks. */
+export const ROOM_MENTION_PUSHES = pushesOfMessage(REACHED_BY_ROOM_MENTION);
+
+/** Whose apps a new message is sent to (`notificationsOfMessage`), of those a JSON list ?11 names, as `MESSAGE_PUSHES` pushes it. */
+export const MESSAGE_NOTIFICATIONS = notificationsOfMessage(REACHED_BY_MESSAGE, "?11");
+
+/** Whose apps a new message that notifies everyone in its room is sent to, of those a JSON list ?8 names, as `ROOM_MENTION_PUSHES` pushes it. */
+export const ROOM_MENTION_NOTIFICATIONS = notificationsOfMessage(REACHED_BY_ROOM_MENTION, "?8");
 
 /**
  * The statement that finds where the new message of `event`, in room `roomId`, is pushed, with the people
@@ -2472,15 +2540,50 @@ export const ROOM_MENTION_PUSHES = pushesOfMessage(`memberships.involvement IN (
  */
 function messagePushesOf(
   roomId: RoomId,
-  { seq, userId, at, threadOnly, message }: RoomEvent & { message: PushedMessage },
+  event: RoomEvent & { message: PushedMessage },
   seeing: string,
   guests: boolean,
   activeIds: UserId[],
   now: string,
 ): Statement {
+  return reachOf({ room: ROOM_MENTION_PUSHES, others: MESSAGE_PUSHES }, roomId, event, seeing, guests, activeIds, now);
+}
+
+/**
+ * The statement that finds whose apps the new message of `event` is sent to as a notification, as
+ * `messagePushesOf` finds where it's pushed, of those a JSON list `apps` names: `ROOM_MENTION_NOTIFICATIONS`
+ * or `MESSAGE_NOTIFICATIONS`.
+ */
+function messageNotificationsOf(
+  roomId: RoomId,
+  event: RoomEvent & { message: PushedMessage },
+  seeing: string,
+  guests: boolean,
+  activeIds: UserId[],
+  now: string,
+  apps: string,
+): Statement {
+  return reachOf({ room: ROOM_MENTION_NOTIFICATIONS, others: MESSAGE_NOTIFICATIONS }, roomId, event, seeing, guests, activeIds, now, apps);
+}
+
+/**
+ * The statement of `reaching` that finds whom the new message of `event` reaches, as `messagePushesOf`
+ * says: `room` for one that notifies everyone in the room, and `others` for any other, given `after`
+ * once their parameters are.
+ */
+function reachOf(
+  reaching: { room: string; others: string },
+  roomId: RoomId,
+  { seq, userId, at, threadOnly, message }: RoomEvent & { message: PushedMessage },
+  seeing: string,
+  guests: boolean,
+  activeIds: UserId[],
+  now: string,
+  ...after: string[]
+): Statement {
   const shared = [roomId, userId, seeing, seq, guests ? 1 : 0, now, at] as const;
-  if (notifiesEveryone(message)) return statement(ROOM_MENTION_PUSHES, ...shared);
-  return statement(MESSAGE_PUSHES, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentionedBy(message, activeIds)), JSON.stringify(message.followerIds ?? []));
+  if (notifiesEveryone(message)) return statement(reaching.room, ...shared, ...after);
+  return statement(reaching.others, ...shared, threadOnly ? 0 : 1, JSON.stringify(mentionedBy(message, activeIds)), JSON.stringify(message.followerIds ?? []), ...after);
 }
 
 /** Whether `message` notifies everyone in its room, as @channel does, and @everyone in an open room. */
@@ -2544,6 +2647,20 @@ interface PushRow extends DeliveryRow {
 }
 
 interface InvitationPushRow extends DeliveryRow {
+  kind: RoomKind;
+  name: string | null;
+  inviter_name: string;
+}
+
+/** Someone a new message's notification is for, with its room and its author's name. */
+interface NotifiedRow extends UserIdRow {
+  kind: RoomKind;
+  name: string | null;
+  author_name: string;
+}
+
+/** Someone an invitation's notification is for, with its room and the name of whoever invites. */
+interface InvitedRow extends UserIdRow {
   kind: RoomKind;
   name: string | null;
   inviter_name: string;
@@ -5183,6 +5300,18 @@ export class WorkspaceStore {
     return invitationPushes(roomId, await this.db.all<InvitationPushRow>(INVITATION_PUSHES, roomId, by, JSON.stringify(userIds), guests ? 1 : 0, now));
   }
 
+  /**
+   * The notification of an invitation into room `roomId`'s huddle by `by`, as `invitationPushes` would
+   * push it, for the apps of those of `userIds` it reaches: none when it reaches nobody.
+   */
+  async invitationNotifications(roomId: RoomId, by: UserId, userIds: UserId[], guests: boolean): Promise<AppNotifications[]> {
+    const now = new Date().toISOString();
+    const rows = await this.db.all<InvitedRow>(INVITATION_NOTIFICATIONS, roomId, by, JSON.stringify(userIds), guests ? 1 : 0, now);
+    if (rows.length === 0) return [];
+    const [{ kind, name, inviter_name }] = rows as [InvitedRow];
+    return [{ id: `huddle:${roomId}:${crypto.randomUUID()}`, notification: invitationPayload(roomId, { kind, name }, inviter_name), userIds: userIdsOf(rows) }];
+  }
+
   /** The huddle going on in a room, or null when none is. */
   async liveHuddle(roomId: RoomId): Promise<LiveHuddle | null> {
     const [row] = await this.db.all<HuddleRow>(HUDDLE, roomId);
@@ -5394,15 +5523,18 @@ export class WorkspaceStore {
    * each of them, and to those of `activeIds` in it for @here. It answers the bots' webhooks each new
    * message is delivered to, but for a bot's reply to one, which reaches the room as any message does
    * but goes to no webhook. A message marks, counts and pushes for nobody who joined the room after it was
-   * written, as someone can before the room tells the Workspace of it.
+   * written, as someone can before the room tells the Workspace of it. Whether or not it's pushing, it
+   * answers the notifications of each new message for the apps of those of `apps` it reaches as it
+   * would push them, apps that show notifications themselves.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false, activeIds: UserId[] = []): Promise<AppliedEvents> {
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false, activeIds: UserId[] = [], apps: UserId[] = []): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
     const message = events.findLast(isRoomMessage);
     // When the latest message came, which a clock behind can make earlier than one logged before it.
     const messageAt = message && events.reduce((latest, event) => (isRoomMessage(event) && event.at > latest ? event.at : latest), message.at);
     const now = new Date().toISOString();
+    const notifying = apps.length > 0 ? JSON.stringify(apps) : null;
     const statements: Statement[] = [];
     const applied = events.map((event) => {
       const { seq, kind, userId, at } = event;
@@ -5413,10 +5545,12 @@ export class WorkspaceStore {
       const mentioned = counting && statements.push(counting) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
       const pushes = pushing && event.message ? statements.push(messagePushesOf(roomId, { ...event, message: event.message }, seeing, guests, activeIds, now)) - 1 : null;
+      const notified =
+        notifying !== null && event.message ? statements.push(messageNotificationsOf(roomId, { ...event, message: event.message }, seeing, guests, activeIds, now, notifying)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
-      return { event, marks, mentioned, pushes, bots };
+      return { event, marks, mentioned, pushes, notified, bots };
     });
     const told = statements.length;
     statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
@@ -5433,10 +5567,11 @@ export class WorkspaceStore {
       }
     }
     const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
+    const notifications = applied.flatMap(({ event, notified: at }) => (at === null ? [] : messageNotifications(roomId, event, results[at] as NotifiedRow[])));
     const deliveries = applied.flatMap(({ event, bots: at }) => (at === null ? [] : messageDeliveries(event, results[at] as MessageBotRow[])));
     const webhooks = deliveries.flatMap(({ answers, ...delivery }) => (answers ? [] : [delivery]));
     const asks = deliveries.flatMap(({ answers, ...ask }) => (answers ? [ask] : []));
-    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
+    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, notifications, webhooks, asks };
   }
 
   /** Whether push subscription `id` is still saved, for someone active whose notifications aren't paused (`PUSHABLE`). */

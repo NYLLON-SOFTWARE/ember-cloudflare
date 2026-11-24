@@ -16,6 +16,7 @@ import { ringForHuddle } from "@/lib/huddle-ring";
 import { endHuddle, heardSounds, joinedHuddle, showHuddle, tellOfHuddle, type HuddleControls } from "@/lib/huddle-store";
 import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
+import { inTheDesktopApp } from "@/test-desktop-app";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
 import { Workspace, loadPageAhead } from "./workspace";
@@ -2552,6 +2553,21 @@ describe("App icon badge", () => {
     await workspaceSends({ type: "room.read", roomId: "random" });
     await workspaceSends({ type: "room.read", roomId: withGrace.id });
     expect(badges).toEqual(["cleared", 1, 2, 1, "cleared"]);
+  });
+
+  it("hands the count to the desktop app, which shows notifications itself, and opens the page of one clicked there", async () => {
+    const app = inTheDesktopApp();
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ "GET /api/sidebar": () => Response.json(roomList(rooms)) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(app.badges).toEqual([0]));
+    await workspaceSends({ type: "room.unread", roomId: "random", at: NOON });
+    expect(app.badges).toEqual([0, 1]);
+
+    act(() => app.open("/rooms/random"));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
   });
 
   it("leaves the badge as it is until the list has come, as a push may have set it", async () => {
