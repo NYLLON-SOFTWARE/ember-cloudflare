@@ -1,4 +1,4 @@
-import { ASSISTANT_ID, ASSISTANT_NAME, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type DirectRoom, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
+import { ASSISTANT_ID, ASSISTANT_NAME, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type DirectRoom, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
 import { DEFAULT_LEVELS, MAX_CONVERSATION_LENGTH, maxTokensAt, THINKING_LEVELS, TOP_LEVELS, UNTHINKING_TOKENS, type AnswerLevelChanges } from "@ember/protocol/assistant";
 import { CARDS_PROMPT, NAMES_AS_TYPED } from "@ember/protocol/prompts";
 import { MENTION_CONTENT_TYPE, mentionSgid, OPENGRAPH_EMBED_CONTENT_TYPE, prepareBody } from "@ember/richtext";
@@ -1132,6 +1132,19 @@ describe("@ember's answer", () => {
     expect(plainText.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
     expect(plainText.length).toBeGreaterThan(MAX_MESSAGE_LENGTH - 10);
     expect(plainText).toMatch(/^word word .*\n\n…$/s);
+  });
+
+  it("is cut to the rows of a table that fit however few cells they write, and reads quotes only as deep as Markdown here goes", () => {
+    // A header of 1,500 cells over rows of a letter each, which marked gives 1,500 cells apiece.
+    const table = [`|${"h|".repeat(1_500)}`, `|${"-|".repeat(1_500)}`, ...Array<string>(2_990).fill("a")].join("\n");
+    const { markup } = answerOf(table);
+    expect(markup.length).toBeLessThanOrEqual(MAX_MESSAGE_HTML_LENGTH);
+    expect(prepareBody(markup, () => undefined)!.plainText.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
+    expect(markup.split("<tr>")).toHaveLength(1 + 6);
+    expect(markup.endsWith("</table></div><p>…</p>")).toBe(true);
+
+    const quoted = `${">".repeat(5_000)} deep`;
+    expect(answerOf(quoted).markup).toBe(markdownHtml(quoted));
   });
 
   it("has a preview below it as the composer writes one", () => {

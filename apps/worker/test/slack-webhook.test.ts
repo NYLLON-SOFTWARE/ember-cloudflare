@@ -823,6 +823,12 @@ describe("Bot cards", () => {
     );
   });
 
+  it("reads a markdown block's quotes a hundred deep, and what would quote it deeper as text, rather than running out of stack", async () => {
+    const { message } = await postedCards({ blocks: [{ type: "markdown", text: `${">".repeat(5_000)} deep` }] });
+    const html = `${"<blockquote>".repeat(100)}<p>${"&gt;".repeat(4_900)} deep</p>${"</blockquote>".repeat(100)}`;
+    expect(message.cards).toEqual([{ source: "blocks", parts: [{ kind: "text", html }] }]);
+  });
+
   it("shows what tools send Slack as Slack shows it: Alertmanager's, Grafana's, GitLab's, Gitea's and Uptime Kuma's alerts, and Block Kit's examples", async () => {
     // Written from each tool's code (fixtures/README.md), with the message the room makes of each.
     const { administrator, bot, general } = await withBot();
@@ -1042,6 +1048,10 @@ describe("Bot cards", () => {
     // Slack takes 12,000 characters of Markdown across a payload's markdown blocks, its attachments' too.
     const markdown = (length: number) => ({ type: "markdown", text: "x".repeat(length) });
     expect(await answerTo(bot.key, general, { blocks: [markdown(6000)], attachments: [{ blocks: [markdown(6001)] }] })).toEqual(refused(400, "msg_too_long"));
+    // Within that, a table whose rows each write a cell of the header's 1,500 reads as more markup than a card's part
+    // holds, so the card shows nothing, and the payload nothing else.
+    const table = [`|${"h|".repeat(1_500)}`, `|${"-|".repeat(1_500)}`, ...Array<string>(2_990).fill("a")].join("\n");
+    expect(await answerTo(bot.key, general, { blocks: [{ type: "markdown", text: table }] })).toEqual(refused(400, "no_text"));
     expect(await bodiesIn(general)).toEqual([]);
 
     expect(await answerTo(bot.key, general, { blocks: [markdown(6000)], attachments: [{ blocks: [markdown(3000)] }] })).toEqual(OK);
