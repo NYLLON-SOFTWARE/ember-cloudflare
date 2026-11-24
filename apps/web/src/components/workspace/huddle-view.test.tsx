@@ -1,5 +1,5 @@
 import type { DirectoryUser, DirectRoom, Me, Room, ServerFrame, User } from "@ember/protocol";
-import type { HuddlePerson } from "@ember/protocol/huddles";
+import type { HuddlePerson, HuddleVideoQuality } from "@ember/protocol/huddles";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -39,6 +39,7 @@ const huddle = (changes: Partial<JoinedHuddle> = {}): JoinedHuddle => ({
   people: [inHuddle(sam), inHuddle(ada)],
   muted: false,
   sticker: null,
+  unstable: false,
   microphone: true,
   microphoneId: "",
   speakerId: "",
@@ -63,13 +64,20 @@ function cameraToCome(): { stream: MediaStream; come: () => void } {
   };
   return { stream: { getVideoTracks: () => [picture] } as unknown as MediaStream, come };
 }
+/** What `picture` is given from here on, in turn: nothing, or a stream. jsdom's video keeps what it's given and makes nothing of it. */
+function givenTo(picture: HTMLVideoElement): Array<MediaProvider | null> {
+  const given: Array<MediaProvider | null> = [];
+  let has = picture.srcObject;
+  Object.defineProperty(picture, "srcObject", { configurable: true, get: () => has, set: (value: MediaProvider | null) => void given.push((has = value)) });
+  return given;
+}
 const crowd = (count: number) => Array.from({ length: count }, (_, index) => inHuddle({ id: `u${index}`, name: `Person ${index}` }));
 /** Hears that the session has ended, which none here does. */
 const failed = vi.fn();
 
 /** The huddle this tab is in, opened, with what the huddle's controls were asked. */
 function renderView(joined: JoinedHuddle = huddle(), room: Room | null = general) {
-  const controls = { leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setSmall: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(() => true), setSticker: vi.fn(), react: vi.fn() };
+  const controls = { leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setCameraSize: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(() => true), setSticker: vi.fn(), react: vi.fn() };
   act(() => showHuddle(joined, controls));
   const user = userEvent.setup();
   const view = render(<HuddleView huddle={joined} room={room} me={me} onFailed={failed} />, { wrapper: FlashProvider });
@@ -84,6 +92,11 @@ function CamerasOff({ children }: { children: ReactNode }) {
 /** And one whose administrator has screen sharing off. */
 function ScreensOff({ children }: { children: ReactNode }) {
   return <AccountContext value={{ ...useAccount(), huddleScreens: false }}>{children}</AccountContext>;
+}
+
+/** And one whose administrator has huddles send video at `quality`. */
+function VideoAt({ quality, children }: { quality: HuddleVideoQuality; children: ReactNode }) {
+  return <AccountContext value={{ ...useAccount(), huddleVideo: quality }}>{children}</AccountContext>;
 }
 
 /** Has the browser be one that can share a screen, which jsdom's isn't, as a phone's isn't. */
@@ -119,6 +132,30 @@ function measuring(space: { width: number; height: number }) {
     },
   );
   return () => act(() => resized());
+}
+
+/**
+ * Has the window be on a screen with `ratio` of its own pixels to each of the page's. Answers what moves
+ * it to a screen with another, telling the page, as a browser does, that the ratio it watched no longer matches.
+ */
+function screenPixels(ratio: number) {
+  vi.stubGlobal("devicePixelRatio", ratio);
+  const watching = new Map<string, Set<() => void>>();
+  const watchers = (media: string) => watching.get(media) ?? watching.set(media, new Set()).get(media)!;
+  vi.stubGlobal("matchMedia", (media: string) => ({
+    media,
+    get matches() {
+      return media === `(resolution: ${devicePixelRatio}dppx)`;
+    },
+    addEventListener: (_: string, listener: () => void) => watchers(media).add(listener),
+    removeEventListener: (_: string, listener: () => void) => watchers(media).delete(listener),
+  }));
+  return (now: number) =>
+    act(() => {
+      const watched = [...watchers(`(resolution: ${devicePixelRatio}dppx)`)];
+      vi.stubGlobal("devicePixelRatio", now);
+      for (const listener of watched) listener();
+    });
 }
 
 const opened = () => screen.getByRole("region");
@@ -223,6 +260,7 @@ afterEach(() => {
   failed.mockClear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   Reflect.deleteProperty(navigator, "mediaDevices");
 });
 
@@ -242,6 +280,22 @@ describe("The huddle opened", () => {
     rerender(<HuddleView huddle={huddle({ connected: false })} room={general} me={me} onFailed={failed} />);
     expect(count()).toHaveTextContent("Reconnecting…");
     expect(count()).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("says beside the count that the tab's connection is unstable, in a word on a phone, after the mark the others see on its person's tile", () => {
+    const { rerender } = renderView(huddle({ unstable: true }));
+    const warning = () => opened().querySelectorAll<HTMLElement>("header [aria-live]")[1]!;
+    expect(count()).toHaveTextContent(/^2 people$/);
+    expect(within(warning()).getByText("Your connection is unstable")).toHaveClass("max-md:hidden");
+    expect(within(warning()).getByText("Unstable")).toHaveClass("md:hidden");
+    expect(warning().querySelector("svg")).toHaveClass("iconoir-wifi-warning", "text-caution");
+    expect(warning()).toHaveAttribute("aria-live", "polite");
+    // Nothing once it's steady, nor while the tab reconnects, which says more.
+    rerender(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
+    expect(warning()).toBeEmptyDOMElement();
+    rerender(<HuddleView huddle={huddle({ unstable: true, connected: false })} room={general} me={me} onFailed={failed} />);
+    expect(warning()).toBeEmptyDOMElement();
+    expect(count()).toHaveTextContent("Reconnecting…");
   });
 
   it("is just Huddle once its room isn't among this person's", () => {
@@ -296,6 +350,16 @@ describe("The tiles of a huddle", () => {
     expect(within(first!).getByRole("img", { name: "Muted" })).toBeInTheDocument();
     expect(within(second!).getByRole("img", { name: "Muted" })).toBeInTheDocument();
     expect(within(third!).queryByRole("img", { name: "Muted" })).not.toBeInTheDocument();
+  });
+
+  it("marks whoever has an unstable connection, you among them, before whether they're muted", () => {
+    renderView(huddle({ unstable: true, people: [inHuddle(sam, { unstable: true, muted: true }), inHuddle(ada, { unstable: true }), inHuddle(priya)] }));
+    const [first, second, third] = tiles();
+    const marks = (tile: HTMLElement | undefined) => within(tile!).queryAllByRole("img").filter((mark) => mark.tagName === "svg").map((mark) => mark.getAttribute("aria-label"));
+    expect(marks(first)).toEqual(["Unstable connection", "Muted"]);
+    expect(within(first!).getByRole("img", { name: "Unstable connection" })).toHaveClass("iconoir-wifi-warning", "text-caution");
+    expect(marks(second)).toEqual(["Unstable connection"]);
+    expect(marks(third)).toEqual([]);
   });
 
   it("rings whoever is speaking in green, over their picture, which it says for those who can't see it, but nobody who's muted", () => {
@@ -536,6 +600,77 @@ describe("The tiles of a huddle", () => {
     expect(picture.srcObject).toBeNull();
   });
 
+  it("gives a picture that shows nothing for three seconds its stream again, as WebKit shows it then, three times at most", () => {
+    vi.useFakeTimers();
+    const sams = camera();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams]]) }));
+    const given = givenTo(screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera"));
+    vi.advanceTimersByTime(2999);
+    expect(given).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(given).toEqual([null, sams]);
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([null, sams, null, sams, null, sams]);
+  });
+
+  it("counts those seconds from when a picture is given its stream, which is once the stream's first packets have come", () => {
+    vi.useFakeTimers();
+    const sams = cameraToCome();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams.stream]]) }));
+    const given = givenTo(screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([]);
+    sams.come();
+    vi.advanceTimersByTime(2999);
+    expect(given).toEqual([sams.stream]);
+    vi.advanceTimersByTime(1);
+    expect(given).toEqual([sams.stream, null, sams.stream]);
+  });
+
+  it("leaves a picture that shows within those seconds as it is", () => {
+    vi.useFakeTimers();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", camera()]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    const given = givenTo(picture);
+    vi.advanceTimersByTime(2999);
+    fireEvent(picture, new Event("loadedmetadata"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([]);
+  });
+
+  it("gives a picture that fails its stream again, and counts the seconds anew for it, three times at most however it comes to show nothing", () => {
+    vi.useFakeTimers();
+    const sams = camera();
+    renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", sams]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    const given = givenTo(picture);
+    vi.advanceTimersByTime(1000);
+    fireEvent(picture, new Event("error"));
+    expect(given).toEqual([null, sams]);
+    vi.advanceTimersByTime(2999);
+    expect(given).toEqual([null, sams]);
+    vi.advanceTimersByTime(1);
+    expect(given).toEqual([null, sams, null, sams]);
+    fireEvent(picture, new Event("loadedmetadata"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([null, sams, null, sams]);
+
+    for (let failures = 0; failures < 5; failures++) fireEvent(picture, new Event("error"));
+    vi.advanceTimersByTime(60_000);
+    expect(given).toEqual([null, sams, null, sams, null, sams]);
+  });
+
+  it("gives a picture that's gone nothing more, whether it showed nothing or failed", () => {
+    vi.useFakeTimers();
+    const { rerender } = renderView(huddle({ people: [inHuddle(sam, { video: true })], watched: new Map([["sam", camera()]]) }));
+    const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
+    rerender(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
+    const given = givenTo(picture);
+    vi.advanceTimersByTime(60_000);
+    fireEvent(picture, new Event("error"));
+    expect(given).toEqual([]);
+  });
+
   it("plays a picture the browser kept from playing at the person's next click or key, until it's gone", async () => {
     const { user, rerender } = renderView(huddle({ watched: new Map([["sam", camera()]]) }));
     const picture = screen.getByLabelText<HTMLVideoElement>("Sam Rivera's camera");
@@ -579,43 +714,80 @@ describe("The tiles of a huddle", () => {
     for (const tile of tiles()) expect(tile).toHaveClass("aspect-square");
   });
 
-  it("tells the huddle once its tiles are no taller than the smaller of a camera's sizes, and once they're taller again", () => {
+  it("has the tiles at most as wide as the workspace's video quality shows a camera's picture at: 420px at Standard, 640 at HD and 800 at Full HD", () => {
+    measuring({ width: 1800, height: 900 });
+    const { rerender } = renderView();
+    // Two people side by side in 1800 by 900, at HD, which a workspace's huddles are unless its administrator says otherwise.
+    expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(2, 640px)" });
+    for (const [quality, widest] of [
+      ["standard", 420],
+      ["full-hd", 800],
+    ] as const) {
+      rerender(
+        <VideoAt quality={quality}>
+          <HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />
+        </VideoAt>,
+      );
+      expect(list()).toHaveStyle({ gridTemplateColumns: `repeat(2, ${widest}px)` });
+    }
+  });
+
+  it("tells the huddle the smallest of a camera's sizes that's as tall as its tiles, and again whenever that changes", () => {
     const space = { width: 1200, height: 700 };
     const resized = measuring(space);
-    const { setSmall, rerender } = renderView(huddle({ people: [...crowd(3), inHuddle(ada)] }));
-    // Four people in 1200 by 700: tiles as wide as they get, 315px tall.
-    expect(setSmall.mock.calls).toEqual([[false]]);
+    const { setCameraSize, rerender } = renderView(huddle({ people: [...crowd(3), inHuddle(ada)] }));
+    // Four people in 1200 by 700: two rows of two, 458px wide and 343px tall, which the medium size fills.
+    expect(setCameraSize.mock.calls).toEqual([["medium"]]);
 
-    // Twenty: five to a row, 221px wide and 165px tall, which the smaller size fills.
+    // Twenty: five to a row, 221px wide and 165px tall, which the small size fills.
     rerender(<HuddleView huddle={huddle({ people: [...crowd(19), inHuddle(ada)] })} room={general} me={me} onFailed={failed} />);
     expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(5, 221px)" });
-    expect(setSmall.mock.calls).toEqual([[false], [true]]);
+    expect(setCameraSize.mock.calls).toEqual([["medium"], ["small"]]);
 
     // In a window twice as tall they're four to a row, and 218px tall.
     Object.assign(space, { width: 1200, height: 1400 });
     resized();
     expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(4, 291px)" });
-    expect(setSmall.mock.calls).toEqual([[false], [true], [false]]);
+    expect(setCameraSize.mock.calls).toEqual([["medium"], ["small"], ["medium"]]);
+
+    // Two people there are one above the other, 640px wide and 480px tall, which only the large size fills.
+    rerender(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
+    expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(1, 640px)" });
+    expect(setCameraSize.mock.calls).toEqual([["medium"], ["small"], ["medium"], ["large"]]);
+  });
+
+  it("asks for a size as tall as its tiles in the screen's own pixels, up to two of them to each of the page's, and asks again once the window moves to another screen", () => {
+    measuring({ width: 1200, height: 700 });
+    const movedTo = screenPixels(2);
+    const { setCameraSize } = renderView(huddle({ people: [...crowd(19), inHuddle(ada)] }));
+    // Twenty tiles 165px tall are 330 of a Retina screen's pixels, which the medium size fills.
+    expect(setCameraSize.mock.calls).toEqual([["medium"]]);
+    // On a screen with one of its pixels to each of the page's, the small one does.
+    movedTo(1);
+    expect(setCameraSize.mock.calls).toEqual([["medium"], ["small"]]);
+    // And one with three is taken as having two, as tiles that small show no more of a larger picture.
+    movedTo(3);
+    expect(setCameraSize.mock.calls).toEqual([["medium"], ["small"], ["medium"]]);
   });
 
   it("says nothing of its tiles' size before it has measured them, and tells the next huddle the tab joins from it", () => {
-    const { setSmall, unmount } = renderView();
-    expect(setSmall).not.toHaveBeenCalled();
+    const { setCameraSize, unmount } = renderView();
+    expect(setCameraSize).not.toHaveBeenCalled();
     unmount();
 
     measuring({ width: 1200, height: 700 });
     const { rerender } = render(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
-    expect(setSmall.mock.calls).toEqual([[false]]);
+    expect(setCameraSize.mock.calls).toEqual([["large"]]);
     rerender(<HuddleView huddle={huddle({ roomId: "random" })} room={general} me={me} onFailed={failed} />);
-    expect(setSmall.mock.calls).toEqual([[false], [false]]);
+    expect(setCameraSize.mock.calls).toEqual([["large"], ["large"]]);
   });
 
   it("says nothing of its tiles' size either while the room has yet to say who's in the huddle, when it has no tiles", () => {
     measuring({ width: 1200, height: 700 });
-    const { setSmall, rerender } = renderView(huddle({ connected: false, you: null, people: [] }));
-    expect(setSmall).not.toHaveBeenCalled();
+    const { setCameraSize, rerender } = renderView(huddle({ connected: false, you: null, people: [] }));
+    expect(setCameraSize).not.toHaveBeenCalled();
     rerender(<HuddleView huddle={huddle()} room={general} me={me} onFailed={failed} />);
-    expect(setSmall.mock.calls).toEqual([[false]]);
+    expect(setCameraSize.mock.calls).toEqual([["large"]]);
   });
 });
 
@@ -647,12 +819,12 @@ describe("A screen shared in a huddle", () => {
     for (const tile of tiles()) expect(tile).toHaveClass("aspect-[4/3]");
   });
 
-  it("tells the huddle that the tiles in the strip beside a screen are small, which are no taller than the smaller of a camera's sizes", () => {
+  it("tells the huddle that the tiles in the strip beside a screen take a camera's small size, which they're no taller than", () => {
     measuring({ width: 1400, height: 800 });
-    const { setSmall } = renderView(huddle({ people: [inHuddle(sam, { screen: true }), inHuddle(ada)], screens: new Map([["sam", shared()]]) }));
+    const { setCameraSize } = renderView(huddle({ people: [inHuddle(sam, { screen: true }), inHuddle(ada)], screens: new Map([["sam", shared()]]) }));
     // Two tiles as wide as the strip's get, 220px, are 165px tall.
     expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(1, minmax(0, 220px))" });
-    expect(setSmall.mock.calls).toEqual([[true]]);
+    expect(setCameraSize.mock.calls).toEqual([["small"]]);
   });
 
   it("has the tiles under the screen where that shows it larger than beside them, as on a phone held upright, laid out in what it leaves them", () => {
@@ -740,7 +912,7 @@ describe("A screen shared in a huddle", () => {
     measuring(space);
     const [yours, sams] = [shared(), shared()];
     const { rerender } = renderView();
-    expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(2, 420px)" });
+    expect(list()).toHaveStyle({ gridTemplateColumns: "repeat(2, 494px)" });
     rerender(<HuddleView huddle={huddle({ screen: yours })} room={general} me={me} onFailed={failed} />);
     expect(stage()).not.toBeInTheDocument();
     expect(tiles().map((tile) => tile.textContent)).toEqual(["Your screen", "Sam Rivera", "Ada Lovelace (you)"]);
@@ -1110,7 +1282,7 @@ describe("The buttons along the base of a huddle", () => {
 
   it("lists a shared room's people as its settings have them, and reports a session that's ended when that's why they didn't come", async () => {
     const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      Response.json({ room: general, canAdminister: false, people: [ada, sam, priya].map((person) => ({ ...person, member: true })) }),
+      Response.json({ room: general, canAdminister: false, people: [ada, sam, priya].map((person) => ({ ...person, member: true })), section: null, sections: [] }),
     );
     const { user } = renderView();
     await user.click(screen.getByRole("button", { name: "Invite people" }));
@@ -1194,7 +1366,7 @@ describe("The thread of a huddle", () => {
     expect(thread()!.parentElement!.previousElementSibling).toBe(opened().querySelector(":scope > header"));
     expect(thread()!.parentElement!.nextElementSibling).toBe(opened().querySelector(":scope > footer"));
 
-    expect(FakeSocket.all.map(({ url }) => url)).toEqual(["ws://localhost:3000/api/rooms/direct-1/socket?visible=1&protocol=4&apart=1"]);
+    expect(FakeSocket.all.map(({ url }) => url)).toEqual(["ws://localhost:3000/api/rooms/direct-1/socket?visible=1&protocol=5&apart=1"]);
     FakeSocket.all[0]!.letIn();
     expect(FakeSocket.all[0]!.sent).toEqual([{ type: "thread.open", parentId: "h1" }]);
   });

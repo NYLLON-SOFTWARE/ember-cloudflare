@@ -11,7 +11,7 @@ import { apiWith, connect, freshRoom, objectSql, post, roomSql, roomStub, search
 
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
 const TABLES: Record<Exclude<Scope, "search">, string[]> = {
-  room: ["blobs", "boosts", "message_deletions", "messages", "revocations", "room_events", "unindexed_messages", "waiting_calls"],
+  room: ["blobs", "boosts", "changed_huddles", "message_deletions", "messages", "revocations", "room_events", "scheduled_messages", "unindexed_messages", "waiting_calls"],
   workspace: [
     "accounts",
     "agent_tools",
@@ -33,15 +33,20 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "outside_spent_tokens",
     "own_app_sign_ins",
     "password_resets",
+    "past_huddles",
     "pending_identities",
     "pending_picture_deletions",
     "pending_purges",
+    "pending_readers",
     "pending_reindexes",
     "pending_revocations",
     "push_subscriptions",
     "recent_searches",
+    "reports",
     "rooms",
     "searches",
+    "sections",
+    "session_addresses",
     "sessions",
     "users",
     "webhooks",
@@ -56,8 +61,12 @@ const SEARCH_TABLES = [
   "search_index_data",
   "search_index_docsize",
   "search_index_idx",
+  "search_keys",
   "search_mentions",
   "search_messages",
+  "search_pairing",
+  "search_readers",
+  "search_rekeys",
   "search_rooms",
 ];
 
@@ -340,6 +349,44 @@ describe("Durable Object SQLite or D1", () => {
     expect(linked).toMatchObject({ id: "tablet", user: { id: "u1", name: "Grace" } });
   });
 
+  it("takes the address each session was last seen at as one its sockets came from, for the sockets let in before those were recorded, and forgets them with the session", async () => {
+    // D1 runs the same SQL, at setup, with no sessions from before.
+    if (sharedD1()) return;
+    // A new room's storage stands in for a Workspace's from before, since a Workspace migrates as it opens.
+    const room = await freshRoom("session-addresses-before");
+    const { recorded, forgotten } = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      const { sql } = state.storage;
+      sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+      for (const { name, sql: migration } of MIGRATIONS.filter(({ scope, name }) => scope === "workspace" && name < "0076")) {
+        sql.exec(migration);
+        sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+      }
+      sql.exec("INSERT INTO users (id, name, created_at, updated_at) VALUES ('u1', 'Grace', 'now', 'now')");
+      // The laptop signed in from one address and the phone from another, and nothing says where the tablet or the watch did.
+      const signIn = (id: string, ip: string | null) =>
+        sql.exec(
+          `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
+           VALUES (?, 'u1', ?, ?, 'Firefox', 'now', 'now', 'now')`,
+          id,
+          `digest of ${id}`,
+          ip,
+        );
+      signIn("laptop", "203.0.113.7");
+      signIn("phone", "2001:db8::7");
+      signIn("tablet", null);
+      signIn("watch", " ");
+      migrate(state.storage, "workspace");
+      const recorded = sql.exec("SELECT session_id, ip_address FROM session_addresses ORDER BY session_id").toArray();
+      sql.exec("DELETE FROM sessions WHERE id = 'laptop'");
+      return { recorded, forgotten: sql.exec("SELECT session_id, ip_address FROM session_addresses ORDER BY session_id").toArray() };
+    });
+    expect(recorded).toEqual([
+      { session_id: "laptop", ip_address: "203.0.113.7" },
+      { session_id: "phone", ip_address: "2001:db8::7" },
+    ]);
+    expect(forgotten).toEqual([{ session_id: "phone", ip_address: "2001:db8::7" }]);
+  });
+
   it("gives a search index from before its indexes by room those, so a search of filters alone finds what it held", async () => {
     // A new room's storage stands in for the search index's from before, since the index migrates as it opens, on either backend.
     const room = await freshRoom("search-index-before");
@@ -366,7 +413,7 @@ describe("Durable Object SQLite or D1", () => {
       }
       /** The numbers of general's messages that meet `filters`, newest first. */
       const numbers = (filters: Partial<IndexSearch> = {}) => {
-        const { sql: query, values } = searchStatement({ terms: "", roomIds: ["general"], sort: "newest", after: null, ...filters });
+        const { sql: query, values } = searchStatement({ words: [], roomIds: ["general"], searcherId: "ada", sort: "newest", after: null, ...filters }, []);
         return sql
           .exec<{ number: number }>(query, ...values)
           .toArray()
@@ -396,6 +443,30 @@ describe("Durable Object SQLite or D1", () => {
       "index_search_messages_with_links_on_room_id_and_id",
     ]);
     expect(found).toEqual({ all: [11, 9, 7, 5, 3, 1], from: [9, 5, 1], links: [9, 5, 1], files: [7, 1], threads: [1] });
+  });
+
+  it("has a search index from before it paired runs of Chinese, Japanese and Korean characters walk what it held from its newest, and one that held nothing walk nothing", async () => {
+    const walks = [];
+    for (const [name, held] of [["search-pairs-before", [3, 1, 2]], ["search-pairs-empty", []]] as const) {
+      // As above, a new room's storage stands in for the search index's from before.
+      const room = await freshRoom(name);
+      const walk = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+        const { sql } = state.storage;
+        sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+        for (const { name, sql: migration } of SEARCH_MIGRATIONS.filter(({ name }) => name < "0007")) {
+          sql.exec(migration);
+          sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+        }
+        for (const number of held) sql.exec("INSERT INTO search_messages (id, message_id, room_id, message) VALUES (?, ?, 'general', '{}')", number, `m${number}`);
+        migrate(state.storage, "search");
+        return { pairing: sql.exec("SELECT before FROM search_pairing").toArray(), paired: sql.exec("SELECT paired FROM search_messages ORDER BY id").toArray() };
+      });
+      walks.push(walk);
+    }
+    expect(walks).toEqual([
+      { pairing: [{ before: 4 }], paired: [{ paired: 0 }, { paired: 0 }, { paired: 0 }] },
+      { pairing: [], paired: [] },
+    ]);
   });
 
   it("runs a batch as one transaction: if a statement fails, the ones before it are undone", async () => {

@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_HUDDLE_SOUNDS,
   APP_ID_REFUSED,
   APP_SECRET_REFUSED,
   appIdOf,
   appSecretOf,
+  CAMERA_SIZE_NAMES,
   CAMERA_SIZES,
-  carriesBothSizes,
+  DEFAULT_HUDDLE_VIDEO,
+  HUDDLE_VIDEO_QUALITIES,
+  hearsAllHuddleSounds,
+  HUDDLE_SOUNDS,
+  HUDDLE_SOUNDS_REFUSED,
   HUDDLE_STICKERS,
   HuddleCloseCode,
   huddleSocketQuery,
+  isHuddleVideoQuality,
   MAX_HUDDLE_CAMERAS,
   MAX_HUDDLE_INVITED,
   MAX_HUDDLE_PEOPLE,
@@ -18,11 +25,13 @@ import {
   parseHuddleClientFrame,
   parseHuddleRelaySetup,
   parseHuddleSocketParams,
+  parseHuddleSoundChanges,
   parseHuddlesSetup,
   RELAY_API_TOKEN_REFUSED,
   RELAY_KEY_ID_REFUSED,
   relayApiTokenOf,
   relayKeyIdOf,
+  sizesCarried,
 } from "./huddles";
 import { CloseCode, MAX_ID_LENGTH } from "./index";
 
@@ -34,45 +43,58 @@ const described = (...sections: string[][]) => ["v=0", "o=- 1 2 IN IP4 127.0.0.1
 
 describe("A camera's sizes", () => {
   it("names the large one first, as the SFU goes down the alphabet from the one it can't send", () => {
-    expect(CAMERA_SIZES).toEqual({ large: "a", small: "b" });
-    expect(CAMERA_SIZES.large < CAMERA_SIZES.small).toBe(true);
+    expect(CAMERA_SIZES).toEqual({ large: "a", medium: "b", small: "c" });
+    expect(CAMERA_SIZE_NAMES).toEqual(["large", "medium", "small"]);
+    expect([...CAMERA_SIZE_NAMES.map((name) => CAMERA_SIZES[name])].sort()).toEqual(CAMERA_SIZE_NAMES.map((name) => CAMERA_SIZES[name]));
   });
 
-  it("finds that an offer sends a track in both sizes, as Chromium writes one, in whichever order", () => {
-    const offer = described(["a=mid:0", "a=sendonly", "a=rid:b send", "a=rid:a send", "a=simulcast:send b;a"]);
-    expect(carriesBothSizes(offer, "0", "send")).toBe(true);
-    expect(carriesBothSizes(offer.replace("send b;a", "send a;b"), "0", "send")).toBe(true);
+  it("finds the sizes an offer sends a track in, as Chromium writes one, in the order it lists them", () => {
+    const offer = described(["a=mid:0", "a=sendonly", "a=rid:c send", "a=rid:b send", "a=rid:a send", "a=simulcast:send c;b;a"]);
+    expect(sizesCarried(offer, "0", "send")).toEqual(["c", "b", "a"]);
+    expect(sizesCarried(offer.replace("send c;b;a", "send a;b;c"), "0", "send")).toEqual(["a", "b", "c"]);
+    // Two of them, as at Standard, or as from a tab from before there were three.
+    expect(sizesCarried(offer.replace("send c;b;a", "send c;b"), "0", "send")).toEqual(["c", "b"]);
+    expect(sizesCarried(offer.replace("send c;b;a", "send b;a"), "0", "send")).toEqual(["b", "a"]);
     // A description whose lines end as a file's do, and one a size of which starts paused.
-    expect(carriesBothSizes(offer.replaceAll("\r\n", "\n"), "0", "send")).toBe(true);
-    expect(carriesBothSizes(offer.replace("send b;a", "send b;~a"), "0", "send")).toBe(true);
+    expect(sizesCarried(offer.replaceAll("\r\n", "\n"), "0", "send")).toEqual(["c", "b", "a"]);
+    expect(sizesCarried(offer.replace("send c;b;a", "send c;~b;a"), "0", "send")).toEqual(["c", "b", "a"]);
   });
 
-  it("finds that an answer takes both, which it says the other way about", () => {
-    const answer = described(["a=mid:0", "a=recvonly", "a=rid:b recv", "a=rid:a recv", "a=simulcast:recv b;a"]);
-    expect(carriesBothSizes(answer, "0", "recv")).toBe(true);
-    expect(carriesBothSizes(answer, "0", "send")).toBe(false);
-    expect(carriesBothSizes(described(["a=mid:0", "a=simulcast:send x;y recv a;b"]), "0", "recv")).toBe(true);
-    expect(carriesBothSizes(described(["a=mid:0", "a=simulcast:recv a;b send x;y"]), "0", "recv")).toBe(true);
+  it("finds the sizes an answer takes, which it says the other way about", () => {
+    const answer = described(["a=mid:0", "a=recvonly", "a=rid:c recv", "a=rid:b recv", "a=rid:a recv", "a=simulcast:recv c;b;a"]);
+    expect(sizesCarried(answer, "0", "recv")).toEqual(["c", "b", "a"]);
+    expect(sizesCarried(answer, "0", "send")).toEqual([]);
+    expect(sizesCarried(described(["a=mid:0", "a=simulcast:send x;y recv a;b"]), "0", "recv")).toEqual(["a", "b"]);
+    expect(sizesCarried(described(["a=mid:0", "a=simulcast:recv a;b send x;y"]), "0", "recv")).toEqual(["a", "b"]);
   });
 
-  it("finds one size, other sizes, or more of them, not to be both", () => {
-    const sending = (simulcast: string[]) => carriesBothSizes(described(["a=mid:0", "a=sendonly", ...simulcast]), "0", "send");
-    expect(sending([])).toBe(false);
-    for (const sizes of ["a", "b", "a;a", "f;h", "a;b;c", "f;a;b", "a,b", "a,c;b", "A;B", "", ";", "a;"]) expect(sending([`a=simulcast:send ${sizes}`]), sizes).toBe(false);
-    // Each size has a line of its own, which says nothing of both being sent at once.
-    expect(sending(["a=rid:b send", "a=rid:a send"])).toBe(false);
-    expect(sending(["a=simulcast:send"])).toBe(false);
-    expect(sending(["a=simulcast:recv b;a"])).toBe(false);
+  it("finds none in one size, or with sizes of other names, or with one named twice", () => {
+    const sending = (simulcast: string[]) => sizesCarried(described(["a=mid:0", "a=sendonly", ...simulcast]), "0", "send");
+    expect(sending([])).toEqual([]);
+    for (const sizes of ["a", "b", "c", "a;a", "c;b;b", "f;h", "a;b;d", "f;a;b", "a,b", "a,c;b", "A;B", "", ";", "a;", "c;b;a;a"]) expect(sending([`a=simulcast:send ${sizes}`]), sizes).toEqual([]);
+    // Each size has a line of its own, which says nothing of their being sent at once.
+    expect(sending(["a=rid:b send", "a=rid:a send"])).toEqual([]);
+    expect(sending(["a=simulcast:send"])).toEqual([]);
+    expect(sending(["a=simulcast:recv b;a"])).toEqual([]);
   });
 
   it("goes by the media section that carries the track", () => {
-    const both = ["a=sendonly", "a=simulcast:send b;a"];
-    const offer = described(["a=mid:0", "a=sendonly"], ["a=mid:1", ...both], ["a=mid:10", "a=sendonly"]);
-    expect(carriesBothSizes(offer, "1", "send")).toBe(true);
-    for (const mid of ["0", "10", "2", "", "1\r\na=simulcast:send b;a"]) expect(carriesBothSizes(offer, mid, "send"), mid).toBe(false);
+    const sized = ["a=sendonly", "a=simulcast:send c;b;a"];
+    const offer = described(["a=mid:0", "a=sendonly"], ["a=mid:1", ...sized], ["a=mid:10", "a=sendonly"]);
+    expect(sizesCarried(offer, "1", "send")).toEqual(["c", "b", "a"]);
+    for (const mid of ["0", "10", "2", "", "1\r\na=simulcast:send c;b;a"]) expect(sizesCarried(offer, mid, "send"), mid).toEqual([]);
     // Said before any media section, it's said of none of them.
-    expect(carriesBothSizes(["v=0", "a=mid:0", "a=simulcast:send b;a", "m=video 9 UDP/TLS/RTP/SAVPF 96", "a=mid:0"].join("\r\n"), "0", "send")).toBe(false);
-    expect(carriesBothSizes("", "0", "send")).toBe(false);
+    expect(sizesCarried(["v=0", "a=mid:0", "a=simulcast:send c;b;a", "m=video 9 UDP/TLS/RTP/SAVPF 96", "a=mid:0"].join("\r\n"), "0", "send")).toEqual([]);
+    expect(sizesCarried("", "0", "send")).toEqual([]);
+  });
+});
+
+describe("Huddles' video quality", () => {
+  it("is Standard, HD or Full HD, HD until an administrator chooses", () => {
+    expect(HUDDLE_VIDEO_QUALITIES).toEqual(["standard", "hd", "full-hd"]);
+    expect(DEFAULT_HUDDLE_VIDEO).toBe("hd");
+    for (const quality of HUDDLE_VIDEO_QUALITIES) expect(isHuddleVideoQuality(quality)).toBe(true);
+    for (const value of ["", "HD", "4k", "fullhd", null, undefined, 720, ["hd"]]) expect(isHuddleVideoQuality(value), JSON.stringify(value)).toBe(false);
   });
 });
 
@@ -126,6 +148,32 @@ describe("Set up the relay", () => {
     }
     // Nor anything but an object.
     for (const given of [null, undefined, "keys", [KEY_ID, API_TOKEN]]) expect(parseHuddleRelaySetup(given)).toEqual({ error: RELAY_KEY_ID_REFUSED, field: "keyId" });
+  });
+});
+
+describe("A huddle's sounds, which each person turns on or off", () => {
+  it("are its music, its chimes and an invitation's ring, all of which everyone hears until they turn one off", () => {
+    expect(HUDDLE_SOUNDS).toEqual(["music", "chimes", "ring"]);
+    expect(ALL_HUDDLE_SOUNDS).toEqual({ music: true, chimes: true, ring: true });
+    expect(hearsAllHuddleSounds(ALL_HUDDLE_SOUNDS)).toBe(true);
+    for (const sound of HUDDLE_SOUNDS) expect(hearsAllHuddleSounds({ ...ALL_HUDDLE_SOUNDS, [sound]: false }), sound).toBe(false);
+  });
+
+  it("reads a change to them: each sound it turns on or off, and no others", () => {
+    expect(parseHuddleSoundChanges({ music: false })).toEqual({ music: false });
+    expect(parseHuddleSoundChanges({ ring: true, chimes: false })).toEqual({ chimes: false, ring: true });
+    expect(parseHuddleSoundChanges({ music: true, chimes: true, ring: true })).toEqual(ALL_HUDDLE_SOUNDS);
+    // Nothing to change changes nothing, and what isn't one of the sounds is passed over.
+    expect(parseHuddleSoundChanges({})).toEqual({});
+    expect(parseHuddleSoundChanges({ volume: 11, ring: false, music: undefined })).toEqual({ ring: false });
+  });
+
+  it("refuses a sound turned neither on nor off, and anything but an object", () => {
+    for (const on of ["off", "true", 0, 1, null, [], {}]) {
+      for (const sound of HUDDLE_SOUNDS) expect(parseHuddleSoundChanges({ [sound]: on }), `${sound}: ${JSON.stringify(on)}`).toBe(HUDDLE_SOUNDS_REFUSED);
+    }
+    expect(parseHuddleSoundChanges({ music: false, ring: "no" })).toBe(HUDDLE_SOUNDS_REFUSED);
+    for (const data of [null, undefined, "music", 7, true, [], [{ music: false }]]) expect(parseHuddleSoundChanges(data), JSON.stringify(data)).toBe("Expected a JSON object");
   });
 });
 
@@ -208,14 +256,27 @@ describe("a huddle's socket", () => {
     }
   });
 
-  it("reads that a tab shows cameras small, which it says only of cameras, and only when it does", () => {
-    expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"], small: true })).toEqual({ type: "huddle.listen", kind: "video", watch: ["ada"], small: true });
-    expect(read({ type: "huddle.listen", kind: "video", fresh: true, watch: ["ada"], small: true })).toEqual({ type: "huddle.listen", kind: "video", fresh: true, watch: ["ada"], small: true });
+  it("reads the size a tab shows cameras in, which it says only of cameras, and only when it isn't the large one", () => {
+    for (const size of ["medium", "small"] as const) {
+      expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"], size })).toEqual({ type: "huddle.listen", kind: "video", watch: ["ada"], size });
+      expect(read({ type: "huddle.listen", kind: "video", fresh: true, watch: ["ada"], size })).toEqual({ type: "huddle.listen", kind: "video", fresh: true, watch: ["ada"], size });
+    }
+    expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"], size: "large" })).toEqual({ type: "huddle.listen", kind: "video", watch: ["ada"] });
     expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"] })).toEqual({ type: "huddle.listen", kind: "video", watch: ["ada"] });
     // Neither voices nor screens come in sizes.
+    expect(read({ type: "huddle.listen", kind: "audio", size: "small" })).toEqual({ type: "huddle.listen", kind: "audio" });
+    expect(read({ type: "huddle.listen", kind: "screen", watch: ["ada"], size: "medium" })).toEqual({ type: "huddle.listen", kind: "screen", watch: ["ada"] });
+    for (const size of ["Small", "tiny", "a", "c", true, 1, null, ""]) expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"], size }), JSON.stringify(size)).toBeNull();
+  });
+
+  it("reads a tab from before there were three sizes, which says small of the smallest", () => {
+    expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"], small: true })).toEqual({ type: "huddle.listen", kind: "video", watch: ["ada"], size: "small" });
+    expect(read({ type: "huddle.listen", kind: "video", fresh: true, watch: ["ada"], small: true })).toEqual({ type: "huddle.listen", kind: "video", fresh: true, watch: ["ada"], size: "small" });
     expect(read({ type: "huddle.listen", kind: "audio", small: true })).toEqual({ type: "huddle.listen", kind: "audio" });
     expect(read({ type: "huddle.listen", kind: "screen", watch: ["ada"], small: true })).toEqual({ type: "huddle.listen", kind: "screen", watch: ["ada"] });
     for (const small of [false, "true", 1, null, "b"]) expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"], small }), JSON.stringify(small)).toBeNull();
+    // It says one or the other.
+    expect(read({ type: "huddle.listen", kind: "video", watch: ["ada"], small: true, size: "small" })).toBeNull();
   });
 
   it("reads whose screens a tab asks to see, as many as a huddle shows, which is nobody's unless it names them", () => {
@@ -246,6 +307,16 @@ describe("a huddle's socket", () => {
     // Nothing said isn't taking one off, and a sticker goes by its name here, not by its emoji.
     for (const sticker of [undefined, "", "wave", "Hand", "\u270B", 7, true, ["hand"], { sticker: "hand" }]) {
       expect(read({ type: "huddle.sticker", sticker }), JSON.stringify(sticker)).toBeNull();
+    }
+  });
+
+  it("reads whether a tab's connection is unstable, about its own person alone", () => {
+    expect(read({ type: "huddle.connection", unstable: true })).toEqual({ type: "huddle.connection", unstable: true });
+    expect(read({ type: "huddle.connection", unstable: false })).toEqual({ type: "huddle.connection", unstable: false });
+    expect(read({ type: "huddle.connection", unstable: true, userId: "grace" })).toEqual({ type: "huddle.connection", unstable: true });
+    // Nothing said isn't steady, and neither is anything but yes or no.
+    for (const unstable of [undefined, null, "true", 1, 0, [true], { unstable: true }]) {
+      expect(read({ type: "huddle.connection", unstable }), JSON.stringify(unstable)).toBeNull();
     }
   });
 

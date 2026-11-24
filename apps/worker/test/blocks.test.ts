@@ -206,7 +206,7 @@ describe("Someone you've blocked", () => {
 
     const now = new Date().toISOString();
     const marks = await workspaceSql(MARK_UNREAD, now, room, grace.user.id, "[]", 1);
-    expect(marks).toEqual([{ user_id: linus.user.id, unread_at: now, unread_count: 1 }]);
+    expect(marks).toEqual([{ user_id: linus.user.id, unread_at: now, unread_count: 1, mention_count: 0 }]);
     const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${MARK_UNREAD}`, "", room, grace.user.id, "[]", 1)) as Array<{ detail: string }>).map(({ detail }) => detail).join("; ");
     expect(plan).toMatch(/SEARCH blocks USING (COVERING )?INDEX sqlite_autoindex_blocks_1 \(user_id=\? AND blocked_id=\?\)/);
   });
@@ -227,7 +227,7 @@ describe("Someone you've blocked", () => {
       message: { id: crypto.randomUUID(), plainText: "Hey @Ada @Linus", mentionIds: [ada.user.id, linus.user.id], followerIds: [ada.user.id, linus.user.id] },
     };
     expect(labelsOf((await workspaceStub().applyRoomEvents(room, [event], [])).pushes)).toEqual(["linus"]);
-    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, grace.user.id, "[]", "[]", 1, 1, 1, "[]")) as Array<{ detail: string }>)
+    const plan = ((await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, grace.user.id, "[]", 1, 1, "2026-11-20T23:30:00.000Z", "2026-11-20T23:29:00.000Z", 1, "[]", "[]")) as Array<{ detail: string }>)
       .map(({ detail }) => detail)
       .join("; ");
     expect(plan).toMatch(/SEARCH blocks USING (COVERING )?INDEX sqlite_autoindex_blocks_1 \(user_id=\? AND blocked_id=\?\)/);

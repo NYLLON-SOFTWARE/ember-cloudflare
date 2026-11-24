@@ -50,8 +50,8 @@ const huddleMessage = (huddle: MessageHuddle = { startedAt: STARTED }, changes: 
 const going = (...userIds: string[]): Record<string, LiveHuddle> => ({ general: { startedAt: STARTED, userIds } });
 
 /** The huddle this tab is in, in room `roomId`. */
-const joined = (roomId: string): JoinedHuddle => ({ roomId, connected: true, you: grace!, people: [], muted: false, sticker: null, microphone: true, microphoneId: "", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: false, thread: true });
-const controls = () => ({ leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setSmall: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(), setSticker: vi.fn(), react: vi.fn() });
+const joined = (roomId: string): JoinedHuddle => ({ roomId, connected: true, you: grace!, people: [], muted: false, sticker: null, unstable: false, microphone: true, microphoneId: "", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: false, thread: true });
+const controls = () => ({ leave: vi.fn(), setMuted: vi.fn(), setCamera: vi.fn(), setScreen: vi.fn(), setOpen: vi.fn(), setThread: vi.fn(), setDevice: vi.fn(), setCameraSize: vi.fn(), switchCamera: vi.fn(), invite: vi.fn(), setSticker: vi.fn(), react: vi.fn() });
 
 interface Seen {
   /** Whose tab shows the message: Linus's, who's in no huddle, unless given. */
@@ -279,7 +279,7 @@ describe("What can be done to a huddle's message", () => {
     expect(within(article).getByRole("link", { name: /2 replies/ })).toHaveAttribute("href", "/rooms/general/threads/m1");
   });
 
-  it("offers reactions, Reply in thread and Copy link, with nothing to quote or copy, and Edit only to whoever can delete it", async () => {
+  it("offers reactions, Reply in thread and Copy link, with nothing to quote, copy or report, and Edit only to whoever can delete it", async () => {
     const { article, user } = show(huddleMessage(), { live: going("ada") });
     await user.click(options(article));
     expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Copy link"]);

@@ -33,6 +33,7 @@ import worker from "../src/index";
 import { forgetNewestRelease } from "../src/releases";
 import { searchIndex } from "../src/search-index";
 import { workspace, type Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
 
 export const origin = "https://ember.test";
 
@@ -206,6 +207,31 @@ export async function cutOff(room: RoomId, calls: number[] = []): Promise<() => 
     });
 }
 
+/**
+ * Has the Workspace hold the next call room `room` makes to tell it what the room has logged until
+ * `release` is called, as a call can still be out while a busy room logs more, which waits for the call
+ * after it. `called` waits until the call has come.
+ */
+export async function holdNextCall(room: RoomId): Promise<{ called: () => Promise<void>; release: () => void }> {
+  let came = false;
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await runInDurableObject(workspaceStub(), (instance: Workspace) => {
+    const store = (instance as unknown as { store: WorkspaceStore }).store;
+    const apply = store.applyRoomEvents.bind(store);
+    store.applyRoomEvents = async (roomId, ...rest) => {
+      if (roomId === room) {
+        store.applyRoomEvents = apply;
+        came = true;
+        await released;
+      }
+      return apply(roomId, ...rest);
+    };
+  });
+  // Looked at again and again, since workerd can't wake a test from inside the Workspace.
+  return { called: () => vi.waitFor(() => expect(came).toBe(true), { interval: 2, timeout: 5000 }), release };
+}
+
 /** How `ws` closes, once it does. */
 export const closeOf = (ws: WebSocket) => new Promise<CloseEvent>((resolve) => ws.addEventListener("close", resolve));
 
@@ -225,6 +251,37 @@ export async function withWorkspaceEnv(changes: Partial<Env>, run: () => Promise
   } finally {
     await runInDurableObject(workspaceStub(), (instance: Workspace) => void ((instance as unknown as { env: Env }).env = original!));
   }
+}
+
+/**
+ * Has the Workspace count the addresses it's told to email a link to join with, which the Worker tells
+ * it once it has answered the ask, without waiting for it, so an answer doesn't say the Workspace has
+ * been told. `told` waits until it has been told `n` of them, each on its way by then, `holdUntil`
+ * keeps it from taking any until a promise ends, as if the Worker's word were still on its way, and
+ * `stop` has it take them as it did.
+ */
+export async function countAddressesToEmail(): Promise<{ told: (n: number) => Promise<void>; holdUntil: (held: Promise<void>) => void; stop: () => void }> {
+  let count = 0;
+  let held: Promise<void> | undefined;
+  let stop!: () => void;
+  await runInDurableObject(workspaceStub(), (instance: Workspace) => {
+    const prototype = Object.getPrototypeOf(instance) as Pick<Workspace, "emailJoinLink">;
+    const emailJoinLink = prototype.emailJoinLink;
+    prototype.emailJoinLink = async function (this: Workspace, ...asked) {
+      const waits = held;
+      if (waits) count++;
+      await waits;
+      emailJoinLink.apply(this, asked);
+      if (!waits) count++;
+    };
+    stop = () => void (prototype.emailJoinLink = emailJoinLink);
+  });
+  return {
+    // Looked at again and again, since workerd can't wake a test from inside the Workspace.
+    told: (n) => vi.waitFor(() => expect(count).toBeGreaterThanOrEqual(n), { interval: 2, timeout: 5000 }),
+    holdUntil: (until) => void (held = until),
+    stop,
+  };
 }
 
 /** The search index's Durable Object. */
@@ -537,6 +594,13 @@ export type WorkspaceSocket = Awaited<ReturnType<typeof openWorkspaceSocket>>;
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 const encoder = new TextEncoder();
+
+/** Pauses `session`'s notifications for `ms` from now, as the rail's Pause notifications does, or resumes them with null. */
+export async function pauseNotifications(session: Session, ms: number | null): Promise<void> {
+  const until = ms === null ? null : new Date(Date.now() + ms).toISOString();
+  const response = await api("/api/users/me/notifications-pause", { method: "PUT", headers: { Cookie: session.cookie }, body: JSON.stringify({ until }) });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
 
 /** A browser that has subscribed to pushes: its keys, as its subscription gives them, and what reads the pushes made for them. */
 export interface PushBrowser {

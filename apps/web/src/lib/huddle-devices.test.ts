@@ -9,9 +9,11 @@ import {
   microphoneOf,
   NO_DEVICES,
   openCamera,
+  openCameraSized,
   openMicrophone,
   openOtherCamera,
   openScreen,
+  qualityOpenedAt,
   rememberDevice,
   rememberedDevice,
   sharesScreens,
@@ -33,8 +35,13 @@ const refusal = (name: string) => Object.assign(new Error(name), { name });
 const device = (kind: MediaDeviceKind, deviceId: string, label = deviceId) => ({ kind, deviceId, label, groupId: "" }) as MediaDeviceInfo;
 
 /** Gives the page the browser's media devices, as much of them as the code asks. */
-function withMedia(media: Partial<MediaDevices>) {
-  vi.stubGlobal("navigator", { mediaDevices: media });
+/** What Chrome says of itself, which is known to send a camera in several sizes at once, and what Safari says. */
+const CHROME = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
+const SAFARI = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15";
+
+/** Has the browser's media be `media`, in a browser that says `userAgent` of itself, or nothing. */
+function withMedia(media: Partial<MediaDevices>, userAgent?: string) {
+  vi.stubGlobal("navigator", { mediaDevices: media, ...(userAgent && { userAgent }) });
 }
 
 afterEach(() => {
@@ -136,33 +143,73 @@ describe("Opening a microphone", () => {
 });
 
 describe("Opening a camera", () => {
-  /** A picture the size of a tile, which is all a huddle asks of a camera. */
+  /** A picture as large as a camera goes out at Standard, which is all a browser that sends one size asks of a camera. */
   const TILE = { width: { ideal: 640 }, height: { ideal: 360 } };
 
   it("opens the browser's own choice when none is asked for, and the one asked for when one is", async () => {
     const { stream } = streamFrom("camera-1", "video");
     const getUserMedia = vi.fn().mockResolvedValue(stream);
     withMedia({ getUserMedia });
-    expect(await openCamera(null)).toBe(stream);
-    expect(await openCamera("camera-2")).toBe(stream);
+    expect(await openCamera(null, "hd")).toBe(stream);
+    expect(await openCamera("camera-2", "hd")).toBe(stream);
     expect(getUserMedia.mock.calls).toEqual([[{ video: TILE }], [{ video: { ...TILE, deviceId: { exact: "camera-2" } } }]]);
+  });
+
+  it("asks for a picture as tall as the video quality's from a browser known to send a camera in several sizes, and from any other, one as Standard's, which is the one it sends", async () => {
+    const { stream } = streamFrom("camera-1", "video");
+    const getUserMedia = vi.fn().mockResolvedValue(stream);
+    withMedia({ getUserMedia }, CHROME);
+    for (const quality of ["standard", "hd", "full-hd"] as const) expect(await openCamera(null, quality)).toBe(stream);
+    expect(await openCamera("camera-2", "full-hd")).toBe(stream);
+    expect(getUserMedia.mock.calls).toEqual([
+      [{ video: TILE }],
+      [{ video: { width: { ideal: 1280 }, height: { ideal: 720 } } }],
+      [{ video: { width: { ideal: 1920 }, height: { ideal: 1080 } } }],
+      [{ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, deviceId: { exact: "camera-2" } } }],
+    ]);
+
+    withMedia({ getUserMedia }, SAFARI);
+    getUserMedia.mockClear();
+    for (const quality of ["standard", "hd", "full-hd"] as const) await openCamera(null, quality);
+    expect(getUserMedia.mock.calls).toEqual([[{ video: TILE }], [{ video: TILE }], [{ video: TILE }]]);
   });
 
   it("opens the browser's own choice when the one asked for is gone", async () => {
     const { stream } = streamFrom("camera-1", "video");
     const getUserMedia = vi.fn().mockRejectedValueOnce(refusal("OverconstrainedError")).mockResolvedValue(stream);
-    withMedia({ getUserMedia });
-    expect(await openCamera("camera-2")).toBe(stream);
-    expect(getUserMedia.mock.calls).toEqual([[{ video: { ...TILE, deviceId: { exact: "camera-2" } } }], [{ video: TILE }]]);
+    withMedia({ getUserMedia }, CHROME);
+    expect(await openCamera("camera-2", "hd")).toBe(stream);
+    const HD = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    expect(getUserMedia.mock.calls).toEqual([[{ video: { ...HD, deviceId: { exact: "camera-2" } } }], [{ video: HD }]]);
+  });
+
+  it("says which video quality a camera was opened at, the browser's own choice too where the one asked for is gone, and of a track it didn't open, none", async () => {
+    const [hd, fullHd] = [streamFrom("camera-1", "video"), streamFrom("camera-2", "video")];
+    withMedia({ getUserMedia: vi.fn().mockResolvedValueOnce(hd.stream).mockRejectedValueOnce(refusal("NotFoundError")).mockResolvedValueOnce(fullHd.stream) }, CHROME);
+    await openCamera(null, "hd");
+    await openCamera("camera-3", "full-hd");
+    expect([hd, fullHd].map(({ stream }) => qualityOpenedAt(stream.getVideoTracks()[0]!))).toEqual(["hd", "full-hd"]);
+    expect(qualityOpenedAt(streamFrom("camera-4", "video").stream.getVideoTracks()[0]!)).toBeUndefined();
   });
 
   it("has none when its person refuses, without asking twice, nor on a page the browser gives no camera", async () => {
     const getUserMedia = vi.fn().mockRejectedValue(refusal("NotAllowedError"));
     withMedia({ getUserMedia });
-    expect(await openCamera("camera-2")).toBeNull();
+    expect(await openCamera("camera-2", "hd")).toBeNull();
     expect(getUserMedia).toHaveBeenCalledTimes(1);
     vi.stubGlobal("navigator", {});
-    expect(await openCamera(null)).toBeNull();
+    expect(await openCamera(null, "hd")).toBeNull();
+  });
+
+  it("opens one for a picture of the size asked, as a clip's, in any browser, the browser's own choice where the one asked for is gone, at no video quality, as it goes out to nobody", async () => {
+    const [first, fallback] = [streamFrom("camera-1", "video"), streamFrom("camera-2", "video")];
+    const getUserMedia = vi.fn().mockResolvedValueOnce(first.stream).mockRejectedValueOnce(refusal("NotFoundError")).mockResolvedValueOnce(fallback.stream);
+    withMedia({ getUserMedia }, SAFARI);
+    const CLIP = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    expect(await openCameraSized(null, CLIP)).toBe(first.stream);
+    expect(await openCameraSized("camera-3", CLIP)).toBe(fallback.stream);
+    expect(getUserMedia.mock.calls).toEqual([[{ video: CLIP }], [{ video: { ...CLIP, deviceId: { exact: "camera-3" } } }], [{ video: CLIP }]]);
+    expect([first, fallback].map(({ stream }) => qualityOpenedAt(stream.getVideoTracks()[0]!))).toEqual([undefined, undefined]);
   });
 
   it("says which device a stream is from, and stops it, which puts its light out", () => {
@@ -199,17 +246,36 @@ describe("Opening the camera to switch to", () => {
     const getUserMedia = vi.fn().mockResolvedValue(stream);
     const enumerateDevices = lists("front", "back");
     withMedia({ getUserMedia, enumerateDevices });
-    expect(await openOtherCamera("front", "user")).toBe(stream);
-    expect(await openOtherCamera("back", "environment")).toBe(stream);
+    expect(await openOtherCamera("front", "user", "hd")).toBe(stream);
+    expect(await openOtherCamera("back", "environment", "hd")).toBe(stream);
     expect(getUserMedia.mock.calls).toEqual([facingAsked("environment"), facingAsked("user")]);
     expect(enumerateDevices).not.toHaveBeenCalled();
+  });
+
+  it("asks for a picture as tall as the video quality's from a browser known to send a camera in several sizes", async () => {
+    const { stream } = streamFrom("back", "video");
+    const getUserMedia = vi.fn().mockResolvedValue(stream);
+    withMedia({ getUserMedia, enumerateDevices: lists("front", "back") }, CHROME);
+    expect(await openOtherCamera("front", "user", "hd")).toBe(stream);
+    expect(await openOtherCamera("front", null, "full-hd")).toBe(stream);
+    expect(getUserMedia.mock.calls).toEqual([
+      [{ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { exact: "environment" } } }],
+      [{ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, deviceId: { exact: "back" } } }],
+    ]);
+  });
+
+  it("says which video quality the camera switched to was opened at", async () => {
+    const { stream } = streamFrom("back", "video");
+    withMedia({ getUserMedia: vi.fn().mockResolvedValue(stream) }, CHROME);
+    await openOtherCamera("front", "user", "standard");
+    expect(qualityOpenedAt(stream.getVideoTracks()[0]!)).toBe("standard");
   });
 
   it("opens the next camera the browser lists where it didn't say which way the one that was on faced: its first after its last, and its first after one it doesn't list", async () => {
     const { stream } = streamFrom("camera-2", "video");
     const getUserMedia = vi.fn().mockResolvedValue(stream);
     withMedia({ getUserMedia, enumerateDevices: lists("camera-1", "camera-2", "camera-3") });
-    for (const from of ["camera-1", "camera-2", "camera-3", "unplugged", ""]) expect(await openOtherCamera(from, null)).toBe(stream);
+    for (const from of ["camera-1", "camera-2", "camera-3", "unplugged", ""]) expect(await openOtherCamera(from, null, "hd")).toBe(stream);
     expect(getUserMedia.mock.calls).toEqual(["camera-2", "camera-3", "camera-1", "camera-1", "camera-1"].map(cameraAsked));
   });
 
@@ -217,7 +283,7 @@ describe("Opening the camera to switch to", () => {
     const { stream } = streamFrom("usb", "video");
     const getUserMedia = vi.fn().mockRejectedValueOnce(refusal("OverconstrainedError")).mockResolvedValue(stream);
     withMedia({ getUserMedia, enumerateDevices: lists("front", "usb") });
-    expect(await openOtherCamera("front", "user")).toBe(stream);
+    expect(await openOtherCamera("front", "user", "hd")).toBe(stream);
     expect(getUserMedia.mock.calls).toEqual([facingAsked("environment"), cameraAsked("usb")]);
   });
 
@@ -225,7 +291,7 @@ describe("Opening the camera to switch to", () => {
     const getUserMedia = vi.fn();
     for (const enumerateDevices of [lists("only"), lists(), vi.fn().mockRejectedValue(refusal("NotAllowedError"))]) {
       withMedia({ getUserMedia, enumerateDevices });
-      expect(await openOtherCamera("only", null)).toBeNull();
+      expect(await openOtherCamera("only", null, "hd")).toBeNull();
     }
     expect(getUserMedia).not.toHaveBeenCalled();
   });
@@ -233,13 +299,13 @@ describe("Opening the camera to switch to", () => {
   it("has none where the browser won't open the next it lists, rather than its own choice, which may be the one that was on", async () => {
     const getUserMedia = vi.fn().mockRejectedValue(refusal("OverconstrainedError"));
     withMedia({ getUserMedia, enumerateDevices: lists("camera-1", "camera-2") });
-    expect(await openOtherCamera("camera-1", null)).toBeNull();
+    expect(await openOtherCamera("camera-1", null, "hd")).toBeNull();
     expect(getUserMedia.mock.calls).toEqual([cameraAsked("camera-2")]);
   });
 
   it("has none on a page the browser gives no camera", async () => {
     vi.stubGlobal("navigator", {});
-    expect(await openOtherCamera("camera-1", "user")).toBeNull();
+    expect(await openOtherCamera("camera-1", "user", "hd")).toBeNull();
   });
 });
 
@@ -247,21 +313,41 @@ describe("Sharing a screen", () => {
   /** What the browser throws for a request it turns down, by its name and what it says of it. */
   const turnedDown = (name: string, message: string) => new DOMException(message, name);
 
-  it("opens what its person chooses, no larger than 1080p nor faster than 15 pictures a second, without sound, and has the browser keep its text sharp", async () => {
+  it("opens what its person chooses, no larger than 1440p at HD nor faster than 15 pictures a second, without sound, and has the browser keep its text sharp", async () => {
     const track = { stop: vi.fn(), contentHint: "" };
     const stream = { getVideoTracks: () => [track], getTracks: () => [track] } as unknown as MediaStream;
     const getDisplayMedia = vi.fn().mockResolvedValue(stream);
     withMedia({ getDisplayMedia });
-    expect(await openScreen()).toBe(stream);
-    expect(getDisplayMedia.mock.calls).toEqual([[{ video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 15 } }, audio: false }]]);
+    expect(await openScreen("hd")).toBe(stream);
+    expect(getDisplayMedia.mock.calls).toEqual([[{ video: { width: { max: 2560 }, height: { max: 1440 }, frameRate: { max: 15 } }, audio: false }]]);
     expect(track.contentHint).toBe("detail");
     closeDevice(stream);
     expect(track.stop).toHaveBeenCalledTimes(1);
   });
 
+  it("opens it no larger than 1080p at Standard, and 1440p at Full HD, from any browser", async () => {
+    const stream = { getVideoTracks: () => [{ contentHint: "" }] } as unknown as MediaStream;
+    const getDisplayMedia = vi.fn().mockResolvedValue(stream);
+    withMedia({ getDisplayMedia }, SAFARI);
+    await openScreen("standard");
+    await openScreen("full-hd");
+    expect(getDisplayMedia.mock.calls.map(([asked]) => (asked as DisplayMediaStreamOptions).video)).toEqual([
+      { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 15 } },
+      { width: { max: 2560 }, height: { max: 1440 }, frameRate: { max: 15 } },
+    ]);
+  });
+
+  it("says which video quality a screen was shared at", async () => {
+    const track = { contentHint: "" };
+    const stream = { getVideoTracks: () => [track] } as unknown as MediaStream;
+    withMedia({ getDisplayMedia: vi.fn().mockResolvedValue(stream) });
+    await openScreen("standard");
+    expect(qualityOpenedAt(stream.getVideoTracks()[0]!)).toBe("standard");
+  });
+
   it("has none when its person chooses nothing", async () => {
     withMedia({ getDisplayMedia: vi.fn().mockRejectedValue(turnedDown("NotAllowedError", "Permission denied")) });
-    expect(await openScreen()).toBeNull();
+    expect(await openScreen("hd")).toBeNull();
   });
 
   it.each([
@@ -270,7 +356,7 @@ describe("Sharing a screen", () => {
     ["the browser fails with something that isn't an Error", "no"],
   ])("fails when %s", async (_, failure) => {
     withMedia({ getDisplayMedia: vi.fn().mockRejectedValue(failure) });
-    await expect(openScreen()).rejects.toBe(failure);
+    await expect(openScreen("hd")).rejects.toBe(failure);
   });
 
   it("fails in a browser that can't share a screen, as a phone's can't, which it says of itself", async () => {
@@ -278,10 +364,10 @@ describe("Sharing a screen", () => {
     expect(sharesScreens()).toBe(true);
     withMedia({});
     expect(sharesScreens()).toBe(false);
-    await expect(openScreen()).rejects.toBeInstanceOf(TypeError);
+    await expect(openScreen("hd")).rejects.toBeInstanceOf(TypeError);
     vi.stubGlobal("navigator", {});
     expect(sharesScreens()).toBe(false);
-    await expect(openScreen()).rejects.toBeInstanceOf(TypeError);
+    await expect(openScreen("hd")).rejects.toBeInstanceOf(TypeError);
   });
 });
 

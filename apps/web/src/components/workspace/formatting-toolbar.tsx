@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { FORMATTING_NAMES, HEADING_TAGS, linkAddress, NOT_IN_CODE_BLOCKS, PLAIN_TEXT, type FormattingCommand, type FormattingKey, type LinkDraft, type TextFormat } from "@/lib/formatting";
-import { formattingKeys, formattingShortcut } from "@/lib/keyboard";
+import { editorsOwnShortcut, formattingKeys, formattingShortcut } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import type { RichTextEditorHandle } from "./editor";
 import { ShortcutTooltip } from "./shortcut-tooltip";
@@ -55,7 +55,11 @@ export function useFormatting(editor: RefObject<RichTextEditorHandle | null>) {
   /** Takes a key pressed in the text that formats it, answering whether it was one, for the editor's `onKeyDown`. */
   const keyDown = (event: KeyboardEvent): boolean => {
     const action = formattingShortcut(event);
-    if (!action) return false;
+    if (!action) {
+      // The editor takes Cmd or Ctrl+B, I and U itself, to what it last heard was selected.
+      if (editorsOwnShortcut(event)) editor.current?.catchUp();
+      return false;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (disabled(action)) return true;
@@ -113,9 +117,9 @@ function Tool({ action, icon: Icon, pressed, disabled, tabbable, onFocus, onPres
   );
 }
 
-/** Where Slack's row parts its groups of buttons. */
-function Divider() {
-  return <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border touch:h-6" />;
+/** Where Slack's rows part their groups of buttons: this one, and the one under the text. */
+export function Divider({ className }: { className?: string }) {
+  return <span aria-hidden className={cn("mx-1 h-5 w-px shrink-0 bg-border touch:h-6", className)} />;
 }
 
 /** The styles Paragraph offers, in Slack's order. */

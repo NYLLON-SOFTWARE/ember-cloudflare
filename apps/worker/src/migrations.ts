@@ -68,11 +68,32 @@ import roomHuddles from "../migrations/0067_room_huddles.sql";
 import deletedAccounts from "../migrations/0068_deleted_accounts.sql";
 import boostsByBooster from "../migrations/0069_boosts_by_booster.sql";
 import blocks from "../migrations/0070_blocks.sql";
+import huddleSounds from "../migrations/0071_huddle_sounds.sql";
 import usernames from "../migrations/0072_usernames.sql";
+import reports from "../migrations/0073_reports.sql";
+import pastHuddles from "../migrations/0074_past_huddles.sql";
+import changedHuddles from "../migrations/0075_changed_huddles.sql";
+import sessionAddresses from "../migrations/0076_session_addresses.sql";
+import botRooms from "../migrations/0077_bot_rooms.sql";
+import clearedReports from "../migrations/0078_cleared_reports.sql";
+import sso from "../migrations/0079_sso.sql";
+import pendingReaders from "../migrations/0080_pending_readers.sql";
+import sidebarSections from "../migrations/0081_sidebar_sections.sql";
+import messageNotifies from "../migrations/0082_message_notifies.sql";
+import roomChannelMentions from "../migrations/0083_room_channel_mentions.sql";
+import waitingCallAskers from "../migrations/0084_waiting_call_askers.sql";
+import membershipMentionCounts from "../migrations/0085_membership_mention_counts.sql";
+import notificationsPausedUntil from "../migrations/0086_notifications_paused_until.sql";
+import scheduledMessages from "../migrations/0087_scheduled_messages.sql";
+import fileWaveforms from "../migrations/0088_file_waveforms.sql";
+import fileDurations from "../migrations/0089_file_durations.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
 import searchFiltersByRoom from "../search-migrations/0004_search_filters_by_room.sql";
+import searchReaders from "../search-migrations/0005_search_readers.sql";
+import searchRekeys from "../search-migrations/0006_search_rekeys.sql";
+import searchPairs from "../search-migrations/0007_search_pairs.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -164,7 +185,25 @@ export const MIGRATIONS: Migration[] = [
   { name: "0068_deleted_accounts.sql", scope: "workspace", sql: deletedAccounts },
   { name: "0069_boosts_by_booster.sql", scope: "room", sql: boostsByBooster },
   { name: "0070_blocks.sql", scope: "workspace", sql: blocks },
+  { name: "0071_huddle_sounds.sql", scope: "workspace", sql: huddleSounds },
   { name: "0072_usernames.sql", scope: "workspace", sql: usernames },
+  { name: "0073_reports.sql", scope: "workspace", sql: reports },
+  { name: "0074_past_huddles.sql", scope: "workspace", sql: pastHuddles },
+  { name: "0075_changed_huddles.sql", scope: "room", sql: changedHuddles },
+  { name: "0076_session_addresses.sql", scope: "workspace", sql: sessionAddresses },
+  { name: "0077_bot_rooms.sql", scope: "workspace", sql: botRooms },
+  { name: "0078_cleared_reports.sql", scope: "workspace", sql: clearedReports },
+  { name: "0079_sso.sql", scope: "workspace", sql: sso },
+  { name: "0080_pending_readers.sql", scope: "workspace", sql: pendingReaders },
+  { name: "0081_sidebar_sections.sql", scope: "workspace", sql: sidebarSections },
+  { name: "0082_message_notifies.sql", scope: "room", sql: messageNotifies },
+  { name: "0083_room_channel_mentions.sql", scope: "workspace", sql: roomChannelMentions },
+  { name: "0084_waiting_call_askers.sql", scope: "room", sql: waitingCallAskers },
+  { name: "0085_membership_mention_counts.sql", scope: "workspace", sql: membershipMentionCounts },
+  { name: "0086_notifications_paused_until.sql", scope: "workspace", sql: notificationsPausedUntil },
+  { name: "0087_scheduled_messages.sql", scope: "room", sql: scheduledMessages },
+  { name: "0088_file_waveforms.sql", scope: "room", sql: fileWaveforms },
+  { name: "0089_file_durations.sql", scope: "room", sql: fileDurations },
 ];
 
 /**
@@ -178,6 +217,9 @@ export const SEARCH_MIGRATIONS: Migration[] = [
   { name: "0002_search_results.sql", scope: "search", sql: searchResults },
   { name: "0003_search_filters.sql", scope: "search", sql: searchFilters },
   { name: "0004_search_filters_by_room.sql", scope: "search", sql: searchFiltersByRoom },
+  { name: "0005_search_readers.sql", scope: "search", sql: searchReaders },
+  { name: "0006_search_rekeys.sql", scope: "search", sql: searchRekeys },
+  { name: "0007_search_pairs.sql", scope: "search", sql: searchPairs },
 ];
 
 /**

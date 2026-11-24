@@ -58,6 +58,28 @@ export const isPreviewed = (contentType: string) => isVariable(contentType) || c
 /** Whether every browser shows a picture of `contentType`. */
 export const isWebImage = (contentType: string) => WEB_IMAGE_TYPES.has(contentType);
 
+/** How many levels a sound's waveform has, from its start to its end. */
+export const WAVEFORM_LENGTH = 100;
+
+/** A waveform's loudest level: each is from 0, silence, to 100, as loud as the sound gets. */
+export const WAVEFORM_LOUDEST = 100;
+
+/** Why Ember refuses a waveform. */
+export const WAVEFORM_REFUSED = "A waveform is 100 levels from 0 to 100";
+
+/** Whether `levels` is a sound's waveform: `WAVEFORM_LENGTH` whole numbers from 0 to `WAVEFORM_LOUDEST`. */
+export const isWaveform = (levels: unknown): levels is number[] =>
+  Array.isArray(levels) && levels.length === WAVEFORM_LENGTH && levels.every((level) => Number.isInteger(level) && level >= 0 && level <= WAVEFORM_LOUDEST);
+
+/** The longest a video's length can be, in seconds: a day. */
+export const MAX_DURATION = 24 * 60 * 60;
+
+/** Why Ember refuses a video's length. */
+export const DURATION_REFUSED = "A video's length is a number of seconds, more than 0 and at most a day";
+
+/** Whether `seconds` is how long a video plays: a number of seconds, more than 0 and at most `MAX_DURATION`. */
+export const isDuration = (seconds: unknown): seconds is number => typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 && seconds <= MAX_DURATION;
+
 /**
  * The most pixels a picture or video has for Ember to preview it or show it in its place, as a small
  * file can hold a picture far too large to decode: Campfire's
@@ -85,6 +107,10 @@ export interface NewUpload {
   /** The message in whose thread the file is a reply, which `alsoSend` sends to the room too. */
   parentId?: string;
   alsoSend?: boolean;
+  /** A sound's waveform, which the app works out from the file as it sends it, for the message's player to draw. */
+  waveform?: number[];
+  /** How long a video plays, in seconds, which the app reads from the file as it sends it, for the message's player to show. */
+  duration?: number;
 }
 
 /**
@@ -118,6 +144,16 @@ export interface StoredFile {
    * video's poster within 1200×800, which its message shows.
    */
   previewUrl?: string;
+  /**
+   * A sound's waveform, where its uploader's browser could hear it: how loud it is along its length, as
+   * `WAVEFORM_LENGTH` levels from 0 to 100, which its message's player draws.
+   */
+  waveform?: number[];
+  /**
+   * How long a video plays, in seconds, where its uploader's browser could read it, which its message's
+   * player shows without loading the video.
+   */
+  duration?: number;
 }
 
 /** A UTF-16 surrogate without its pair, which no file name can hold. */
@@ -132,14 +168,17 @@ export const isKeepableFileName = (name: string) => name.length <= MAX_FILE_NAME
 /** Parses an untrusted `NewUpload`, or returns why it's refused: `FILE_TOO_LARGE` for a file too large. */
 export function parseNewUpload(data: unknown): NewUpload | string {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
-  const { name, type, size, clientMessageId, parentId, alsoSend } = data as Record<string, unknown>;
+  const { name, type, size, clientMessageId, parentId, alsoSend, waveform, duration } = data as Record<string, unknown>;
   if (typeof name !== "string" || !name.trim()) return "A file needs a name";
   if (!isKeepableFileName(name)) return FILE_NAME_NOT_KEPT;
   if (typeof type !== "string" || type.length > MAX_FILE_TYPE_LENGTH) return "A file's type must be text";
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return "A file's size must be a number of bytes";
   if (size > MAX_FILE_SIZE) return FILE_TOO_LARGE;
   if (typeof clientMessageId !== "string" || clientMessageId.length === 0 || clientMessageId.length > MAX_ID_LENGTH) return "A file needs an id for its message";
-  if (parentId === undefined) return { name, type, size, clientMessageId };
+  if (waveform !== undefined && !isWaveform(waveform)) return WAVEFORM_REFUSED;
+  if (duration !== undefined && !isDuration(duration)) return DURATION_REFUSED;
+  const measured = { ...(isWaveform(waveform) && { waveform }), ...(isDuration(duration) && { duration }) };
+  if (parentId === undefined) return { name, type, size, clientMessageId, ...measured };
   if (typeof parentId !== "string" || parentId.length === 0 || parentId.length > MAX_ID_LENGTH) return "A reply's thread must be a message's id";
-  return { name, type, size, clientMessageId, parentId, alsoSend: alsoSend === true };
+  return { name, type, size, clientMessageId, parentId, alsoSend: alsoSend === true, ...measured };
 }

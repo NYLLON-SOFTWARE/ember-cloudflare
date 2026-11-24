@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  backShortcut,
   breaksLine,
+  editorsOwnShortcut,
   formattingKeys,
+  forwardShortcut,
   formattingShortcut,
   huddleShortcut,
   muteShortcut,
@@ -172,6 +175,18 @@ describe("formattingShortcut", () => {
   });
 });
 
+describe("editorsOwnShortcut", () => {
+  it("knows Cmd or Ctrl+B, I and U, which the editor takes itself, and nothing else", () => {
+    on("MacIntel");
+    for (const key of ["b", "i", "u"]) expect(editorsOwnShortcut(press(key, { code: `Key${key.toUpperCase()}`, metaKey: true })), key).toBe(true);
+    expect(editorsOwnShortcut(press("b", { code: "KeyB", ctrlKey: true }))).toBe(false);
+    expect(editorsOwnShortcut(press("B", { code: "KeyB", metaKey: true, shiftKey: true }))).toBe(false);
+    expect(editorsOwnShortcut(press("X", { code: "KeyX", metaKey: true, shiftKey: true }))).toBe(false);
+    on("Linux x86_64");
+    expect(editorsOwnShortcut(press("b", { code: "KeyB", ctrlKey: true }))).toBe(true);
+  });
+});
+
 describe("formattingKeys", () => {
   it("names a formatting button's first keys as the keyboard does, and as screen readers hear them", () => {
     on("MacIntel");
@@ -329,6 +344,15 @@ describe("writesSnippet", () => {
   });
 });
 
+describe("Back and Forward", () => {
+  it("names the keys browsers go back and forward by: Cmd and a bracket on an Apple keyboard, Alt and an arrow on another", () => {
+    expect(backShortcut(true)).toEqual({ keys: ["⌘", "["], aria: "Meta+[" });
+    expect(forwardShortcut(true)).toEqual({ keys: ["⌘", "]"], aria: "Meta+]" });
+    expect(backShortcut(false)).toEqual({ keys: ["Alt", "←"], aria: "Alt+ArrowLeft" });
+    expect(forwardShortcut(false)).toEqual({ keys: ["Alt", "→"], aria: "Alt+ArrowRight" });
+  });
+});
+
 describe("SHORTCUTS", () => {
   it("names Cmd and Option on an Apple keyboard, and Ctrl and Alt on another", () => {
     const keys = (apple: boolean) => SHORTCUTS.flatMap(({ rows }) => rows.flatMap((row) => row.keys(apple)));
@@ -350,6 +374,13 @@ describe("SHORTCUTS", () => {
     const writing = SHORTCUTS.find(({ group }) => group === "Write a message")!.rows;
     expect(writing.find(({ action }) => action === "Upload files")!.keys(true)).toEqual(uploadShortcut(true).keys);
     expect(writing.find(({ action }) => action === "Write a text snippet")!.keys(false)).toEqual(snippetShortcut(false).keys);
+  });
+
+  it("lists the browser's keys for Back and Forward first, as the rail's buttons' tooltips show them", () => {
+    const navigate = SHORTCUTS.find(({ group }) => group === "Navigate")!.rows;
+    expect(navigate.slice(0, 2).map(({ action }) => action)).toEqual(["Go back", "Go forward"]);
+    expect(navigate.slice(0, 2).map((row) => row.keys(true))).toEqual([backShortcut(true).keys, forwardShortcut(true).keys]);
+    expect(navigate.slice(0, 2).map((row) => row.keys(false))).toEqual([backShortcut(false).keys, forwardShortcut(false).keys]);
   });
 
   it("lists the huddle keys as their buttons' tooltips show them", () => {

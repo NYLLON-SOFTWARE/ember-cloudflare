@@ -21,6 +21,8 @@ test.describe("Make or revoke administrators", () => {
     const grace = await join(browser, baseURL!, await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue(), name);
     const rail = grace.getByRole("navigation", { name: "Workspace" });
     await rail.getByRole("link", { name: "Workspace" }).click();
+    // Community settings shows its links while it loads, then draws them again once it has, losing a click that comes as it does.
+    await expect(grace).toHaveTitle("Community settings");
     await grace.getByRole("link", { name: "Membership" }).click();
     const gracesPeople = grace.getByRole("region", { name: "Membership" });
     await expect(gracesPeople.getByRole("list", { name: "Members" }).getByRole("listitem").filter({ hasText: name })).toBeVisible();

@@ -83,6 +83,21 @@ describe("Take back a reaction", () => {
     expect((await connect(room, "Linus")).welcome.messages[0]!.boosts).toEqual([]);
   });
 
+  it("ignores removing a reaction that's gone already, as a double tap does", async () => {
+    const room = await freshRoom("unboost-twice");
+    const ada = await connect(room, "Ada");
+    const message = await post(ada, "Tap twice");
+    ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
+    const { boost } = await ada.next("boost.created");
+
+    ada.send({ type: "boost.delete", boostId: boost.id });
+    ada.send({ type: "boost.delete", boostId: boost.id });
+    await ada.next("boost.deleted");
+    await settle(ada);
+    expect(ada.pending("error")).toEqual([]);
+    expect(ada.pending("boost.deleted")).toEqual([]);
+  });
+
   it("refuses to remove someone else's reaction", async () => {
     const room = await freshRoom("unboost-other");
     const ada = await connect(room, "Ada");

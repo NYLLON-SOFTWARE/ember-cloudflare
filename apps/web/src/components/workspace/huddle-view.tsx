@@ -1,21 +1,38 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { Me, Room, User, UserId } from "@ember/protocol";
 import type { HuddlePerson } from "@ember/protocol/huddles";
-import { Collapse, Headset, MicrophoneMute, NavArrowDown } from "@/components/icons/iconoir";
+import { Collapse, Headset, MicrophoneMute, NavArrowDown, WifiWarning } from "@/components/icons/iconoir";
+import { useHuddleVideo } from "@/hooks/use-account";
 import { useNameOf } from "@/hooks/use-directory";
 import { useIsSpeaking } from "@/hooks/use-huddle";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { useMediaQuery, usePixelRatio } from "@/hooks/use-media-query";
 import { facesAway } from "@/lib/huddle-devices";
 import { STICKERS } from "@/lib/huddle-stickers";
-import { OPEN_HUDDLE, openHuddle, showHuddleSticker, showHuddleThread, takeCamerasSmall, type JoinedHuddle } from "@/lib/huddle-store";
-import { SCREEN_SHAPE, showsCamerasSmall, stageLayout, TILE_GAP, tilesLayout } from "@/lib/huddle-tiles";
+import { OPEN_HUDDLE, openHuddle, showHuddleSticker, showHuddleThread, takeCamerasIn, type JoinedHuddle } from "@/lib/huddle-store";
+import { cameraSizeFor, SCREEN_SHAPE, stageLayout, TILE_GAP, tilesLayout } from "@/lib/huddle-tiles";
 import { cn } from "@/lib/utils";
 import { HuddleInviteDialog } from "./huddle-invite-dialog";
 import { HuddlePicture } from "./huddle-picture";
 import { HuddleReactions } from "./huddle-reactions";
 import { RisingReactions } from "./huddle-rising";
 import { HuddleThread } from "./huddle-thread";
-import { CameraTool, InviteTool, LeaveButton, MicrophoneTool, MoreTool, RaiseHandTool, ReactTool, ScreenTool, SwitchCameraTool, ThreadTool, useHuddleName, waitingToJoin } from "./huddle-tools";
+import {
+  CameraTool,
+  InviteTool,
+  isUnstable,
+  LeaveButton,
+  MicrophoneTool,
+  MoreTool,
+  RaiseHandTool,
+  ReactTool,
+  ScreenTool,
+  SwitchCameraTool,
+  ThreadTool,
+  UNSTABLE,
+  UnstableMark,
+  useHuddleName,
+  waitingToJoin,
+} from "./huddle-tools";
 import { UserAvatar } from "./user-avatar";
 
 interface Space {
@@ -99,6 +116,7 @@ function Tile({ person, name, you, picture, className }: TileProps) {
         <UserAvatar user={person.user} square className="row-start-2 aspect-square h-auto w-[min(40cqw,96px,calc(100cqh-50px))] rounded-[16%]" />
       )}
       <span className={CAPTION}>
+        {person.unstable && <WifiWarning aria-label="Unstable connection" className="size-3.5 shrink-0 text-caution" />}
         {person.muted && <MicrophoneMute aria-label="Muted" className="size-3.5 shrink-0 text-muted-foreground" />}
         <span className="truncate">
           {name}
@@ -270,13 +288,16 @@ export function HuddleView({ huddle, room, me, onFailed }: Props) {
   const [shaped, setShaped] = useState<Shaped | null>(null);
   const shape = shaped && shaped.userId === staged?.id ? shaped.shape : SCREEN_SHAPE;
   const tileCount = count + (huddle.screen ? 1 : 0) + Math.max(0, sharing.length - 1);
-  const stage = staged && stagedScreen ? { user: staged, stream: stagedScreen, ...stageLayout(tileCount, shape, space.width, space.height) } : null;
-  const { columns, width, square } = stage?.tiles ?? tilesLayout(tileCount, space.width, space.height);
-  // The huddle is sent each camera in the size its tiles show, once it has tiles and knows what size they are, as is the next this tab joins from here.
-  const [sized, small] = [tileCount > 0 && space.width > 0, showsCamerasSmall({ width, square })];
+  // Tiles are as large as the workspace's video quality sends a camera's picture to show.
+  const quality = useHuddleVideo();
+  const stage = staged && stagedScreen ? { user: staged, stream: stagedScreen, ...stageLayout(tileCount, shape, space.width, space.height, quality) } : null;
+  const { columns, width, square } = stage?.tiles ?? tilesLayout(tileCount, space.width, space.height, quality);
+  // The huddle is sent each camera in the size its tiles show on this screen, once it has tiles and knows what size they are, as is the next this tab joins from here.
+  const pixelRatio = usePixelRatio();
+  const [sized, cameraSize] = [tileCount > 0 && space.width > 0, cameraSizeFor({ width, square }, pixelRatio)];
   useEffect(() => {
-    if (sized) takeCamerasSmall(small);
-  }, [sized, small, huddle.roomId]);
+    if (sized) takeCamerasIn(cameraSize);
+  }, [sized, cameraSize, huddle.roomId]);
   // It covers the page whatever had the focus there, so it takes it as it opens.
   const section = useRef<HTMLElement>(null);
   useEffect(() => section.current?.focus(), []);
@@ -316,6 +337,16 @@ export function HuddleView({ huddle, room, me, onFailed }: Props) {
         <h2 className="truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">{name}</h2>
         <span aria-live="polite" className="shrink-0 text-sm text-muted-foreground">
           {waitingToJoin(huddle) ?? (count === 1 ? "1 person" : `${count} people`)}
+        </span>
+        {/* In a word on a phone, whose header has no room for more beside the huddle's name. */}
+        <span aria-live="polite" className="min-w-0 truncate text-sm">
+          {isUnstable(huddle) && (
+            <>
+              <UnstableMark />
+              <span className="max-md:hidden">{UNSTABLE}</span>
+              <span className="md:hidden">Unstable</span>
+            </>
+          )}
         </span>
         <button
           type="button"

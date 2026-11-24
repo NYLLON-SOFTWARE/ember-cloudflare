@@ -68,7 +68,10 @@ works, and [`docs/database.md`](database.md) compares the schema with Campfire's
 `e2e/` drives the production build in Chromium, and in Safari's engine, WebKit, against
 `wrangler dev` on :8788 with its own state in `e2e/.wrangler`. Every suite shares `e2e/playwright.config.ts` and `e2e/fixtures.ts`
 (sign in, an isolated room, other participants over a real WebSocket); each adds its projects
-from `e2e/projects/` and its specs under `e2e/tests/<suite>/`.
+from `e2e/projects/` and its specs under `e2e/tests/<suite>/`. The fixtures have Playwright send a
+test's request again, once, should its connection be reset: `wrangler dev` closes a connection that
+has been idle for five seconds, and a request sent at that moment, on one Playwright kept open, is
+lost before the server reads it.
 
 ```sh
 pnpm --filter @ember/e2e exec playwright install chromium   # once
@@ -106,7 +109,7 @@ workspace, get a second server, over HTTPS, which the same first run sets up. Th
 made-up microphone, camera and screen to share, for the huddles spec, whose stand-in for Cloudflare's
 Realtime SFU (`e2e/tests/workspace-settings/fake-sfu.ts`) passes what each browser says and shows on
 to the others through a page of its own, so a huddle there is heard and seen for real, each camera
-in whichever of its two sizes the room asks for. It answers for Cloudflare's TURN service too, with
+in whichever of its sizes the room asks for. It answers for Cloudflare's TURN service too, with
 servers at an address where nothing listens, so the spec sees which servers each tab's connections
 go by, and nothing is relayed.
 
@@ -155,12 +158,17 @@ Cloudflare button for it and list what's changed since the release or beta befor
 offered it unless it asks for one, or runs an earlier beta ([Betas](self-hosting.md#betas)). The
 tests that name the release expect it named "0.5 beta 1". The release itself then sets `0.5.0`, and
 its notes list what's changed since the release before, as the copies it's offered come from there.
+A release whose list is long can open its notes with what's new in it, in words: the pull request that
+raises the version adds them as `docs/releases/<version>.md`, as `docs/releases/0.5.0.md` does, and the
+Release workflow puts them ahead of the list. Write [at]ember there, as [at]channel and the rest, never
+@ and the name, which GitHub reads in a release's notes as one of its accounts, and lists among the
+release's contributors.
 Ember's version is a release's or a beta's, which the Release workflow checks, since copies tell
 them apart by their tags and know no other kind.
 
 ## Performance
 
 `pnpm perf` load-tests the Worker under `wrangler dev` on both storage backends (latency,
-throughput, fan-out, room size, history paging, search) and measures how the web app loads and renders a
-busy room. `perf/README.md` explains the scenarios and how to compare two runs; the numbers the
+throughput, fan-out, room size, history paging, search, huddles) and measures how the web app loads
+and renders a busy room. `perf/README.md` explains the scenarios and how to compare two runs; the numbers the
 suite started with are in `perf/baseline/report.md`.

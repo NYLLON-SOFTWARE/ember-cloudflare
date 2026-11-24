@@ -226,6 +226,55 @@ test.describe("Levels on your profile", () => {
   });
 });
 
+/** The rail's Pause notifications, named for when the pause ends while there's one. */
+const pauseButton = (page: Page) => page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: /^(Pause notifications|Notifications paused until .+)$/ });
+
+/** The half-moon on `member`'s picture in `page`'s rail, shown while their notifications are paused. */
+const yourPauseMark = (page: Page) => page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).locator("[data-paused]");
+
+test.describe("Pause notifications", () => {
+  test("pauses them from the rail for everywhere you're signed in, with a half-moon on your picture that the others see, kept on reload until you resume them on your profile", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"));
+    const grace = await members.signIn(unique("Grace"));
+    await startDirect(request, ada, [grace]);
+    const adaInGraces = grace.page.getByRole("region", { name: "DMs" }).getByRole("link", { name: `Direct message with ${ada.name}`, exact: true });
+    await expect(adaInGraces).toHaveAccessibleDescription(/^Active/);
+    await expect(adaInGraces.locator("[data-paused]")).toHaveCount(0);
+    const secondTab = await ada.page.context().newPage();
+    await secondTab.goto("/");
+    await expect(pauseButton(secondTab)).toHaveAccessibleName("Pause notifications");
+
+    await pauseButton(ada.page).click();
+    await expect(ada.page.getByRole("menuitem")).toHaveText(["30 minutes", "1 hour", "2 hours", "Until tomorrow"]);
+    await ada.page.getByRole("menuitem", { name: "1 hour" }).click();
+    for (const page of [ada.page, secondTab]) {
+      await expect(pauseButton(page)).toHaveAccessibleName(/^Notifications paused until (tomorrow at )?\d{1,2}:\d{2}/);
+      await expect(yourPauseMark(page)).toBeVisible();
+    }
+    await expect(adaInGraces).toHaveAccessibleDescription(/^Active, notifications paused/);
+    await expect(adaInGraces.locator("[data-paused]")).toBeVisible();
+
+    // The server keeps it: a reload shows it paused still, and its menu offers to resume them.
+    await ada.page.reload();
+    await expect(pauseButton(ada.page)).toHaveAccessibleName(/^Notifications paused until /);
+    await pauseButton(ada.page).click();
+    await expect(ada.page.getByRole("menuitem")).toHaveText(["Resume notifications", "30 minutes", "1 hour", "2 hours", "Until tomorrow"]);
+    await ada.page.keyboard.press("Escape");
+
+    await openYourProfile(secondTab);
+    const onProfile = secondTab.getByRole("region", { name: "Pause notifications" });
+    await expect(onProfile).toContainText(/Paused until (tomorrow at )?\d{1,2}:\d{2}/);
+    await onProfile.getByRole("button", { name: "Resume notifications" }).click();
+    await expect(onProfile.getByRole("button", { name: "Resume notifications" })).toHaveCount(0);
+    for (const page of [ada.page, secondTab]) {
+      await expect(pauseButton(page)).toHaveAccessibleName("Pause notifications");
+      await expect(yourPauseMark(page)).toHaveCount(0);
+    }
+    await expect(adaInGraces).not.toHaveAccessibleDescription(/notifications paused/);
+    await expect(adaInGraces.locator("[data-paused]")).toHaveCount(0);
+  });
+});
+
 test.describe("Save push subscriptions", () => {
   test("Log out ends this browser's push subscription, and the server forgets it, but not another browser's", async ({ browser, baseURL, rooms }) => {
     const laptop = await administratorOn(browser, baseURL!, rooms.general);

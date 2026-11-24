@@ -105,4 +105,12 @@ describe("What an answer cites of the pages Ember's searches found", () => {
   it("counts no pages when no searches found any", () => {
     expect(citedIn("It's a proxy [1].", [])).toEqual({ text: "It's a proxy [1].", cited: [] });
   });
+
+  it("reads a table however few cells its rows write, and quotes however deep they go, only as far as Markdown here is read", () => {
+    // A header of 1,500 cells over rows of a letter each, which marked gives 1,500 cells apiece.
+    const table = [`|${"h|".repeat(1_500)}`, `|${"-|".repeat(1_500)}`, ...Array<string>(2_990).fill("a")].join("\n");
+    expect(citedIn(`${table} [2]`, PAGES)).toEqual({ text: table, cited: [BLOG] });
+    const quoted = `${">".repeat(5_000)} deep`;
+    expect(citedIn(`${quoted} [1]`, PAGES)).toEqual({ text: quoted, cited: [DOCS] });
+  });
 });

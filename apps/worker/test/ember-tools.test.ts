@@ -1,4 +1,4 @@
-import { ASSISTANT_ID, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
+import { ASSISTANT_ID, HISTORY_PAGE_SIZE, type Me, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
 import type { AgentAnswer, AgentSettings, NewAgent } from "@ember/protocol/agents";
 import { maxTokensAt, DEFAULT_LEVELS, type ModelFormat } from "@ember/protocol/assistant";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
@@ -6,13 +6,14 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NOTES, ROOM_MESSAGES_READ } from "../src/assistant/answers";
 import { ask as askModel, askOnce, askWaiting, goOn, type Asking, type Gateway, type PausedAnswer, type Question } from "../src/assistant/gateway";
-import { MAX_FOUND_LENGTH, MESSAGES_FOUND } from "../src/assistant/room-search";
-import { CALL_DECLINED, CALLS_MADE, decided, goingOn, NO_CALLS_LEFT, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, ToolError, withRoom, type EmberTool } from "../src/assistant/tool-calls";
+import { MAX_FOUND_LENGTH, MAX_READ_LENGTH, MESSAGES_FOUND, READ_ENOUGH, roomTools, type RoomRead, type RoomReader } from "../src/assistant/room-tools";
+import { CALL_DECLINED, CALLS_MADE, decided, goingOn, NO_CALLS_LEFT, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, ToolError, withRoom, type EmberTool, type Unlogged } from "../src/assistant/tool-calls";
 import type { Env } from "../src/env";
 import { answerWithKeptModel, api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, shown, workspaceSql, type Client, type Session } from "./support";
 
 // The tools Ember runs for @ember and the agents: a model that calls one is asked again with what the
-// call came to, in its format, for as many calls as an answer may make. The first searches the room.
+// call came to, in its format, for as many calls as an answer may make. The first read the room: its
+// search, its pages, and its threads.
 
 const bindings = env as unknown as Env;
 const EMBER = { id: ASSISTANT_ID };
@@ -27,32 +28,38 @@ interface Asked {
   logsKeep: string | null;
 }
 
-/** What a model does in a turn: calls the room's search for each of `calls`, or answers `text`. */
-type Turn = { calls: string[]; written?: number } | { text: string };
+/** A call a model makes: of the room's search for some words, or of a tool by its name, with what it's called with. */
+type Call = string | { name: string; input: Record<string, unknown> };
+
+/** What a model does in a turn: makes each of `calls`, or answers `text`. */
+type Turn = { calls: Call[]; written?: number } | { text: string };
+
+/** `call` by its tool's name, with what it's called with. */
+const toolCallOf = (call: Call) => (typeof call === "string" ? { name: "search_messages", input: { words: call } } : call);
 
 /** The format of the API at `url`, as its answers come. */
 const shapeOf = (url: string) => (url.endsWith("/messages") ? "messages" : url.endsWith("/responses") ? "responses" : "chat");
 
-/** What a model sends back for `turn`, the `nth` of an answer, in the format of the API at `url`: its thinking, then its calls of `search_messages`, or its answer. */
+/** What a model sends back for `turn`, the `nth` of an answer, in the format of the API at `url`: its thinking, then its calls, or its answer. */
 function turnIn(url: string, turn: Turn, nth: number): Response {
   const shape = shapeOf(url);
-  const calls = "calls" in turn ? turn.calls.map((words, index) => ({ id: `call_${nth}_${index}`, words })) : [];
+  const calls = "calls" in turn ? turn.calls.map((call, index) => ({ id: `call_${nth}_${index}`, ...toolCallOf(call) })) : [];
   const written = "calls" in turn ? (turn.written ?? 50) : 50;
   if (shape === "messages") {
-    const content = "text" in turn ? [{ type: "text", text: turn.text }] : [THOUGHT, { type: "text", text: "I'll look." }, ...calls.map(({ id, words }) => ({ type: "tool_use", id, name: "search_messages", input: { words } }))];
+    const content = "text" in turn ? [{ type: "text", text: turn.text }] : [THOUGHT, { type: "text", text: "I'll look." }, ...calls.map(({ id, name, input }) => ({ type: "tool_use", id, name, input }))];
     return Response.json({ type: "message", role: "assistant", content, stop_reason: "text" in turn ? "end_turn" : "tool_use", usage: { input_tokens: 1_000, output_tokens: written } });
   }
   if (shape === "responses") {
     const output =
       "text" in turn
         ? [{ type: "message", role: "assistant", content: [{ type: "output_text", text: turn.text }] }]
-        : [REASONED, ...calls.map(({ id, words }) => ({ type: "function_call", id: `fc_${id}`, call_id: id, name: "search_messages", arguments: JSON.stringify({ words }), status: "completed" }))];
+        : [REASONED, ...calls.map(({ id, name, input }) => ({ type: "function_call", id: `fc_${id}`, call_id: id, name, arguments: JSON.stringify(input), status: "completed" }))];
     return Response.json({ object: "response", status: "completed", output, usage: { input_tokens: 1_000, output_tokens: written } });
   }
   const message =
     "text" in turn
       ? { role: "assistant", content: turn.text }
-      : { role: "assistant", content: null, tool_calls: calls.map(({ id, words }) => ({ id, type: "function", function: { name: "search_messages", arguments: JSON.stringify({ words }) } })) };
+      : { role: "assistant", content: null, tool_calls: calls.map(({ id, name, input }) => ({ id, type: "function", function: { name, arguments: JSON.stringify(input) } })) };
   return Response.json({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "text" in turn ? "stop" : "tool_calls" }], usage: { prompt_tokens: 1_000, completion_tokens: written } });
 }
 
@@ -109,11 +116,25 @@ async function moveOn(client: Client): Promise<void> {
   for (let n = 1; n < ROOM_MESSAGES_READ; n++) await post(client, `<p>Onwards ${n}</p>`);
 }
 
-/** Asks `bot` `question` in the room `client` is in, once the search index has what was written there, answering the question and what the bot said. */
-async function ask(client: Client, room: RoomId, bot: Pick<User, "id">, question = "when is the launch?"): Promise<{ question: Message; answer: Message }> {
+/** Writes `body` in the room `client` is in, in the thread under `parent`, answering the reply. */
+async function replyTo(client: Client, parent: Message, body: string): Promise<Message> {
+  const clientMessageId = crypto.randomUUID();
+  client.send({ type: "message.create", clientMessageId, body, parentId: parent.id });
+  for (;;) {
+    const { message } = await client.next("message.created");
+    if (message.clientMessageId === clientMessageId) return message;
+  }
+}
+
+/**
+ * Asks `bot` `question` in the room `client` is in, or in the thread under `under`, once the search index
+ * has what was written there, answering the question and what the bot said.
+ */
+async function ask(client: Client, room: RoomId, bot: Pick<User, "id">, question = "when is the launch?", under?: Message): Promise<{ question: Message; answer: Message }> {
   await caughtUp(room);
   const mention = `<action-text-attachment sgid="${mentionSgid(bot.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
-  const sent = await post(client, `<p>${mention} ${question}</p>`);
+  const body = `<p>${mention} ${question}</p>`;
+  const sent = under ? await replyTo(client, under, body) : await post(client, body);
   for (;;) {
     const { message } = await client.next("message.created");
     if (message.creator.id === bot.id) return { question: sent, answer: message };
@@ -123,8 +144,19 @@ async function ask(client: Client, room: RoomId, bot: Pick<User, "id">, question
 /** The requests that asked a model a question in a room, which give it Ember's tools, or would. */
 const answers = () => asked.filter(({ body }) => JSON.stringify(body).includes("when is the launch?"));
 
-const SEARCH_DESCRIBED = { name: "search_messages", description: expect.stringContaining("Searches the messages of the room you're asked in") as string };
-const SEARCH_TAKES = { type: "object", properties: { words: { type: "string", description: expect.any(String) as string } }, required: ["words"], additionalProperties: false };
+/** What a tool `takes`, each of whose properties is a string. */
+const strings = (...names: string[]) => ({ type: "object", properties: Object.fromEntries(names.map((name) => [name, { type: "string", description: expect.any(String) as string }])), additionalProperties: false });
+
+/** The room's tools, as a model is told of them, with what each takes. */
+const ROOM_TOOLS = [
+  { name: "search_messages", description: expect.stringContaining("Searches the messages of the room you're asked in") as string, takes: strings("words", "from") },
+  { name: "read_room", description: expect.stringContaining("Reads the messages of the room you're asked in") as string, takes: strings("before", "after") },
+  { name: "read_thread", description: expect.stringContaining("Reads a thread in the room you're asked in") as string, takes: strings("message_id", "before") },
+];
+const ROOM_TOOL_NAMES = ROOM_TOOLS.map(({ name }) => name);
+
+/** When `message` was written, as the room's tools say it. */
+const whenOf = ({ createdAt }: Pick<Message, "createdAt">) => `${createdAt.slice(0, 10)} ${createdAt.slice(11, 16)} UTC`;
 
 describe("A tool Ember runs", () => {
   it("is called by Claude, which is asked again with what it said, its thinking too, and what the room's search found", async () => {
@@ -139,13 +171,12 @@ describe("A tool Ember runs", () => {
     const [first, second] = answers();
     expect(answers()).toHaveLength(2);
     expect(first!.url).toMatch(/\/anthropic\/v1\/messages$/);
-    expect(first!.body.tools).toEqual([{ ...SEARCH_DESCRIBED, input_schema: SEARCH_TAKES }]);
+    expect(first!.body.tools).toEqual(ROOM_TOOLS.map(({ takes, ...tool }) => ({ ...tool, input_schema: takes })));
     expect(first!.body).not.toHaveProperty("tool_choice");
-    const when = `${said.createdAt.slice(0, 10)} ${said.createdAt.slice(11, 16)} UTC`;
     expect(second!.body.messages).toEqual([
       ...first!.body.messages!,
       { role: "assistant", content: [THOUGHT, { type: "text", text: "I'll look." }, { type: "tool_use", id: "call_1_0", name: "search_messages", input: { words: "launch" } }] },
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1_0", content: `The only message with those words:\n\n[${when}] Ada Lovelace: The launch moved to March 3.` }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1_0", content: `The only message with those words:\n\n[${whenOf(said)}, id ${said.id}] Ada Lovelace: The launch moved to March 3.` }] },
     ]);
     // The answer's turns share its tokens.
     expect(second!.body).toMatchObject({ max_tokens: maxTokensAt(DEFAULT_LEVELS) - 300, tools: first!.body.tools });
@@ -164,7 +195,7 @@ describe("A tool Ember runs", () => {
     const [first, second] = answers();
     expect(answers()).toHaveLength(2);
     expect(first!.url).toMatch(/\/openai\/responses$/);
-    expect(first!.body).toMatchObject({ tools: [{ type: "function", ...SEARCH_DESCRIBED, parameters: SEARCH_TAKES }], store: false, include: ["reasoning.encrypted_content"] });
+    expect(first!.body).toMatchObject({ tools: ROOM_TOOLS.map(({ takes, ...tool }) => ({ type: "function", ...tool, parameters: takes })), store: false, include: ["reasoning.encrypted_content"] });
     expect(second!.body.input).toEqual([
       ...first!.body.input!,
       REASONED,
@@ -186,7 +217,7 @@ describe("A tool Ember runs", () => {
     const [first, second] = answers();
     expect(answers()).toHaveLength(2);
     expect(first!.url).toMatch(/\/ai\/v1\/chat\/completions$/);
-    expect(first!.body.tools).toEqual([{ type: "function", function: { ...SEARCH_DESCRIBED, parameters: SEARCH_TAKES } }]);
+    expect(first!.body.tools).toEqual(ROOM_TOOLS.map(({ takes, ...tool }) => ({ type: "function", function: { ...tool, parameters: takes } })));
     expect(second!.body.messages).toEqual([
       ...first!.body.messages!,
       { role: "assistant", content: null, tool_calls: [{ id: "call_1_0", type: "function", function: { name: "search_messages", arguments: '{"words":"launch"}' } }] },
@@ -197,12 +228,14 @@ describe("A tool Ember runs", () => {
 
   it("runs as many calls as an answer may make, tells the model of the rest that it has none left, and then has it answer", async () => {
     const { general, inGeneral } = await setUp(CLAUDE);
-    script = [{ calls: ["one", "two", "three"] }, { calls: ["four", "five", "six"] }, { text: "I found nothing." }];
+    // All but two of the calls an answer may make search in its first round, and of the three in its next, the last is one too many.
+    const searches = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`);
+    script = [{ calls: searches(TOOL_CALLS_PER_ANSWER - 2) }, { calls: searches(3) }, { text: "I found nothing." }];
 
     const { answer } = await ask(inGeneral, general, EMBER);
     expect(answer.plainText).toBe("I found nothing.");
 
-    expect(TOOL_CALLS_PER_ANSWER).toBe(5);
+    expect(TOOL_CALLS_PER_ANSWER).toBe(20);
     const [, second, third] = answers();
     expect(answers()).toHaveLength(3);
     expect(second!.body).not.toHaveProperty("tool_choice");
@@ -428,7 +461,7 @@ describe("A tool Ember runs", () => {
 
     const { answer } = await ask(inGeneral, general, { id: scout.id });
     expect(answer.plainText).toBe("Nobody said.");
-    expect(answers().map(({ body }) => (body.tools as Array<{ name: string }>).map(({ name }) => name))).toEqual([["search_messages"], ["search_messages"]]);
+    expect(answers().map(({ body }) => (body.tools as Array<{ name: string }>).map(({ name }) => name))).toEqual([ROOM_TOOL_NAMES, ROOM_TOOL_NAMES]);
   });
 });
 
@@ -505,14 +538,17 @@ describe("An answer that waits at a call", () => {
     const call = (id: string, name: string) => ({ type: "function_call", id: `fc_${id}`, call_id: id, name, arguments: "{}", status: "completed" });
     const turn = (output: unknown[]) => ({ object: "response", status: "completed", output, usage: { input_tokens: 1_000, output_tokens: 100 } });
     const said = { type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] };
-    answering([turn([REASONED, call("call_1", "look"), call("call_2", "look"), call("call_3", "look")]), turn([call("call_4", "send"), call("call_5", "send"), call("call_6", "send")]), turn([said])]);
+    // All but two of the calls an answer may make look it up, and of the three sends after them, the last is one too many.
+    const looks = TOOL_CALLS_PER_ANSWER - 2;
+    const [sendOne, sendTwo, sendThree] = [1, 2, 3].map((n) => `call_${looks + n}`) as [string, string, string];
+    answering([turn([REASONED, ...Array.from({ length: looks }, (_, index) => call(`call_${index + 1}`, "look"))]), turn([call(sendOne, "send"), call(sendTwo, "send"), call(sendThree, "send")]), turn([said])]);
     const gateway = gatewayFor(GPT, "openai");
 
     const first = waitingIn(await askWaiting(bindings, gateway, question, 5_000));
-    expect(first.asks).toEqual({ id: "call_4", name: "send", input: {} });
-    expect(first.paused).toMatchObject({ called: 3, tokensLeft: 800, results: [] });
+    expect(first.asks).toEqual({ id: sendOne, name: "send", input: {} });
+    expect(first.paused).toMatchObject({ called: looks, tokensLeft: 800, results: [] });
     const second = waitingIn(await goOn(bindings, gateway, tools, kept(first.paused), true, 5_000));
-    expect(second.asks.id).toBe("call_5");
+    expect(second.asks.id).toBe(sendTwo);
 
     // The tool isn't the agent's any more by the time the second is allowed, and the third is past what an answer may call.
     expect(await goOn(bindings, gateway, tools.slice(0, 1), kept(second.paused), true, 5_000)).toMatchObject({ text: "Done." });
@@ -520,9 +556,9 @@ describe("An answer that waits at a call", () => {
     const [, , last] = asked;
     expect(last!.body).toMatchObject({ tool_choice: "none", max_output_tokens: 800 });
     expect(last!.body.input!.slice(-3)).toEqual([
-      { type: "function_call_output", call_id: "call_4", output: "Sent 1" },
-      { type: "function_call_output", call_id: "call_5", output: "There's no tool called send any more." },
-      { type: "function_call_output", call_id: "call_6", output: NO_CALLS_LEFT },
+      { type: "function_call_output", call_id: sendOne, output: "Sent 1" },
+      { type: "function_call_output", call_id: sendTwo, output: "There's no tool called send any more." },
+      { type: "function_call_output", call_id: sendThree, output: NO_CALLS_LEFT },
     ]);
   });
 
@@ -633,34 +669,129 @@ describe("An answer that waits at a call", () => {
   });
 });
 
+/** What a tool answered a call, as Claude is told it, and whether it failed. */
+interface Result {
+  content: string;
+  is_error?: boolean;
+}
+
+/**
+ * What the room's tools answer `calls`, which Claude makes in the first turn of its answer to a question
+ * asked in `room`, or in the thread under `under`, with the question.
+ */
+async function called(client: Client, room: RoomId, calls: Call[], under?: Message): Promise<{ results: Result[]; question: Message }> {
+  asked.length = 0;
+  script = [{ calls }, { text: "Done." }];
+  const { question } = await ask(client, room, EMBER, undefined, under);
+  return { results: (answers()[1]!.body.messages!.at(-1) as { content: Result[] }).content, question };
+}
+
+/** What each of `results` says, and whether it failed. */
+const said = (results: Result[]) => results.map(({ content, is_error }) => [content, is_error === true]);
+
+/** Someone called `name` joins with the join link as a member, signed in, with the email address `emailAddress`. */
+async function join(name: string, emailAddress: string): Promise<Session> {
+  const [{ join_code: joinCode }] = (await workspaceSql("SELECT join_code FROM accounts")) as [{ join_code: string }];
+  const response = await api(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify({ name, emailAddress, password: "nanoseconds" }) });
+  expect(response.status, await response.clone().text()).toBe(201);
+  return { user: shown(((await response.json()) as { user: Me }).user), cookie: cookieOf(response) };
+}
+
+/** How the room's tools write `message`, a message of Ada's in the room or a reply in a thread they're reading. */
+const adasLine = (message: Message) => `[${whenOf(message)}, id ${message.id}] Ada Lovelace: ${message.plainText}`;
+
 describe("The room's search", () => {
   /** What the search answers Claude's call for `words` in an answer to a question asked in `room`. */
   async function searching(client: Client, room: RoomId, words: string): Promise<{ found: string; question: Message }> {
-    asked.length = 0;
-    script = [{ calls: [words] }, { text: "Done." }];
-    const { question } = await ask(client, room, EMBER);
-    const results = (answers()[1]!.body.messages!.at(-1) as { content: Array<{ content: string }> }).content;
+    const { results, question } = await called(client, room, [words]);
     return { found: results[0]!.content, question };
   }
 
-  it("finds only the room's own messages, newest first, in its threads too", async () => {
+  it("finds only the room's own messages, newest first, in its threads too, each with its id and its thread", async () => {
     const { ada, general, inGeneral } = await setUp(CLAUDE);
     const elsewhere = await createRoom("elsewhere");
     const inElsewhere = await connect(elsewhere.id, ada);
     await post(inElsewhere, "<p>The launch is a secret here.</p>");
     await caughtUp(elsewhere.id);
     const first = await post(inGeneral, "<p>The launch moved to March 3.</p>");
-    inGeneral.send({ type: "message.create", clientMessageId: crypto.randomUUID(), body: "<p>Is the launch party on too?</p>", parentId: first.id });
-    await inGeneral.next("message.created");
+    const reply = await replyTo(inGeneral, first, "<p>Is the launch party on too?</p>");
     await moveOn(inGeneral);
 
     const { found } = await searching(inGeneral, general, "launch");
-    const lines = found.split("\n\n");
-    expect(lines).toEqual([
+    expect(found.split("\n\n")).toEqual([
       "All 2 messages with those words, newest first:",
-      expect.stringMatching(/^\[\d{4}-\d\d-\d\d \d\d:\d\d UTC, in a thread\] Ada Lovelace: Is the launch party on too\?$/),
-      expect.stringMatching(/^\[\d{4}-\d\d-\d\d \d\d:\d\d UTC\] Ada Lovelace: The launch moved to March 3\.$/),
+      `[${whenOf(reply)}, id ${reply.id}, a reply in the thread under ${first.id}] Ada Lovelace: Is the launch party on too?`,
+      `[${whenOf(first)}, id ${first.id}, 1 reply in its thread] Ada Lovelace: The launch moved to March 3.`,
     ]);
+  });
+
+  it("finds what someone wrote, by their name as the conversation has it, with words or without, of everyone with that name", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const [grace, namesake] = [await join("Grace Hopper", "grace@example.com"), await join("Grace Hopper", "hopper@example.com")];
+    const launch = await post(await connect(general, grace), "<p>The launch moved to March 3.</p>");
+    const lunch = await post(await connect(general, namesake), "<p>Lunch is at noon.</p>");
+    await post(inGeneral, "<p>The launch party is at five.</p>");
+    await moveOn(inGeneral);
+
+    const { results } = await called(inGeneral, general, [
+      { name: "search_messages", input: { from: "grace hopper" } },
+      { name: "search_messages", input: { from: "Grace Hopper", words: "launch" } },
+      { name: "search_messages", input: { from: "Ada Lovelace", words: "kumquat" } },
+      { name: "search_messages", input: { from: "Nobody Here" } },
+      { name: "search_messages", input: { from: " " } },
+    ]);
+    const line = ({ id, plainText, ...message }: Message) => `[${whenOf(message)}, id ${id}] Grace Hopper: ${plainText}`;
+    expect(said(results)).toEqual([
+      [["All 2 messages from grace hopper, newest first:", line(lunch), line(launch)].join("\n\n"), false],
+      [`The only message from Grace Hopper with those words:\n\n${line(launch)}`, false],
+      ["No message in this room from anyone named Ada Lovelace has those words.", false],
+      ["No message in this room is from anyone named Nobody Here.", false],
+      ["Give `from` as the name of whoever wrote the messages, as the conversation names them.", true],
+    ]);
+  });
+
+  /** Renames whoever `session` is `name`, which the messages they wrote before don't take. */
+  async function rename(session: Session, name: string): Promise<void> {
+    const renamed = await api("/api/users/me/profile", { method: "PATCH", headers: as(session), body: JSON.stringify({ name }) });
+    expect(renamed.status, await renamed.clone().text()).toBe(200);
+  }
+
+  /** How the room's tools write `message`, written by someone then called `name`, as a search finds it. */
+  const foundAs = (name: string, { id, plainText, ...message }: Message) => `[${whenOf(message)}, id ${id}] ${name}: ${plainText}`;
+
+  it("finds what someone wrote by the name the conversation gives them, though they've changed it since", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const grace = await join("Grace Hopper", "grace@example.com");
+    const inGraces = await connect(general, grace);
+    const launch = await post(inGraces, "<p>The launch moved to March 3.</p>");
+    await moveOn(inGeneral);
+    await post(inGraces, "<p>Lunch is at noon.</p>");
+    await rename(grace, "Amazing Grace");
+
+    const { results } = await called(inGeneral, general, [{ name: "search_messages", input: { from: "Grace Hopper" } }]);
+    expect(said(results)).toEqual([[`The only message from Grace Hopper:\n\n${foundAs("Grace Hopper", launch)}`, false]]);
+  });
+
+  it("finds what someone wrote by a name a read gave them, though they've changed it since, and what whoever has it now wrote", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const grace = await join("Grace Hopper", "grace@example.com");
+    const launch = await post(await connect(general, grace), "<p>The launch moved to March 3.</p>");
+    await rename(grace, "Amazing Grace");
+    const namesake = await join("Grace Hopper", "hopper@example.com");
+    const tea = await post(await connect(general, namesake), "<p>Tea is at four.</p>");
+    await moveOn(inGeneral);
+
+    const { results } = await called(inGeneral, general, [
+      { name: "search_messages", input: { from: "Grace Hopper" } },
+      { name: "read_room", input: {} },
+      { name: "search_messages", input: { from: "grace hopper" } },
+      { name: "search_messages", input: { from: "Amazing Grace" } },
+    ]);
+    const [before, read, after, now] = said(results);
+    expect(before).toEqual([`The only message from Grace Hopper:\n\n${foundAs("Grace Hopper", tea)}`, false]);
+    expect(read![0]).toContain(foundAs("Grace Hopper", launch));
+    expect(after).toEqual([["All 2 messages from grace hopper, newest first:", foundAs("Grace Hopper", tea), foundAs("Grace Hopper", launch)].join("\n\n"), false]);
+    expect(now).toEqual([`The only message from Amazing Grace:\n\n${foundAs("Grace Hopper", launch)}`, false]);
   });
 
   it("leaves out the messages the model was given with the question, however many match, and finds what was written before them", async () => {
@@ -710,10 +841,189 @@ describe("The room's search", () => {
     expect(rest.map((line) => line.split(": ")[1])).toEqual(Array.from({ length: MESSAGES_FOUND - 1 }, (_, index) => `Kumquat count ${MESSAGES_FOUND + 2 - index}`));
   });
 
-  it("tells the model what it needs when it's called without words", async () => {
+  it("tells the model what it needs when it's called without words or a name", async () => {
     const { general, inGeneral } = await setUp(CLAUDE);
     const { found } = await searching(inGeneral, general, " ?! ");
-    expect(found).toBe("Give the words to find, as `words`.");
+    expect(found).toBe("Give the words to find, as `words`, or the name of whoever wrote the messages, as `from`.");
+  });
+});
+
+describe("Reading the room", () => {
+  it("reads back from the question, what the model was given too, a page at a time to the room's start", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const launch = await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    await replyTo(inGeneral, launch, "<p>Is the party on too?</p>");
+    const onwards: Message[] = [];
+    for (let n = 1; n <= HISTORY_PAGE_SIZE; n++) onwards.push(await post(inGeneral, `<p>Onwards ${n}</p>`));
+
+    const { results } = await called(inGeneral, general, [
+      { name: "read_room", input: {} },
+      { name: "read_room", input: { before: onwards[0]!.id } },
+    ]);
+    expect(said(results)).toEqual([
+      [[`The room's ${HISTORY_PAGE_SIZE} messages before the message you're asked, oldest first:`, ...onwards.map(adasLine), `To read further back, call read_room with \`before\` set to ${onwards[0]!.id}.`].join("\n\n"), false],
+      [[`The room's 1 message before message ${onwards[0]!.id}, oldest first:`, `[${whenOf(launch)}, id ${launch.id}, 1 reply in its thread] Ada Lovelace: The launch moved to March 3.`, "That's the start of the room."].join("\n\n"), false],
+    ]);
+  });
+
+  it("reads on after a message it names, to the room's newest, and tells the model what it needs when it names none the room has", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const [first, second] = [await post(inGeneral, "<p>First</p>"), await post(inGeneral, "<p>Second</p>")];
+
+    const { results, question } = await called(inGeneral, general, [
+      { name: "read_room", input: { after: first.id } },
+      { name: "read_room", input: { before: "nothing-here" } },
+      { name: "read_room", input: { before: second.id, after: first.id } },
+      { name: "read_room", input: { after: 3 } },
+    ]);
+    expect(said(results)).toEqual([
+      [[`The room's 2 messages after message ${first.id}, oldest first:`, adasLine(second), adasLine(question), "That's the room's newest message."].join("\n\n"), false],
+      ["The room has no message with that id.", true],
+      ["Give `before` or `after`, not both.", true],
+      ["Give `after` as a message's id.", true],
+    ]);
+  });
+});
+
+describe("Reading a thread", () => {
+  it("reads the thread it's asked in, the message it's under first, then its newest replies, older ones a page at a time, and the room before it", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const before = await post(inGeneral, "<p>What led to it</p>");
+    const launch = await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    const replies: Message[] = [];
+    for (let n = 1; n <= HISTORY_PAGE_SIZE; n++) replies.push(await replyTo(inGeneral, launch, `<p>Reply ${n}</p>`));
+
+    const calls = [
+      { name: "read_thread", input: {} },
+      { name: "read_thread", input: { message_id: replies[5]!.id, before: replies[1]!.id } },
+      { name: "read_room", input: {} },
+    ];
+    const { results, question } = await called(inGeneral, general, calls, launch);
+    expect(said(results)).toEqual([
+      [
+        [
+          `The thread under message ${launch.id}: the message, then its newest ${HISTORY_PAGE_SIZE} replies, oldest first:`,
+          `[${whenOf(launch)}, id ${launch.id}, ${HISTORY_PAGE_SIZE + 1} replies in its thread] Ada Lovelace: The launch moved to March 3.`,
+          ...[...replies.slice(1), question].map(adasLine),
+          `To read older replies, call read_thread with \`message_id\` set to ${launch.id} and \`before\` set to ${replies[1]!.id}.`,
+        ].join("\n\n"),
+        false,
+      ],
+      [`The reply before reply ${replies[1]!.id} in the thread under message ${launch.id}, oldest first:\n\n${adasLine(replies[0]!)}`, false],
+      [["The room's 1 message before the thread you're asked in, oldest first:", adasLine(before), "That's the start of the room."].join("\n\n"), false],
+    ]);
+  });
+
+  it("reads the thread of a message it names, or of a reply in it, and tells the model when there's none to read", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const launch = await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    const [party, cake] = [await replyTo(inGeneral, launch, "<p>Is the party on?</p>"), await replyTo(inGeneral, launch, "<p>With cake.</p>")];
+    const quiet = await post(inGeneral, "<p>Nobody answered this.</p>");
+
+    const { results } = await called(inGeneral, general, [
+      { name: "read_thread", input: { message_id: launch.id } },
+      { name: "read_thread", input: { message_id: cake.id } },
+      { name: "read_thread", input: { message_id: quiet.id } },
+      { name: "read_thread", input: {} },
+      { name: "read_thread", input: { message_id: "nothing-here" } },
+      { name: "read_thread", input: { message_id: launch.id, before: quiet.id } },
+    ]);
+    const thread = [
+      `The thread under message ${launch.id}: the message, then all 2 of its replies, oldest first:`,
+      `[${whenOf(launch)}, id ${launch.id}, 2 replies in its thread] Ada Lovelace: The launch moved to March 3.`,
+      adasLine(party),
+      adasLine(cake),
+    ].join("\n\n");
+    expect(said(results)).toEqual([
+      [thread, false],
+      [thread, false],
+      [`Message ${quiet.id} has no replies:\n\n${adasLine(quiet)}`, false],
+      ["You weren't asked in a thread, so give the id of the message whose thread to read, as `message_id`.", true],
+      ["The room has no message with that id.", true],
+      [`The thread under message ${launch.id} has no reply with the id given as \`before\`.`, true],
+    ]);
+  });
+});
+
+describe("What an answer's calls read of the room", () => {
+  const AT = "2026-10-31T12:00:00.000Z";
+  /** A message as a room has it, of Ada's, written at noon. */
+  const message = (id: string, plainText: string, changes: Partial<Message> = {}): Message => ({
+    id,
+    clientMessageId: id,
+    roomId: "room",
+    creator: { id: "ada", name: "Ada Lovelace" },
+    body: `<p>${plainText}</p>`,
+    plainText,
+    mentions: [],
+    createdAt: AT,
+    updatedAt: AT,
+    editedAt: null,
+    boosts: [],
+    ...changes,
+  });
+  /** How the tools write `message`, or a reply in the thread they read, with what else they say of it. */
+  const lineOf = ({ id, plainText }: Message, ...facts: string[]) => `[2026-10-31 12:00 UTC, ${[`id ${id}`, ...facts].join(", ")}] Ada Lovelace: ${plainText}`;
+  /** A room whose messages are `messages`, oldest first, with one thread, of `replies`, as the tools read it. */
+  const roomOf = (messages: Message[], replies: Message[] = []): RoomReader => ({
+    page: async ({ before }) => {
+      const end = messages.findIndex(({ id }) => id === before);
+      return end < 0 ? null : { messages: messages.slice(Math.max(0, end - HISTORY_PAGE_SIZE), end), hasMore: end > HISTORY_PAGE_SIZE, hasNewer: true };
+    },
+    find: async (id) => [...messages, ...replies].find((message) => message.id === id) ?? null,
+    replies: async () => ({ messages: replies, hasMore: false }),
+  });
+  /** The tool called `name` that reads `reader`'s room, `roomId`, for an answer to `question` whose calls have `read` what they have. */
+  const toolIn = (reader: RoomReader, question: Message, read: RoomRead, name: string, roomId: RoomId = "room") =>
+    roomTools({ env: bindings, roomId, askerId: "ada", question, given: [question], reader, read }).find(({ tool }) => tool.name === name)!.tool;
+  /** What an answer's calls have read when they may read `left` more characters, and have read nothing yet. */
+  const leaving = (left: number): RoomRead => ({ left, writers: [] });
+  /** What a tool said, kept out of AI Gateway's logs or not. */
+  const textOf = (said: string | Unlogged) => (typeof said === "string" ? said : said.text);
+
+  it("is as much as it has left to read, the messages nearest where each read starts, after which its model is told it has read enough", async () => {
+    const messages = Array.from({ length: 5 }, (_, n) => message(`m${n}`, `Message ${n}`, n === 2 ? { creator: { id: "grace", name: "Grace Hopper" } } : {}));
+    const roomRead = leaving(lineOf(messages[2]!).length + lineOf(messages[3]!).length + 1);
+    const read = toolIn(roomOf(messages), messages[4]!, roomRead, "read_room");
+
+    expect(textOf(await read.run({})).split("\n\n")).toEqual([
+      "The room's 2 messages before the message you're asked, oldest first:",
+      lineOf(messages[2]!).replace("Ada Lovelace", "Grace Hopper"),
+      lineOf(messages[3]!),
+      "To read further back, call read_room with `before` set to m2.",
+    ]);
+    // Who wrote what it read, by the names it read, once each, nearest first.
+    expect(roomRead).toEqual({ left: 1, writers: [{ id: "ada", name: "Ada Lovelace" }, { id: "grace", name: "Grace Hopper" }] });
+    await expect(read.run({ before: "m2" })).rejects.toThrow(READ_ENOUGH);
+    expect(roomRead.left).toBe(1);
+  });
+
+  it("reads the message a thread is under only with a reply, and each message only so far", async () => {
+    const launch = message("m0", "The launch moved to March 3.", { thread: { count: 1, latestAt: AT, people: [] } });
+    const reply = message("r0", `Is the party on? ${"Yes ".repeat(MAX_READ_LENGTH)}`, { parentId: "m0" });
+    const question = message("m1", "@Ember what did they say?");
+    const shown = `${reply.plainText.slice(0, MAX_READ_LENGTH - 1).trimEnd()}…`;
+    const [head, rest] = [lineOf(launch, "1 reply in its thread"), lineOf({ ...reply, plainText: shown })];
+    const roomRead = leaving(head.length + rest.length - 1);
+    const read = toolIn(roomOf([launch, question], [reply]), question, roomRead, "read_thread");
+
+    await expect(read.run({ message_id: "r0" })).rejects.toThrow(READ_ENOUGH);
+    expect(roomRead).toEqual(leaving(head.length + rest.length - 1));
+    roomRead.left += 1;
+    expect(textOf(await read.run({ message_id: "r0" }))).toBe(["The thread under message m0: the message, then its only reply, oldest first:", head, rest].join("\n\n"));
+    expect(roomRead.left).toBe(0);
+  });
+
+  it("is kept out of AI Gateway's logs once the room is private, or gone, as what it was asked in the open isn't", async () => {
+    const { ada, general } = await setUp(CLAUDE);
+    const leads = (await createRoom("Leads", { closedTo: [ada.user.id], as: ada })).id;
+    const messages = [message("m0", "The budget is forty thousand."), message("m1", "@Ember what's the budget?")];
+    const readIn = (roomId: RoomId) => toolIn(roomOf(messages), messages[1]!, leaving(1_000), "read_room", roomId).run({});
+
+    const text = ["The room's 1 message before the message you're asked, oldest first:", lineOf(messages[0]!), "That's the start of the room."].join("\n\n");
+    expect(await readIn(general)).toBe(text);
+    expect(await readIn(leads)).toEqual({ text, unlogged: true });
+    expect(await readIn("gone")).toEqual({ text, unlogged: true });
   });
 });
 

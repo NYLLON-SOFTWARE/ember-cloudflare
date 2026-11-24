@@ -229,7 +229,7 @@ async function triedAnswer(
   // One kept from before in another format is asked in Workers AI's at the levels the model search lists.
   const listed = offered ?? (known && format !== known.format ? await offeredModel(env, trial.model, through) : null);
   const thinkingLevels = (known && format === known.format ? known.thinkingLevels : listed?.thinkingLevels) ?? undefined;
-  const question = questionFor(answerer, [{ creator: asker, plainText: trial.question }], asker, where, levels, new Date(), webTools);
+  const question = questionFor(answerer, { messages: [{ creator: asker, plainText: trial.question }] }, asker, where, levels, new Date(), webTools);
   const answered = await ask(env, { ...through, model: trial.model, format, thinkingLevels }, question, waitFor(question));
   return "refusal" in answered ? answered : { ...answered, webTools };
 }

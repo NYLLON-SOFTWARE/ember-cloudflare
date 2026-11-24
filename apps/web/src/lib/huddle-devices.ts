@@ -1,7 +1,10 @@
+import type { HuddleVideoQuality } from "@ember/protocol/huddles";
+
 // The microphone, the speaker and the camera a huddle uses, which its preview lets someone choose, as
 // the huddle's own menus do once they're in it, or on a phone, its button that switches cameras, and
 // this browser remembers for the next, and the screen someone shares in one, which the browser asks
-// them for each time.
+// them for each time. Cameras and screens are opened as large as the workspace's video quality has
+// them go out, and each goes out at the quality it was opened at for as long as it's on.
 
 export type HuddleDevice = "microphone" | "speaker" | "camera";
 
@@ -51,24 +54,62 @@ export async function openMicrophone(deviceId: string | null): Promise<MediaStre
 /** The device a microphone's stream is from, by its id, or empty where the browser doesn't say. */
 export const microphoneOf = (stream: MediaStream | null) => stream?.getAudioTracks()[0]?.getSettings().deviceId ?? "";
 
-/** What a huddle asks of a camera: a picture the size of a tile, which is as large as it shows anyone. */
-const CAMERA: MediaTrackConstraints = { width: { ideal: 640 }, height: { ideal: 360 } };
+/**
+ * Whether the browser is one known to send a camera in several sizes at once as the SFU takes them:
+ * Chromium's family, by what it says of itself. Any other sends one size until it has been tried.
+ */
+export const sendsSizes = () => /Chrom(e|ium)\//.test(navigator.userAgent);
+
+/** How tall a camera's picture is at each video quality, which is as tall as the largest size it's sent in. */
+export const CAMERA_HEIGHTS: Record<HuddleVideoQuality, number> = { standard: 360, hd: 720, "full-hd": 1080 };
+
+/**
+ * What a huddle asks of a camera at `quality`: a picture as tall as the quality's, and as wide as most
+ * cameras' are for that. A browser that sends a camera in one size, which everyone who watches it is
+ * sent, asks for one only as large as Standard's.
+ */
+function cameraAt(quality: HuddleVideoQuality): MediaTrackConstraints {
+  const height = CAMERA_HEIGHTS[sendsSizes() ? quality : "standard"];
+  return { width: { ideal: (height * 16) / 9 }, height: { ideal: height } };
+}
+
+/** The video quality each camera and screen was opened at, by its track. */
+const openedAt = new WeakMap<MediaStreamTrack, HuddleVideoQuality>();
+
+/** Notes that `stream`'s pictures were opened at `quality`, and answers it. */
+function openedAtQuality(stream: MediaStream, quality: HuddleVideoQuality): MediaStream {
+  for (const track of stream.getVideoTracks()) openedAt.set(track, quality);
+  return stream;
+}
+
+/**
+ * The video quality a camera's track or a screen's was opened at, which it goes out at for as long as
+ * it's on, though an administrator changes the workspace's meanwhile. Undefined of one opened elsewhere.
+ */
+export const qualityOpenedAt = (track: MediaStreamTrack): HuddleVideoQuality | undefined => openedAt.get(track);
 
 /** What someone is told once there's no camera Ember may use. */
 export const NO_CAMERA = "Ember has no camera to use. To show yours, let this site use your camera in your browser's settings, then turn it on again.";
 
 /**
- * Opens a camera, which makes the browser ask the person the first time, and turns its light on:
- * `deviceId`'s, or the browser's own choice when it has none or that one is gone. Null when there's no
- * camera, the person or the browser refuses one, or the page isn't one a browser gives a camera.
+ * Opens a camera for a picture as large as `quality` sends, which makes the browser ask the person the
+ * first time, and turns its light on: `deviceId`'s, or the browser's own choice when it has none or that
+ * one is gone. Null when there's no camera, the person or the browser refuses one, or the page isn't
+ * one a browser gives a camera.
  */
-export async function openCamera(deviceId: string | null): Promise<MediaStream | null> {
+export async function openCamera(deviceId: string | null, quality: HuddleVideoQuality): Promise<MediaStream | null> {
+  const stream = await openCameraSized(deviceId, cameraAt(quality));
+  return stream && openedAtQuality(stream, quality);
+}
+
+/** Opens a camera as `openCamera` does, for a picture the size `size` asks for, as a clip's is, which goes out to nobody. */
+export async function openCameraSized(deviceId: string | null, size: MediaTrackConstraints): Promise<MediaStream | null> {
   const media = navigator.mediaDevices as MediaDevices | undefined;
   if (!media?.getUserMedia) return null;
   try {
-    return await media.getUserMedia({ video: deviceId ? { ...CAMERA, deviceId: { exact: deviceId } } : CAMERA });
+    return await media.getUserMedia({ video: deviceId ? { ...size, deviceId: { exact: deviceId } } : size });
   } catch (error) {
-    return deviceId && deviceGone(error) ? openCamera(null) : null;
+    return deviceId && deviceGone(error) ? openCameraSized(null, size) : null;
   }
 }
 
@@ -96,12 +137,12 @@ export function facingOf(stream: MediaStream | null): CameraFacing | null {
 /** Whether a camera's stream is from one that faces away from its person, as a phone's back camera does, whose picture a mirror would show them the wrong way round. */
 export const facesAway = (stream: MediaStream | null) => facingOf(stream) === "environment";
 
-/** Opens the one camera `which` asks for, for a picture the size a huddle asks of one, or null when the browser has none such, or won't open it. */
-async function openCameraBy(which: MediaTrackConstraints): Promise<MediaStream | null> {
+/** Opens the one camera `which` asks for, for a picture as large as `quality` sends, or null when the browser has none such, or won't open it. */
+async function openCameraBy(which: MediaTrackConstraints, quality: HuddleVideoQuality): Promise<MediaStream | null> {
   const media = navigator.mediaDevices as MediaDevices | undefined;
   if (!media?.getUserMedia) return null;
   try {
-    return await media.getUserMedia({ video: { ...CAMERA, ...which } });
+    return openedAtQuality(await media.getUserMedia({ video: { ...cameraAt(quality), ...which } }), quality);
   } catch {
     return null;
   }
@@ -115,24 +156,35 @@ async function cameraAfter(deviceId: string): Promise<string | null> {
 }
 
 /**
- * Opens the camera to switch to from the one that was on, which was `deviceId`'s and faced `facing`:
- * the one that faces the other way, as a phone's back camera does from its front one. Where the browser
- * didn't say which way that one faced, as of a computer's, or has none that faces the other, it's the
- * next the browser lists. Null when it has no other, or won't open it.
+ * Opens the camera to switch to from the one that was on, which was `deviceId`'s and faced `facing`,
+ * for a picture as large as `quality` sends: the one that faces the other way, as a phone's back camera
+ * does from its front one. Where the browser didn't say which way that one faced, as of a computer's,
+ * or has none that faces the other, it's the next the browser lists. Null when it has no other, or
+ * won't open it.
  */
-export async function openOtherCamera(deviceId: string, facing: CameraFacing | null): Promise<MediaStream | null> {
-  const turned = facing && (await openCameraBy({ facingMode: { exact: facing === "user" ? "environment" : "user" } }));
+export async function openOtherCamera(deviceId: string, facing: CameraFacing | null, quality: HuddleVideoQuality): Promise<MediaStream | null> {
+  const turned = facing && (await openCameraBy({ facingMode: { exact: facing === "user" ? "environment" : "user" } }, quality));
   if (turned) return turned;
   const next = await cameraAfter(deviceId);
-  return next === null ? null : openCameraBy({ deviceId: { exact: next } });
+  return next === null ? null : openCameraBy({ deviceId: { exact: next } }, quality);
 }
 
+/** How large a shared screen goes out at each video quality, at most: 1080p at Standard, and 1440p, which keeps a large display's text sharp, at HD and Full HD. */
+const SCREEN_SIZES: Record<HuddleVideoQuality, { width: number; height: number }> = {
+  standard: { width: 1920, height: 1080 },
+  hd: { width: 2560, height: 1440 },
+  "full-hd": { width: 2560, height: 1440 },
+};
+
 /**
- * What a huddle asks of a shared screen: no larger than 1080p, which a larger display is scaled down
- * to, and no more than 15 pictures a second, which leaves what its connection carries to keeping text
- * sharp. No sound, as a huddle's connections for screens carry pictures only.
+ * What a huddle asks of a screen shared at `quality`: no larger than the quality's, which a larger
+ * display is scaled down to, and no more than 15 pictures a second, which leaves what its connection
+ * carries to keeping text sharp. No sound, as a huddle's connections for screens carry pictures only.
  */
-const SCREEN: DisplayMediaStreamOptions = { video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 15 } }, audio: false };
+function screenAt(quality: HuddleVideoQuality): DisplayMediaStreamOptions {
+  const { width, height } = SCREEN_SIZES[quality];
+  return { video: { width: { max: width }, height: { max: height }, frameRate: { max: 15 } }, audio: false };
+}
 
 /** What someone is told once their browser couldn't share what they chose. */
 export const NO_SCREEN = "Ember couldn't share your screen. To share it, let your browser record the screen in your computer's privacy settings, then share it again.";
@@ -152,14 +204,14 @@ function choseNothing(error: unknown): boolean {
 
 /**
  * Opens what the person chooses to share, a screen, a window or a tab, which the browser asks them each
- * time, and has it keep text sharp where it can't keep that and smooth movement both. Null when they
- * choose nothing. It rejects when the browser can't share one.
+ * time, as large as `quality` sends, and has it keep text sharp where it can't keep that and smooth
+ * movement both. Null when they choose nothing. It rejects when the browser can't share one.
  */
-export async function openScreen(): Promise<MediaStream | null> {
+export async function openScreen(quality: HuddleVideoQuality): Promise<MediaStream | null> {
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia(SCREEN);
+    const stream = await navigator.mediaDevices.getDisplayMedia(screenAt(quality));
     for (const track of stream.getVideoTracks()) track.contentHint = "detail";
-    return stream;
+    return openedAtQuality(stream, quality);
   } catch (error) {
     if (choseNothing(error)) return null;
     throw error;

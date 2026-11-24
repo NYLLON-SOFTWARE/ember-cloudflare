@@ -9,16 +9,20 @@ import {
   MAX_HUDDLE_SCREENS,
   RELAY_TTL_S,
   SCREENS_FULL,
+  type CameraSizeName,
   type HuddleClientFrame,
   type HuddleIceServer,
   type HuddlePerson,
   type HuddleServerFrame,
   type HuddleTrackKind,
+  type HuddleVideoQuality,
   type OfferedHuddleTrack,
 } from "@ember/protocol/huddles";
 import { socketUrl } from "./api";
 import { keepScreenAwake } from "./huddle-awake";
+import { smallerOf, watchConnection } from "./huddle-connection";
 import {
+  CAMERA_HEIGHTS,
   CAMERA_WENT_OFF,
   cameraOf,
   closeDevice,
@@ -33,8 +37,10 @@ import {
   openMicrophone,
   openOtherCamera,
   openScreen,
+  qualityOpenedAt,
   rememberDevice,
   rememberedDevice,
+  sendsSizes,
   STILL_NO_MICROPHONE,
   type CameraFacing,
 } from "./huddle-devices";
@@ -42,7 +48,7 @@ import { reactionsShown } from "./huddle-reactions";
 import { huddleSounds } from "./huddle-sounds";
 import { huddleSpeaker, type HuddleSpeaker } from "./huddle-speaker";
 import { whoSpeaks, type HuddleSpeaking } from "./huddle-speaking";
-import { endHuddle, leaveHuddle, showHuddle, showReactions, showSpeaking, tellOfHuddle, type HuddleControls, type JoinedHuddle } from "./huddle-store";
+import { endHuddle, leaveHuddle, showHuddle, showReactions, showSpeaking, tellOfHuddle, videoQuality, type HuddleControls, type JoinedHuddle } from "./huddle-store";
 import { reconnectingSocket } from "./reconnecting-socket";
 
 // A tab's side of a huddle. Its socket to the room (`/api/rooms/:id/huddle`) says who's in the huddle and
@@ -59,9 +65,15 @@ import { reconnectingSocket } from "./reconnecting-socket";
 // them, and their tabs show the invitation and ring (huddle-invitations.ts). Anyone in a huddle asks
 // the same for whoever they pick of the room's people, from Invite people.
 //
-// A camera goes out in two sizes at once (simulcast) from a browser known to send them, and each tab
-// that watches is sent the one it says it shows: the small one for small tiles, so that a huddle of
-// many costs each of them, and Cloudflare's bill, a small picture apiece.
+// A camera goes out in several sizes at once (simulcast) from a browser known to send them, as large as
+// the workspace's video quality has it at most, and each tab that watches is sent the one it says its
+// tiles show as well as a larger would, on its own screen: the small one for small tiles, so that a
+// huddle of many costs each of them, and Cloudflare's bill, a small picture apiece.
+//
+// Every couple of seconds the tab measures its connections (huddle-connection.ts). Once too much of
+// what they carry is lost, or round trips to the SFU take a second or more, its connection is unstable,
+// which it tells its person and the room, whose others see it on its person's tile. While what it
+// receives struggles, it asks for cameras a size smaller than its tiles show, and larger once it's steady.
 //
 // Where an administrator has given huddles a relay, the room's welcome has the servers the connections
 // go by, Cloudflare's TURN service among them, which carries them on a network that blocks the way to
@@ -135,50 +147,71 @@ export const ANSWER_TIMEOUT_MS = 45_000;
 export const LISTEN_AGAIN_MS = [500, 8_000] as const;
 /** How long it waits to publish again after its sending connection failed, doubling up to the second. */
 export const PUBLISH_AGAIN_MS = [1_000, 15_000] as const;
-/** The most a camera's connection sends, in bits a second: enough for a tile, which is as large as a huddle shows anyone. */
-export const CAMERA_BITRATE = 500_000;
-/** The most it sends of the camera's smaller size, half as wide and half as tall, which is all a small tile shows. */
+/** How tall a camera's small size is, which is all a small tile shows, and its medium one, which is as large as one goes out at Standard. */
+const SMALL_CAMERA = 180;
+const MEDIUM_CAMERA = 360;
+/** The most a camera's connection sends of its small size, in bits a second. */
 export const SMALL_CAMERA_BITRATE = 150_000;
-/** The fewest pixels a picture has for Chromium to send it in two sizes. */
+/** And of its medium size, which is as large as a camera sent in one size goes. */
+export const CAMERA_BITRATE = 500_000;
+/** And of its large size, as tall as HD's picture at most, and of one taller than that, up to Full HD's. */
+export const LARGE_CAMERA_BITRATE = 1_500_000;
+export const FULL_HD_CAMERA_BITRATE = 3_000_000;
+/** The fewest pixels a picture has for Chromium to send it in two sizes, and in three. */
 const LEAST_IN_TWO_SIZES = 480 * 270;
-/** The most a shared screen's connection sends, in bits a second: enough to keep the text of one as large as a huddle asks for sharp, at the few pictures a second it takes. */
-export const SCREEN_BITRATE = 1_500_000;
+const LEAST_IN_THREE_SIZES = 960 * 540;
+/** The most a shared screen's connection sends at each video quality, in bits a second: enough to keep the text of one as large as the quality asks for sharp, at the few pictures a second it takes. */
+export const SCREEN_BITRATES: Record<HuddleVideoQuality, number> = { standard: 1_500_000, hd: 3_000_000, "full-hd": 3_000_000 };
 
 /** The kinds of track by which a tab shows the others something, beside the one that carries its voice. */
 const SHOWN_KINDS = ["video", "screen"] as const;
 type ShownKind = (typeof SHOWN_KINDS)[number];
 
 /**
- * Whether the browser is one known to send a camera in two sizes at once as the SFU takes them:
- * Chromium's family, by what it says of itself. Any other sends one size until it has been tried.
+ * The sizes a camera's connection sends `track` in at `quality`, the smallest first. From a browser known
+ * to send several at once, that's one 180 pixels tall, for small tiles, and one 360 tall, and where the
+ * quality's picture is taller and the camera's is too, by half again at least, one as tall as the
+ * quality's, or the camera's where that's shorter: Chromium sends the first alone of a picture too
+ * small for two, the first two of one too small for three, and the first it has the bandwidth for, so
+ * the smallest is first. A picture's height is that of its short side, which is its width on a phone
+ * held upright. From any other browser, and of a picture too small for two, it's the one size.
  */
-const sendsTwoSizes = () => /Chrom(e|ium)\//.test(navigator.userAgent);
-
-/**
- * The sizes a camera's connection sends `track` in. From a browser known to send two at once, that's
- * the picture as it is and, before it, one of half its width and height, for the SFU to send whoever
- * shows it small. Chromium sends the first alone of a picture too small for two, and while it hasn't
- * the bandwidth for both, so the small one is first. From any other browser, and of a picture too
- * small, it's the one size.
- */
-function cameraSizes(track: MediaStreamTrack): RTCRtpEncodingParameters[] {
+function cameraSizes(track: MediaStreamTrack, quality: HuddleVideoQuality): RTCRtpEncodingParameters[] {
   const { width = 0, height = 0 } = track.getSettings();
-  if (!sendsTwoSizes() || width * height < LEAST_IN_TWO_SIZES) return [{ maxBitrate: CAMERA_BITRATE }];
-  return [
-    { rid: CAMERA_SIZES.small, maxBitrate: SMALL_CAMERA_BITRATE, scaleResolutionDownBy: 2 },
-    { rid: CAMERA_SIZES.large, maxBitrate: CAMERA_BITRATE },
+  if (!sendsSizes() || width * height < LEAST_IN_TWO_SIZES) return [{ maxBitrate: CAMERA_BITRATE }];
+  const tall = Math.min(width, height);
+  const downTo = (to: number) => Math.max(1, tall / to);
+  const sizes: RTCRtpEncodingParameters[] = [
+    { rid: CAMERA_SIZES.small, maxBitrate: SMALL_CAMERA_BITRATE, scaleResolutionDownBy: downTo(SMALL_CAMERA) },
+    { rid: CAMERA_SIZES.medium, maxBitrate: CAMERA_BITRATE, scaleResolutionDownBy: downTo(MEDIUM_CAMERA) },
   ];
+  const large = Math.min(tall, CAMERA_HEIGHTS[quality]);
+  if (large > MEDIUM_CAMERA && tall >= MEDIUM_CAMERA * 1.5 && width * height >= LEAST_IN_THREE_SIZES) {
+    sizes.push({ rid: CAMERA_SIZES.large, maxBitrate: large > CAMERA_HEIGHTS.hd ? FULL_HD_CAMERA_BITRATE : LARGE_CAMERA_BITRATE, scaleResolutionDownBy: downTo(large) });
+  }
+  return sizes;
 }
+
+/** The size a screen's connection sends it in at `quality`: the one, as the screen is shared. */
+const screenSizes = (_track: MediaStreamTrack, quality: HuddleVideoQuality): RTCRtpEncodingParameters[] => [{ maxBitrate: SCREEN_BITRATES[quality] }];
 
 /**
  * What a tab shows the others by each of those kinds, its camera and its screen: where its huddle keeps
  * its own and the others', how many of the others' a huddle shows, and the sizes its connection sends
- * a track in, with the most each sends.
+ * a track in at a video quality, with the most each sends.
  */
 const SHOWN = {
   video: { own: "camera", theirs: "watched", most: MAX_HUDDLE_CAMERAS, sizes: cameraSizes },
-  screen: { own: "screen", theirs: "screens", most: MAX_HUDDLE_SCREENS, sizes: (): RTCRtpEncodingParameters[] => [{ maxBitrate: SCREEN_BITRATE }] },
+  screen: { own: "screen", theirs: "screens", most: MAX_HUDDLE_SCREENS, sizes: screenSizes },
 } as const;
+
+/** Of the sizes a track goes out in, the one it goes out in alone, where the SFU won't take them all: a camera's medium size, which is as large as one went out before there were larger, or else the largest. */
+const aloneOf = (sizes: RTCRtpEncodingParameters[]) => sizes.find(({ rid }) => rid === CAMERA_SIZES.medium) ?? sizes.at(-1);
+
+/** Whether a track that goes out in `next` goes out as one did in `sent`, which a connection made to send that one sends this one in as well. */
+const sameSizes = (next: RTCRtpEncodingParameters[], sent: RTCRtpEncodingParameters[]) =>
+  next.length === sent.length &&
+  next.every(({ rid, maxBitrate, scaleResolutionDownBy }, at) => rid === sent[at]!.rid && maxBitrate === sent[at]!.maxBitrate && scaleResolutionDownBy === sent[at]!.scaleResolutionDownBy);
 
 /**
  * What the tab's person is told once the room has ended the huddle for them, by the code it closed their
@@ -246,11 +279,11 @@ function voicesThrough(speaker: HuddleSpeaker, speaking: HuddleSpeaking) {
 /** Whether the tab's person is the only one in its huddle, as far as the room has said. */
 const isAlone = ({ connected, you, people }: JoinedHuddle) => connected && people.every(({ user }) => user.id === you?.id);
 
-/** The tab's own `person` as the tab has them, whatever the room last said: as muted as it is, and showing the sticker it shows. */
-function asTheTabHas(person: HuddlePerson, { muted, sticker }: JoinedHuddle): HuddlePerson {
-  if (person.muted === muted && (person.sticker ?? null) === sticker) return person;
-  const { sticker: _, ...rest } = person;
-  return { ...rest, muted, ...(sticker && { sticker }) };
+/** The tab's own `person` as the tab has them, whatever the room last said: as muted as it is, showing the sticker it shows, and with the connection it finds it has. */
+function asTheTabHas(person: HuddlePerson, { muted, sticker, unstable }: JoinedHuddle): HuddlePerson {
+  if (person.muted === muted && (person.sticker ?? null) === sticker && (person.unstable ?? false) === unstable) return person;
+  const { sticker: _, unstable: __, ...rest } = person;
+  return { ...rest, muted, ...(sticker && { sticker }), ...(unstable && { unstable }) };
 }
 
 /** What each of a tab's connections to the SFU has of the huddle it's part of. */
@@ -294,8 +327,8 @@ interface Received extends Carried {
   wanted(): UserId[];
   /** Whether the room is asked for them by name, as it is for cameras and screens, and so stops sending whoever isn't named. */
   byName: boolean;
-  /** Whether the tab shows them small, which it tells the room of cameras, for the smaller of the sizes one is sent in. */
-  small?(): boolean;
+  /** The size the tab shows them as well in as a larger would, which it tells the room of cameras, for the size it's sent each one in. Large unless it says. */
+  size?(): CameraSizeName;
   /** Plays someone's track, from when the tab is offered it until it's stopped. */
   play(userId: UserId, track: MediaStreamTrack): void;
   stop(userId: UserId): void;
@@ -314,11 +347,13 @@ function sendingConnection({ kind, vital, track, sends }: Sent, { send, rejoin, 
   let inOneSize = false;
   const wait = growingWait(PUBLISH_AGAIN_MS);
 
-  /** How a connection sends `sending`: as the tab would, or once the SFU has failed to take that, whole, in the largest of those sizes alone. */
+  /** How a connection sends `sending`: as the tab would, or once the SFU has failed to take that, in the one of those sizes it goes out in alone (`aloneOf`). */
   function sentAs(sending: MediaStreamTrack): RTCRtpTransceiverInit {
     const sent = sends(sending);
-    const largest = sent.sendEncodings?.at(-1);
-    return inOneSize && largest ? { ...sent, sendEncodings: [{ maxBitrate: largest.maxBitrate }] } : sent;
+    const alone = aloneOf(sent.sendEncodings ?? []);
+    if (!inOneSize || !alone) return sent;
+    const { maxBitrate, scaleResolutionDownBy } = alone;
+    return { ...sent, sendEncodings: [{ maxBitrate, ...(scaleResolutionDownBy !== undefined && { scaleResolutionDownBy }) }] };
   }
 
   /**
@@ -388,31 +423,31 @@ function sendingConnection({ kind, vital, track, sends }: Sent, { send, rejoin, 
   }
 
   /**
-   * Sends the track whole on a connection made to send it in several sizes, of which the SFU's answer
-   * took one. The browser is left sending the first alone, the smallest, which becomes as large as
-   * the largest was to be, at as many bits a second.
+   * Sends the track in the one size it goes out in alone (`aloneOf`) on a connection made to send it in
+   * several, of which the SFU's answer took one. The browser is left sending the first alone, the
+   * smallest, which becomes as large as that one, at as many bits a second.
    */
   async function sendWhole(answered: RTCPeerConnection) {
     const [sender] = answered.getSenders();
-    const largest = sizes.at(-1);
-    if (!sender || !largest || sizes.length < 2) return;
+    const alone = aloneOf(sizes);
+    if (!sender || !alone || sizes.length < 2) return;
     const parameters = sender.getParameters();
     const [only, ...others] = parameters.encodings;
     if (!only || others.length > 0) return;
-    only.maxBitrate = largest.maxBitrate;
-    only.scaleResolutionDownBy = largest.scaleResolutionDownBy ?? 1;
+    only.maxBitrate = alone.maxBitrate;
+    only.scaleResolutionDownBy = alone.scaleResolutionDownBy ?? 1;
     await sender.setParameters(parameters).catch(() => {});
   }
 
   /**
    * Sends the track there is now in place of the one the connection sent, which the others receive as
-   * the same track still. Without a connection, with one that can't, or with one made to send another
-   * number of sizes than this track goes out in, it publishes anew.
+   * the same track still. Without a connection, with one that can't, or with one made to send other
+   * sizes than this track goes out in, as of a camera whose picture is another size, it publishes anew.
    */
   async function swap() {
     const swapping = connection;
     const next = track();
-    const fits = next !== null && (sentAs(next).sendEncodings ?? []).length === sizes.length;
+    const fits = next !== null && sameSizes(sentAs(next).sendEncodings ?? [], sizes);
     const swapped =
       fits &&
       (await swapping?.getSenders()[0]?.replaceTrack(next).then(
@@ -434,6 +469,8 @@ function sendingConnection({ kind, vital, track, sends }: Sent, { send, rejoin, 
     published,
     swap,
     close,
+    /** The connection there is now, if any, which the tab measures. */
+    connection: () => connection,
     /** The room couldn't publish what it was asked to: the SFU refused, or couldn't be reached, unless the room `refused` it itself. */
     failed(refused = false) {
       const answered = unanswered;
@@ -462,12 +499,14 @@ function sendingConnection({ kind, vital, track, sends }: Sent, { send, rejoin, 
  * doesn't yet, a round at a time: the tab asks (`huddle.listen`), answers the offer if one comes, and
  * the room says `huddle.listening`.
  */
-function receivingConnection({ kind, vital, receivable, wanted, byName, small, play, stop }: Received, { send, rejoin, isOver, connect, relayRunOut }: Huddled) {
+function receivingConnection({ kind, vital, receivable, wanted, byName, size, play, stop }: Received, { send, rejoin, isOver, connect, relayRunOut }: Huddled) {
   let connection: RTCPeerConnection | null = null;
   /** Whom the tab has been offered, and so receives. */
   const heard = new Set<UserId>();
-  /** Whether the tab last asked the room for them small. */
-  let askedSmall = false;
+  /** Whose each track the connection plays is, by the track's id, which the browser's statistics name it by. */
+  const owners = new Map<string, UserId>();
+  /** The size the tab last asked the room for them in. */
+  let askedSize: CameraSizeName = "large";
   /** The round under way: whether it has brought an offer, and whether the tab has given up the connection it asked on meanwhile. */
   let round: { offered: boolean; givenUp: boolean } | null = null;
   /** Runs out on the room's answer to that round, or brings the next. */
@@ -477,11 +516,14 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, small, p
   const isUnheard = () => wanted().some((userId) => !heard.has(userId));
   /** Whom the tab receives and would no longer, as once it stops showing cameras and screens. The room goes on sending them until it's asked for the others by name. */
   const unwanted = () => (byName ? [...heard].filter((userId) => !wanted().includes(userId)) : []);
-  const isSmall = () => small?.() === true;
+  const shownSize = () => size?.() ?? "large";
   /** Whether the tab shows whom it receives in another size than it last told the room, which sends it that size once it's told. */
-  const isResized = () => heard.size > 0 && isSmall() !== askedSmall;
-  /** What a round asks of the room: on a fresh connection when the tab has none, by name, for whom, and small, if that's how the tab shows them. */
-  const asking = (): HuddleClientFrame => ({ type: "huddle.listen", kind, ...(!connection && { fresh: true as const }), ...(byName && { watch: wanted() }), ...(isSmall() && { small: true as const }) });
+  const isResized = () => heard.size > 0 && shownSize() !== askedSize;
+  /** What a round asks of the room: on a fresh connection when the tab has none, by name, for whom, and in the size the tab shows them in, unless that's large. */
+  const asking = (): HuddleClientFrame => {
+    const shown = shownSize();
+    return { type: "huddle.listen", kind, ...(!connection && { fresh: true as const }), ...(byName && { watch: wanted() }), ...(shown !== "large" && { size: shown }) };
+  };
 
   /**
    * Starts a round, unless one is under way: asks for whoever the tab would receive and doesn't, or with
@@ -494,7 +536,7 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, small, p
     const dropped = unwanted();
     if (!anyone && dropped.length === 0 && !isUnheard() && !isResized()) return;
     if (!send(asking())) return;
-    askedSmall = isSmall();
+    askedSize = shownSize();
     dropped.forEach(forget);
     round = { offered: false, givenUp: false };
     timer = setTimeout(leftUnanswered, ANSWER_TIMEOUT_MS);
@@ -575,7 +617,9 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, small, p
    */
   function playFrom(from: RTCPeerConnection, { mid, userId }: OfferedHuddleTrack) {
     const theirs = from.getTransceivers().find((transceiver) => transceiver.mid === mid)?.receiver.track;
-    if (theirs && heard.has(userId)) play(userId, theirs);
+    if (!theirs || !heard.has(userId)) return;
+    owners.set(theirs.id, userId);
+    play(userId, theirs);
   }
 
   /**
@@ -612,6 +656,7 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, small, p
   /** Stops receiving `userId`, who left, or can't be received for the moment: what the tab had of them carries nothing more. */
   function forget(userId: UserId) {
     heard.delete(userId);
+    for (const [trackId, owner] of owners) if (owner === userId) owners.delete(trackId);
     stop(userId);
   }
 
@@ -638,6 +683,9 @@ function receivingConnection({ kind, vital, receivable, wanted, byName, small, p
       endRound();
     },
     startOver: wait.startOver,
+    /** The connection there is now, if any, which the tab measures, and whose each track it plays is. */
+    connection: () => connection,
+    whose: (trackId: string) => owners.get(trackId),
   };
 }
 
@@ -654,6 +702,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
     people: [],
     muted: muted || !track,
     sticker: null,
+    unstable: false,
     microphone: track !== null,
     microphoneId: microphoneOf(voice),
     speakerId,
@@ -672,8 +721,10 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
   let openingCamera = false;
   /** Whether the browser is asking the tab's person what to share. */
   let choosingScreen = false;
-  /** Whether the huddle, opened, last showed people in tiles small enough for the smaller of a camera's sizes. */
-  let smallTiles = false;
+  /** The size of a camera the huddle, opened, last showed people's tiles as well in as a larger would: large until it has tiles. */
+  let cameraSize: CameraSizeName = "large";
+  /** The largest size the tab asks for cameras in while it struggles to receive them, or null for whatever size its tiles show them in. */
+  let cameraCap: CameraSizeName | null = null;
 
   const letScreenSleep = keepScreenAwake();
   const speaker = huddleSpeaker(speakerId);
@@ -714,7 +765,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
 
   // The connections that carry the voices, which a huddle has throughout, and those for cameras and for
   // screens, each of which it has while it shows its own, and while it's open and someone else shows theirs.
-  const showing = (kind: ShownKind) => sendingConnection({ kind, vital: false, track: () => shownTrack(kind), sends: (track) => ({ direction: "sendonly", sendEncodings: SHOWN[kind].sizes(track) }) }, huddled);
+  const showing = (kind: ShownKind) =>
+    sendingConnection({ kind, vital: false, track: () => shownTrack(kind), sends: (track) => ({ direction: "sendonly", sendEncodings: SHOWN[kind].sizes(track, qualityOpenedAt(track) ?? videoQuality()) }) }, huddled);
   const watching = (kind: ShownKind) =>
     receivingConnection(
       {
@@ -723,8 +775,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
         receivable: () => receivable(kind),
         wanted: () => (huddle.open ? receivable(kind).slice(0, SHOWN[kind].most) : []),
         byName: true,
-        // Only cameras come in sizes.
-        ...(kind === "video" && { small: () => smallTiles }),
+        // Only cameras come in sizes, of which the tab asks for a smaller one while it struggles to receive them.
+        ...(kind === "video" && { size: () => smallerOf(cameraSize, cameraCap) }),
         ...pictures(kind),
       },
       huddled,
@@ -739,6 +791,24 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
     video: watching("video"),
     screen: watching("screen"),
   };
+  const stopMeasuring = watchConnection(
+    {
+      receiving: HUDDLE_TRACK_KINDS.map((kind) => receiving[kind]),
+      sending: HUDDLE_TRACK_KINDS.map((kind) => sending[kind]),
+      others: () => huddle.people.filter(({ user }) => user.id !== huddle.you?.id),
+      shown: () => cameraSize,
+    },
+    {
+      unstable(unstable) {
+        socket.send({ type: "huddle.connection", unstable });
+        show({ unstable });
+      },
+      capped(cap) {
+        cameraCap = cap;
+        receiving.video.listen();
+      },
+    },
+  );
 
   const controls: HuddleControls = {
     leave() {
@@ -769,8 +839,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
       if (shown !== huddle.thread) show({ thread: shown });
     },
     // The tab is sent the size of each camera that its tiles show, so it asks again as they come to show another.
-    setSmall(small) {
-      smallTiles = small;
+    setCameraSize(size) {
+      cameraSize = size;
       receiving.video.listen();
     },
     setDevice(kind, deviceId) {
@@ -852,7 +922,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
 
   /** Turns the camera on: asks the browser for one, which asks the person the first time, and shows it. */
   function turnCameraOn() {
-    if (!over && !huddle.camera && !openingCamera) void showOnceOpen(openCamera(rememberedDevice("camera")));
+    if (!over && !huddle.camera && !openingCamera) void showOnceOpen(openCamera(rememberedDevice("camera"), videoQuality()));
   }
 
   /**
@@ -862,8 +932,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
   function showThrough(deviceId: string) {
     if (over || openingCamera) return;
     rememberDevice("camera", deviceId);
-    if (!huddle.camera) return void showOnceOpen(openCamera(deviceId));
-    if (deviceId !== cameraOf(huddle.camera)) void showInstead(() => openCamera(deviceId));
+    if (!huddle.camera) return void showOnceOpen(openCamera(deviceId, videoQuality()));
+    if (deviceId !== cameraOf(huddle.camera)) void showInstead(() => openCamera(deviceId, videoQuality()));
   }
 
   /**
@@ -872,7 +942,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
    * with. A camera that's off stays off.
    */
   async function showOtherCamera() {
-    const other = await showInstead(openOtherCamera);
+    const other = await showInstead((deviceId, facing) => openOtherCamera(deviceId, facing, videoQuality()));
     if (other) rememberDevice("camera", cameraOf(other));
   }
 
@@ -895,7 +965,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
     const other = await open(deviceId, facing);
     // Left meanwhile, or turned off, when there's none for it to take the place of.
     const gone = () => over || huddle.camera !== shown;
-    const opened = other ?? (gone() ? null : await openCamera(deviceId || null));
+    const opened = other ?? (gone() ? null : await openCamera(deviceId || null, videoQuality()));
     openingCamera = false;
     if (gone()) {
       closeDevice(opened);
@@ -931,7 +1001,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
     if (over || huddle.screen || choosingScreen) return;
     if (receivable("screen").length >= MAX_HUDDLE_SCREENS) return tellOfHuddle(SCREENS_FULL);
     choosingScreen = true;
-    const chosen = await openScreen().catch(() => {
+    const chosen = await openScreen(videoQuality()).catch(() => {
       if (!over) tellOfHuddle(NO_SCREEN);
       return null;
     });
@@ -987,6 +1057,7 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
   function stop() {
     over = true;
     socket.close();
+    stopMeasuring();
     hangUp();
     letScreenSleep();
     voices.stopAll();
@@ -1057,6 +1128,8 @@ export function joinHuddle({ roomId, muted, microphone, camera, speakerId, invit
         if (mine && mine.muted !== huddle.muted) socket.send({ type: "huddle.mute", muted: huddle.muted });
         // And the room knows of no sticker a tab showed before it joined again.
         if (mine && (mine.sticker ?? null) !== huddle.sticker) socket.send({ type: "huddle.sticker", sticker: huddle.sticker });
+        // Nor that the tab finds its connection unstable.
+        if (mine && (mine.unstable ?? false) !== huddle.unstable) socket.send({ type: "huddle.connection", unstable: huddle.unstable });
         // Let in, and not let back in after the tab's connection to the room dropped.
         if (!huddle.you) {
           sounds.joined();

@@ -1,5 +1,16 @@
 import type { AccountSettings, Me, WorkspaceSettings } from "@ember/protocol";
-import { APP_ID_UNKNOWN, APP_SECRET_UNKNOWN, CAMERAS_OFF, HuddleCloseCode, RELAY_API_TOKEN_UNKNOWN, RELAY_KEY_ID_UNKNOWN, RELAY_TTL_S, SCREENS_FULL, SCREENS_OFF } from "@ember/protocol/huddles";
+import {
+  APP_ID_UNKNOWN,
+  APP_SECRET_UNKNOWN,
+  CAMERAS_OFF,
+  HuddleCloseCode,
+  RELAY_API_TOKEN_UNKNOWN,
+  RELAY_KEY_ID_UNKNOWN,
+  RELAY_TTL_S,
+  SCREENS_FULL,
+  SCREENS_OFF,
+  type HuddleVideoQuality,
+} from "@ember/protocol/huddles";
 import type { APIRequestContext, Browser, BrowserContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, editorField, expect, huddleTilesKeepClear, newAddress, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress, type TestRoom } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT, SFU_APP, TURN_KEY } from "../../projects/workspace-settings";
@@ -10,8 +21,8 @@ import { startFakeSfu, type FakeSfu, type IceServer } from "./fake-sfu";
 // to carry what the people in a huddle say, what their cameras show and the screens they share, which
 // the fake does through a page of its own. It asks the fake for the relay's servers too, as it asks
 // Cloudflare's TURN service. Each test leaves the workspace as a new one is: huddles off, with no
-// relay, and cameras and screen sharing allowed in them, and the SFU taking a camera in each size it's
-// sent in.
+// relay, cameras and screen sharing allowed in them, at HD, and the SFU taking a camera in each size
+// it's sent in.
 
 let sfu: FakeSfu;
 let relay: Page;
@@ -29,6 +40,7 @@ test.afterEach(async ({ request }) => {
   const forgotten = await request.delete("/api/account/huddles", { headers: await asAdministrator(request) });
   expect(forgotten.status(), await forgotten.text()).toBe(200);
   await switchHuddles(request, { huddleCameras: true, huddleScreens: true });
+  await chooseVideo(request, "hd");
 });
 
 /** The administrator's session's headers, for the API. */
@@ -40,7 +52,13 @@ async function switchHuddles(request: APIRequestContext, settings: Pick<AccountS
   expect(switched.status(), await switched.text()).toBe(200);
 }
 
-/** The workspace as its settings have it, which says whether cameras may go on in huddles and screens be shared. */
+/** Chooses the video quality huddles send at as the administrator, as the Huddles tab's Video quality card does. */
+async function chooseVideo(request: APIRequestContext, huddleVideo: HuddleVideoQuality): Promise<void> {
+  const chosen = await request.patch("/api/account", { data: { huddleVideo }, headers: await asAdministrator(request) });
+  expect(chosen.status(), await chosen.text()).toBe(200);
+}
+
+/** The workspace as its settings have it, which says whether cameras may go on in huddles and screens be shared, and at what quality. */
 const workspaceNow = async (request: APIRequestContext) => ((await (await request.get("/api/account", { headers: await asAdministrator(request) })).json()) as WorkspaceSettings).account;
 
 /** The Huddles tab's card on the page. */
@@ -49,6 +67,9 @@ const huddlesCard = (page: Page) => page.getByRole("region", { name: "Audio and 
 /** The card under it, which the tab has while huddles are on: its Cameras row, and its Screen sharing row. */
 const camerasCard = (page: Page) => page.getByRole("region", { name: "Cameras", exact: true });
 const screensRow = (page: Page) => page.getByRole("region", { name: "Screen sharing", exact: true });
+
+/** The card under it, which the tab has while huddles are on too: the video quality they send at. */
+const videoCard = (page: Page) => page.getByRole("region", { name: "Video quality", exact: true });
 
 /** The card under those, which the tab has while huddles are on too: whether they have a relay. */
 const relayCard = (page: Page) => page.getByRole("region", { name: "Relay for strict networks", exact: true });
@@ -177,6 +198,29 @@ test.describe("Set up huddles", () => {
     await screensSwitch.click();
     await expect(screensSwitch).toBeChecked();
     await expect.poll(() => workspaceNow(request)).toMatchObject({ huddleCameras: true, huddleScreens: true });
+  });
+
+  test("the administrator chooses the video quality huddles send at, which is HD until they do, and Ember keeps", async ({ page, request }) => {
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+    await openHuddles(page);
+    // It's the card under the one Cameras and Screen sharing are on.
+    const video = videoCard(page);
+    await expect(video).toContainText("How sharp cameras and shared screens look in huddles.");
+    expect((await video.boundingBox())!.y).toBeGreaterThan((await screensRow(page).boundingBox())!.y);
+    const quality = (name: string) => video.getByRole("radio", { name, exact: true });
+    await expect(quality("HD")).toBeChecked();
+    expect(await workspaceNow(request)).toMatchObject({ huddleVideo: "hd" });
+
+    // It's saved as it's chosen, with nothing to press.
+    await quality("Full HD").click();
+    await expect(quality("Full HD")).toBeChecked();
+    await expect.poll(() => workspaceNow(request)).toMatchObject({ huddleVideo: "full-hd", huddleCameras: true, huddleScreens: true });
+    await page.reload();
+    await expect(quality("Full HD")).toBeChecked();
+    await quality("Standard").click();
+    await expect(quality("Standard")).toBeChecked();
+    await expect.poll(() => workspaceNow(request)).toMatchObject({ huddleVideo: "standard" });
   });
 
   test("the administrator gives Ember a TURN key for the relay, which Cloudflare makes its servers with, and Ember keeps it until they turn the relay off", async ({ page, request }) => {
@@ -322,6 +366,26 @@ const picturesOf = (page: Page, label: string) =>
 const widthOf = (page: Page, label: string) =>
   page.evaluate((label) => [...document.querySelectorAll<HTMLVideoElement>("#huddle video")].find((video) => video.ariaLabel === label)?.videoWidth ?? 0, label);
 
+/** Where `measuresRoundTrips` has a page keep how long its browser says round trips to the SFU take, in seconds, or null for as long as they do. */
+type MeasuresRoundTrips = Window & { huddleRoundTrip: number | null };
+
+/** Has `page`'s browser say, of each connection it measures, that round trips to the SFU take as long as the page's `huddleRoundTrip` says. */
+const measuresRoundTrips = (page: Page) =>
+  page.addInitScript(() => {
+    const measures = window as unknown as MeasuresRoundTrips;
+    measures.huddleRoundTrip = null;
+    const getStats = RTCPeerConnection.prototype.getStats;
+    RTCPeerConnection.prototype.getStats = async function (this: RTCPeerConnection, selector?: MediaStreamTrack | null) {
+      const stats = await getStats.call(this, selector);
+      const roundTrip = measures.huddleRoundTrip;
+      if (roundTrip === null) return stats;
+      return new Map([...stats].map(([id, stat]) => [id, stat.type === "candidate-pair" ? { ...stat, currentRoundTripTime: roundTrip } : stat])) as unknown as RTCStatsReport;
+    };
+  });
+
+/** Has it say they take `seconds` from now, or with null, as long as they do. */
+const roundTripsTake = (page: Page, seconds: number | null) => page.evaluate((seconds) => void ((window as unknown as MeasuresRoundTrips).huddleRoundTrip = seconds), seconds);
+
 /** Where `refuseDevices` has a page keep what lets it use its devices after all. */
 type RefusesDevices = Window & { letUseDevices(): void };
 
@@ -358,6 +422,35 @@ const musicIn = (page: Page) =>
   page.evaluate(() => {
     const audio = (window as unknown as KeepsSounds).huddleSoundsPlayed.filter(({ dataset }) => dataset.huddleSound === "music").at(-1);
     return { at: audio?.currentTime ?? 0, playing: audio !== undefined && audio.isConnected && !audio.paused };
+  });
+
+/** Where `keepSenders` has a page keep the connections it makes. */
+type KeepsSenders = Window & { huddleConnections: RTCPeerConnection[] };
+
+/** Has `page` keep each connection it makes, to say how it sends its camera. */
+const keepSenders = (page: Page) =>
+  page.addInitScript(() => {
+    const made: RTCPeerConnection[] = [];
+    Object.assign(window, {
+      huddleConnections: made,
+      RTCPeerConnection: class extends RTCPeerConnection {
+        constructor(configuration?: RTCConfiguration) {
+          super(configuration);
+          made.push(this);
+        }
+      },
+    });
+  });
+
+/** How `page` sends its camera, while it does: how large a picture its camera takes, and each size it sends that in, by name, smallest first, with how tall it is, and the most bits a second it's sent at. */
+const cameraSentBy = (page: Page) =>
+  page.evaluate(() => {
+    const senders = (window as unknown as KeepsSenders).huddleConnections.flatMap((connection) => (connection.connectionState === "closed" ? [] : connection.getSenders()));
+    const camera = senders.find(({ track }) => track?.kind === "video" && track.readyState === "live");
+    if (!camera?.track) return null;
+    const { width = 0, height = 0 } = camera.track.getSettings();
+    const sizes = camera.getParameters().encodings.map(({ rid, maxBitrate, scaleResolutionDownBy = 1 }) => ({ rid, height: Math.round(height / scaleResolutionDownBy), maxBitrate }));
+    return { width, height, sizes };
   });
 
 /** Where `keepConnections` has a page keep what it made each of its connections by. */
@@ -415,6 +508,13 @@ async function ringing(pages: Page[]): Promise<Page[]> {
 /** The huddle's own sounds `page` has started to play, in order, whether or not its browser let it. */
 const soundsStarted = (page: Page) => page.evaluate(() => (window as unknown as KeepsSounds).huddleSoundsPlayed.map((audio) => audio.dataset.huddleSound));
 
+/** The sidebar's Huddles row on `page`, which goes to the Huddles page, and is named with how many huddles are going on while any are. */
+const huddlesRow = (page: Page) => page.getByRole("link", { name: /^Huddles(, \d+ happening now)?$/ });
+
+/** The Huddles page's lists on `page`: the cards of the huddles going on, and the rows of the recent ones that are over. */
+const happeningNow = (page: Page) => page.getByRole("region", { name: "Happening now", exact: true }).getByRole("listitem");
+const recentHuddles = (page: Page) => page.getByRole("region", { name: "Recent huddles", exact: true }).getByRole("listitem");
+
 /** A room of the test's own, which everyone is in. */
 async function roomOfItsOwn(request: APIRequestContext): Promise<TestRoom> {
   const created = await request.post("/api/rooms", { data: { kind: "open", name: `Standup ${crypto.randomUUID().slice(0, 8)}` }, headers: await asAdministrator(request) });
@@ -463,8 +563,11 @@ const closedOnJoining = (page: Page, room: TestRoom) =>
     room.id,
   );
 
-/** The SFU's sessions that have carried a track, each of which is a connection of some tab's. */
-const sessionsCarried = () => new Set(sfu.asked.flatMap(({ method, path }) => (method === "POST" ? (/\/sessions\/([^/]+)\/tracks\/new$/.exec(path)?.[1] ?? []) : [])));
+/**
+ * The SFU's sessions that have carried a track, each of which is a connection of some tab's. One the room
+ * asked a track for that the SFU no longer had, as when whoever published it left just then, carried none.
+ */
+const sessionsCarried = () => new Set(sfu.asked.flatMap(({ path, carried }) => (carried ? (/\/sessions\/([^/]+)\/tracks\/new$/.exec(path)?.[1] ?? []) : [])));
 
 /** Those of them the room hasn't had the SFU close a track of. */
 const sessionsLeftOpen = () => [...sessionsCarried()].filter((sessionId) => !sfu.asked.some(({ method, path }) => method === "PUT" && path.endsWith(`/sessions/${sessionId}/tracks/close`)));
@@ -643,7 +746,7 @@ test.describe("A huddle", () => {
     await context.close();
   });
 
-  test("a huddle has a message in its room, which says it's happening and who's in it, offers Join, has a thread, and says who was in it and for how long once everyone has left", async ({ page, browser, baseURL, request }) => {
+  test("a huddle has a message in its room, which says it's happening and who's in it, offers Join, has a thread, and says who was in it and for how long once everyone has left, where a huddle nobody joined leaves none", async ({ page, browser, baseURL, request }) => {
     const administrator = await administratorSession(request);
     const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: { Cookie: cookieHeader(administrator), ...SAME_ORIGIN } });
     expect(saved.status(), await saved.text()).toBe(200);
@@ -660,13 +763,25 @@ test.describe("A huddle", () => {
     await expect(grace.getByRole("heading", { level: 1 })).toHaveText(room.name);
     await expect(message(grace)).toHaveCount(0);
 
-    // Ada starts a huddle there, which the room writes a message of: Grace sees it happening, with Ada in it.
+    // Ada starts a huddle there, which the room writes a message of, and leaves it before anyone joins,
+    // which takes the message from the room again, in Grace's tab as in hers.
     await useOwnAddress(page);
     await page.goto(`/rooms/${room.id}`);
     await signInAsAdministrator(page);
-    await page.getByRole("button", { name: "Start huddle", exact: true }).click();
-    await page.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const start = async () => {
+      await page.getByRole("button", { name: "Start huddle", exact: true }).click();
+      await page.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    };
+    await start();
     const adasHuddle = huddleOpened(page, room);
+    await expect(adasHuddle).toContainText("1 person");
+    await expect(message(grace).getByRole("heading")).toContainText("A huddle is happeningLIVE");
+    await adasHuddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(adasHuddle).toHaveCount(0);
+    for (const of of [grace, page]) await expect(message(of)).toHaveCount(0);
+
+    // She starts another, which Grace sees happening, with Ada in it.
+    await start();
     await expect(adasHuddle).toContainText("1 person");
     await expect(message(grace).getByRole("heading")).toContainText("A huddle is happeningLIVE");
     await expect(message(grace)).toContainText("Ada is in the huddle");
@@ -749,9 +864,16 @@ test.describe("A huddle", () => {
     // Its composer is there to write in, and has left the focus on the huddle, which took it as it opened.
     await expect(replyBox(adasHuddle)).toBeVisible();
     await expect(adasHuddle).toBeFocused();
-    // The panel is narrower than a room's thread, so Also send to the room has a line of its own over the composer's buttons, and isn't cut short.
+    // As in a room's thread, Also send to the room has a line of its own over the composer's buttons, and isn't cut short.
     const alsoSend = threadOf(adasHuddle).getByRole("checkbox", { name: `Also send to #${room.name}` });
     expect(await alsoSend.evaluate((box) => box.nextElementSibling!.scrollWidth <= box.nextElementSibling!.clientWidth)).toBe(true);
+    // Its buttons, the clips' among them, keep to one line, and so does Manage drafts, there once something's written.
+    const underReply = (name: string) => threadOf(adasHuddle).getByRole("button", { name, exact: true });
+    await expect(underReply("Record audio clip")).toBeVisible();
+    expect((await underReply("Send Message").boundingBox())!.y).toBe((await underReply("Attach").boundingBox())!.y);
+    await replyBox(adasHuddle).fill("Agenda");
+    await expect(underReply("Manage drafts")).toBeVisible();
+    expect((await underReply("Manage drafts").boundingBox())!.y).toBe((await underReply("Attach").boundingBox())!.y);
 
     // Grace joins by the huddle's link, and has its thread too. What Ada writes there she reads, and Ada what she answers.
     const { user: her, context } = await newcomer(browser, baseURL, request, "Grace");
@@ -1108,23 +1230,28 @@ test.describe("A huddle", () => {
     await context.close();
   });
 
-  test("a camera is sent in two sizes, and someone watching is sent the one their tiles show: the smaller in small tiles, and the larger again in large ones", async ({ page, browser, baseURL, request }) => {
-    // Two browsers, one of which sends its camera twice over.
+  test("a camera is sent in three sizes, and someone watching is sent the one their tiles need: the small in small tiles, the medium in middling ones, and the large in large ones", async ({ page, browser, baseURL, request }) => {
+    // Two browsers, one of which sends its camera three times over.
     test.slow();
     const administrator = await administratorSession(request);
     const room = await roomOfItsOwn(request);
     const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
     expect(saved.status(), await saved.text()).toBe(200);
     const askedBefore = sfu.asked.length;
-    /** How tall Grace's tiles are, and whether the pictures she's shown of Ada's camera are the larger size's, wider than the smaller's 320px, or the smaller's. */
+    /** Windows of Grace's whose tiles are taller than the medium size, as tall as it at most, and as tall as the small one at most. */
+    const [tall, middling, short] = [
+      { width: 1280, height: 1000 },
+      { width: 1280, height: 720 },
+      { width: 1280, height: 330 },
+    ];
+    /** How tall Grace's tiles are, and which of the camera's sizes the pictures she's shown of Ada's are in: the small one's are 320px wide, the medium's 640 and the large one's 1280, at HD. */
     const tileHeight = async () => (await tiles(gracesHuddle).first().boundingBox())!.height;
-    const shownLarge = async () => (await widthOf(grace, adasCamera)) > 320;
-    const shownSmall = async () => {
+    const shownIn = async () => {
       const width = await widthOf(grace, adasCamera);
-      return width > 0 && width <= 320;
+      return width === 0 ? "nothing" : width <= 320 ? "small" : width <= 640 ? "medium" : "large";
     };
 
-    // Ada starts the room's huddle and turns her camera on. Grace joins, in a window whose tiles are tall, and is sent the larger size.
+    // Ada starts the room's huddle and turns her camera on. Grace joins, in a window whose tiles are tall, and is sent the large size.
     await useOwnAddress(page);
     await page.goto(`/rooms/${room.id}`);
     await signInAsAdministrator(page);
@@ -1135,56 +1262,194 @@ test.describe("A huddle", () => {
     await expect.poll(() => sees(page, "Your camera"), { timeout: 15_000 }).toBe(true);
     const { context } = await newcomer(browser, baseURL, request, "Grace");
     const grace = await context.newPage();
+    await grace.setViewportSize(tall);
     const gracesHuddle = await joinByLink(grace, room);
     const adasCamera = `${administrator.user.name}'s camera`;
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    expect(await tileHeight()).toBeGreaterThan(180);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    expect(await tileHeight()).toBeGreaterThan(360);
     expect(sizesAsked(askedBefore)).toEqual(["asked for in a"]);
 
-    // Her window gets short, and its tiles no taller than the smaller size. The SFU is asked to send her that one in place
-    // of the other, on the track it sends her already, and she goes on seeing Ada.
+    // Her window gets shorter, and its tiles no taller than the medium size. The SFU is asked to send her that one in
+    // place of the other, on the track it sends her already, and she goes on seeing Ada. Shorter still, it's the small
+    // one, and the large again once her window is as tall as it was.
     const tracksBefore = tracksAsked();
-    await grace.setViewportSize({ width: 1280, height: 330 });
+    await grace.setViewportSize(middling);
+    await expect.poll(tileHeight).toBeLessThanOrEqual(360);
+    expect(await tileHeight()).toBeGreaterThan(180);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("medium");
+    await grace.setViewportSize(short);
     await expect.poll(tileHeight).toBeLessThanOrEqual(180);
-    await expect.poll(shownSmall, { timeout: 15_000 }).toBe(true);
-    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b"]);
-    // And the larger again once her window is as tall as it was.
-    await grace.setViewportSize({ width: 1280, height: 720 });
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to a"]);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("small");
+    await grace.setViewportSize(tall);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to c", "changed to a"]);
     expect(tracksAsked()).toBe(tracksBefore);
 
-    // An SFU that won't make a camera larger has it closed, and is asked for it anew, as it would send it, so
-    // that her tall tiles aren't left the smaller size. It's asked for no size of hers from then on.
-    await grace.setViewportSize({ width: 1280, height: 330 });
-    await expect.poll(shownSmall, { timeout: 15_000 }).toBe(true);
+    // An SFU that won't change a camera's size has it closed, and is asked for it anew, as it would send it, so
+    // that her tall tiles aren't left the small size. It's asked for no size of hers from then on.
+    await grace.setViewportSize(short);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("small");
     sfu.fixedSizes = true;
-    await grace.setViewportSize({ width: 1280, height: 720 });
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    const sizesChanged = ["asked for in a", "changed to b", "changed to a", "changed to b", "changed to a"];
+    await grace.setViewportSize(tall);
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    const sizesChanged = ["asked for in a", "changed to b", "changed to c", "changed to a", "changed to c", "changed to a"];
     expect(sizesAsked(askedBefore)).toEqual(sizesChanged);
     expect(tracksAsked()).toBe(tracksBefore + 1);
     sfu.fixedSizes = false;
-    await grace.setViewportSize({ width: 1280, height: 330 });
+    await grace.setViewportSize(short);
     await expect.poll(tileHeight).toBeLessThanOrEqual(180);
-    await grace.setViewportSize({ width: 1280, height: 720 });
-    await expect.poll(tileHeight).toBeGreaterThan(180);
+    await grace.setViewportSize(tall);
+    await expect.poll(tileHeight).toBeGreaterThan(360);
 
-    // An SFU that takes a camera in one size is sent it whole, and not the smaller of the two it was offered, which
-    // is all a browser goes on sending then. Nothing is asked about its size, whatever the tiles'.
+    // An SFU that takes a camera in one size is sent its medium size alone, of the three it was offered, which is
+    // all a browser goes on sending then. Nothing is asked about its size, whatever the tiles'.
     sfu.oneSize = true;
     await adasHuddle.getByRole("button", { name: "Turn off camera" }).click();
     await expect(gracesHuddle.getByLabel(adasCamera)).toHaveCount(0);
     await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
-    await expect.poll(shownLarge, { timeout: 15_000 }).toBe(true);
-    await grace.setViewportSize({ width: 1280, height: 330 });
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("medium");
+    await grace.setViewportSize(short);
     await expect.poll(tileHeight).toBeLessThanOrEqual(180);
     const shownBefore = await picturesOf(grace, adasCamera);
     await expect.poll(() => picturesOf(grace, adasCamera), { timeout: 15_000 }).toBeGreaterThan(shownBefore + 10);
-    expect(await shownLarge()).toBe(true);
+    expect(await shownIn()).toBe("medium");
     expect(sizesAsked(askedBefore)).toEqual(sizesChanged);
 
-    // They leave, and the room has had the SFU close what each of them published, the camera's two sizes as one, and what each heard and saw.
+    // They leave, and the room has had the SFU close what each of them published, the camera's sizes as one, and what each heard and saw.
+    for (const huddle of [gracesHuddle, adasHuddle]) await huddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(adasHuddle).toHaveCount(0);
+    await expect.poll(sessionsLeftOpen).toEqual([]);
+    await context.close();
+  });
+
+  test("someone whose connection becomes unstable is told so, and the others see it on their tile, while they're sent cameras a size smaller and then smaller still, and larger again a while after it's steady", async ({ page, browser, baseURL, request }) => {
+    // Two browsers, and the half a minute and more a connection takes to be found unstable and steady again.
+    test.slow();
+    const administrator = await administratorSession(request);
+    const room = await roomOfItsOwn(request);
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+    const askedBefore = sfu.asked.length;
+
+    // Ada starts the room's huddle and turns her camera on. Grace joins, in a window whose tiles are tall, and is sent the large size.
+    await useOwnAddress(page);
+    await page.goto(`/rooms/${room.id}`);
+    await signInAsAdministrator(page);
+    await page.getByRole("button", { name: "Start huddle", exact: true }).click();
+    await page.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const adasHuddle = huddleOpened(page, room);
+    await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
+    await expect.poll(() => sees(page, "Your camera"), { timeout: 15_000 }).toBe(true);
+    const { user, context } = await newcomer(browser, baseURL, request, "Grace");
+    const grace = await context.newPage();
+    await grace.setViewportSize({ width: 1280, height: 1000 });
+    await measuresRoundTrips(grace);
+    const gracesHuddle = await joinByLink(grace, room);
+    const adasCamera = `${administrator.user.name}'s camera`;
+    /** Which of the camera's sizes the pictures Grace is shown of Ada's are in: the small one's are 320px wide, the medium's 640 and the large one's 1280, at HD. */
+    const shownIn = async () => {
+      const width = await widthOf(grace, adasCamera);
+      return width === 0 ? "nothing" : width <= 320 ? "small" : width <= 640 ? "medium" : "large";
+    };
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("large");
+    const warning = gracesHuddle.getByText("Your connection is unstable", { exact: true });
+    const mark = tiles(adasHuddle).filter({ hasText: user.name }).getByRole("img", { name: "Unstable connection" });
+    await expect(warning).toHaveCount(0);
+    await expect(mark).toHaveCount(0);
+
+    // Round trips to the SFU from Grace's browser come to take a second and a half. In a few seconds her huddle says
+    // that her connection is unstable, Ada sees that on her tile, and Grace is sent Ada's camera a size smaller, and a
+    // few seconds after that, the smallest.
+    await roundTripsTake(grace, 1.5);
+    await expect(warning).toBeVisible({ timeout: 15_000 });
+    await expect(mark).toBeVisible();
+    await expect(tiles(gracesHuddle).filter({ hasText: `${user.name} (you)` }).getByRole("img", { name: "Unstable connection" })).toBeVisible();
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("medium");
+    await expect.poll(shownIn, { timeout: 15_000 }).toBe("small");
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to c"]);
+
+    // They're quick again. Ten seconds later her connection is steady, and the others see it is, and ten seconds after
+    // that she's sent the medium size again, and ten more, the large one.
+    await roundTripsTake(grace, null);
+    await expect(warning).toHaveCount(0, { timeout: 20_000 });
+    await expect(mark).toHaveCount(0);
+    await expect.poll(shownIn, { timeout: 25_000 }).toBe("medium");
+    await expect.poll(shownIn, { timeout: 25_000 }).toBe("large");
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "changed to b", "changed to c", "changed to b", "changed to a"]);
+
+    for (const huddle of [gracesHuddle, adasHuddle]) await huddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(adasHuddle).toHaveCount(0);
+    await expect.poll(sessionsLeftOpen).toEqual([]);
+    await context.close();
+  });
+
+  test("a camera is sent at the video quality an administrator chose, from when it's next turned on: in three sizes at Full HD, the large one 1080p, and in two at Standard, the medium the largest", async ({ page, browser, baseURL, request }) => {
+    // Two browsers, one of which sends its camera three times over.
+    test.slow();
+    const administrator = await administratorSession(request);
+    const room = await roomOfItsOwn(request);
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+    await chooseVideo(request, "full-hd");
+    const askedBefore = sfu.asked.length;
+
+    // Ada starts the room's huddle and turns her camera on, which takes 1080p, and is sent in three sizes. Grace
+    // joins, in a window whose tiles are tall, and is sent the large one.
+    await keepSenders(page);
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await useOwnAddress(page);
+    await page.goto(`/rooms/${room.id}`);
+    await signInAsAdministrator(page);
+    await page.getByRole("button", { name: "Start huddle", exact: true }).click();
+    await page.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const adasHuddle = huddleOpened(page, room);
+    await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
+    await expect.poll(() => sees(page, "Your camera"), { timeout: 15_000 }).toBe(true);
+    const fullHd = {
+      width: 1920,
+      height: 1080,
+      sizes: [
+        { rid: "c", height: 180, maxBitrate: 150_000 },
+        { rid: "b", height: 360, maxBitrate: 500_000 },
+        { rid: "a", height: 1080, maxBitrate: 3_000_000 },
+      ],
+    };
+    expect(await cameraSentBy(page)).toEqual(fullHd);
+    const { context } = await newcomer(browser, baseURL, request, "Grace");
+    const grace = await context.newPage();
+    await grace.setViewportSize({ width: 1280, height: 1000 });
+    const gracesHuddle = await joinByLink(grace, room);
+    const adasCamera = `${administrator.user.name}'s camera`;
+    // What she's shown of it the SFU's stand-in has sent again itself, as large as its own connection to her carries, so
+    // it's what the SFU was asked for that says which size she's sent.
+    await expect.poll(() => sees(grace, adasCamera), { timeout: 15_000 }).toBe(true);
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a"]);
+
+    // The administrator chooses Standard, which Ada's tab hears of at once, its tiles no wider than Standard's widest,
+    // and which leaves the camera that's on as it is.
+    const tileWidth = async () => (await tiles(adasHuddle).first().boundingBox())!.width;
+    expect(await tileWidth()).toBeGreaterThan(420);
+    await chooseVideo(request, "standard");
+    await expect.poll(tileWidth).toBeLessThanOrEqual(420);
+    expect(await cameraSentBy(page)).toEqual(fullHd);
+
+    // Turned on again, it takes 360p, which is sent in two sizes, and Grace is sent the larger of those.
+    await adasHuddle.getByRole("button", { name: "Turn off camera" }).click();
+    await expect(gracesHuddle.getByLabel(adasCamera)).toHaveCount(0);
+    await adasHuddle.getByRole("button", { name: "Turn on camera" }).click();
+    await expect
+      .poll(() => cameraSentBy(page), { timeout: 15_000 })
+      .toEqual({
+        width: 640,
+        height: 360,
+        sizes: [
+          { rid: "c", height: 180, maxBitrate: 150_000 },
+          { rid: "b", height: 360, maxBitrate: 500_000 },
+        ],
+      });
+    await expect.poll(() => sees(grace, adasCamera), { timeout: 15_000 }).toBe(true);
+    expect(sizesAsked(askedBefore)).toEqual(["asked for in a", "asked for in b"]);
+
     for (const huddle of [gracesHuddle, adasHuddle]) await huddle.getByRole("button", { name: "Leave", exact: true }).click();
     await expect(adasHuddle).toHaveCount(0);
     await expect.poll(sessionsLeftOpen).toEqual([]);
@@ -1322,10 +1587,12 @@ test.describe("A huddle", () => {
     await expect.poll(() => ringing(tabs)).toEqual([]);
     await expect(adasHuddle).toContainText("1 person");
 
-    // Ada leaves, which ends the huddle, and starts another, which invites Grace again. Grace closes the
-    // tab that rings, and the other rings in its place.
+    // Ada leaves, which ends the huddle. Nobody joined it, but Grace was invited, so its message stays in
+    // the direct message, for her to find the huddle she missed. Ada starts another, which invites Grace
+    // again. Grace closes the tab that rings, and the other rings in its place.
     await adasHuddle.getByRole("button", { name: "Leave", exact: true }).click();
     await expect(adasHuddle).toHaveCount(0);
+    await expect(page.getByRole("log").getByRole("heading", { name: /^A huddle happened/ })).toHaveCount(1);
     await start.click();
     await starting.getByRole("button", { name: "Start Huddle" }).click();
     await expect(adasHuddle).toContainText("1 person");
@@ -1620,9 +1887,10 @@ test.describe("A huddle", () => {
     await grace.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
 
-    // In a window too short for the emoji picker, the panel stops as far under the huddle's header as it
-    // is over its buttons, with its tabs beside the emoji, which have the room that leaves.
-    await grace.setViewportSize({ width: 1280, height: 280 });
+    // In a window too short for the emoji picker, 280px under the top bar, the panel stops as far under
+    // the huddle's header as it is over its buttons, with its tabs beside the emoji, which have the room
+    // that leaves.
+    await grace.setViewportSize({ width: 1280, height: 280 + 44 });
     await react.click();
     await expect(panel.getByRole("tablist")).toHaveAttribute("aria-orientation", "vertical");
     await expect(panel.getByRole("gridcell", { name: "Grinning face", exact: true })).toBeInViewport({ ratio: 0.9 });
@@ -1678,7 +1946,7 @@ test.describe("A huddle", () => {
     await context.close();
   });
 
-  test("whoever can change a room turns huddles off in its settings, which ends the huddle going on there and takes the room's huddle button from everyone, until they turn them on again", async ({ page, browser, baseURL, request }) => {
+  test("an administrator turns huddles off in a room's settings, which ends the huddle going on there and takes the room's huddle button from everyone, until they turn them on again, and whoever made a room and isn't one has no switch for it", async ({ page, browser, baseURL, request }) => {
     const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers: await asAdministrator(request) });
     expect(saved.status(), await saved.text()).toBe(200);
     const room = await roomOfItsOwn(request);
@@ -1696,8 +1964,9 @@ test.describe("A huddle", () => {
     await page.goto(`/rooms/${room.id}`);
     await signInAsAdministrator(page);
     await expect(page.getByRole("button", { name: "Join huddle, 1 in it" })).toBeVisible();
+    await expect(page.getByText("A huddle is happening")).toBeVisible();
 
-    // The room's settings have a Huddles switch, which is on, and warns Ada of the huddle as she turns it off.
+    // The room's settings have a Huddles switch for Ada, an administrator, which is on, and warns her of the huddle as she turns it off.
     await page.goto(`/rooms/opens/${room.id}/edit`);
     const allow = page.getByRole("switch", { name: "Allow huddles in this room" });
     await expect(allow).toBeChecked();
@@ -1714,9 +1983,8 @@ test.describe("A huddle", () => {
     await expect(page.getByRole("heading", { level: 1, name: room.name })).toBeVisible();
     await expect(page.getByRole("button", { name: /huddle/i })).toHaveCount(0);
     await expect(sidebarMark(page, room)).toHaveCount(0);
-    // The huddle's message says it's over, and offers nobody Join.
-    await expect(page.getByText("A huddle happened")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Join", exact: true })).toHaveCount(0);
+    // Nobody joined the huddle, so the room has no message of it left, in her tab or in Ada's.
+    for (const of of [grace, page]) await expect(of.getByText(/A huddle (is happening|happened)/)).toHaveCount(0);
 
     // The huddle's link opens the room and says why it has no preview, its keys start nothing, and the room lets in nobody who asks it anyway.
     await grace.goto(`/rooms/${room.id}/huddle`);
@@ -1730,6 +1998,17 @@ test.describe("A huddle", () => {
     await grace.goto(`/rooms/opens/${room.id}/edit`);
     await expect(grace.getByText("Members can't start or join huddles in this room.")).toBeVisible();
     await expect(grace.getByRole("switch")).toHaveCount(0);
+    // A room she made is hers to change, but for its huddles: its settings have no Huddles switch, and Ember turns none off for her.
+    const made = await context.request.post("/api/rooms", { data: { kind: "open", name: `Retro ${crypto.randomUUID().slice(0, 8)}` }, headers: SAME_ORIGIN });
+    expect(made.status(), await made.text()).toBe(201);
+    const { room: hers } = (await made.json()) as { room: TestRoom };
+    await grace.goto(`/rooms/opens/${hers.id}/edit`);
+    await expect(grace.getByRole("textbox", { name: "Room name" })).toHaveValue(hers.name);
+    await expect(grace.getByRole("switch", { name: "Give only some access to this room" })).toBeVisible();
+    await expect(grace.getByRole("switch", { name: "Allow huddles in this room" })).toHaveCount(0);
+    const refused = await context.request.patch(`/api/rooms/${hers.id}`, { data: { huddles: false }, headers: SAME_ORIGIN });
+    expect(refused.status(), await refused.text()).toBe(403);
+    expect(await refused.json()).toEqual({ error: "Only administrators can turn huddles on or off in a room" });
     await grace.goto(`/rooms/${room.id}`);
     await expect(grace.getByRole("heading", { level: 1, name: room.name })).toBeVisible();
 
@@ -1744,6 +2023,207 @@ test.describe("A huddle", () => {
 
     // The room had the SFU close what Grace's tab left open.
     await expect.poll(sessionsLeftOpen).toEqual([]);
+    await context.close();
+  });
+
+  test("someone turns a huddle's sounds off on their profile, one by one, which the huddle they're in goes by at once, and an invitation shows without its ring until they turn that on again", async ({ page, browser, baseURL, request }) => {
+    // The huddle's music twice, which waits five seconds each time.
+    test.slow();
+    const administrator = await administratorSession(request);
+    const headers = { Cookie: cookieHeader(administrator), ...SAME_ORIGIN };
+    const room = await roomOfItsOwn(request);
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers });
+    expect(saved.status(), await saved.text()).toBe(200);
+
+    // Grace, who joins Ember with the join link, has her profile open in one tab, where Huddle sounds has
+    // a switch for each sound, all on, and the room in another.
+    const { user: her, context } = await newcomer(browser, baseURL, request, "Grace");
+    const [profile, grace] = [await context.newPage(), await context.newPage()];
+    for (const tab of [profile, grace]) {
+      await keepSounds(tab);
+      await useOwnAddress(tab);
+    }
+    await profile.goto("/users/me/profile");
+    const switches = (tab: Page) => tab.getByRole("region", { name: "Huddle sounds", exact: true }).getByRole("switch");
+    const music = switches(profile).and(profile.getByLabel("Play music when you're the only one in a huddle", { exact: true }));
+    const chimes = switches(profile).and(profile.getByLabel("Play a sound when someone joins or leaves", { exact: true }));
+    const ring = switches(profile).and(profile.getByLabel("Ring when someone invites you to a huddle", { exact: true }));
+    await expect(switches(profile)).toHaveCount(3);
+    for (const each of [music, chimes, ring]) await expect(each).toBeChecked();
+    await grace.goto(`/rooms/${room.id}`);
+    await expect(grace.getByRole("heading", { level: 1, name: room.name })).toBeVisible();
+
+    // She turns the sounds of joining and leaving off, and starts the room's huddle in the other tab,
+    // which plays her no sound as she joins, and then, as she's alone in it, its music.
+    await chimes.click();
+    await expect(chimes).not.toBeChecked();
+    await grace.getByRole("button", { name: "Start huddle", exact: true }).click();
+    await grace.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const huddle = huddleOpened(grace, room);
+    await expect(huddle).toContainText("1 person");
+    await expect.poll(() => soundsHeard(grace), { timeout: 15_000 }).toEqual(["music"]);
+    expect(await soundsStarted(grace)).toEqual(["music"]);
+
+    // She turns the music off, which stops it in the huddle at once, and on again, which starts it five
+    // seconds later, from where it stopped.
+    await music.click();
+    await expect(music).not.toBeChecked();
+    await expect.poll(async () => (await musicIn(grace)).playing).toBe(false);
+    const stopped = await musicIn(grace);
+    expect(stopped.at).toBeGreaterThan(0);
+    await music.click();
+    await expect(music).toBeChecked();
+    expect((await musicIn(grace)).playing).toBe(false);
+    await expect.poll(async () => (await musicIn(grace)).playing, { timeout: 15_000 }).toBe(true);
+    expect((await musicIn(grace)).at).toBeGreaterThanOrEqual(stopped.at);
+
+    // She turns the ring off too, and leaves the huddle, which plays her no sound either. Ember keeps
+    // what she chose with her account: her profile shows it loaded again, and in the other tab.
+    await ring.click();
+    await expect(ring).not.toBeChecked();
+    await huddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(huddle).toHaveCount(0);
+    await profile.reload();
+    await expect(switches(profile)).toHaveCount(3);
+    await expect(music).toBeChecked();
+    await expect(chimes).not.toBeChecked();
+    await expect(ring).not.toBeChecked();
+    await grace.goto("/users/me/profile");
+    await expect(switches(grace)).toHaveCount(3);
+    expect(await switches(grace).evaluateAll((all) => all.map((each) => each.getAttribute("aria-checked")))).toEqual(["true", "false", "false"]);
+    expect(await soundsStarted(grace)).toEqual([]);
+
+    // Ada starts a huddle in her direct message with her, which started as she joined, to welcome her,
+    // and that invites her. Both of her tabs show the invitation, and neither rings.
+    const started = await request.post("/api/directs", { data: { userIds: [her.id] }, headers });
+    expect(started.status(), await started.text()).toBe(200);
+    const direct = ((await started.json()) as { room: { id: string } }).room;
+    await useOwnAddress(page);
+    await page.goto(`/rooms/${direct.id}`);
+    await signInAsAdministrator(page);
+    await page.getByRole("button", { name: "Start huddle", exact: true }).click();
+    await page.getByRole("dialog", { name: `Start a huddle with ${her.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const adasHuddle = directHuddle(page, her.name);
+    await expect(adasHuddle).toContainText("1 person");
+    const tabs = [profile, grace];
+    for (const tab of tabs) await expect(invitationFrom(tab, administrator.user.name)).toBeVisible();
+    // Long enough for a ring to have started, were there one.
+    await profile.waitForTimeout(1_500);
+    expect(await ringing(tabs)).toEqual([]);
+    for (const tab of tabs) expect(await soundsStarted(tab)).not.toContain("invited");
+
+    // She turns the ring on, which rings one of her tabs for the invitation still showing, and off again,
+    // which stops it and leaves the invitation where it is.
+    await ring.click();
+    await expect(ring).toBeChecked();
+    await expect.poll(async () => (await ringing(tabs)).length).toBe(1);
+    await ring.click();
+    await expect(ring).not.toBeChecked();
+    await expect.poll(() => ringing(tabs)).toEqual([]);
+    for (const tab of tabs) await expect(invitationFrom(tab, administrator.user.name)).toBeVisible();
+
+    await adasHuddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(adasHuddle).toHaveCount(0);
+    for (const tab of tabs) await expect(invitationFrom(tab, administrator.user.name)).toHaveCount(0);
+    await expect.poll(sessionsLeftOpen).toEqual([]);
+    await context.close();
+  });
+
+  test("the sidebar's Huddles row opens the Huddles page, which has a huddle to join while it goes on, counted on the row, and lists it among the recent ones once it's over, with who was in it and its thread's replies as they're written, where it goes to its thread", async ({ page, browser, baseURL, request }) => {
+    const headers = await asAdministrator(request);
+    const saved = await request.put("/api/account/huddles", { data: SFU_APP, headers });
+    expect(saved.status(), await saved.text()).toBe(200);
+    const room = await roomOfItsOwn(request);
+    /** The room's huddle on the Huddles page `of` shows: its card while it goes on, and its row once it's over. */
+    const card = (of: Page) => happeningNow(of).filter({ hasText: room.name });
+    const row = (of: Page) => recentHuddles(of).filter({ hasText: room.name });
+    const joinFrom = (of: Page) => card(of).getByRole("button", { name: `Join the huddle in ${room.name}`, exact: true });
+
+    // Grace, who joins Ember with the join link, opens the Huddles page from her sidebar's row, which is
+    // marked as the page she's on. No huddle is going on, and none of the room's is over.
+    const { context } = await newcomer(browser, baseURL, request, "Grace");
+    const grace = await context.newPage();
+    await useOwnAddress(grace);
+    await grace.goto(`/rooms/${room.id}`);
+    await expect(huddlesRow(grace)).toHaveAccessibleName("Huddles");
+    await huddlesRow(grace).click();
+    await expect(grace).toHaveURL(`${baseURL}/huddles`);
+    await expect(grace.getByRole("heading", { level: 1 })).toHaveText("Huddles");
+    await expect(huddlesRow(grace)).toHaveAttribute("aria-current", "page");
+    await expect(grace.getByRole("main")).not.toHaveAttribute("aria-busy");
+    await expect(happeningNow(grace)).toHaveCount(0);
+    await expect(row(grace)).toHaveCount(0);
+
+    // Ada starts a huddle in the room, which Grace's page has as happening now, with Ada in it, to go to
+    // its room by or join, and her sidebar's row counts.
+    await useOwnAddress(page);
+    await page.goto(`/rooms/${room.id}`);
+    await signInAsAdministrator(page);
+    await page.getByRole("button", { name: "Start huddle", exact: true }).click();
+    await page.getByRole("dialog", { name: `Start a huddle in ${room.name}` }).getByRole("button", { name: "Start Huddle" }).click();
+    const adasHuddle = huddleOpened(page, room);
+    await expect(adasHuddle).toContainText("1 person");
+    await expect(card(grace)).toContainText("LIVE");
+    await expect(card(grace)).toContainText(/Ada is in the huddle · started \d{1,2}:\d{2}\s[AP]M/);
+    await expect(card(grace).getByRole("link", { name: room.name, exact: true })).toHaveAttribute("href", `/rooms/${room.id}`);
+    await expect(huddlesRow(grace)).toHaveAccessibleName("Huddles, 1 happening now");
+
+    // She joins it from the page, by the preview. Behind her huddle, the page names them both, with their
+    // faces and nothing to join.
+    await joinFrom(grace).click();
+    await grace.getByRole("dialog", { name: `Join the huddle in ${room.name}` }).getByRole("button", { name: "Join Huddle" }).click();
+    const gracesHuddle = huddleOpened(grace, room);
+    await expect(gracesHuddle).toContainText("2 people");
+    await gracesHuddle.getByRole("button", { name: "Minimize huddle" }).filter({ visible: true }).click();
+    await expect(grace).toHaveURL(`${baseURL}/huddles`);
+    await expect(card(grace)).toContainText("Ada and you are in the huddle");
+    await expect(card(grace).locator("img")).toHaveCount(2);
+    await expect(joinFrom(grace)).toHaveCount(0);
+
+    // Grace leaves, from her huddle's bar, and can join again from the page. Then Ada does, which ends the
+    // huddle: it goes from Happening now, and from the row's count, and is the first of the recent ones,
+    // which says when it started, how long it went on and who was in it, with their faces. Its thread has
+    // no replies yet.
+    await huddleBar(grace, room).getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(card(grace)).toContainText("Ada is in the huddle");
+    await expect(joinFrom(grace)).toBeVisible();
+    await adasHuddle.getByRole("button", { name: "Leave", exact: true }).click();
+    await expect(adasHuddle).toHaveCount(0);
+    await expect(happeningNow(grace)).toHaveCount(0);
+    await expect(huddlesRow(grace)).toHaveAccessibleName("Huddles");
+    await expect(recentHuddles(grace).first()).toContainText(room.name);
+    await expect(row(grace)).toHaveCount(1);
+    await expect(row(grace)).toContainText(/(Today|Yesterday) at \d{1,2}:\d{2}\s[AP]M · (less than a minute|1 minute)/);
+    await expect(row(grace)).toContainText("Ada and you were in the huddle");
+    await expect(row(grace).locator("img")).toHaveCount(2);
+    await expect(row(grace)).not.toContainText(/repl/);
+
+    // Ada opens the page from her sidebar's row, where the huddle is listed for her too. Grace's row goes to
+    // its thread, beside the room, where she writes a reply, which Ada's page counts as it's written, and
+    // Grace's once she's back on it.
+    await huddlesRow(page).click();
+    await expect(row(page)).toContainText("Grace and you were in the huddle");
+    await expect(row(page)).not.toContainText(/repl/);
+    await row(grace).getByRole("link").click();
+    await expect(grace).toHaveURL(new RegExp(`/rooms/${room.id}/threads/[^/]+$`));
+    const thread = grace.getByRole("complementary", { name: "Thread" });
+    await expect(thread.getByRole("article").first()).toContainText("A huddle happened");
+    await editorField(thread, "Write a reply").fill("Notes from the huddle");
+    await editorField(thread, "Write a reply").press("Enter");
+    await expect(thread.getByRole("article").filter({ hasText: "Notes from the huddle" })).toBeVisible();
+    await expect(row(page)).toContainText("· 1 reply");
+    await grace.goBack();
+    await expect(grace).toHaveURL(`${baseURL}/huddles`);
+    await expect(row(grace)).toContainText("· 1 reply");
+    await expect.poll(sessionsLeftOpen).toEqual([]);
+
+    // Turning huddles off takes the row from their sidebars. The page they have open still lists the huddle.
+    const forgotten = await request.delete("/api/account/huddles", { headers });
+    expect(forgotten.status(), await forgotten.text()).toBe(200);
+    for (const of of [page, grace]) {
+      await expect(huddlesRow(of)).toHaveCount(0);
+      await expect(row(of)).toContainText("· 1 reply");
+    }
     await context.close();
   });
 });

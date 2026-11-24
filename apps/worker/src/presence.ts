@@ -123,6 +123,19 @@ export class Presence {
     return this.ctx.getWebSockets(userId).some((socket) => socket.readyState === WebSocket.OPEN && isViewing(keptOf(socket), this.ctx.getWebSocketAutoResponseTimestamp(socket), now));
   }
 
+  /**
+   * Who's active: everyone with a socket open that's in use and was heard from within `PRESENCE_TTL_MS`
+   * of `now`, as the tabs listening are told, and whom @here notifies.
+   */
+  active(now = Date.now()): Set<UserId> {
+    const active = new Set<UserId>();
+    for (const socket of this.ctx.getWebSockets()) {
+      const presence = socket.readyState === WebSocket.OPEN ? presenceOf(socket) : null;
+      if (presence?.active && now - this.lastHeard(socket, presence) <= PRESENCE_TTL_MS) active.add(presence.userId);
+    }
+    return active;
+  }
+
   /** Notes that `socket` has closed, or is closing. */
   closed(socket: WebSocket): void {
     const presence = presenceOf(socket);
@@ -141,7 +154,7 @@ export class Presence {
   private tellChanges(): void {
     this.gathering = null;
     const before = this.lastTold();
-    const now = this.activeAt(Date.now());
+    const now = this.active();
     const changed = new Set(this.readBack ? this.changed : []);
     for (const userId of before) if (!now.has(userId)) changed.add(userId);
     for (const userId of now) if (!before.has(userId)) changed.add(userId);
@@ -178,16 +191,6 @@ export class Presence {
       this.readBack = true;
     }
     return this.told;
-  }
-
-  /** Everyone with a socket open that's in use and was heard from within `PRESENCE_TTL_MS` of `now`. */
-  private activeAt(now: number): Set<UserId> {
-    const active = new Set<UserId>();
-    for (const socket of this.ctx.getWebSockets()) {
-      const presence = socket.readyState === WebSocket.OPEN ? presenceOf(socket) : null;
-      if (presence?.active && now - this.lastHeard(socket, presence) <= PRESENCE_TTL_MS) active.add(presence.userId);
-    }
-    return active;
   }
 
   /** When the Workspace last heard from `socket`, or the runtime answered its ping. */

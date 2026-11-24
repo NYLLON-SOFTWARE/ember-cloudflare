@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   apart,
   inDirectOrder,
+  inSections,
   inSidebarOrder,
   isQuietWelcome,
   markedUnread,
   NO_ROOM_LIST,
+  roomCount,
   roomListReducer,
   withRoom,
+  withRoomIn,
   type DirectSidebarRoom,
   type RoomListAction,
   type SharedSidebarRoom,
@@ -160,6 +163,19 @@ describe("Unread rooms", () => {
     expect(roomListReducer(read, { type: "loaded", list }).list!.rooms).toEqual([room("r1", "Design"), room("r2", "general")]);
   });
 
+  it("counts the mentions a room's mark says it has, until it's read, keeping the count as the room's saved", () => {
+    const design = room("r1", "Design");
+    const listed = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([design]) });
+    const marked = roomListReducer(roomListReducer(listed, { type: "marked", roomId: "r1", at: NOON }), { type: "marked", roomId: "r1", at: NOON, mentions: 2 });
+    const counted: SidebarRoom = { ...design, unread: true, unreadSince: NOON, mentionCount: 2 };
+    expect(marked.list!.rooms).toEqual([counted]);
+    expect(withRoom(marked.list!.rooms, { id: "r1", kind: "open", name: "Design", icon: null })).toEqual([counted]);
+    // A mark the server makes again, after a read the same events bring, comes with no mentions of its own.
+    const later = "2026-10-15T12:05:00.000Z";
+    expect(roomListReducer(marked, { type: "marked", roomId: "r1", at: later }).list!.rooms).toEqual([{ ...design, unread: true, unreadSince: later }]);
+    expect(roomListReducer(marked, { type: "marked", roomId: "r1", at: null }).list!.rooms).toEqual([design]);
+  });
+
   it("counts the messages a DM's mark says have come since, until it's read, keeping the count as the DM's saved", () => {
     const dm = direct("d1", "Ada", "Grace");
     const listed = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([dm]) });
@@ -237,6 +253,81 @@ describe("Shared room order", () => {
   });
 });
 
+describe("Sidebar sections", () => {
+  const engineering = { id: "s1", name: "Engineering" };
+  const sales = { id: "s2", name: "Sales" };
+  const sections = [
+    { ...engineering, roomIds: ["r4", "r2"] },
+    { ...sales, roomIds: ["r1", "gone"] },
+    { id: "s3", name: "Empty", roomIds: [] },
+  ];
+  const names = ({ loose, sections }: ReturnType<typeof inSections<SharedSidebarRoom>>) => ({
+    loose: loose.map((r) => r.name),
+    sections: sections.map(({ section, rooms }) => [section.name, rooms.map((r) => r.name)]),
+  });
+
+  it("lists the rooms in no section first, then each section's rooms under it, in the sidebar's order, leaving out the sections with none", () => {
+    expect(names(inSections(four, sections, new Set()))).toEqual({
+      loose: ["Design"],
+      sections: [
+        ["Engineering", ["Zebra", "Ops"]],
+        ["Sales", ["general"]],
+      ],
+    });
+  });
+
+  it("keeps a starred room at the top, out of its section, which goes once it has no other room", () => {
+    expect(names(inSections(inSidebarOrder(four, ["r1", "r4"]), sections, new Set(["r1", "r4"])))).toEqual({
+      loose: ["general", "Ops", "Design"],
+      sections: [["Engineering", ["Zebra"]]],
+    });
+  });
+
+  it("moves a room into a section, last, renaming it as it's named now, or adding it after the others while they haven't it", () => {
+    const moved = withRoomIn(sections, "r2", { id: "s2", name: "Revenue" });
+    expect(moved).toEqual([
+      { ...engineering, roomIds: ["r4"] },
+      { id: "s2", name: "Revenue", roomIds: ["r1", "gone", "r2"] },
+      { id: "s3", name: "Empty", roomIds: [] },
+    ]);
+    expect(withRoomIn(moved, "r2", null)).toEqual([
+      { ...engineering, roomIds: ["r4"] },
+      { id: "s2", name: "Revenue", roomIds: ["r1", "gone"] },
+      { id: "s3", name: "Empty", roomIds: [] },
+    ]);
+    expect(withRoomIn([], "r3", { id: "s9", name: "Design" })).toEqual([{ id: "s9", name: "Design", roomIds: ["r3"] }]);
+  });
+
+  it("follows a room's section as it's saved, a room saved without one keeping it, and as it's gone, even over a list asked for before", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { ...sidebar(four), sections } });
+    const asked = roomListReducer(loaded, { type: "asked" });
+    const saved = roomListReducer(asked, { type: "saved", room: four[2]!, section: engineering });
+    expect(saved.list!.sections![0]).toEqual({ ...engineering, roomIds: ["r4", "r2", "r3"] });
+    expect(roomListReducer(saved, { type: "saved", room: four[2]! }).list!.sections).toEqual(saved.list!.sections);
+    const gone = roomListReducer(saved, { type: "gone", roomId: "r4" });
+    expect(gone.list!.sections![0]).toEqual({ ...engineering, roomIds: ["r2", "r3"] });
+    // The list asked for before comes without the changes, which are made over it again.
+    expect(roomListReducer(gone, { type: "loaded", list: { ...sidebar(four), sections } }).list!.sections![0]).toEqual({ ...engineering, roomIds: ["r2", "r3"] });
+    // A list without sections, as a member's with none in theirs, gets one for a room saved in one.
+    const none = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four) });
+    expect(roomListReducer(none, { type: "saved", room: four[0]!, section: sales }).list!.sections).toEqual([{ ...sales, roomIds: ["r1"] }]);
+  });
+
+  it("takes the sections an administrator lays out here, with the order, over a list asked for before they saved it", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { ...sidebar(four), sections } });
+    const laidOut = [{ ...sales, roomIds: ["r2"] }];
+    const reordered = roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "reordered", sharedOrder: ["r2"], sections: laidOut });
+    expect(reordered.list!.sections).toEqual(laidOut);
+    expect(roomListReducer(reordered, { type: "loaded", list: { ...sidebar(four), sections } }).list!.sections).toEqual(laidOut);
+    // An order saved without sections leaves them be.
+    expect(roomListReducer(loaded, { type: "reordered", sharedOrder: [] }).list!.sections).toEqual(sections);
+  });
+
+  it("counts a section's rooms in words", () => {
+    expect([0, 1, 2].map(roomCount)).toEqual(["No rooms", "1 room", "2 rooms"]);
+  });
+});
+
 describe("Star rooms", () => {
   it("keeps the newest stars, from a star's answer, the socket or the list, whichever arrives last", () => {
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four, { rooms: ["r1"], version: 2 }) });
@@ -286,6 +377,15 @@ describe("Block someone", () => {
     const unanswered = roomListReducer(NO_ROOM_LIST, { type: "unanswered" });
     expect(unanswered.list!.blocks).toEqual(blocks([], 0));
     expect(roomListReducer(unanswered, { type: "blocked", blocks: blocks(["u2"], 1) }).list!.blocks.userIds).toEqual(["u2"]);
+  });
+});
+
+describe("Reports", () => {
+  it("takes an administrator's count of open reports from the socket, the last count standing even over a list that came after it", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { ...sidebar(four), openReports: 1 } });
+    expect(roomListReducer(loaded, { type: "reports", open: 2 }).list!.openReports).toBe(2);
+    const asked = roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "reports", open: 0 });
+    expect(roomListReducer(asked, { type: "loaded", list: { ...sidebar(four), openReports: 1 } }).list!.openReports).toBe(0);
   });
 });
 
@@ -395,7 +495,31 @@ describe("Hide a room", () => {
 
   it("marks no row of a room you've hidden unread, so Activity leaves it out", () => {
     expect(markedUnread(hidden(room("r1", "Design", true)), null)).toBe(false);
-    expect(markedUnread({ ...room("r1", "Design", true), involvement: "nothing" }, null)).toBe(true);
+    expect(markedUnread({ ...room("r1", "Design", true), involvement: "everything" }, null)).toBe(true);
+  });
+});
+
+describe("Mute a room", () => {
+  const muted = <T extends SidebarRoom>(listed: T): T => ({ ...listed, involvement: "nothing" });
+
+  it("marks the row of a room you've muted unread only for the mentions of you it counts, so Activity leaves the rest out", () => {
+    expect(markedUnread(muted(room("r1", "Design", true)), null)).toBe(false);
+    expect(markedUnread(muted({ ...room("r1", "Design", true), mentionCount: 2 }), null)).toBe(true);
+    expect(markedUnread(muted({ ...room("r1", "Design", true), mentionCount: 2 }), "r1")).toBe(false);
+  });
+
+  it("marks a DM you've muted for its messages, every one of which is for you, as Slack still badges a muted DM", () => {
+    expect(markedUnread(muted({ ...direct("d1", "Ada"), unread: true, unreadCount: 3 }), null)).toBe(true);
+    expect(markedUnread(muted({ ...direct("d1", "Ada"), unread: true, unreadCount: 3 }), "d1")).toBe(false);
+    expect(markedUnread(muted(direct("d1", "Ada")), null)).toBe(false);
+  });
+
+  it("marks a muted room's row once the server counts a mention of you, after a message that didn't mention you", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([muted(room("r1", "Design"))]) });
+    const marked = roomListReducer(loaded, { type: "marked", roomId: "r1", at: NOON });
+    expect(markedUnread(marked.list!.rooms[0]!, null)).toBe(false);
+    const mentioned = roomListReducer(marked, { type: "marked", roomId: "r1", at: NOON, mentions: 1 });
+    expect(markedUnread(mentioned.list!.rooms[0]!, null)).toBe(true);
   });
 });
 
@@ -434,5 +558,37 @@ describe("Huddles in your rooms", () => {
     expect(roomListReducer(over, { type: "loaded", list }).list!.huddles).toEqual({});
     const started = roomListReducer(asked, { type: "huddle", roomId: "r2", huddle: huddle("grace") });
     expect(roomListReducer(started, { type: "loaded", list }).list!.huddles).toEqual({ r1: huddle("ada"), r2: huddle("grace") });
+  });
+});
+
+describe("Huddle sounds, which each person turns on or off for themselves", () => {
+  const EVERY_SOUND = { music: true, chimes: true, ring: true };
+  const NO_MUSIC = { ...EVERY_SOUND, music: false };
+  const list = sidebar([room("r1", "general")]);
+  const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
+
+  it("keeps which of a huddle's sounds its person hears, and says nothing of them once they hear them all, as the server's list doesn't", () => {
+    const quieter = roomListReducer(loaded, { type: "huddle sounds", sounds: NO_MUSIC });
+    expect(quieter.list!.huddleSounds).toEqual(NO_MUSIC);
+    expect(quieter.list!.rooms).toBe(loaded.list!.rooms);
+    const ringless = roomListReducer(quieter, { type: "huddle sounds", sounds: { ...NO_MUSIC, ring: false } });
+    expect(ringless.list!.huddleSounds).toEqual({ music: false, chimes: true, ring: false });
+
+    const all = roomListReducer(ringless, { type: "huddle sounds", sounds: EVERY_SOUND });
+    expect(all.list).not.toHaveProperty("huddleSounds");
+    expect(all.list).toEqual(list);
+  });
+
+  it("keeps the sounds a switch saved while a list was on its way over the ones the list has, a sound turned back on too", () => {
+    const asked = roomListReducer(loaded, { type: "asked" });
+    const off = roomListReducer(asked, { type: "huddle sounds", sounds: NO_MUSIC });
+    expect(roomListReducer(off, { type: "loaded", list }).list!.huddleSounds).toEqual(NO_MUSIC);
+    const on = roomListReducer(asked, { type: "huddle sounds", sounds: EVERY_SOUND });
+    expect(roomListReducer(on, { type: "loaded", list: { ...list, huddleSounds: NO_MUSIC } }).list).not.toHaveProperty("huddleSounds");
+  });
+
+  it("takes the sounds the list has otherwise, and has them all heard when the first list fails to arrive", () => {
+    expect(roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "loaded", list: { ...list, huddleSounds: NO_MUSIC } }).list!.huddleSounds).toEqual(NO_MUSIC);
+    expect(roomListReducer(NO_ROOM_LIST, { type: "unanswered" }).list).not.toHaveProperty("huddleSounds");
   });
 });

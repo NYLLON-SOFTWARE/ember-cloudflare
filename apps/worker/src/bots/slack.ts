@@ -17,6 +17,7 @@ import {
 import { cardAddress } from "@ember/richtext";
 import { markdownHtml, MAX_MARKDOWN_LENGTH } from "./markdown";
 import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plainText, plainTextHtml, utcTime, type Formatting } from "./mrkdwn";
+import { statuspageCard } from "./statuspage";
 
 // What a Slack incoming webhook is sent (https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks),
 // read into the message a bot posts: its `text`, or, in its place, as Slack shows them, its Block Kit `blocks` as a
@@ -24,6 +25,7 @@ import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plain
 // What Slack lets a payload change about who posts and where (`username`, `icon_emoji`, `icon_url`, `channel`,
 // `thread_ts`) is left out: the bot posts as itself, to the room whose address the payload was sent to. A Block Kit
 // button with an `action_id` and no `url` acts, where the room has somewhere to report its click (clicks.ts).
+// Atlassian Statuspage's webhooks, which send their own JSON in place of Slack's, show as a card (./statuspage.ts).
 
 /** Why Slack's webhooks post nothing, in their words. */
 export type SlackError = "invalid_payload" | "no_text" | "too_many_attachments" | "msg_too_long";
@@ -62,16 +64,20 @@ export function payloadOf(json: string | null): SlackPayload | null {
 /**
  * The message `payload` posts, as Slack shows it: a card of its blocks in place of its text, which Slack shows
  * beside them only in notifications, or its text when they show nothing here, with a card for each of its
- * attachments; or why it posts nothing. With `acting`, its cards keep their buttons that act.
+ * attachments; or why it posts nothing. With `acting`, its cards keep their buttons that act. With
+ * `notifying`, as for a bot's own message, its text's `<!here>`, `<!channel>` and `<!everyone>` are the
+ * special mentions that can notify the room, as in Slack; its cards' never are, nor anything else's.
  */
-export function slackMessage(payload: SlackPayload, acting = false): SlackMessage | SlackError {
+export function slackMessage(payload: SlackPayload, acting = false, notifying = false): SlackMessage | SlackError {
+  const statuspage = statuspageCard(payload);
+  if (statuspage) return JSON.stringify(statuspage).length > MAX_MESSAGE_HTML_LENGTH ? "msg_too_long" : { markup: "", cards: [statuspage] };
   const attachments = listOf(payload.attachments);
   if (attachments.length > MAX_ATTACHMENTS) return "too_many_attachments";
   const attachmentBlocks = attachments.flatMap((attachment) => (isObject(attachment) ? listOf(attachment.blocks) : []));
   if (markdownLength([...listOf(payload.blocks), ...attachmentBlocks]) > MAX_MARKDOWN_LENGTH) return "msg_too_long";
   const blocks = blocksCard(listOf(payload.blocks), acting);
   const formatting: Formatting = payload.mrkdwn === false ? "plain" : "mrkdwn";
-  const markup = blocks ? "" : mrkdwnHtml(stringOf(payload.text), formatting);
+  const markup = blocks ? "" : mrkdwnHtml(stringOf(payload.text), formatting, notifying);
   const cards = [...(blocks ? [blocks] : []), ...attachments.flatMap((attachment) => attachmentCard(attachment, acting) ?? [])];
   if (!shows(markup) && cards.length === 0) return "no_text";
   const tooLong = markup.length > MAX_MESSAGE_HTML_LENGTH || JSON.stringify(cards).length > MAX_MESSAGE_HTML_LENGTH;
@@ -481,8 +487,11 @@ function styled(html: string, style: unknown): string {
   return styledHtml;
 }
 
-/** Whether markup shows anything: text beside its tags that isn't all space. */
-const shows = (html: string) => html.replace(/<[^>]*>/g, "").trim() !== "";
+/**
+ * Whether markup shows anything: text beside its tags that isn't all space, or an attachment, as a special
+ * mention is, which shows as @here or its kin with no text of its own.
+ */
+const shows = (html: string) => html.includes("<action-text-attachment") || html.replace(/<[^>]*>/g, "").trim() !== "";
 
 const isObject = (value: unknown): value is SlackPayload => typeof value === "object" && value !== null && !Array.isArray(value);
 

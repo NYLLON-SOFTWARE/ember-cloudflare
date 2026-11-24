@@ -5,8 +5,10 @@ import type { Size } from "@/lib/previews";
 import { svgDataUrl } from "@/lib/svg-preview";
 import { fileText, languageOf, showsText } from "@/lib/text-preview";
 import { cn } from "@/lib/utils";
+import { AudioPlayer } from "./audio-player";
 import { Code } from "./code-block";
 import { FileCard } from "./file-card";
+import { VideoPlayer } from "./video-player";
 
 /** How much of a file's text shows before the rest folds behind Show more, as a bot's card folds its text. */
 const FOLD_CHARACTERS = 700;
@@ -21,16 +23,20 @@ const FOLDED = "max-h-[calc(5lh+2em+2px)] overflow-y-hidden after:sticky after:-
 
 /**
  * A file message's file:
- * an SVG of up to 5 MiB shows above its card, a video plays in place, a text file of up to 64 KiB, as a
- * snippet is, shows its text above its card, a picture shows its thumbnail, or without one, as a bot's has
- * none, itself if it's a picture every browser shows of up to 5 MiB and 250 megapixels, and every other
- * file shows its card.
+ * an SVG of up to 5 MiB shows above its card, a video or a recording of sound, as a clip is, plays in place
+ * in a player of its own (video-player.tsx, audio-player.tsx), a text file of up to 64 KiB, as a snippet
+ * is, shows its text above its card, a GIF of up to 5 MiB and 250 megapixels shows itself, so it plays in
+ * place, as Slack's do, a picture shows its thumbnail, or without one, as a bot's has none, itself if it's
+ * a picture every browser shows of up to 5 MiB and 250 megapixels, and every other file shows its card.
  */
 export function Attachment({ file }: { file: StoredFile }) {
   if (file.contentType === "image/svg+xml" && file.byteSize <= MAX_PREVIEW_SIZE) return <SvgPreview file={file} />;
-  if (file.contentType.startsWith("video")) return <VideoPreview file={file} />;
+  if (file.contentType.startsWith("video")) return <VideoPlayer file={file} />;
+  if (file.contentType.startsWith("audio")) return <AudioPlayer file={file} />;
   if (showsText(file)) return <TextPreview file={file} />;
-  const picture = file.previewUrl ?? (showsItself(file) && file.byteSize <= MAX_PREVIEW_SIZE ? file.url : null);
+  // A GIF's thumbnail is its first frame, which shows in its place only where reduced motion is asked for.
+  if (file.contentType === "image/gif" && showsInPlace(file)) return <PicturePreview file={file} src={file.url} still={file.previewUrl} />;
+  const picture = file.previewUrl ?? (showsInPlace(file) ? file.url : null);
   return picture ? <PicturePreview file={file} src={picture} /> : <FileCard file={file} />;
 }
 
@@ -40,6 +46,9 @@ export function Attachment({ file }: { file: StoredFile }) {
  * decode.
  */
 const showsItself = (file: StoredFile) => isWebImage(file.contentType) && isPreviewableSize(file);
+
+/** Whether a message may show `file` itself in its place, which it does in 5 MiB at most. */
+const showsInPlace = (file: StoredFile) => showsItself(file) && file.byteSize <= MAX_PREVIEW_SIZE;
 
 /** The size a message shows a file at: its own, scaled down to fit 1200×800. */
 function shownSize({ width, height }: StoredFile): Size | null {
@@ -54,10 +63,11 @@ function shownSize({ width, height }: StoredFile): Size | null {
  * opens as its thumbnail, since Chrome can't show the original, and so does one over 250 megapixels,
  * which only a message posted before Ember kept to that limit has a thumbnail of. The picture is at most
  * 480px wide and 640px or 70% of the screen tall, in a box that keeps to those limits, so the box is
- * always the picture's shape. The picture's alt text is the file's name. The viewer is only there while
- * it's open, so a timeline of pictures holds no viewer for each.
+ * always the picture's shape. The picture's alt text is the file's name. Given a `still` of a picture
+ * that moves, as a GIF's thumbnail is, the still shows in its place where reduced motion is asked for.
+ * The viewer is only there while it's open, so a timeline of pictures holds no viewer for each.
  */
-function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
+function PicturePreview({ file, src, still }: { file: StoredFile; src: string; still?: string }) {
   const [viewing, setViewing] = useState(false);
   const size = shownSize(file);
   const box: CSSProperties | undefined = size
@@ -76,38 +86,20 @@ function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
         className={cn("block max-w-full", !size && "w-fit max-w-[min(480px,100%)]")}
         style={box}
       >
-        <img
-          src={src}
-          alt={file.name}
-          loading="lazy"
-          className={cn("block cursor-zoom-in rounded-[10px] border object-contain object-left-top", size ? "size-full" : "max-h-[min(640px,70dvh)] max-w-full")}
-        />
+        <picture>
+          {still && <source srcSet={still} media="(prefers-reduced-motion: reduce)" />}
+          <img
+            src={src}
+            alt={file.name}
+            loading="lazy"
+            className={cn("block cursor-zoom-in rounded-[10px] border object-contain object-left-top", size ? "size-full" : "max-h-[min(640px,70dvh)] max-w-full")}
+          />
+        </picture>
       </a>
       {viewing && (
         <Lightbox src={showsItself(file) ? file.url : src} alt={file.name} downloadUrl={file.downloadUrl} onClose={() => setViewing(false)} />
       )}
     </>
-  );
-}
-
-/**
- * A video, which plays in place in a box half its size. Behind its poster it loads nothing until it's
- * played; without one, as when its uploader's browser couldn't play it, it loads enough to draw its first
- * frame. It's named for its file.
- */
-function VideoPreview({ file }: { file: StoredFile }) {
-  const size = shownSize(file);
-  return (
-    <div className="flex max-w-full overflow-clip" style={size ? { width: size.width / 2, aspectRatio: `${size.width} / ${size.height}` } : undefined}>
-      <video
-        src={file.url}
-        poster={file.previewUrl}
-        controls
-        preload={file.previewUrl ? "none" : "metadata"}
-        aria-label={file.name}
-        className="size-full rounded-[10px] border"
-      />
-    </div>
   );
 }
 

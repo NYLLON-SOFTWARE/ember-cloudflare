@@ -5,7 +5,7 @@
 // service, which relays what the browser sends and receives, by a TURN key in the same account, whose
 // ID and API token administrators give in Set up the relay, through `/api/account/huddles/relay`.
 
-import type { User, UserId } from "./index.ts";
+import type { RoomId, User, UserId } from "./index.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 
 /**
@@ -170,13 +170,38 @@ export const HuddleCloseCode = {
 export type HuddleCloseCode = (typeof HuddleCloseCode)[keyof typeof HuddleCloseCode];
 
 /**
- * The sizes a camera's picture is sent in where its browser sends two at once (simulcast), by the names
- * its connection gives them, their RIDs: as large as the camera takes it, and at half that width and
- * height, for whoever shows it in a tile no larger. Where the SFU can't send the size it's asked for,
- * it sends the next in the alphabet's order, so the large one is the first of them.
+ * The sizes a camera's picture is sent in where its browser sends several at once (simulcast), by the
+ * names its connection gives them, their RIDs: as large as the huddle's video quality takes it, 360
+ * pixels tall, and 180, for whoever shows it in tiles no larger than each. A picture no taller than 360
+ * pixels, as at Standard, is sent in the two smaller. Where the SFU can't send the size it's asked for,
+ * it sends the next in the alphabet's order, so the large one is the first of them. A tab from before
+ * there were three sent two, by the first two names, the larger 360 pixels tall.
  */
-export const CAMERA_SIZES = { large: "a", small: "b" } as const;
+export const CAMERA_SIZES = { large: "a", medium: "b", small: "c" } as const;
 export type CameraSize = (typeof CAMERA_SIZES)[keyof typeof CAMERA_SIZES];
+
+/** What a tab calls those sizes, by the tiles it shows cameras in, the largest first. */
+export type CameraSizeName = keyof typeof CAMERA_SIZES;
+export const CAMERA_SIZE_NAMES = Object.keys(CAMERA_SIZES) as CameraSizeName[];
+
+/**
+ * How sharp a huddle's pictures are, as an administrator chooses on the Huddles tab: Standard sends
+ * cameras 360 pixels tall and the screens people share up to 1080, HD cameras 720 pixels tall and
+ * screens up to 1440, and Full HD cameras 1080 pixels tall, where a camera takes them so, and screens as
+ * HD does. Sharper takes more bandwidth, which Cloudflare bills past a free amount. A tab goes by what
+ * the workspace says as it opens a camera or shares a screen.
+ */
+export const HUDDLE_VIDEO_QUALITIES = ["standard", "hd", "full-hd"] as const;
+export type HuddleVideoQuality = (typeof HUDDLE_VIDEO_QUALITIES)[number];
+
+/** The quality huddles have until an administrator chooses one. */
+export const DEFAULT_HUDDLE_VIDEO: HuddleVideoQuality = "hd";
+
+/** Whether `value` is one of those qualities. */
+export const isHuddleVideoQuality = (value: unknown): value is HuddleVideoQuality => HUDDLE_VIDEO_QUALITIES.some((quality) => quality === value);
+
+/** Why a change to the workspace is refused when its video quality is none of them. */
+export const HUDDLE_VIDEO_REFUSED = 'Video quality must be "standard", "hd" or "full-hd"';
 
 /**
  * How long Cloudflare's relay takes what a tab is given to use it with, in seconds, from when the room
@@ -226,6 +251,11 @@ export interface HuddlePerson {
   screen: boolean;
   /** The sticker they show, while they show one. */
   sticker?: HuddleSticker;
+  /**
+   * Set while their connection is unstable, as their tab judges it: much of what it sends or receives is
+   * lost on the way, or a round trip to the SFU takes a second or more.
+   */
+  unstable?: true;
 }
 
 /**
@@ -250,6 +280,76 @@ export interface MessageHuddle {
   people?: User[];
 }
 
+/**
+ * A huddle that's over, as the Huddles page lists it for everyone in its room: the room, the huddle's
+ * message there, whose thread is the huddle's, when it started and ended, everyone who was in it, by
+ * their ids in the order they first joined, and how many replies its thread has. One that nobody else
+ * joined is listed only while its thread has a reply, as Slack lists none it kept no message of.
+ */
+export interface PastHuddle {
+  roomId: RoomId;
+  messageId: string;
+  startedAt: string;
+  endedAt: string;
+  userIds: UserId[];
+  replies: number;
+}
+
+/** How many huddles the Huddles page lists at most: the latest to have started in someone's rooms. */
+export const PAST_HUDDLES_LISTED = 50;
+
+/** What `GET /api/huddles` answers: the huddles that are over in the rooms someone is in and hasn't hidden from their sidebar, the latest to have started first. */
+export interface PastHuddles {
+  huddles: PastHuddle[];
+}
+
+/**
+ * A huddle's own sounds, which each person chooses whether to hear, on their profile: the `music` that
+ * plays to whoever is the only one in a huddle, the `chimes`, one as someone joins a huddle and another
+ * as someone leaves it, and the `ring` of an invitation into one.
+ */
+export const HUDDLE_SOUNDS = ["music", "chimes", "ring"] as const;
+export type HuddleSound = (typeof HUDDLE_SOUNDS)[number];
+
+/**
+ * Which of a huddle's sounds someone hears, wherever they're signed in: each of them until they turn it
+ * off, as Slack's preferences turn off its huddles' music and their notification sound.
+ */
+export type HuddleSounds = Record<HuddleSound, boolean>;
+
+/** A huddle's sounds as someone hears them until they turn one off: all of them. */
+export const ALL_HUDDLE_SOUNDS: HuddleSounds = { music: true, chimes: true, ring: true };
+
+/** Whether `sounds` are all of a huddle's. */
+export const hearsAllHuddleSounds = (sounds: HuddleSounds) => HUDDLE_SOUNDS.every((sound) => sounds[sound]);
+
+/** The sounds `PATCH /api/users/me/huddle-sounds` turns on or off for whoever asks, the rest staying as they are. */
+export type HuddleSoundChanges = Partial<HuddleSounds>;
+
+/** What `PATCH /api/users/me/huddle-sounds` answers: the sounds whoever asked hears now. */
+export interface HuddleSoundsChanged {
+  sounds: HuddleSounds;
+}
+
+/** Why a change to someone's huddle sounds is refused when it turns one neither on nor off. */
+export const HUDDLE_SOUNDS_REFUSED = "Each of music, chimes and ring must be true or false";
+
+/**
+ * Parses an untrusted change to someone's huddle sounds. Returns why it's refused instead of the change.
+ * A sound it doesn't name stays as it is, and it takes nothing else.
+ */
+export function parseHuddleSoundChanges(data: unknown): HuddleSoundChanges | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const changes: HuddleSoundChanges = {};
+  for (const sound of HUDDLE_SOUNDS) {
+    const on = (data as Record<string, unknown>)[sound];
+    if (on === undefined) continue;
+    if (typeof on !== "boolean") return HUDDLE_SOUNDS_REFUSED;
+    changes[sound] = on;
+  }
+  return changes;
+}
+
 /** What a tab sends on its huddle's socket. Leaving the huddle is closing the socket. */
 export type HuddleClientFrame =
   /**
@@ -269,11 +369,12 @@ export type HuddleClientFrame =
    * the one it had has failed. A tab asks again only once the room has answered. For cameras and for
    * screens, `watch` names whose the tab is to see, as many as a huddle shows, and the room stops
    * sending it anyone else's: a tab watches only while it shows the huddle open, and whoever asks for
-   * nobody watches nobody. For cameras, `small` says that the tab shows them in tiles no larger than the
-   * smaller of a camera's sizes, which is the one the room then has the SFU send it of each camera
-   * that's sent in both, those it watches already included.
+   * nobody watches nobody. For cameras, `size` says which of a camera's sizes the tab's tiles show as
+   * well as a larger one would, which is the one the room then has the SFU send it of each camera
+   * that's sent in sizes, those it watches already included: a tab that says none shows them large. A
+   * tab from before there were three sizes said `small` of the smallest.
    */
-  | { type: "huddle.listen"; kind: HuddleTrackKind; fresh?: true; watch?: UserId[]; small?: true }
+  | { type: "huddle.listen"; kind: HuddleTrackKind; fresh?: true; watch?: UserId[]; size?: CameraSizeName }
   /** The answer the tab's receiving connection for `kind` makes to a `huddle.offer`. */
   | { type: "huddle.answer"; kind: HuddleTrackKind; sdp: string }
   /** The person has muted their microphone, or unmuted it. */
@@ -288,6 +389,8 @@ export type HuddleClientFrame =
   | { type: "huddle.invite"; userIds: UserId[] }
   /** The person shows a sticker, in place of any they showed, or with null, takes theirs off. */
   | { type: "huddle.sticker"; sticker: HuddleSticker | null }
+  /** The tab's connection has become unstable, or steady again, which the others see on its person's tile. */
+  | { type: "huddle.connection"; unstable: boolean }
   /**
    * The person reacts with an emoji, which everyone in the huddle sees for a moment, as `huddle.reacted`
    * tells them, their own tab included. The room tells of only so many of a tab's in a while, and says
@@ -309,10 +412,10 @@ export type HuddleServerFrame =
   | { type: "huddle.welcome"; you: User; people: HuddlePerson[]; startedAt: string; messageId?: string; iceServers?: HuddleIceServer[] }
   | { type: "huddle.joined"; person: HuddlePerson }
   /**
-   * Someone muted or unmuted, shows a sticker or took theirs off, can be listened to or watched now, or
-   * can't be: they've turned their camera off or stopped sharing their screen, their tab is publishing
-   * again, or they've joined from another one. A tab asks to hear whoever it can listen to and doesn't,
-   * and to see whoever it's to watch and doesn't.
+   * Someone muted or unmuted, shows a sticker or took theirs off, has an unstable connection or a steady
+   * one again, can be listened to or watched now, or can't be: they've turned their camera off or
+   * stopped sharing their screen, their tab is publishing again, or they've joined from another one. A
+   * tab asks to hear whoever it can listen to and doesn't, and to see whoever it's to watch and doesn't.
    */
   | { type: "huddle.changed"; person: HuddlePerson }
   | { type: "huddle.left"; userId: UserId }
@@ -444,16 +547,26 @@ const reactionOf = (value: unknown): string | null => (typeof value === "string"
 /** Whether `value` is something a frame says only when it's so: `true`, or left out. */
 const isSaidOrNot = (value: unknown): value is true | undefined => value === undefined || value === true;
 
+/**
+ * The size a `huddle.listen` says the tab shows cameras in, the large one where it says none, or null
+ * when it can't be one. A tab from before there were three sizes says `small`, or nothing, and never both.
+ */
+function shownSizeOf({ size, small }: Record<string, unknown>): CameraSizeName | null {
+  if (small !== undefined) return small === true && size === undefined ? "small" : null;
+  return size === undefined ? "large" : (CAMERA_SIZE_NAMES.find((name) => name === size) ?? null);
+}
+
 /** What a `huddle.listen` asks, or null when it can't be one. Cameras and screens are asked for by name, and voices aren't, and only cameras come in sizes. */
 function listenOf(frame: Record<string, unknown>): HuddleClientFrame | null {
   const kind = kindOf(frame.kind);
-  if (kind === null || !isSaidOrNot(frame.fresh) || !isSaidOrNot(frame.small)) return null;
+  const size = shownSizeOf(frame);
+  if (kind === null || !isSaidOrNot(frame.fresh) || size === null) return null;
   const watch = watchOf(frame.watch, mostWatched(kind));
   if (watch === null) return null;
   const listen: Extract<HuddleClientFrame, { type: "huddle.listen" }> = { type: "huddle.listen", kind };
   if (frame.fresh) listen.fresh = true;
   if (kind !== "audio") listen.watch = watch;
-  if (kind === "video" && frame.small) listen.small = true;
+  if (kind === "video" && size !== "large") listen.size = size;
   return listen;
 }
 
@@ -464,21 +577,24 @@ function namedAfter(line: string, direction: string): string[] {
   return at < 0 ? [] : (words[at + 1] ?? "").split(";").map((name) => name.replace(/^~/, ""));
 }
 
+const isCameraSize = (name: string): name is CameraSize => Object.values<string>(CAMERA_SIZES).includes(name);
+
 /**
- * Whether the session description `sdp` carries the track of its media section `mid` in both of a
- * camera's sizes, and in no other: as a tab's offer says of what its browser sends (`send`), and the
- * SFU's answer of what it takes (`recv`).
+ * The sizes of a camera's in which the session description `sdp` carries the track of its media
+ * section `mid`, by their RIDs as it lists them, as a tab's offer says of what its browser sends
+ * (`send`), and the SFU's answer of what it takes (`recv`). None where it carries the track in one
+ * size, or names a size twice, or one that's no camera's.
  */
-export function carriesBothSizes(sdp: string, mid: string, direction: "send" | "recv"): boolean {
+export function sizesCarried(sdp: string, mid: string, direction: "send" | "recv"): CameraSize[] {
   // What a description says before its first media section, it says of no track.
   const sections = sdp.split(/^(?=m=)/m).filter((section) => section.startsWith("m="));
   const simulcast = sections
     .map((section) => section.split(/\r?\n/))
     .find((lines) => lines.includes(`a=mid:${mid}`))
     ?.find((line) => line.startsWith("a=simulcast:"));
-  if (!simulcast) return false;
+  if (!simulcast) return [];
   const sizes = namedAfter(simulcast.slice("a=simulcast:".length), direction);
-  return sizes.length === 2 && Object.values(CAMERA_SIZES).every((size) => sizes.includes(size));
+  return sizes.length >= 2 && new Set(sizes).size === sizes.length && sizes.every(isCameraSize) ? sizes : [];
 }
 
 /** Parses an untrusted frame from a huddle's socket. Returns null for anything malformed. */
@@ -517,6 +633,8 @@ export function parseHuddleClientFrame(raw: string): HuddleClientFrame | null {
       const sticker = stickerOf(frame.sticker);
       return sticker !== undefined ? { type: "huddle.sticker", sticker } : null;
     }
+    case "huddle.connection":
+      return typeof frame.unstable === "boolean" ? { type: "huddle.connection", unstable: frame.unstable } : null;
     case "huddle.react": {
       const emoji = reactionOf(frame.emoji);
       return emoji !== null ? { type: "huddle.react", emoji } : null;

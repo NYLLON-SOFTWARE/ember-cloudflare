@@ -1,4 +1,5 @@
 import { Marked, type Token, type Tokens } from "marked";
+import { MARKDOWN_LIMITS } from "../bots/markdown";
 import { payloadOf } from "../bots/slack";
 import type { Source } from "./gateway";
 
@@ -38,7 +39,7 @@ const ADDRESS_ENDS = /^(?:$|[\s<>()[\]{}"'`|]|[.,:;?!*_]+(?:$|[\s<>)\]}"'`|]))/;
 const ADDRESS_KEY = /(?:url|link|icon)$/i;
 
 /** The Markdown an answer is written in, as Ember reads it for its cards (answers.ts). */
-const markdown = new Marked({ gfm: true });
+const markdown = new Marked({ gfm: true }, MARKDOWN_LIMITS);
 
 /** A page an answer cites, and where in the answer it first does. */
 interface Citation {

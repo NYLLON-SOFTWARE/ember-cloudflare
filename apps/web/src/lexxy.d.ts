@@ -18,6 +18,8 @@ declare module "@37signals/lexxy" {
     isAttached(): boolean;
     insertAfter(node: LexicalNode): LexicalNode;
     insertBefore(node: LexicalNode): LexicalNode;
+    /** Puts `node` where this one is, in its place. */
+    replace<Node extends LexicalNode>(node: Node): Node;
     remove(): void;
   }
 
@@ -33,6 +35,8 @@ declare module "@37signals/lexxy" {
     getLastChild(): LexicalNode | null;
     getChildAtIndex(index: number): LexicalNode | null;
     append(...nodes: LexicalNode[]): this;
+    /** Puts the cursor at its start, answering the selection. */
+    selectStart(): RangeSelection;
     /** Puts the cursor at its end, answering the selection. */
     selectEnd(): RangeSelection;
     select(anchorOffset?: number, focusOffset?: number): unknown;
@@ -41,6 +45,17 @@ declare module "@37signals/lexxy" {
 
   /** Lexical's ParagraphNode. */
   export class ParagraphNode extends ElementNode {}
+
+  /** Lexxy's node for an attachment of its own content, such as a mention: what it shows by is its `innerHtml`. */
+  export class CustomActionTextAttachmentNode extends LexicalNode {
+    constructor(fields: { tagName?: string; sgid: string; contentType: string; innerHtml: string; plainText?: string }, key?: string);
+    readonly tagName: string;
+    readonly sgid: string;
+    readonly contentType: string;
+    readonly innerHtml: string;
+  }
+
+  export function $isCustomActionTextAttachmentNode(node: LexicalNode | null | undefined): node is CustomActionTextAttachmentNode;
 
   /** The parts of Lexical's TextNode that the composer uses. */
   export class TextNode extends LexicalNode {
@@ -77,6 +92,9 @@ declare module "@37signals/lexxy" {
     /** Turns the format on across what's selected, or off where all of it has it already, or for what's typed next. */
     formatText(format: string): void;
     getTextContent(): string;
+    /** The formatting, and the style, of what's typed next, with nothing selected. */
+    readonly format: number;
+    readonly style: string;
     setFormat(format: number): void;
     setStyle(style: string): void;
     clone(): RangeSelection;
@@ -126,6 +144,7 @@ declare module "@37signals/lexxy" {
     /** The nearest of `node` and its ancestors that `matches`. */
     $findMatchingParent(node: LexicalNode, matches: (node: LexicalNode) => boolean): LexicalNode | null;
     $getNodeByKey(key: string): LexicalNode | null;
+    $isElementNode(node: LexicalNode | null | undefined): node is ElementNode;
     $isLineBreakNode(node: LexicalNode | null | undefined): node is LexicalNode;
     $isParagraphNode(node: LexicalNode | null | undefined): node is ParagraphNode;
     $isTextNode(node: LexicalNode | null | undefined): node is TextNode;

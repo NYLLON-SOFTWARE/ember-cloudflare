@@ -12,6 +12,7 @@ import {
   type StoredFile,
   type UserId,
 } from "@ember/protocol";
+import { BLOCKED_WORDS_REFUSED } from "@ember/protocol/blocked-words";
 import { directoryOf } from "../avatar-tokens";
 import { bodyUpTo } from "../bodies";
 import { BLANK, EMPTY, FORBIDDEN, NOT_FOUND, type BotPage } from "../chat-room";
@@ -26,6 +27,8 @@ import { urlOf } from "../request-url";
 import type { PageCursor } from "../store";
 import { workspace, type BotKeyAccess } from "../workspace";
 import { botKeyParts } from "./keys";
+import { markdownHtml, MAX_MARKDOWN_LENGTH } from "./markdown";
+import { contentTypeOf } from "./mime";
 import { railsJson } from "./rails-json";
 import { payloadOf, slackMessage, slackPayloadOf, type SlackError, type SlackPayload } from "./slack";
 
@@ -150,7 +153,7 @@ async function createMessage(request: Request, env: Env, roomId: RoomId, key: st
   const threadId = present(urlOf(request).searchParams.get("thread"));
   const formAnswer = await withForm(request, (form) => createFileMessage(request, env, roomId, key, access, form, threadId));
   if (formAnswer) return formAnswer;
-  const markup = await bodyText(request);
+  const markup = await bodyMarkup(request);
   if (markup === null) return exception(413);
   // The key is checked again once the whole body is here, which arrives as slowly as its sender likes:
   // long enough for the bot to be deleted, given a new key or taken out of the room since the check
@@ -178,7 +181,7 @@ async function postSlackMessage(request: Request, env: Env, roomId: RoomId, key:
   // Again now the body has arrived, as `createMessage` checks text.
   const arrived = await slackBotIn(env, roomId, key);
   if (arrived instanceof Response) return arrived;
-  const message = slackMessage(payload, arrived.takesClicks);
+  const message = slackMessage(payload, arrived.takesClicks, true);
   if (typeof message === "string") return slackAnswer(400, message);
   const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, arrived, message.markup, message.cards);
   if (!created) return slackAnswer(404, "channel_not_found");
@@ -201,7 +204,7 @@ async function replaceWithSlackMessage(request: Request, env: Env, roomId: RoomI
   const arrived = await slackBotIn(env, roomId, key);
   if (arrived instanceof Response) return arrived;
   const room = env.CHAT_ROOM.getByName(roomId);
-  const message = payload.delete_original === true ? null : slackMessage(payload, arrived.takesClicks);
+  const message = payload.delete_original === true ? null : slackMessage(payload, arrived.takesClicks, true);
   if (typeof message === "string") return slackAnswer(400, message);
   const refused = message ? await room.editBotMessage(roomId, arrived, messageId, message.markup, message.cards) : await room.deleteBotMessage(roomId, arrived, messageId);
   if (refused === NOT_FOUND) return slackAnswer(404, "message_not_found");
@@ -275,7 +278,7 @@ async function updateMessage(request: Request, env: Env, roomId: RoomId, key: st
   if (access instanceof Response) return access;
   const formAnswer = await withForm(request, (form) => updateFileMessage(request, env, roomId, key, access, form, messageId));
   if (formAnswer) return formAnswer;
-  const markup = await bodyText(request);
+  const markup = await bodyMarkup(request);
   if (markup === null) return exception(413);
   // Again now the body has arrived, as `createMessage` checks it.
   const arrived = await botIn(env, roomId, key);
@@ -392,7 +395,7 @@ async function withForm(request: Request, answer: (form: FormReader) => Promise<
  * R2 keeping it as it arrives, a part at a time, as a browser's upload is, since a form can bring more
  * than a Worker can hold. Answers the message, why the room took nothing, as `finishBotUpload` says, or
  * what the request answers otherwise: 413 for a file larger than a browser can upload, and 422 for a name
- * too long to keep. Without an R2 bucket bound as FILES, it answers 503, as a browser's upload does.
+ * too long to keep, or with a word Blocked words keeps out. Without an R2 bucket bound as FILES, it answers 503, as a browser's upload does.
  */
 async function postFile(
   env: Env,
@@ -412,6 +415,7 @@ async function postFile(
   const file = { filename, declaredType, limit: MAX_FILE_SIZE, read: () => form.read() };
   const room = env.CHAT_ROOM.getByName(roomId);
   const started = await room.startBotUpload(roomId, access, file, messageId);
+  if (started === BLOCKED_WORDS_REFUSED) return unprocessable(started);
   if (typeof started === "string") return started;
   const stored = await storeArriving(files, objectKey(started.key), file);
   if (!stored) return exception(413);
@@ -440,6 +444,24 @@ async function removeFile(env: Env, roomId: RoomId, key: string, messageId: stri
 async function bodyText(request: Request): Promise<string | null> {
   const text = await bodyUpTo(request, MAX_BODY_BYTES);
   return text !== null && text.length <= MAX_MESSAGE_HTML_LENGTH ? text : null;
+}
+
+/**
+ * The markup a bot's text posts, as `bodyText` reads it: its body as it is, as Campfire reads it, or,
+ * where Campfire has no such type, a `text/markdown` body read as Markdown, as a Slack payload's
+ * markdown block is (markdown.ts), so a bot that writes Markdown needn't write HTML. Null when the body,
+ * or the markup its Markdown becomes, is longer than a message's markup can be: a reference link's
+ * address is written once and repeated wherever it's used, so a short body can become a long one. The
+ * markup is only measured once it's whole, so the Markdown is first held to what a Slack payload's
+ * markdown blocks can hold: a message's length of it, an address of 50,000 characters linked 7,000
+ * times, would become hundreds of megabytes, past the Worker's memory.
+ */
+async function bodyMarkup(request: Request): Promise<string | null> {
+  const text = await bodyText(request);
+  if (text === null || contentTypeOf(request.headers.get("Content-Type"))?.toLowerCase() !== "text/markdown") return text;
+  if (text.length > MAX_MARKDOWN_LENGTH) return null;
+  const markup = markdownHtml(text);
+  return markup.length <= MAX_MESSAGE_HTML_LENGTH ? markup : null;
 }
 
 /**

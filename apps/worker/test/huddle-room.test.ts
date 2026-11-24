@@ -28,6 +28,7 @@ import {
   switchCameras,
   switchScreens,
   watch,
+  watchIn,
   watchSmall,
   welcomed,
   type HuddleSocket,
@@ -192,11 +193,13 @@ describe("A room's huddle", () => {
     const phone = await welcomed(room, ada);
     const onPhone = await publishing(sfu, phone);
     phone.send({ type: "huddle.sticker", sticker: "hand" });
+    phone.send({ type: "huddle.connection", unstable: true });
     await reached(phone);
     const graces = await welcomed(room, grace);
 
     const laptop = await joinHuddle(room, ada, { muted: true });
-    // In her place still, ahead of Grace, with nothing published from this tab yet, nor the sticker the other showed.
+    // In her place still, ahead of Grace, with nothing published from this tab yet, nor the sticker the
+    // other showed, nor its connection's trouble, which this tab says for itself.
     expect((await laptop.next("huddle.welcome")).people).toEqual([person(ada, { muted: true }), person(grace)]);
     expect(await phone.closed).toMatchObject({ code: HuddleCloseCode.Moved, reason: "Moved" });
     expect(await graces.next("huddle.changed")).toEqual({ type: "huddle.changed", person: person(ada, { muted: true }) });
@@ -367,6 +370,40 @@ describe("A room's huddle", () => {
     expect((await remembered(room)).map(({ sticker }) => sticker)).toEqual([undefined, "done", undefined]);
   });
 
+  it("tells the others when someone's tab finds its connection unstable, or steady again, and welcomes whoever joins with it", async () => {
+    const { ada } = await huddlesOn();
+    const room = await freshRoom("unstable");
+    const [grace, linus] = [await signIn("Grace"), await signIn("Linus")];
+    const adas = await welcomed(room, ada);
+    const graces = await welcomed(room, grace);
+
+    adas.send({ type: "huddle.connection", unstable: true });
+    expect(await graces.next("huddle.changed")).toEqual({ type: "huddle.changed", person: person(ada, { unstable: true }) });
+    // Said again, it's nothing new, and neither is a steady connection that was never otherwise.
+    adas.send({ type: "huddle.connection", unstable: true });
+    graces.send({ type: "huddle.connection", unstable: false });
+    await reached(adas, graces);
+    expect([adas.pending("huddle.changed"), graces.pending("huddle.changed")]).toEqual([[], []]);
+    // Whatever else of someone changes, it stays.
+    adas.send({ type: "huddle.sticker", sticker: "brb" });
+    expect(await graces.next("huddle.changed")).toEqual({ type: "huddle.changed", person: person(ada, { sticker: "brb", unstable: true }) });
+
+    // The room keeps it while it hibernates, and welcomes whoever joins with it.
+    await evictDurableObject(roomStub(room));
+    const linuses = await joinHuddle(room, linus);
+    expect((await linuses.next("huddle.welcome")).people).toEqual([person(ada, { sticker: "brb", unstable: true }), person(grace), person(linus)]);
+
+    adas.send({ type: "huddle.connection", unstable: false });
+    expect([await graces.next("huddle.changed"), await linuses.next("huddle.changed")]).toEqual([
+      { type: "huddle.changed", person: person(ada, { sticker: "brb" }) },
+      { type: "huddle.changed", person: person(ada, { sticker: "brb" }) },
+    ]);
+    await reached(adas);
+    // Their own tab hears of none of it: it knows.
+    expect(adas.log.map(({ type }) => type)).toEqual(["huddle.welcome", "huddle.joined", "pong", "huddle.joined", "pong"]);
+    expect((await remembered(room)).map(({ unstable }) => unstable)).toEqual([undefined, undefined, undefined]);
+  });
+
   it("tells everyone in a huddle when someone reacts with an emoji, their own tab too, and of only so many of one tab's in ten seconds", async () => {
     const { ada } = await huddlesOn();
     const room = await freshRoom("reactions");
@@ -420,6 +457,8 @@ describe("A room's huddle", () => {
       { type: "huddle.answer" },
       { type: "huddle.sticker" },
       { type: "huddle.sticker", sticker: "wave" },
+      { type: "huddle.connection" },
+      { type: "huddle.connection", unstable: "yes" },
       { type: "huddle.react" },
       { type: "huddle.react", emoji: "hello" },
       { type: "huddle.react", emoji: "\u{1F389}\u{1F389}" },
@@ -1327,8 +1366,8 @@ describe("A camera's sizes in a huddle", () => {
     const linuses = await welcomed(room, linus);
     const fromAda = await showing(sfu, adas, inSizes());
     const fromGrace = await showing(sfu, graces, "Grace's camera");
-    expect(await remembered(room)).toMatchObject([{ cameras: { publishing: { sessionId: fromAda, sized: true } } }, { cameras: { publishing: { sessionId: fromGrace } } }, {}]);
-    expect((await remembered(room))[1]!.cameras!.publishing).not.toHaveProperty("sized");
+    expect(await remembered(room)).toMatchObject([{ cameras: { publishing: { sessionId: fromAda, sizes: { medium: "a", small: "b" } } } }, { cameras: { publishing: { sessionId: fromGrace } } }, {}]);
+    expect((await remembered(room))[1]!.cameras!.publishing).not.toHaveProperty("sizes");
 
     // Large, unless the tab says small: of Ada's, which is sent in both, and Grace's is asked for as it is.
     expect((await watch(linuses, [ada.user.id, grace.user.id], true))!.tracks).toHaveLength(2);
@@ -1377,6 +1416,116 @@ describe("A camera's sizes in a huddle", () => {
     expect((await watchSmall(margarets, [ada.user.id], true))!.tracks).toEqual([{ mid: "0", kind: "video", userId: ada.user.id }]);
     expect(sfu.asked.at(-2)!.body).toEqual({ tracks: [{ location: "remote", sessionId: fromAda, trackName: "video", simulcast: sizeOf("b") }] });
     expect((await remembered(room))[3]!.cameras!.receiving!.heard).toEqual([{ mid: "0", from: fromAda, kind: "video", size: "b" }]);
+  });
+
+  it("has a tab sent the size its tiles show cameras in, of a camera sent in three: the largest for large tiles, the middle one for medium, and the smallest for small", async () => {
+    const { ada, sfu } = await huddlesOn();
+    const room = await freshRoom("three-sizes");
+    const [linus, margaret] = [await signIn("Linus"), await signIn("Margaret")];
+    const adas = await welcomed(room, ada);
+    const linuses = await welcomed(room, linus);
+    const margarets = await welcomed(room, margaret);
+    const fromAda = await showing(sfu, adas, inSizes("c;b;a"));
+    expect((await remembered(room))[0]!.cameras!.publishing).toMatchObject({ sessionId: fromAda, sizes: { large: "a", medium: "b", small: "c" } });
+
+    // Asked for with the camera in the size the tab shows it in.
+    expect((await watchIn("medium", margarets, [ada.user.id], true))!.tracks).toHaveLength(1);
+    expect(sfu.asked.at(-2)!.body).toEqual({ tracks: [{ location: "remote", sessionId: fromAda, trackName: "video", simulcast: sizeOf("b") }] });
+    expect((await watch(linuses, [ada.user.id], true))!.tracks).toHaveLength(1);
+    const pictures = newest(sfu);
+    expect(sfu.asked.at(-2)!.body).toEqual({ tracks: [{ location: "remote", sessionId: fromAda, trackName: "video", simulcast: sizeOf("a") }] });
+
+    // And changed to each size it shows it in from then on, larger or smaller.
+    for (const [shown, rid] of [["medium", "b"], ["small", "c"], ["large", "a"], ["small", "c"], ["medium", "b"]] as const) {
+      const asked = sfu.asked.length;
+      expect(await watchIn(shown, linuses, [ada.user.id])).toBeNull();
+      expect(sfu.asked.slice(asked).map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+        { method: "PUT", path: `/sessions/${pictures}/tracks/update`, body: { tracks: [{ location: "remote", sessionId: fromAda, trackName: "video", mid: "0", simulcast: sizeOf(rid) }] } },
+      ]);
+      expect(sfu.sessions.get(pictures)!.pulled.get("0")!.rid).toBe(rid);
+      expect((await remembered(room))[1]!.cameras!.receiving!.heard).toEqual([{ mid: "0", from: fromAda, kind: "video", size: rid }]);
+    }
+  });
+
+  it("sends a camera that isn't sent in the size a tab's tiles show in the next larger it is, or else the largest, and asks the SFU nothing for a change of tiles that doesn't change it", async () => {
+    const { ada, sfu } = await huddlesOn();
+    const room = await freshRoom("fewer-sizes");
+    const [grace, linus] = [await signIn("Grace"), await signIn("Linus")];
+    const adas = await welcomed(room, ada);
+    const graces = await welcomed(room, grace);
+    const linuses = await welcomed(room, linus);
+    // Ada's comes at Standard, in a medium size and a small one, and Grace's from a tab from before three sizes, in two.
+    const fromAda = await showing(sfu, adas, inSizes("c;b"));
+    const fromGrace = await showing(sfu, graces, inSizes("b;a"));
+    expect(await remembered(room)).toMatchObject([{ cameras: { publishing: { sizes: { medium: "b", small: "c" } } } }, { cameras: { publishing: { sizes: { medium: "a", small: "b" } } } }, {}]);
+
+    // Shown large, each is sent in the largest it is.
+    expect((await watch(linuses, [ada.user.id, grace.user.id], true))!.tracks).toHaveLength(2);
+    const pictures = newest(sfu);
+    expect(sfu.asked.at(-2)!.body).toEqual({
+      tracks: [
+        { location: "remote", sessionId: fromAda, trackName: "video", simulcast: sizeOf("b") },
+        { location: "remote", sessionId: fromGrace, trackName: "video", simulcast: sizeOf("a") },
+      ],
+    });
+    // Which is a medium one too.
+    let asked = sfu.asked.length;
+    expect(await watchIn("medium", linuses, [ada.user.id, grace.user.id])).toBeNull();
+    expect(sfu.asked).toHaveLength(asked);
+    // Shown small, each is sent in its smallest, in one request.
+    expect(await watchSmall(linuses, [ada.user.id, grace.user.id])).toBeNull();
+    expect(sfu.asked.slice(asked).map(({ path, body }) => ({ path, body }))).toEqual([
+      {
+        path: `/sessions/${pictures}/tracks/update`,
+        body: {
+          tracks: [
+            { location: "remote", sessionId: fromAda, trackName: "video", mid: "0", simulcast: sizeOf("c") },
+            { location: "remote", sessionId: fromGrace, trackName: "video", mid: "1", simulcast: sizeOf("b") },
+          ],
+        },
+      },
+    ]);
+    // And shown medium again, each in its medium one.
+    asked = sfu.asked.length;
+    expect(await watchIn("medium", linuses, [ada.user.id, grace.user.id])).toBeNull();
+    expect(sfu.asked.slice(asked).map(({ body }) => body)).toEqual([
+      {
+        tracks: [
+          { location: "remote", sessionId: fromAda, trackName: "video", mid: "0", simulcast: sizeOf("b") },
+          { location: "remote", sessionId: fromGrace, trackName: "video", mid: "1", simulcast: sizeOf("a") },
+        ],
+      },
+    ]);
+  });
+
+  it("sends the camera of a socket that a room from before three sizes remembers being sent in two as a tab from then sends it, across the update", async () => {
+    const { ada, sfu } = await huddlesOn();
+    const room = await freshRoom("sized-before");
+    const linus = await signIn("Linus");
+    const adas = await welcomed(room, ada);
+    const linuses = await welcomed(room, linus);
+    const fromAda = await showing(sfu, adas, inSizes("b;a"));
+    // As a room from before kept it, its sockets hibernating across the update.
+    await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      for (const socket of state.getWebSockets(HUDDLE_TAG)) {
+        const attachment = socket.deserializeAttachment() as HuddleAttachment;
+        const { cameras } = attachment;
+        if (!cameras?.publishing?.sizes) continue;
+        const publishing = { ...cameras.publishing, sized: true as const };
+        delete publishing.sizes;
+        socket.serializeAttachment({ ...attachment, cameras: { ...cameras, publishing } });
+      }
+    });
+    await evictDurableObject(roomStub(room));
+
+    expect((await watch(linuses, [ada.user.id], true))!.tracks).toHaveLength(1);
+    const pictures = newest(sfu);
+    expect(sfu.asked.at(-2)!.body).toEqual({ tracks: [{ location: "remote", sessionId: fromAda, trackName: "video", simulcast: sizeOf("a") }] });
+    const asked = sfu.asked.length;
+    expect(await watchSmall(linuses, [ada.user.id])).toBeNull();
+    expect(sfu.asked.slice(asked).map(({ path, body }) => ({ path, body }))).toEqual([
+      { path: `/sessions/${pictures}/tracks/update`, body: { tracks: [{ location: "remote", sessionId: fromAda, trackName: "video", mid: "0", simulcast: sizeOf("b") }] } },
+    ]);
   });
 
   it("changes the sizes of the cameras a tab watches before it offers it anyone new, in one request, and asks for the new ones in the size it shows now", async () => {
@@ -1434,7 +1583,7 @@ describe("A camera's sizes in a huddle", () => {
     graces.send({ type: "huddle.connected", kind: "video" });
     await reached(graces);
     const fromGrace = sfu.publishers.at(-1)!;
-    for (const { cameras, screens } of await remembered(room)) for (const publishing of [cameras?.publishing, screens?.publishing]) if (publishing) expect(publishing).not.toHaveProperty("sized");
+    for (const { cameras, screens } of await remembered(room)) for (const publishing of [cameras?.publishing, screens?.publishing]) if (publishing) expect(publishing).not.toHaveProperty("sizes");
 
     await watchSmall(margarets, [ada.user.id, grace.user.id], true);
     expect(sfu.asked.at(-2)!.body).toEqual({

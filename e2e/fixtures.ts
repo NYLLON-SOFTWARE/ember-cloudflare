@@ -68,10 +68,13 @@ export async function makeAdministrator(request: APIRequestContext, session: Ses
   expect(response.status(), await response.text()).toBe(200);
 }
 
-/** An IP address no other test uses, from the range set aside for documentation. */
+/**
+ * An IP address no other test uses, in a /64 of its own, since the limits by address count an IPv6
+ * address as its /64, from the range set aside for documentation.
+ */
 export function newAddress(): string {
-  const groups = Array.from(crypto.getRandomValues(new Uint16Array(4)), (group) => group.toString(16));
-  return `2001:db8::${groups.join(":")}`;
+  const [network, subnet, ...host] = Array.from(crypto.getRandomValues(new Uint16Array(4)), (group) => group.toString(16));
+  return `2001:db8:${network}:${subnet}::${host.join(":")}`;
 }
 
 /**
@@ -535,6 +538,24 @@ const watchPolicy = (context: BrowserContext) =>
 /** Says the test means to see the policy refuse something under `directive`, which otherwise fails it. */
 export const expectsPolicyViolation = (directive: string) => test.info().annotations.push({ type: EXPECTED_VIOLATION, description: directive });
 
+/** The methods an `APIRequestContext` sends a request with. */
+const SENDS = ["delete", "fetch", "get", "head", "patch", "post", "put"] as const;
+
+/**
+ * Has `request` send a request again, once, should its connection be reset. Playwright keeps a
+ * connection open for the next request, and the test server closes one that has been idle for five
+ * seconds, so a request sent at that moment is lost before the server reads any of it, which
+ * Playwright calls a socket hang up.
+ */
+function sendAgainWhenReset(request: APIRequestContext): APIRequestContext {
+  for (const method of SENDS) {
+    const send = request[method].bind(request) as APIRequestContext["fetch"];
+    const again: APIRequestContext["fetch"] = (target, options) => send(target, { maxRetries: 1, ...options });
+    request[method] = again;
+  }
+  return request;
+}
+
 export const test = base.extend<AppFixtures>({
   // The Worker's policy applies to every page a test opens, in its own context or one it makes for
   // someone else, so every context the browser opens reports what the policy got in the way of,
@@ -545,6 +566,8 @@ export const test = base.extend<AppFixtures>({
       browser.newContext = async (...options) => {
         const context = await newContext(...options);
         watchPolicy(context);
+        // Its requests, a page's among them, are sent again when their connection is reset, as the test's own are.
+        sendAgainWhenReset(context.request);
         return context;
       };
       await use(browser);
@@ -562,6 +585,9 @@ export const test = base.extend<AppFixtures>({
     },
     { auto: true },
   ],
+  request: async ({ request }, use) => {
+    await use(sendAgainWhenReset(request));
+  },
   session: async ({ request }, use) => {
     await use(await createSession(request, "Test Person"));
   },

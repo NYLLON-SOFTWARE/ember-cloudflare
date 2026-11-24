@@ -908,7 +908,7 @@ const QUESTION: Message = {
 describe("What @ember is told of the web", () => {
   it("says what it may do there, and that it writes its answer after it last searches, as the chat lists its sources", () => {
     const told = (webTools: Array<"search" | "read">, webSearchOn?: boolean) =>
-      questionFor({ ...EMBER, instructions: "", promptTemplate: null }, [QUESTION], ADA, IN_GENERAL, { thinking: "low", length: "medium" }, new Date(), webTools, webSearchOn).instructions;
+      questionFor({ ...EMBER, instructions: "", promptTemplate: null }, { messages: [QUESTION] }, ADA, IN_GENERAL, { thinking: "low", length: "medium" }, new Date(), webTools, webSearchOn).instructions;
     expect(told(["search", "read"])).toContain("You can search the web, and read the pages people link to or your searches find, when a question needs what's current");
     expect(told(["search"])).toContain("You can search the web when a question needs what's current");
     expect(told(["search"])).toContain("Only what you write after you last search or read is posted");
@@ -917,7 +917,7 @@ describe("What @ember is told of the web", () => {
   });
 
   it("says, while Search the web is on, that the model the asker picked can't search, and that they can pick one that can", () => {
-    const told = questionFor({ ...EMBER, instructions: "", promptTemplate: null }, [QUESTION], ADA, IN_GENERAL, { thinking: "low", length: "medium" }, new Date(), [], true).instructions;
+    const told = questionFor({ ...EMBER, instructions: "", promptTemplate: null }, { messages: [QUESTION] }, ADA, IN_GENERAL, { thinking: "low", length: "medium" }, new Date(), [], true).instructions;
     expect(told).toContain(`You can't search the web or open links with the model "Ada Lovelace" picked for your answers to them.`);
     expect(told).toContain("When they ask you to, say so, and that they can pick one that can under Ember AI on their profile.");
     expect(told).not.toContain("an administrator");
@@ -949,7 +949,7 @@ describe("An answer's sources", () => {
       `<p>Short.</p><p>Sources: <a href="https://example.com/">${title.slice(0, 79).trimEnd()}…</a></p>`,
     );
     const paragraph = `${"word ".repeat(199)}word`;
-    const { markup } = answerOf(Array.from({ length: 20 }, () => paragraph).join("\n\n"), [DOCS]);
+    const { markup } = answerOf(Array.from({ length: 50 }, () => paragraph).join("\n\n"), [DOCS]);
     expect(markup).toMatch(new RegExp(`<p>…</p><p>Sources: <a href="${DOCS.url}">${DOCS.title}</a></p>$`));
   });
 
@@ -967,7 +967,7 @@ describe("An answer's sources", () => {
 
   it("name a page the answer links to only past where it's cut", () => {
     const paragraph = `${"word ".repeat(199)}word`;
-    const text = [...Array.from({ length: 20 }, () => paragraph), `See [the docs](${DOCS.url}).`].join("\n\n");
+    const text = [...Array.from({ length: 50 }, () => paragraph), `See [the docs](${DOCS.url}).`].join("\n\n");
     const { markup } = answerOf(text, [DOCS]);
     expect(markup).not.toContain("See ");
     expect(markup).toMatch(new RegExp(`<p>…</p><p>Sources: <a href="${DOCS.url}">${DOCS.title}</a></p>$`));

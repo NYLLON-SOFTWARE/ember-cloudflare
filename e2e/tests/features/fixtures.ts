@@ -7,6 +7,12 @@ export { expect };
 /** A name no other test's people or rooms have, since they all share the server. */
 export const unique = (name: string) => `${name} ${crypto.randomUUID().slice(0, 8)}`;
 
+/**
+ * Whether the browser can record clips, which the composer offers only where it can: every one the tests run
+ * but Playwright's WebKit for Linux, which CI runs, as it has no MediaRecorder, though Safari has.
+ */
+export const recordsClips = (browserName: string) => browserName !== "webkit" || process.platform !== "linux";
+
 /** The rooms each test has to itself. Its browsers show these instead of the server's own. */
 export interface Rooms {
   general: TestRoom;
@@ -149,6 +155,36 @@ export const paste = (member: Member, text: string, html?: string) =>
     [text, html] as const,
   );
 
+/**
+ * Types `keys` into the composer while the page's animation frames wait, as on a busy page, so what was to
+ * happen at the next frame, as the list a / opens shows, happens only once they're typed, and once it has.
+ */
+export async function typeWhileFramesWait(member: Member, keys: string): Promise<void> {
+  await member.composer().focus();
+  await member.page.evaluate(() => {
+    const requestFrame = window.requestAnimationFrame;
+    const waiting: FrameRequestCallback[] = [];
+    // An id no frame has, so cancelling it cancels none of the page's.
+    window.requestAnimationFrame = (callback) => -waiting.push(callback);
+    window.addEventListener(
+      "e2e:frames",
+      () => {
+        window.requestAnimationFrame = requestFrame;
+        for (const callback of waiting) requestFrame(callback);
+      },
+      { once: true },
+    );
+  });
+  await member.page.keyboard.type(keys);
+  await member.page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        window.dispatchEvent(new Event("e2e:frames"));
+        requestAnimationFrame(() => setTimeout(resolve));
+      }),
+  );
+}
+
 export interface SignInOptions {
   /** Where to open the app: this test's #general by default. */
   path?: string;
@@ -196,7 +232,7 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
         await context.addCookies([session.cookie]);
         contexts.push(context);
         if (!serverRooms) await showRooms(context, rooms);
-        // A pasted link gets no preview, unless a test answers with one, so no test reaches the Internet.
+        // A link written gets no preview, pasted or typed, unless a test answers with one, so no test reaches the Internet.
         await context.route("**/api/unfurl", (route) => route.fulfill({ status: 204 }));
         const page = await context.newPage();
         await beforeOpen?.(page);

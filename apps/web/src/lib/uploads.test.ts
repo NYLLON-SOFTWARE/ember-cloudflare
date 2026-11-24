@@ -2,9 +2,14 @@ import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploa
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { previewOf } from "./previews";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "./uploads";
+import { videoLengthOf } from "./video-length";
+import { waveformOf } from "./waveform";
 
 // jsdom makes no previews (previews.test.ts tests making them), so files have none unless a test gives one.
 vi.mock("./previews", () => ({ previewOf: vi.fn(async () => null) }));
+// Nor waveforms (waveform.test.ts tests working them out), or videos' lengths (video-length.test.ts).
+vi.mock("./waveform", () => ({ waveformOf: vi.fn(async () => null) }));
+vi.mock("./video-length", () => ({ videoLengthOf: vi.fn(async () => null) }));
 
 /** Stands in for the browser's XMLHttpRequest, which tests answer as the Worker would. */
 class FakeRequest {
@@ -74,11 +79,13 @@ describe("Attach files", () => {
     const file = new File(["abcdefghij", "klmnopqrst", "uvwxy"], "notes.txt", { type: "text/plain" });
     const uploading = uploadFile("r1", file, "c1", () => {});
 
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(uploadsPath("r1"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "notes.txt", type: "text/plain", size: 25, clientMessageId: "c1" }),
-    });
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(uploadsPath("r1"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "notes.txt", type: "text/plain", size: 25, clientMessageId: "c1" }),
+      }),
+    );
     for (const [n, text] of ["abcdefghij", "klmnopqrst"].entries()) {
       const request = await part(n + 1);
       expect([request.method, request.url, await request.body!.text()]).toEqual(["PUT", uploadPartPath("r1", "k1", n + 1), text]);
@@ -89,6 +96,51 @@ describe("Attach files", () => {
     const last = await part(3);
     expect(await last.body!.text()).toBe("uvwxy");
     last.answer(201, JSON.stringify(message));
+    expect(await uploading).toEqual(message);
+  });
+
+  it("starts a sound's upload with its waveform, once the browser has worked it out", async () => {
+    const levels = Array.from({ length: 100 }, (_, n) => n);
+    let heard!: (waveform: number[]) => void;
+    vi.mocked(waveformOf).mockReturnValueOnce(new Promise((resolve) => (heard = resolve)));
+    const fetch = vi.fn(async () => started(1));
+    vi.stubGlobal("fetch", fetch);
+    const clip = new File(["sound"], "Audio clip 2026-11-23 at 9.42.10 AM.m4a", { type: "audio/mp4" });
+    const uploading = uploadFile("r1", clip, "c1", () => {});
+
+    await vi.waitFor(() => expect(waveformOf).toHaveBeenCalledWith(clip));
+    expect(fetch).not.toHaveBeenCalled();
+    heard(levels);
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(uploadsPath("r1"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clip.name, type: "audio/mp4", size: 5, clientMessageId: "c1", waveform: levels }),
+      }),
+    );
+    (await part(1)).answer(201, JSON.stringify(message));
+    expect(await uploading).toEqual(message);
+  });
+
+  it("starts a video's upload with its length, once the browser has read it", async () => {
+    let read!: (seconds: number) => void;
+    vi.mocked(videoLengthOf).mockReturnValueOnce(new Promise((resolve) => (read = resolve)));
+    const fetch = vi.fn(async () => started(1));
+    vi.stubGlobal("fetch", fetch);
+    const clip = new File(["video"], "Video clip 2026-11-23 at 10.43.12 AM.mp4", { type: "video/mp4" });
+    const uploading = uploadFile("r1", clip, "c1", () => {});
+
+    await vi.waitFor(() => expect(videoLengthOf).toHaveBeenCalledWith(clip));
+    expect(fetch).not.toHaveBeenCalled();
+    read(15.023);
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(uploadsPath("r1"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clip.name, type: "video/mp4", size: 5, clientMessageId: "c1", duration: 15.023 }),
+      }),
+    );
+    (await part(1)).answer(201, JSON.stringify(message));
     expect(await uploading).toEqual(message);
   });
 
@@ -105,11 +157,13 @@ describe("Threads", () => {
     const fetch = vi.fn(async () => started(1));
     vi.stubGlobal("fetch", fetch);
     const uploading = uploadFile("r1", new File(["hi"], "notes.txt", { type: "text/plain" }), "c1", () => {}, { parentId: "m0", alsoSend: true });
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(uploadsPath("r1"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "notes.txt", type: "text/plain", size: 2, clientMessageId: "c1", parentId: "m0", alsoSend: true }),
-    });
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(uploadsPath("r1"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "notes.txt", type: "text/plain", size: 2, clientMessageId: "c1", parentId: "m0", alsoSend: true }),
+      }),
+    );
     (await part(1)).answer(201, JSON.stringify(message));
     expect(await uploading).toEqual(message);
   });

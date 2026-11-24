@@ -37,6 +37,9 @@ import {
   type EmailSettings,
   type Favorites,
   type HuddleRelaySetup,
+  type HuddleSoundChanges,
+  type HuddleSounds,
+  type HuddleSoundsChanged,
   type HuddlesForgotten,
   type HuddlesSaved,
   type HuddlesSettings,
@@ -50,6 +53,7 @@ import {
   type MemberfulConnection,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
+  type MembersChange,
   type NewAssistantModel,
   type OfferedModels,
   type NewDirect,
@@ -58,7 +62,12 @@ import {
   type NewRoomForm,
   type NewBot,
   type NewWorkspace,
+  type NotificationsPause,
+  type NotificationsPaused,
+  type NotifiedCounts,
   type OpenSignUp,
+  type PastHuddle,
+  type PastHuddles,
   type PasswordResetDone,
   type PasswordResetRequest,
   type PasswordResetWithCode,
@@ -75,14 +84,18 @@ import {
   type Room,
   type RoomChanges,
   type RoomId,
+  type RoomLayout,
   type RoomSettings,
   type RoomSocketParams,
   type SavedPushSubscription,
+  type SavedRoomLayout,
   type Search,
   type SearchResults,
   type SearchSort,
   type SendingDomainCheck,
   type SentTestEmail,
+  type Section,
+  type SectionId,
   type SharedRoom,
   type Sidebar,
   type SignOut,
@@ -121,6 +134,19 @@ import type {
 } from "@ember/protocol/apps";
 import type { MemberfulKeysChange, MemberfulSaved } from "@ember/protocol/memberful";
 import type { OutsideAiSettings, OutsideAnswer, OutsideAnswered, OutsideAsk, OutsideAsked, OutsideScope, YourOutsideAi } from "@ember/protocol/outside";
+import type { HandledReports, NewReport, Report, ReportHandling, ReportOutcome, Reports } from "@ember/protocol/reports";
+import {
+  SSO_CONNECTIONS_PATH,
+  SSO_SETTINGS_PATH,
+  type ElsewhereConnection,
+  type SsoConnection,
+  type SsoConnectionStart,
+  type SsoDisconnection,
+  type SsoForgotten,
+  type SsoSaved,
+  type SsoSettings,
+  type SsoSetup,
+} from "@ember/protocol/sso";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -296,12 +322,12 @@ export async function resetPasswordWithCode(reset: PasswordResetWithCode): Promi
 
 /**
  * Signs in with an email address and password: who signed in, or, for a member whose password checks out
- * while Memberful is members only, until they've connected their Memberful account, where to connect it,
- * which signs them in and opens the page `credentials.returnTo` names.
+ * while Memberful is members only, or single sign-on the only way in, until they've connected their
+ * account there, where to connect it, at either while both are, which signs them in and opens the page `credentials.returnTo` names.
  */
-export async function signIn(credentials: PasswordSignIn): Promise<Me | MemberfulConnection> {
-  const answer = await request<{ user: Me } | MemberfulConnection>("/api/session", { method: "POST", body: JSON.stringify(credentials) });
-  return "memberfulConnection" in answer ? answer : answer.user;
+export async function signIn(credentials: PasswordSignIn): Promise<Me | ElsewhereConnection> {
+  const answer = await request<{ user: Me } | ElsewhereConnection>("/api/session", { method: "POST", body: JSON.stringify(credentials) });
+  return "user" in answer ? answer.user : answer;
 }
 
 /** Signs in with just a name, as someone new. */
@@ -397,6 +423,24 @@ export async function connectMemberful(currentPassword?: string): Promise<Member
  */
 export async function disconnectMemberful(disconnection: MemberfulDisconnection): Promise<ProfileAnswer> {
   return request<ProfileAnswer>(MEMBERFUL_CONNECTIONS_PATH, { method: "DELETE", body: JSON.stringify(disconnection) });
+}
+
+/**
+ * Starts connecting your account to an account at the single sign-on provider, with your password while
+ * you have one: where to sign in there, which sends the browser back to your profile. Fails with a 422
+ * ApiError without your password, or with one that isn't yours, and a 409 once you've connected one.
+ */
+export async function connectSso(currentPassword?: string): Promise<SsoConnection> {
+  const start: SsoConnectionStart = currentPassword === undefined ? {} : { currentPassword };
+  return request<SsoConnection>(SSO_CONNECTIONS_PATH, { method: "POST", body: JSON.stringify(start) });
+}
+
+/**
+ * Disconnects your account from your account at the single sign-on provider, with your password, as
+ * `disconnectMemberful` disconnects Memberful's.
+ */
+export async function disconnectSso(disconnection: SsoDisconnection): Promise<ProfileAnswer> {
+  return request<ProfileAnswer>(SSO_CONNECTIONS_PATH, { method: "DELETE", body: JSON.stringify(disconnection) });
 }
 
 /**
@@ -601,6 +645,23 @@ export async function saveHuddles(setup: HuddlesSetup): Promise<HuddlesSettings>
 /** Turns huddles off, forgetting the SFU app's keys Ember was given. Fails with a 403 ApiError for anyone but an administrator. */
 export async function forgetHuddles(): Promise<null> {
   return (await request<HuddlesForgotten>("/api/account/huddles", { method: "DELETE" })).huddles;
+}
+
+/**
+ * Gives Ember the single sign-on provider's issuer and the keys of the app registered there, answering
+ * the provider as it is then. Fails with a 422 ApiError on the field Ember refuses, or the provider's
+ * discovery document does, and a 403 one for anyone but an administrator.
+ */
+export async function saveSso(setup: SsoSetup): Promise<SsoSettings> {
+  return (await request<SsoSaved>(SSO_SETTINGS_PATH, { method: "PUT", body: JSON.stringify(setup) })).sso;
+}
+
+/**
+ * Forgets the provider an administrator gave, which turns single sign-on off, answering the provider as
+ * the deployment's secrets give it, if they do. Fails with a 403 ApiError for anyone but an administrator.
+ */
+export async function forgetSso(): Promise<SsoSettings | null> {
+  return (await request<SsoForgotten>(SSO_SETTINGS_PATH, { method: "DELETE" })).sso;
 }
 
 /**
@@ -885,6 +946,22 @@ export async function changeYourAssistant(changes: YourAssistantChanges): Promis
 }
 
 /**
+ * Turns each of a huddle's sounds that `changes` names on or off for this person, wherever they're signed
+ * in, answering which they hear then.
+ */
+export async function changeHuddleSounds(changes: HuddleSoundChanges): Promise<HuddleSounds> {
+  return (await request<HuddleSoundsChanged>("/api/users/me/huddle-sounds", { method: "PATCH", body: JSON.stringify(changes) })).sounds;
+}
+
+/**
+ * Pauses this person's notifications until `until`, an ISO time, or resumes them with null, wherever
+ * they're signed in, answering them as the people directory lists them then.
+ */
+export async function pauseNotifications(until: string | null): Promise<DirectoryUser> {
+  return (await request<NotificationsPaused>("/api/users/me/notifications-pause", { method: "PUT", body: JSON.stringify({ until } satisfies NotificationsPause) })).user;
+}
+
+/**
  * Invites each of `emailAddresses`, no more than `INVITATIONS_AT_ONCE`, by email, answering what came of
  * each, in order. Fails with a 422 ApiError for a list it doesn't take, and a 403 one for anyone but an
  * administrator.
@@ -942,6 +1019,33 @@ export async function changeBlock(userId: UserId, blocked: boolean): Promise<Cha
   return request<ChangedBlocks>(`/api/users/${encodeURIComponent(userId)}/block`, { method: blocked ? "POST" : "DELETE" });
 }
 
+/**
+ * Reports message `messageId` in room `roomId` to the workspace's administrators, as Report message does.
+ * Fails with a 404 ApiError unless you're in the room and it has the message, and a 422 for your own.
+ */
+export async function reportMessage(roomId: RoomId, messageId: string, report: NewReport): Promise<void> {
+  await request(`/api/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/report`, { method: "POST", body: JSON.stringify(report) });
+}
+
+/** Reports someone to the workspace's administrators, for their name, picture or bio, as Report on their page does. */
+export async function reportPerson(userId: UserId, report: NewReport): Promise<void> {
+  await request(`/api/users/${encodeURIComponent(userId)}/report`, { method: "POST", body: JSON.stringify(report) });
+}
+
+/** The reports an administrator sees: the open ones, newest first, and the ones handled last. */
+export function listReports(): Promise<Reports> {
+  return request<Reports>("/api/reports");
+}
+
+/**
+ * Handles report `reportId` as `outcome` says, answering the reports that closed. Fails with a 409
+ * ApiError once another administrator has handled it, and a 422 saying why when it can't be done.
+ */
+export async function handleReport(reportId: string, outcome: ReportOutcome): Promise<Report[]> {
+  const handling: ReportHandling = { outcome };
+  return (await request<HandledReports>(`/api/reports/${encodeURIComponent(reportId)}`, { method: "POST", body: JSON.stringify(handling) })).reports;
+}
+
 /** A copy of someone's sidebar, and the ETag the server sent it with. */
 export interface SidebarCopy {
   sidebar: Sidebar;
@@ -967,6 +1071,15 @@ export async function dismissInvitation(): Promise<void> {
 /** Stops an invitation into room `roomId`'s huddle ringing in every tab this person has open, as joining from it or declining it does. */
 export async function answerHuddleInvitation(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}/huddle/invitation`, { method: "DELETE" });
+}
+
+/**
+ * The latest huddles that are over in this person's rooms and DMs, but for the ones they've hidden, the
+ * latest first, as the Huddles page lists them: those someone else joined, and those whose threads have
+ * a reply.
+ */
+export async function fetchHuddles(): Promise<PastHuddle[]> {
+  return (await request<PastHuddles>("/api/huddles")).huddles;
 }
 
 /** A copy of the people directory, and the ETag the server sent it with. */
@@ -1002,9 +1115,22 @@ export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
   return request<RoomSettings>(`/api/rooms/${encodeURIComponent(roomId)}/settings`);
 }
 
+/**
+ * How many people each special mention this person may use in a room would notify there, as their
+ * composer asks before sending one. Fails with a 404 ApiError for a room this person isn't in.
+ */
+export async function fetchNotified(roomId: RoomId): Promise<NotifiedCounts> {
+  return request<NotifiedCounts>(`/api/rooms/${encodeURIComponent(roomId)}/notified`);
+}
+
 /** Changes a room, answering it as it is then. */
 export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<SharedRoom> {
   return (await request<{ room: SharedRoom }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
+}
+
+/** Puts people in a private room, and takes people out of it, leaving everyone else as they are, answering the room. */
+export async function changeMembers(roomId: RoomId, change: MembersChange): Promise<SharedRoom> {
+  return (await request<{ room: SharedRoom }>(`/api/rooms/${encodeURIComponent(roomId)}/members`, { method: "PATCH", body: JSON.stringify(change) })).room;
 }
 
 /**
@@ -1033,12 +1159,31 @@ export async function setFavoriteOrder(roomIds: RoomId[]): Promise<Favorites> {
 }
 
 /**
- * Puts the rooms in this administrator's sidebar in the shared order, in the order `roomIds` lists them,
- * answering the rooms they're in that it ranks, in its order. Fails with a 403 ApiError for anyone but
- * an administrator, and for a room outside their sidebar.
+ * Puts the rooms in this administrator's sidebar in the shared order, in the order `layout` lists them,
+ * and when it has sections, the sections in its order, each with the rooms it lists, the rest in none,
+ * answering the rooms they're in that the order ranks, in its order, and every section. Fails with a 403
+ * ApiError for anyone but an administrator, and for a room outside their sidebar.
  */
-export async function setSharedOrder(roomIds: RoomId[]): Promise<RoomId[]> {
-  return (await request<{ sharedOrder: RoomId[] }>("/api/account/room_order", { method: "PUT", body: JSON.stringify({ roomIds }) })).sharedOrder;
+export async function setSharedOrder(layout: RoomLayout): Promise<SavedRoomLayout> {
+  return request<SavedRoomLayout>("/api/account/room_order", { method: "PUT", body: JSON.stringify(layout) });
+}
+
+/**
+ * Makes a sidebar section named `name`, after the others, answering it. Fails with a 409 ApiError when
+ * a section has that name, whatever its case, and a 403 for anyone but an administrator.
+ */
+export async function createSection(name: string): Promise<Section> {
+  return (await request<{ section: Section }>("/api/account/sections", { method: "POST", body: JSON.stringify({ name }) })).section;
+}
+
+/** Renames sidebar section `id`, answering it. Fails with a 409 ApiError when another section has the name. */
+export async function renameSection(id: SectionId, name: string): Promise<Section> {
+  return (await request<{ section: Section }>(`/api/account/sections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) })).section;
+}
+
+/** Deletes sidebar section `id`, leaving its rooms in none. */
+export async function deleteSection(id: SectionId): Promise<void> {
+  await request(`/api/account/sections/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /** Deletes a room, with its messages. */
@@ -1046,16 +1191,19 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
 }
 
+/** What's asked before `leaveRoom`, by Leave on a room's settings page, and by /leave. */
+export const CONFIRM_LEAVE = "Are you sure you want to leave this room? Only someone in it who can change it can add you back.";
+
 /** Takes this person out of a private room they can't change, as Leave on its settings page does. */
 export async function leaveRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}/membership`, { method: "DELETE" });
 }
 
 /**
- * The preview of the page `url` goes to, for a link pasted in the composer, or null when it has none, as
+ * The preview of the page `url` goes to, for a link in the composer, or null when it has none, as
  * Campfire's unfurl_controller.js asks for it. The page has none when it answers 204.
  */
-export async function fetchLinkPreview(url: string, signal: AbortSignal): Promise<LinkPreview | null> {
+export async function fetchLinkPreview(url: string, signal?: AbortSignal): Promise<LinkPreview | null> {
   const preview = await request<Partial<LinkPreview>>("/api/unfurl", { method: "POST", body: JSON.stringify({ url }), signal });
   return preview.title && preview.url ? (preview as LinkPreview) : null;
 }
@@ -1079,10 +1227,15 @@ export async function clearSearches(): Promise<void> {
 }
 
 /**
- * Where a room's @ prompt asks for the people it offers: Lexxy adds what's typed after the @ as
- * `filter`, and the answer is its prompt items.
+ * Where a room's @ prompt asks for the people it offers, and with `specialMentions` the special mentions
+ * too, @here, @channel and, in an open room, @everyone, which only a room's own composer offers: Lexxy
+ * adds what's typed after the @ as `filter`, and the answer is its prompt items. Without a room, it
+ * offers everyone, and no special mentions.
  */
-export const mentionPromptSrc = (roomId: RoomId) => `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}`;
+export const mentionPromptSrc = (roomId: RoomId | null, specialMentions = false) =>
+  roomId === null
+    ? "/api/autocompletable/users"
+    : `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}${specialMentions ? "&special_mentions=1" : ""}`;
 
 /** The address of a socket at `path` on this page's host, over wss on https pages. */
 export function socketUrl(path: string): string {

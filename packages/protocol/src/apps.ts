@@ -30,6 +30,7 @@ export const APPS_FULL = `Ember connects at most ${MAX_APPS} apps. Remove one fi
 export const APP_CHANGED = "Someone else changed this app while Ember read its tools. Load the page again.";
 export const APP_URL_REFUSED = "The address must be an https URL, or an http one on localhost";
 export const APP_SIGNED_IN = "This app signs in to its server, so its address and token can't be changed here. Remove it and connect it again to move it.";
+export const APP_TOKEN_STAYS = "Ember sends a token only to the address it was given for. Type it again for the new address, or check Send no token.";
 export const APP_SIGN_IN_ENDED = "That sign-in has ended, or isn't one you started. Start it again.";
 export const APP_IS_EMBER = "That's this Ember's own address. Connected to itself, Ember would let its agents read your DMs and private rooms for anyone who asks them.";
 
@@ -329,7 +330,7 @@ export const isLoopback = (hostname: string) => LOOPBACK_HOST.test(hostname);
 // The tools an agent may use. An administrator picks them, for @ember and for each agent, from the
 // tools Ember read from the connected apps. Each one an agent has rides with every question it's asked,
 // and whoever asked is shown each call of one before Ember makes it, unless the administrator has that
-// agent's calls of it always allowed, which the room is shown as they're made.
+// agent's calls of it always allowed, which the room's typing line names as they're made.
 
 /** The most tools of connected apps one agent may use, as each rides with every question it's asked. */
 export const MAX_AGENT_TOOLS = 20;

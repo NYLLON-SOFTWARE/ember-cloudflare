@@ -2,25 +2,31 @@ import {
   startingInvolvement,
   type Blocks,
   type Favorites,
+  type HuddleSounds,
   type Involvement,
   type LiveHuddle,
   type Room,
   type RoomId,
+  type Section,
   type SharedRoom,
   type Sidebar,
   type SidebarRoom,
+  type SidebarSection,
   type UserId,
 } from "@ember/protocol";
-import { isHidden } from "./involvement";
+import { hearsAllHuddleSounds } from "@ember/protocol/huddles";
+import { isHidden, isMuted } from "./involvement";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were put in them, which
 // `/` and `/rooms` go by. The sidebar lists their DMs apart from the other rooms, and lists the rooms
 // they've starred first, in the order they starred them, then the rooms the workspace's shared order
 // ranks, in its order, then the rest in the order they were put in them, rather than by name, as the
 // project's owner chose, so a room that's just been made, or that they've just been put in, comes last.
-// Their DMs go by when each was last active, latest first, as Campfire's sorted_list_controller.js sorts
-// them. The rooms someone has hidden, whose level is "invisible", are listed too, for them to open, but
-// their sidebar leaves them out.
+// The rooms in a section, but the starred ones, come after the rest, under its name, in that order too
+// (`inSections`). Their DMs go by when each was last active, latest first, as Campfire's
+// sorted_list_controller.js sorts them. The rooms someone has hidden, whose level is "invisible", are
+// listed too, for them to open, but their sidebar leaves them out. The ones they've muted, whose level
+// is "nothing", it shows dimmed, as Slack dims a muted channel, marked only for what's for them.
 
 /** A row in the sidebar's Rooms: a room shared by name, open or private. */
 export type SharedSidebarRoom = Extract<SidebarRoom, SharedRoom>;
@@ -66,6 +72,54 @@ export function inSidebarOrder<T extends SharedRoom>(rooms: T[], favorites: Room
   );
 }
 
+/** How many rooms a section has, as the Sidebar section menu and Rooms and permissions say it. */
+export const roomCount = (count: number) => (count === 0 ? "No rooms" : count === 1 ? "1 room" : `${count} rooms`);
+
+/** A section as the sidebar lists it: its name, and its rooms of those listed, in the sidebar's order. */
+export interface ListedSection<T extends SharedRoom> {
+  section: Section;
+  rooms: T[];
+}
+
+/**
+ * `rooms`, in the sidebar's order, as the sidebar lists them: first the ones in no section and the ones
+ * `starred`, which stay at the top, then each of `sections` with the rest of its rooms, in that order,
+ * leaving out the sections with none of `rooms`.
+ */
+export function inSections<T extends SharedRoom>(rooms: T[], sections: SidebarSection[], starred: ReadonlySet<RoomId>): { loose: T[]; sections: ListedSection<T>[] } {
+  const sectionOf = new Map(sections.flatMap((section) => section.roomIds.map((roomId) => [roomId, section.id] as const)));
+  const loose: T[] = [];
+  const grouped = new Map<string, T[]>();
+  for (const room of rooms) {
+    const sectionId = starred.has(room.id) ? undefined : sectionOf.get(room.id);
+    const listed = sectionId === undefined ? loose : grouped.get(sectionId);
+    if (listed) listed.push(room);
+    else grouped.set(sectionId!, [room]);
+  }
+  return {
+    loose,
+    sections: sections.flatMap(({ id, name }) => {
+      const listed = grouped.get(id);
+      return listed ? [{ section: { id, name }, rooms: listed }] : [];
+    }),
+  };
+}
+
+/**
+ * `sections` with room `roomId` in `section`, or in none for null: out of the one it was in, and last in
+ * the one it goes in, which takes the name it has now, or comes after the others while they haven't it.
+ */
+export function withRoomIn(sections: SidebarSection[], roomId: RoomId, section: Section | null): SidebarSection[] {
+  const others = withoutRoom(sections, roomId);
+  if (!section) return others;
+  if (!others.some(({ id }) => id === section.id)) return [...others, { ...section, roomIds: [roomId] }];
+  return others.map((listed) => (listed.id === section.id ? { ...listed, name: section.name, roomIds: [...listed.roomIds, roomId] } : listed));
+}
+
+/** `sections` without room `roomId` in any. */
+const withoutRoom = (sections: SidebarSection[], roomId: RoomId): SidebarSection[] =>
+  sections.map((section) => (section.roomIds.includes(roomId) ? { ...section, roomIds: section.roomIds.filter((id) => id !== roomId) } : section));
+
 /**
  * `directs`, in the order the sidebar lists them: the one active latest first, as Campfire's
  * sorted_list_controller.js sorts its rows, and of two active at once, the one made later.
@@ -87,9 +141,14 @@ export function movedBefore(order: RoomId[], roomId: RoomId, beforeId: RoomId | 
 /**
  * Whether the sidebar marks `room` unread, as rooms_list_controller.js marks its row: never the room
  * the tab shows, `currentRoomId`, which counts as read while it's open, or one it leaves out, hidden
- * after it was marked.
+ * after it was marked, and one muted only for what's for its person (`forThem`), as Slack still
+ * badges a muted channel's mentions and a muted DM's messages, so Activity leaves out the rest.
  */
-export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) => room.unread && room.id !== currentRoomId && !isHidden(room);
+export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) =>
+  room.unread && room.id !== currentRoomId && !isHidden(room) && (!isMuted(room) || forThem(room));
+
+/** Whether what marked `room` unread is for its person: in a DM, any message, and in a room, a mention of them it counts. */
+const forThem = (room: SidebarRoom) => room.kind === "direct" || room.mentionCount !== undefined;
 
 /**
  * `rooms` with `room` as it is now, in place of what it was, keeping its mark and level, or last, read
@@ -104,23 +163,25 @@ export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
     : [...rooms, { ...room, unread: false, involvement: startingInvolvement(room) }];
 }
 
-/** `listed`'s unread mark, since when, and in a DM how many messages it counts, when it's marked. */
-const markOf = ({ unread, unreadSince, unreadCount }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince" | "unreadCount"> => ({
+/** `listed`'s unread mark, since when, in a DM how many messages it counts, and in a room how many of them mention its person, when it's marked. */
+const markOf = ({ unread, unreadSince, unreadCount, mentionCount }: SidebarRoom): Pick<SidebarRoom, "unread" | "unreadSince" | "unreadCount" | "mentionCount"> => ({
   unread,
   ...(unreadSince !== undefined && { unreadSince }),
   ...(unreadCount !== undefined && { unreadCount }),
+  ...(mentionCount !== undefined && { mentionCount }),
 });
 
 /**
- * `room` marked unread as of `at`, with `count` messages in a DM, or read when `at` is null. The server
- * tells of a room's mark only as it makes one, so a room marked already takes the new time: the read
- * between them came in the same events as the message after it, and the server told only of the mark
- * they leave. A DM's comes with each message, with how many there are now.
+ * `room` marked unread as of `at`, with `count` messages in a DM, or in a room `mentions` of them that
+ * mention its person, or read when `at` is null. The server tells of a room's mark only as it makes one,
+ * or as a message mentions its person, so a room marked already takes the new time: the read between
+ * them came in the same events as the message after it, and the server told only of the mark they leave.
+ * A DM's comes with each message, with how many there are now.
  */
-function marked(room: SidebarRoom, at: string | null, count?: number): SidebarRoom {
-  const { unreadSince: _, unreadCount: __, ...unmarked } = room;
+function marked(room: SidebarRoom, at: string | null, count?: number, mentions?: number): SidebarRoom {
+  const { unreadSince: _, unreadCount: __, mentionCount: ___, ...unmarked } = room;
   if (at === null) return { ...unmarked, unread: false };
-  return { ...unmarked, unread: true, unreadSince: at, ...(count !== undefined && { unreadCount: count }) };
+  return { ...unmarked, unread: true, unreadSince: at, ...(count !== undefined && { unreadCount: count }), ...(mentions !== undefined && { mentionCount: mentions }) };
 }
 
 /** `listed`'s time last active, when it's a DM and that's later than `room`'s. */
@@ -139,32 +200,39 @@ function withHuddle(huddles: Sidebar["huddles"], roomId: RoomId, huddle: LiveHud
 
 /**
  * A change to someone's rooms, which the server's list shows the next time it's asked: a room as it was
- * saved, here or anywhere else, one that's gone for this person, deleted or no longer theirs, a room the
- * workspace socket says has been marked unread or read, a DM it says a message has come in, a room
- * whose huddle it says someone joined or left, a room's level, as one saved in any of their tabs leaves
- * it, their stars, as a star saved in any of their tabs leaves them, the shared order, as saving it
- * here leaves their rooms in it, or whom they've blocked, as blocking or unblocking someone in any of
- * their tabs leaves them.
+ * saved, here or anywhere else, with its section when the socket says what it is, one that's gone for
+ * this person, deleted or no longer theirs, a room the workspace socket says has been marked unread or
+ * read, a DM it says a message has come in, a room whose huddle it says someone joined or left, a room's
+ * level, as one saved in any of their tabs leaves it, their stars, as a star saved in any of their tabs
+ * leaves them, the shared order and maybe the sections, as saving them here leaves their rooms in them,
+ * or whom they've blocked, as blocking or unblocking someone in any of their tabs leaves them.
  */
 export type RoomChange =
-  | { type: "saved"; room: Room }
+  | { type: "saved"; room: Room; section?: Section | null }
   | { type: "gone"; roomId: RoomId }
-  | { type: "marked"; roomId: RoomId; at: string | null; count?: number }
+  | { type: "marked"; roomId: RoomId; at: string | null; count?: number; mentions?: number }
   | { type: "active"; roomId: RoomId; at: string }
   | { type: "huddle"; roomId: RoomId; huddle: LiveHuddle | null }
   | { type: "involved"; roomId: RoomId; involvement: Involvement }
   | { type: "starred"; favorites: Favorites }
-  | { type: "reordered"; sharedOrder: RoomId[] }
+  | { type: "reordered"; sharedOrder: RoomId[]; sections?: SidebarSection[] }
   | { type: "blocked"; blocks: Blocks };
 
 /** What the server answers a change to a room with: the room as saved, gone for this person, or their level in it. */
 export type RoomAnswer = Extract<RoomChange, { type: "saved" | "gone" | "involved" }>;
 
 /**
- * A change to the list: to someone's rooms, or to the welcome card: the join link's new code, made here,
- * or the card dismissed, here or in another of their tabs.
+ * A change to the list: to someone's rooms, to the welcome card: the join link's new code, made here,
+ * or the card dismissed, here or in another of their tabs, to which of a huddle's sounds they hear, as
+ * a switch on their profile leaves them, in any of their tabs, or for an administrator, to how many open
+ * reports they see, as the workspace socket says once a report is made or handled.
  */
-export type SidebarChange = RoomChange | { type: "join code"; joinCode: string } | { type: "invitation dismissed" };
+export type SidebarChange =
+  | RoomChange
+  | { type: "join code"; joinCode: string }
+  | { type: "invitation dismissed" }
+  | { type: "huddle sounds"; sounds: HuddleSounds }
+  | { type: "reports"; open: number };
 
 /**
  * Someone's rooms: the server's list, once it arrives, with the changes made since it was asked for,
@@ -187,19 +255,35 @@ const NO_SIDEBAR: Sidebar = { rooms: [], favorites: { rooms: [], version: 0 }, s
 /** A change, or the list asked for, arriving, or failing to. */
 export type RoomListAction = SidebarChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };
 
+/** `list` with `sounds` as the ones of a huddle's its person hears, which it leaves out while they hear them all, as the server's does. */
+function withHuddleSounds({ huddleSounds: _, ...list }: Sidebar, sounds: HuddleSounds): Sidebar {
+  return hearsAllHuddleSounds(sounds) ? list : { ...list, huddleSounds: sounds };
+}
+
 function changed(list: Sidebar, change: SidebarChange): Sidebar {
   switch (change.type) {
+    // A room saved with its section moves to it, and one saved without stays in the one it's in.
     case "saved":
-      return { ...list, rooms: withRoom(list.rooms, change.room) };
+      return {
+        ...list,
+        rooms: withRoom(list.rooms, change.room),
+        ...(change.section !== undefined && { sections: withRoomIn(list.sections ?? [], change.room.id, change.section) }),
+      };
     // A room that's gone takes its star with it, as the server's stars leave out the rooms someone can't
-    // star, so an order saved next lists the stars it knows.
+    // star, so an order saved next lists the stars it knows, and leaves its section.
     case "gone": {
       const stars = list.favorites.rooms;
       const favorites = stars.includes(change.roomId) ? { ...list.favorites, rooms: stars.filter((id) => id !== change.roomId) } : list.favorites;
-      return { ...list, rooms: list.rooms.filter((room) => room.id !== change.roomId), favorites, huddles: withHuddle(list.huddles, change.roomId, null) };
+      return {
+        ...list,
+        rooms: list.rooms.filter((room) => room.id !== change.roomId),
+        favorites,
+        huddles: withHuddle(list.huddles, change.roomId, null),
+        ...(list.sections && { sections: withoutRoom(list.sections, change.roomId) }),
+      };
     }
     case "marked":
-      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? marked(room, change.at, change.count) : room)) };
+      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? marked(room, change.at, change.count, change.mentions) : room)) };
     case "active":
       return { ...list, rooms: withActivity(list.rooms, change.roomId, change.at) };
     case "huddle":
@@ -210,15 +294,20 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
       return { ...list, invitation: list.invitation && { ...list.invitation, joinCode: change.joinCode } };
     case "invitation dismissed":
       return { ...list, invitation: null };
+    case "huddle sounds":
+      return withHuddleSounds(list, change.sounds);
     // Stars come from a star's answer, the socket and the list itself, in whatever order they arrive,
     // so the newest stands.
     case "starred":
       return change.favorites.version > list.favorites.version ? { ...list, favorites: change.favorites } : list;
     case "reordered":
-      return { ...list, sharedOrder: change.sharedOrder };
+      return { ...list, sharedOrder: change.sharedOrder, ...(change.sections && { sections: change.sections }) };
     // As stars do, blocks come from a block's answer, the socket and the list itself, so the newest stands.
     case "blocked":
       return change.blocks.version > list.blocks.version ? { ...list, blocks: change.blocks } : list;
+    // The socket's counts come in order, and the last of them is the newest, even replayed over a list that's newer than some.
+    case "reports":
+      return { ...list, openReports: change.open };
   }
 }
 

@@ -16,6 +16,7 @@ import {
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
+import { MAX_MARKDOWN_LENGTH } from "../src/bots/markdown";
 import { NOT_FOUND } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { AUTHORIZATION_TTL_MS } from "../src/revocations";
@@ -285,6 +286,19 @@ describe("Bot keys", () => {
     expect(await storedIn(general)).toEqual([]);
   });
 
+  it("posts nothing for a bot kept to open rooms that leave this one out since its key was checked, which the room hears before the change answers", async () => {
+    const { administrator, bot, general } = await withBot();
+    const room = await createRoom("Launch", { as: administrator });
+    const letThrough = { bot: { id: bot.id, name: bot.name }, authorizedAt: Date.now() };
+    const keepToGeneral = JSON.stringify({ rooms: [general] });
+    expect((await api(`/api/account/bots/${bot.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: keepToGeneral })).status).toBe(200);
+    expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]);
+    expect(await roomStub(room.id).createBotMessage(room.id, letThrough, "Too late")).toBeNull();
+    expect(await storedIn(room.id)).toEqual([]);
+    expect((await postAs(bot.key, room.id, "Too late")).status).toBe(404);
+    expect((await postAs(bot.key, general, "Still here")).status).toBe(201);
+  });
+
   it("changes nothing for a bot that the room has heard was taken out since its key was checked, as it posts nothing", async () => {
     const { administrator, bot } = await withBot();
     const room = await createRoom("Launch", { closedTo: [administrator.user.id, bot.id], as: administrator });
@@ -380,6 +394,53 @@ describe("Bots post messages", () => {
     expect((await inRoom.next("message.created")).message.plainText).toBe('{"status":"passed"}');
     await postAs(bot.key, general, "Deploy finished 🚀 ünïcödé", { "Content-Type": "text/plain; charset=utf-8" });
     expect((await inRoom.next("message.created")).message.plainText).toBe("Deploy finished 🚀 ünïcödé");
+  });
+
+  it("reads a text/markdown body as Markdown, and any other as markup, as Campfire does", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const markdown = "**Standup**\n- [Fix order](https://example.com/1): *High*\n- `deploy` pending";
+
+    expect((await postAs(bot.key, general, markdown, { "Content-Type": "text/markdown; charset=utf-8" })).status).toBe(201);
+    const { message } = await inRoom.next("message.created");
+    expect(message.body).toBe(
+      '<p><strong>Standup</strong></p><ul><li><a href="https://example.com/1">Fix order</a>: <em>High</em></li><li><code>deploy</code> pending</li></ul>',
+    );
+
+    await postAs(bot.key, general, markdown, { "Content-Type": "Text/Markdown" });
+    expect((await inRoom.next("message.created")).message.body).toBe(message.body);
+    await postAs(bot.key, general, "**Standup**");
+    expect((await inRoom.next("message.created")).message.body).toBe("**Standup**");
+  });
+
+  it("answers 413 to Markdown whose markup would be longer than a message's, posted or edited, however short it's written", async () => {
+    const { bot, general } = await withBot();
+    // One long address, written once and linked from every use, far outgrows its Markdown.
+    const markdown = `${"[x][r] ".repeat(100)}\n\n[r]: https://example.com/${"a".repeat(5_000)}`;
+    expect(markdown.length).toBeLessThanOrEqual(MAX_MARKDOWN_LENGTH);
+    // So does a table whose rows each write a cell of the header's 1,500.
+    const table = [`|${"h|".repeat(1_500)}`, `|${"-|".repeat(1_500)}`, ...Array<string>(2_990).fill("a")].join("\n");
+    expect(table.length).toBeLessThanOrEqual(MAX_MARKDOWN_LENGTH);
+    const headers = { "Content-Type": "text/markdown" };
+
+    expect((await postAs(bot.key, general, markdown, headers)).status).toBe(413);
+    expect((await postAs(bot.key, general, table, headers)).status).toBe(413);
+    const id = await posted(bot.key, general, "Deploying...");
+    expect((await editAs(bot.key, general, id, markdown, "PATCH", headers)).status).toBe(413);
+    expect((await editAs(bot.key, general, id, table, "PATCH", headers)).status).toBe(413);
+    expect((await storedIn(general)).map((message) => message.body)).toEqual(["Deploying..."]);
+  });
+
+  it("answers 413 to more Markdown than a Slack payload's markdown blocks hold, posted or edited, though as text it would fit", async () => {
+    const { bot, general } = await withBot();
+    const longest = "a".repeat(MAX_MARKDOWN_LENGTH);
+    const headers = { "Content-Type": "text/markdown" };
+
+    expect((await postAs(bot.key, general, `${longest}a`, headers)).status).toBe(413);
+    expect((await postAs(bot.key, general, longest, headers)).status).toBe(201);
+    const id = await posted(bot.key, general, "Deploying...");
+    expect((await editAs(bot.key, general, id, `${longest}a`, "PATCH", headers)).status).toBe(413);
+    expect((await storedIn(general)).map((message) => message.body)).toEqual([`<p>${longest}</p>`, "Deploying..."]);
   });
 
   it("answers 201 with an empty body and the message's permalink, on the host it was asked at", async () => {
@@ -710,6 +771,14 @@ describe("Bots edit and delete their messages", () => {
 
     const json = await api(messagePath(general, bot.key, id, ".json"), { method: "PATCH", body: "Shipped." });
     expect([json.status, ((await json.json()) as ListedMessage).body.plain_text]).toEqual([200, "Shipped."]);
+  });
+
+  it("reads an edit's text/markdown body as Markdown", async () => {
+    const { bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deploying...");
+    const response = await editAs(bot.key, general, id, "Deployed **v2**", "PATCH", { "Content-Type": "text/markdown" });
+    expect(((await response.json()) as ListedMessage).body.plain_text).toBe("Deployed v2");
+    expect((await storedIn(general))[0]!.body).toBe("<p>Deployed <strong>v2</strong></p>");
   });
 
   it("leaves a message saved as it was as it was, its update time included", async () => {

@@ -19,7 +19,32 @@ keeps its [buttons that act](#buttons-that-act) too; menus, and whatever else on
 answer, are left out. Mentions of Slack's people and channels show as text and notify nobody, and a
 payload can't change the bot's name, avatar or room.
 
+The text's `<!here>`, `<!channel>` and `<!everyone>`, with a label or without, notify the room as
+Slack's do, as @here, @channel and @everyone written in the room would: a bot may use them as a member
+may, so not where an administrator has kept them to administrators or turned them off in the room,
+and then they show as text. In attachments and blocks they show as text and notify nobody, as do the
+cards in @ember's and the AI agents' answers, which never notify anyone.
+
+Status pages on Atlassian Statuspage, such as githubstatus.com, can post there too: give the address
+as the webhook in the page's Subscribe to updates dialog. Their webhooks send Statuspage's own JSON
+rather than Slack's, which the address recognizes. An incident shows as a card of its name, linked to
+the incident, its latest update, with its line breaks and a postmortem's Markdown as the status page
+shows them, its status, impact and affected components, with a bar the color of its impact that turns
+green once it's resolved, and a component's change of status shows as a line.
+A maintenance shows in blue, with its window. Cloudflare's status page sends the same JSON from its
+generic webhook, which shows the same way.
+
 ![Alerts from a monitoring bot, firing and resolved, in a room](screenshots/bots.png)
+
+A bot's own address, `https://<your Worker>/rooms/<room id>/<bot key>/messages`, takes its text as
+HTML, as Campfire's does. To write Markdown there instead, with its links, bold, lists, quotes, code
+and tables, say so with `Content-Type: text/markdown`, in up to 12,000 characters, as a Slack
+payload's markdown blocks hold; more is answered 413. Send the file with `--data-binary`, which keeps
+its line breaks, where `-d @file` drops them:
+
+```sh
+curl -H 'Content-Type: text/markdown' --data-binary @brief.md <url>
+```
 
 @ember and the [AI agents](self-hosting.md#ai-agents) post these cards too, as what Ember tells them
 teaches them to. An answer that writes a payload as JSON in a code block starting
@@ -90,9 +115,10 @@ Anyone in the room can click, and `user` says who did: a bot that should act onl
 checks that itself. Ember sends the button's `value` as the bot posted it, never as a browser says
 it. Buttons in blocks without a `block_id` may share an `action_id`, as they may in Slack: their
 values tell them apart, and the click has no `block_id`, where Slack would make one up. Each person
-can have three clicks waiting on a room's bots at a time. Ember has no messages only
-one person sees, so what a bot would send in Slack as an ephemeral message shows to the room; and
-Slack's menus, date pickers, inputs, `confirm` dialogs and legacy attachment actions aren't here yet.
+can have three clicks waiting on a room's bots at a time. Only the card of an agent's call of an
+app's tool is shown to one person alone, so what a bot would send in Slack as an ephemeral message
+shows to the room; and Slack's menus, date pickers, inputs, `confirm` dialogs and legacy attachment
+actions aren't here yet.
 
 Slack is a trademark of Slack Technologies, LLC. Ember is not created by, affiliated with, or
 supported by Slack Technologies, LLC.

@@ -87,8 +87,9 @@ test.describe("Apps", () => {
     await expect(token).toHaveAccessibleDescription(`${host} doesn't say how to sign in to it. Give a token for it, if it has one.`);
     await expect(page.getByRole("button", { name: /^Sign in/ })).toHaveCount(0);
 
-    // With it, Ember reads the server's tools and goes to the app's page, which lists them.
+    // With it, Ember reads the server's tools and goes to the app's page, which lists them. It's never in its field's value attribute, where custom CSS could read it.
     await token.fill(MCP_TOKEN);
+    await expect(token).not.toHaveAttribute("value");
     await page.getByRole("button", { name: "Connect" }).click();
     await expect(page).toHaveURL(/\/account\/apps\/[^/]+\/edit$/);
     await expect(page.getByRole("alert")).toHaveText("Tracker is connected. Ember read 2 tools from it.");
@@ -309,7 +310,7 @@ test.describe("Apps", () => {
     }
   });
 
-  test("the administrator renames an app, which reads nothing from its server, and an address with no MCP server is refused", async ({ page, request }) => {
+  test("the administrator renames an app, which reads nothing from its server, and another address needs its token again, and an MCP server there", async ({ page, request }) => {
     const connected = await request.post("/api/account/apps", { data: { name: "Tracker", url: mcp.url, token: MCP_TOKEN }, headers: await asAdministrator(request) });
     expect(connected.status(), await connected.text()).toBe(201);
     const card = await openApps(page);
@@ -324,9 +325,17 @@ test.describe("Apps", () => {
     await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(mcp.asked).toHaveLength(asked);
 
-    // Another address is asked before it's saved, and one without a server there is refused, on its field.
+    // Another address needs the token again, as Ember sends it only to the one it was given for.
     const address = page.getByRole("textbox", { name: "Server address" });
+    const token = page.getByLabel("Token", { exact: true });
     await address.fill(mcp.url.replace(/\/mcp$/, "/nowhere"));
+    await expect(token).toHaveAccessibleDescription("Ember sends a token only to the address it was given for. Type it again for the new address, or check Send no token.");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(token).toHaveAttribute("aria-invalid", "true");
+    expect(mcp.asked).toHaveLength(asked);
+
+    // It's asked before it's saved, and one without a server there is refused, on its field.
+    await token.fill(MCP_TOKEN);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(address).toHaveAccessibleDescription(`${new URL(mcp.url).host} has no MCP server at that address. Check the address, which often ends in /mcp.`);
     await page.reload();
@@ -404,22 +413,31 @@ test.describe("Apps", () => {
     await signInAsAdministrator(page);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
 
-    // Its model calls the tool, which waits on a card that says what it would be called with.
+    // Its model calls the tool, which waits on a card that says what it would be called with, which only the asker sees.
     const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
     await askEmber(page, `${FILE_QUESTION} ${title}`);
     const card = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title });
     await expect(card).toContainText("create_issue, with:");
-    await expect(card).toContainText(`"title": "${title}"`);
-    await expect(card).toContainText("Ada Lovelace or an administrator can allow this call.");
+    await expect(card).toContainText(`Title: ${title}`);
+    await expect(card).not.toContainText("{");
+    await expect(card).toContainText("It goes to Tracker with the token an administrator connected it with.");
+    await expect(page.getByRole("article").filter({ has: card })).toContainText("Only visible to you");
     expect(mcp.calls).toEqual([]);
+    // A reload shows it again, as the room lets the page in with it while it waits.
+    await page.reload();
+    await expect(card).toContainText(`Title: ${title}`);
 
     // Allowed, it runs, with what the card showed, and the answer goes on with what the app answered.
     await card.getByRole("button", { name: "Allow once" }).click();
-    await expect(card).toContainText("Allowed by Ada Lovelace.");
+    await expect(card).toContainText("Allowed by you.");
     await expect(card.getByRole("button", { name: "Allow once" })).toHaveCount(0);
     await expect(card.getByRole("button", { name: "Deny" })).toHaveCount(0);
     await expect(page.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
     expect(mcp.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
+    // Answered, it isn't brought again: a reload shows the answer alone.
+    await page.reload();
+    await expect(page.getByRole("article").filter({ hasText: FILED })).toBeVisible();
+    await expect(card).toHaveCount(0);
     // The model was given the tool under its app's name, and never the app's address or token.
     const said = JSON.stringify(gateway.asked.map(({ body }) => body));
     expect(said).toContain("Tracker__create_issue");
@@ -431,11 +449,11 @@ test.describe("Apps", () => {
     await askEmber(page, `${FILE_QUESTION} ${other}`);
     const denied = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: other });
     await denied.getByRole("button", { name: "Deny" }).click();
-    await expect(denied).toContainText("Not allowed by Ada Lovelace.");
+    await expect(denied).toContainText("Not allowed by you.");
     await expect(page.getByRole("article").filter({ hasText: `${FILED} Not run: the person you're answering was asked to allow this call, and didn't.` })).toBeVisible();
     expect(mcp.calls).toHaveLength(1);
   });
-  test("the administrator always allows @ember a tool, whose calls are then made at once and shown on a card, until its app changes it, which the app's row and page say", async ({ page, request }) => {
+  test("the administrator always allows @ember a tool, whose calls are then made at once, named beside its typing, until its app changes it, which the app's row and page say", async ({ page, request }) => {
     mcp.tools.splice(0, mcp.tools.length, ...TOOLS.map((tool) => ({ ...tool })));
     mcp.calls.length = 0;
     const headers = await asAdministrator(request);
@@ -459,16 +477,23 @@ test.describe("Apps", () => {
     await page.reload();
     await expect(always).toBeChecked();
 
-    // Its call is made at once, with nobody asked, and the room is shown what it was called with.
+    // Its call is made at once, with nobody asked: while it runs, the typing line above the composer
+    // names it, and the room is posted nothing for it but the answer.
     await page.goto(`/rooms/${room.id}`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
     const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
-    await askEmber(page, `${FILE_QUESTION} ${title}`);
-    const used = page.getByRole("article", { name: "Ember used Tracker" }).filter({ hasText: title });
-    await expect(used).toContainText("create_issue, with:");
-    await expect(used).toContainText("An administrator always allows Ember this tool, so nobody was asked first.");
-    await expect(used.getByRole("button")).toHaveCount(0);
+    let goOn = () => {};
+    mcp.held = new Promise((resolve) => (goOn = resolve));
+    try {
+      await askEmber(page, `${FILE_QUESTION} ${title}`);
+      await expect(page.getByText("Ember is using Tracker: create_issue", { exact: true })).toBeVisible();
+    } finally {
+      goOn();
+      mcp.held = null;
+    }
     await expect(page.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
+    await expect(page.getByText("Ember is using Tracker: create_issue", { exact: true })).toBeHidden();
+    await expect(page.getByRole("article", { name: "Ember used Tracker" })).toHaveCount(0);
     expect(mcp.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
 
     // Its app describes the tool another way, which Ember finds as it goes to call it: the call isn't made.
@@ -603,12 +628,12 @@ test.describe("Apps", () => {
       await composer.pressSequentially(`${FILE_QUESTION} ${title}`);
       await composer.press("Enter");
       const call = grace.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title });
-      await expect(call).toContainText(`${name} can allow this call. It goes to Tracker as ${name}, with the sign-in they made to it themselves.`);
+      await expect(call).toContainText("It goes to Tracker as you, with the sign-in you made to it yourself.");
       expect(signsIn.calls).toEqual([]);
 
       // The service keeps one sign-in good at a time, and hers is the later, so the call it runs is the one made as her.
       await call.getByRole("button", { name: "Allow once" }).click();
-      await expect(call).toContainText(`Allowed by ${name}.`);
+      await expect(call).toContainText("Allowed by you.");
       await expect(grace.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
       expect(signsIn.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
 

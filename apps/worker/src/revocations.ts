@@ -28,6 +28,12 @@ export const addressTag = (ipAddress: string) => `${ADDRESS_TAG_PREFIX}${ipAddre
 export const MAX_ADDRESS_LENGTH = "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255".length;
 
 /**
+ * The IP address a request comes from, `ip`, as the tag on its sockets names it: none for one longer
+ * than any IP address, which isn't one a ban can hold, and would make too long a tag.
+ */
+export const taggedAddress = (ip: string | null): string | null => (ip !== null && ip.length <= MAX_ADDRESS_LENGTH ? ip : null);
+
+/**
  * The tag a revocation names to close every socket in a room, which deleting the room does. No socket
  * carries it, and no person's id or session's tag can be it.
  */
@@ -45,6 +51,9 @@ export const OPEN_ROOMS_ONLY = "*open";
  * so an older one has been held up somewhere, and its socket is told to connect again for a new one.
  */
 export const AUTHORIZATION_TTL_MS = 60_000;
+
+/** Whether the Workspace's word, given at `authorizedAt`, has been held up too long to trust. */
+export const heldUpTooLong = (authorizedAt: number, now = Date.now()) => !(now - authorizedAt <= AUTHORIZATION_TTL_MS);
 
 /**
  * How long a room keeps a revocation: an authorization's lifetime, with a few more minutes in case
@@ -71,7 +80,7 @@ export class Revocations {
    * it's too old to trust.
    */
   async refuse(tags: string[], authorizedAt: number, now = Date.now()): Promise<boolean> {
-    if (!(now - authorizedAt <= AUTHORIZATION_TTL_MS)) return true;
+    if (heldUpTooLong(authorizedAt, now)) return true;
     const recent = await this.read(now);
     // At or before: the clock only counts milliseconds, and a check in the same one as the
     // revocation may have read what came before it.

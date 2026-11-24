@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BLOCKED_WORDS_NOT_A_LIST, blockedWordUnmatchable } from "./blocked-words";
 import {
   ASSISTANT_NAME,
   canBeCustomDomain,
@@ -70,6 +71,7 @@ import {
   parseInvitationRequest,
   parseEmailLinkSignUp,
   parseInvolvementChange,
+  parseMembersChange,
   parseNewDirect,
   parseNewRoom,
   parseOpenSignUp,
@@ -152,10 +154,74 @@ describe("Send a message", () => {
   });
 
   it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {
-    expect(ROOM_PROTOCOL).toBe(4);
+    expect(ROOM_PROTOCOL).toBe(5);
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
+  });
+});
+
+describe("Link previews after sending", () => {
+  const preview = { title: "Digg", url: "https://digg.com/tech/1", image: null, description: "News" };
+
+  it("sends the preview of a link in a message the tab sent, by the id it gave the message", () => {
+    expect(parse({ type: "message.preview", clientMessageId: "c1", preview })).toEqual({ type: "message.preview", clientMessageId: "c1", preview });
+    const pictured = { ...preview, image: "https://digg.com/card.png", description: "" };
+    expect(parse({ type: "message.preview", clientMessageId: "c1", preview: { ...pictured, extra: 1 } })).toEqual({ type: "message.preview", clientMessageId: "c1", preview: pictured });
+  });
+
+  it("refuses a preview without a title or an address, with fields that aren't text, or longer than a message's markup", () => {
+    for (const bad of [
+      null,
+      "Digg",
+      { ...preview, title: " " },
+      { ...preview, url: "" },
+      { ...preview, image: undefined },
+      { ...preview, image: 7 },
+      { ...preview, description: null },
+      { ...preview, description: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) },
+    ]) {
+      expect(parse({ type: "message.preview", clientMessageId: "c1", preview: bad }), JSON.stringify(bad)).toBeNull();
+    }
+    expect(parse({ type: "message.preview", clientMessageId: "", preview })).toBeNull();
+  });
+});
+
+describe("Schedule a message", () => {
+  const scheduled = { type: "message.schedule", clientMessageId: "c1", body: "<p>hi</p>", sendAt: "2026-11-18T17:00:00.000Z" };
+
+  it("schedules a message as message.create sends one, in a thread too, for a time it writes as toISOString does", () => {
+    expect(parse(scheduled)).toEqual(scheduled);
+    expect(parse({ ...scheduled, sendAt: "2026-11-18T09:00:00-08:00" })).toEqual(scheduled);
+    expect(parse({ ...scheduled, parentId: "m1" })).toEqual({ ...scheduled, parentId: "m1", alsoSend: false });
+    expect(parse({ ...scheduled, parentId: "m1", alsoSend: true })).toEqual({ ...scheduled, parentId: "m1", alsoSend: true });
+  });
+
+  it("refuses a time that isn't one, and what message.create would refuse", () => {
+    for (const sendAt of [undefined, null, 1_795_000_000_000, "", "tomorrow", "2026-13-01T00:00:00Z", `2026-11-18T17:00:00.000Z${" ".repeat(7)}`]) {
+      expect(parse({ ...scheduled, sendAt }), String(sendAt)).toBeNull();
+    }
+    expect(parse({ ...scheduled, body: 7 })).toBeNull();
+    expect(parse({ ...scheduled, body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    expect(parse({ ...scheduled, clientMessageId: "" })).toBeNull();
+    expect(parse({ ...scheduled, parentId: "" })).toBeNull();
+  });
+
+  it("edits, moves, sends now or deletes a scheduled message by its id", () => {
+    const edited = { type: "scheduled.edit", scheduledId: "s1", body: "<p>hello</p>" };
+    expect(parse(edited)).toEqual(edited);
+    expect(parse({ ...edited, body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    const moved = { type: "scheduled.reschedule", scheduledId: "s1", sendAt: "2026-11-23T17:00:00Z" };
+    expect(parse(moved)).toEqual({ ...moved, sendAt: "2026-11-23T17:00:00.000Z" });
+    expect(parse({ ...moved, sendAt: "soon" })).toBeNull();
+    expect(parse({ type: "scheduled.send", scheduledId: "s1" })).toEqual({ type: "scheduled.send", scheduledId: "s1" });
+    expect(parse({ type: "scheduled.delete", scheduledId: "s1" })).toEqual({ type: "scheduled.delete", scheduledId: "s1" });
+    for (const scheduledId of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ ...edited, scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ ...moved, scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ type: "scheduled.send", scheduledId }), String(scheduledId)).toBeNull();
+      expect(parse({ type: "scheduled.delete", scheduledId }), String(scheduledId)).toBeNull();
+    }
   });
 });
 
@@ -339,7 +405,7 @@ describe("One live connection per tab outside the open room", () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -478,6 +544,24 @@ describe("Add and remove private room members", () => {
     for (const memberIds of [undefined, "u1", [1], [""], tooMany]) {
       expect(parseRoomChanges({ kind: "closed", memberIds }), JSON.stringify(memberIds)?.slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
     }
+  });
+
+  it("takes whom to put in a private room and take out of it, as /invite and /remove do, either of them left out for nobody", () => {
+    expect(parseMembersChange({ addedIds: ["u1", "u2"], removedIds: ["u3"] })).toEqual({ addedIds: ["u1", "u2"], removedIds: ["u3"] });
+    expect(parseMembersChange({ addedIds: ["u1"] })).toEqual({ addedIds: ["u1"], removedIds: [] });
+    expect(parseMembersChange({ removedIds: ["u3"] })).toEqual({ addedIds: [], removedIds: ["u3"] });
+    expect(parseMembersChange({})).toEqual({ addedIds: [], removedIds: [] });
+  });
+
+  it("refuses people to put in or take out that aren't listed as user ids, or that are both", () => {
+    const tooMany = Array.from({ length: MAX_LISTED_USERS + 1 }, (_, i) => `u${i}`);
+    for (const ids of [null, "u1", [1], [""], tooMany]) {
+      for (const change of [{ addedIds: ids }, { removedIds: ids }]) {
+        expect(parseMembersChange(change), JSON.stringify(change).slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
+      }
+    }
+    expect(parseMembersChange({ addedIds: ["u1", "u2"], removedIds: ["u2"] })).toBe("Nobody can be put in a room and taken out of it at once");
+    for (const data of [null, "u1", ["u1"]]) expect(parseMembersChange(data)).toBe("Expected a JSON object");
   });
 });
 
@@ -752,6 +836,16 @@ describe("Only administrators create rooms (setting)", () => {
   });
 });
 
+describe("Warn before notifying a room of six or more (setting)", () => {
+  it("takes the warning's switch as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: false } })).toEqual({ settings: { warnBeforeNotifying: false } });
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: true, hideTranslationButtons: false } })).toEqual({
+      settings: { warnBeforeNotifying: true, hideTranslationButtons: false },
+    });
+    expect(parseAccountChanges({ settings: { warnBeforeNotifying: "no" } })).toBe("Warn before notifying a room of six or more must be true or false");
+  });
+});
+
 describe("Cameras in huddles (setting)", () => {
   it("takes Cameras as true or false, beside the other settings", () => {
     expect(parseAccountChanges({ settings: { huddleCameras: false } })).toEqual({ settings: { huddleCameras: false } });
@@ -768,6 +862,16 @@ describe("Screen sharing in huddles (setting)", () => {
   });
 });
 
+describe("Video quality in huddles (setting)", () => {
+  it("takes Standard, HD or Full HD, beside the settings and the rest", () => {
+    for (const huddleVideo of ["standard", "hd", "full-hd"]) expect(parseAccountChanges({ huddleVideo })).toEqual({ huddleVideo });
+    expect(parseAccountChanges({ huddleVideo: "full-hd", settings: { huddleCameras: true }, name: "Fernwood" })).toEqual({ huddleVideo: "full-hd", settings: { huddleCameras: true }, name: "Fernwood" });
+    for (const huddleVideo of ["", "HD", "4k", "1080p", true, 720, null, ["hd"]]) expect(parseAccountChanges({ huddleVideo }), JSON.stringify(huddleVideo)).toBe('Video quality must be "standard", "hd" or "full-hd"');
+    // It isn't one of the switches.
+    expect(parseAccountChanges({ settings: { huddleVideo: "hd" } })).toBe("Unknown setting: huddleVideo");
+  });
+});
+
 describe("Ways to join", () => {
   it("takes the join link's switch and Open as true or false, beside the other settings", () => {
     expect(parseAccountChanges({ settings: { joinLink: false, openSignUp: true } })).toEqual({ settings: { joinLink: false, openSignUp: true } });
@@ -775,16 +879,23 @@ describe("Ways to join", () => {
     expect(parseAccountChanges({ settings: { openSignUp: null } })).toBe("Open must be true or false");
   });
 
-  it("lets people in with the join link while its switch is on, but never while Memberful is members only", () => {
-    expect(joinsWithLink({ joinLink: true, memberfulSignIn: false })).toBe(true);
-    expect(joinsWithLink({ joinLink: false, memberfulSignIn: false })).toBe(false);
-    expect(joinsWithLink({ joinLink: true, memberfulSignIn: true })).toBe(false);
+  it("lets people in with the join link while its switch is on, but never while Memberful is members only or single sign-on is the only way in", () => {
+    expect(joinsWithLink({ joinLink: true, memberfulSignIn: false, ssoSignIn: false })).toBe(true);
+    expect(joinsWithLink({ joinLink: false, memberfulSignIn: false, ssoSignIn: false })).toBe(false);
+    expect(joinsWithLink({ joinLink: true, memberfulSignIn: true, ssoSignIn: false })).toBe(false);
+    expect(joinsWithLink({ joinLink: true, memberfulSignIn: false, ssoSignIn: true })).toBe(false);
   });
 
-  it("lets anyone sign up while Open is on, but never while Memberful is members only", () => {
-    expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: false })).toBe(true);
-    expect(signsUpOpenly({ openSignUp: false, memberfulSignIn: false })).toBe(false);
-    expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: true })).toBe(false);
+  it("lets anyone sign up while Open is on, but never while Memberful is members only or single sign-on is the only way in", () => {
+    expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: false, ssoSignIn: false })).toBe(true);
+    expect(signsUpOpenly({ openSignUp: false, memberfulSignIn: false, ssoSignIn: false })).toBe(false);
+    expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: true, ssoSignIn: false })).toBe(false);
+    expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: false, ssoSignIn: true })).toBe(false);
+  });
+
+  it("takes single sign-on's switches as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { ssoJoin: true, ssoSignIn: false } })).toEqual({ settings: { ssoJoin: true, ssoSignIn: false } });
+    expect(parseAccountChanges({ settings: { ssoSignIn: "yes" } })).toBe("SSO only must be true or false");
   });
 
   it("names why joining went to sign in in the sign-in page's address, and reads only the reasons it knows", () => {
@@ -898,11 +1009,12 @@ describe("Join with an email domain", () => {
   });
 
   it("lets people in at the email domains while Email domain is on with a domain, but never while Memberful is members only", () => {
-    const on = { emailDomainSignUp: true, emailDomains: ["example.org"], memberfulSignIn: false };
+    const on = { emailDomainSignUp: true, emailDomains: ["example.org"], memberfulSignIn: false, ssoSignIn: false };
     expect(signsUpWithEmailDomain(on)).toBe(true);
     expect(signsUpWithEmailDomain({ ...on, emailDomainSignUp: false })).toBe(false);
     expect(signsUpWithEmailDomain({ ...on, emailDomains: [] })).toBe(false);
     expect(signsUpWithEmailDomain({ ...on, memberfulSignIn: true })).toBe(false);
+    expect(signsUpWithEmailDomain({ ...on, ssoSignIn: true })).toBe(false);
   });
 
   it.each([
@@ -956,6 +1068,13 @@ describe("Join with an email domain", () => {
     ["more than 100", Array.from({ length: 101 }, (_, n) => `team${n}.example`)],
   ])("refuses %s for Email domain's domains", (_, emailDomains) => {
     expect(parseAccountChanges({ name: "Ember", emailDomains })).toBe(EMAIL_DOMAINS_REFUSED);
+  });
+
+  it("takes the words and phrases Blocked words keeps out, as it keeps them, or says why it can't", () => {
+    expect(parseAccountChanges({ blockedWords: [" fudge", "Darn  it", "FUDGE"] })).toEqual({ blockedWords: ["fudge", "Darn it"] });
+    expect(parseAccountChanges({ blockedWords: [] })).toEqual({ blockedWords: [] });
+    expect(parseAccountChanges({ name: "Ember", blockedWords: "fudge" })).toBe(BLOCKED_WORDS_NOT_A_LIST);
+    expect(parseAccountChanges({ name: "Ember", blockedWords: ["..."] })).toBe(blockedWordUnmatchable("..."));
   });
 
   it("names the domains in words", () => {
