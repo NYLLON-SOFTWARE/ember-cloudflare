@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { AudioPlayer } from "./audio-player";
 import { Code } from "./code-block";
 import { FileCard } from "./file-card";
+import { VideoPlayer } from "./video-player";
 
 /** How much of a file's text shows before the rest folds behind Show more, as a bot's card folds its text. */
 const FOLD_CHARACTERS = 700;
@@ -22,15 +23,15 @@ const FOLDED = "max-h-[calc(5lh+2em+2px)] overflow-y-hidden after:sticky after:-
 
 /**
  * A file message's file:
- * an SVG of up to 5 MiB shows above its card, a video or a recording of sound, as a clip is, plays in
- * place, the sound in a player of its own (audio-player.tsx), a text file of up to 64 KiB, as a snippet is,
- * shows its text above its card, a GIF of up to 5 MiB and 250 megapixels shows itself, so it plays in
+ * an SVG of up to 5 MiB shows above its card, a video or a recording of sound, as a clip is, plays in place
+ * in a player of its own (video-player.tsx, audio-player.tsx), a text file of up to 64 KiB, as a snippet
+ * is, shows its text above its card, a GIF of up to 5 MiB and 250 megapixels shows itself, so it plays in
  * place, as Slack's do, a picture shows its thumbnail, or without one, as a bot's has none, itself if it's
  * a picture every browser shows of up to 5 MiB and 250 megapixels, and every other file shows its card.
  */
 export function Attachment({ file }: { file: StoredFile }) {
   if (file.contentType === "image/svg+xml" && file.byteSize <= MAX_PREVIEW_SIZE) return <SvgPreview file={file} />;
-  if (file.contentType.startsWith("video")) return <VideoPreview file={file} />;
+  if (file.contentType.startsWith("video")) return <VideoPlayer file={file} />;
   if (file.contentType.startsWith("audio")) return <AudioPlayer file={file} />;
   if (showsText(file)) return <TextPreview file={file} />;
   // A GIF's thumbnail is its first frame, which shows in its place only where reduced motion is asked for.
@@ -99,27 +100,6 @@ function PicturePreview({ file, src, still }: { file: StoredFile; src: string; s
         <Lightbox src={showsItself(file) ? file.url : src} alt={file.name} downloadUrl={file.downloadUrl} onClose={() => setViewing(false)} />
       )}
     </>
-  );
-}
-
-/**
- * A video, which plays in place in a box half its size. Behind its poster it loads nothing until it's
- * played; without one, as when its uploader's browser couldn't play it, it loads enough to draw its first
- * frame. It's named for its file.
- */
-function VideoPreview({ file }: { file: StoredFile }) {
-  const size = shownSize(file);
-  return (
-    <div className="flex max-w-full overflow-clip" style={size ? { width: size.width / 2, aspectRatio: `${size.width} / ${size.height}` } : undefined}>
-      <video
-        src={file.url}
-        poster={file.previewUrl}
-        controls
-        preload={file.previewUrl ? "none" : "metadata"}
-        aria-label={file.name}
-        className="size-full rounded-[10px] border"
-      />
-    </div>
   );
 }
 

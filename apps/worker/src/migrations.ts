@@ -86,6 +86,7 @@ import membershipMentionCounts from "../migrations/0085_membership_mention_count
 import notificationsPausedUntil from "../migrations/0086_notifications_paused_until.sql";
 import scheduledMessages from "../migrations/0087_scheduled_messages.sql";
 import fileWaveforms from "../migrations/0088_file_waveforms.sql";
+import fileDurations from "../migrations/0089_file_durations.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -202,6 +203,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0086_notifications_paused_until.sql", scope: "workspace", sql: notificationsPausedUntil },
   { name: "0087_scheduled_messages.sql", scope: "room", sql: scheduledMessages },
   { name: "0088_file_waveforms.sql", scope: "room", sql: fileWaveforms },
+  { name: "0089_file_durations.sql", scope: "room", sql: fileDurations },
 ];
 
 /**

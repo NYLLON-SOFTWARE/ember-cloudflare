@@ -1,35 +1,20 @@
 import type { StoredFile } from "@ember/protocol";
-import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { PauseSolid, PlaySolid } from "@/components/icons/iconoir";
 import { clipTime, isAudioClipName } from "@/lib/clip-recording";
 import { cn } from "@/lib/utils";
 import { barsOf } from "@/lib/waveform";
 import { FileCard } from "./file-card";
+import { HoverTime, SpeedButton, usePlayback, useScrubbing } from "./playback";
 
 // A message's sound, which plays in place as Slack plays a clip: a round Play in ink, the sound's waveform,
 // which fills in ink as it plays and moves it along where it's pressed, how long it is, then how far in, and
-// its speed. One sound plays at a time, and every sound plays at the speed last picked, which the browser
-// keeps.
-
-/** The speeds a sound plays at, which its speed button goes through in turn. */
-const RATES = [1, 1.5, 2];
-
-/** Where the browser keeps the speed last picked. */
-const RATE_KEY = "ember:playback-rate";
-
-/** The keys that move a sound along, and by how many seconds. */
-const STEPS: Partial<Record<string, number>> = { ArrowLeft: -5, ArrowDown: -5, ArrowRight: 5, ArrowUp: 5 };
-
-/** How far a finger moves sideways along a waveform, in pixels, before it's dragging the sound along rather than scrolling. */
-const DRAG_SLOP = 4;
+// its speed. It plays as a message's video does (playback.tsx): one at a time, at the speed last picked.
 
 /** How wide a waveform's bars are, the least room between them, and how short one can be, as a silent stretch's is, in pixels. */
 const BAR = 2.5;
 const GAP = 2;
 const SHORTEST = 3;
-
-/** The sound playing, which the next to start pauses. */
-let playing: HTMLAudioElement | null = null;
 
 /**
  * A file message's sound, in a card named for its file, with its own Play, waveform, time and speed, loading
@@ -48,8 +33,7 @@ export function AudioPlayer({ file }: { file: StoredFile }) {
 
 /** `file`'s player, which tells `onFailed` if the browser can't play it. */
 function Player({ file, onFailed }: { file: StoredFile; onFailed: () => void }) {
-  const rate = useSyncExternalStore(followRate, pickedRate);
-  const sound = useSound(rate, onFailed);
+  const sound = usePlayback<HTMLAudioElement>(onFailed);
   const scrubbing = useScrubbing(sound);
   const named = !isAudioClipName(file.name);
   return (
@@ -61,7 +45,7 @@ function Player({ file, onFailed }: { file: StoredFile; onFailed: () => void }) 
         named ? "h-16 touch:h-[68px]" : "h-[54px] touch:h-[60px]",
       )}
     >
-      <audio ref={sound.audio} src={file.url} preload="metadata" />
+      <audio ref={sound.media} src={file.url} preload="metadata" />
       <button
         type="button"
         onClick={sound.toggle}
@@ -82,189 +66,8 @@ function Player({ file, onFailed }: { file: StoredFile; onFailed: () => void }) 
       <span aria-hidden="true" className="min-w-[34px] flex-none text-right text-[13px] text-muted-foreground tabular-nums">
         {clipTime(sound.started ? sound.time : sound.duration)}
       </span>
-      <button
-        type="button"
-        onClick={() => pickRate(RATES[(RATES.indexOf(rate) + 1) % RATES.length]!)}
-        aria-label={`Playback speed, ${rate} times`}
-        className="relative h-6 min-w-[34px] flex-none cursor-pointer rounded-full bg-hover px-2 text-[12px] font-semibold text-foreground tabular-nums hover:bg-border touch:h-8 touch:before:absolute touch:before:-inset-1.5"
-      >
-        {rate}×
-      </button>
+      <SpeedButton />
     </div>
-  );
-}
-
-/** What a player knows of its sound, and does with it. */
-interface Sound {
-  audio: RefObject<HTMLAudioElement | null>;
-  /** How long it is, in seconds, or 0 until the browser knows. */
-  duration: number;
-  /** How far in it is, in seconds. */
-  time: number;
-  playing: boolean;
-  /** Whether it's been played or moved along since it last ended, when it shows how far in it is rather than how long it is. */
-  started: boolean;
-  toggle: () => void;
-  seek: (seconds: number) => void;
-}
-
-/** The sound a player plays through the `<audio>` it gives `audio`, at `rate`, telling `onFailed` if the browser can't play it. */
-function useSound(rate: number, onFailed: () => void): Sound {
-  const audio = useRef<HTMLAudioElement>(null);
-  const [duration, setDuration] = useState(0);
-  const [time, setTime] = useState(0);
-  const [isPlaying, setPlaying] = useState(false);
-  const [started, setStarted] = useState(false);
-  const failed = useEffectEvent(onFailed);
-
-  useEffect(() => {
-    const element = audio.current!;
-    const known = () => setDuration(Number.isFinite(element.duration) ? element.duration : 0);
-    const listeners: Record<string, () => void> = {
-      loadedmetadata: known,
-      durationchange: known,
-      play() {
-        if (playing !== element) playing?.pause();
-        playing = element;
-        setPlaying(true);
-        setStarted(true);
-      },
-      pause() {
-        if (playing === element) playing = null;
-        setPlaying(false);
-        setTime(element.currentTime);
-      },
-      // At its end, it's ready to play again from the start, showing how long it is.
-      ended() {
-        element.currentTime = 0;
-        setTime(0);
-        setStarted(false);
-      },
-      seeked: () => setTime(element.currentTime),
-      error: () => failed(),
-    };
-    for (const [type, listener] of Object.entries(listeners)) element.addEventListener(type, listener);
-    // What the browser knew before it was listened to.
-    known();
-    if (element.error) failed();
-    return () => {
-      for (const [type, listener] of Object.entries(listeners)) element.removeEventListener(type, listener);
-      if (playing === element) playing = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const element = audio.current!;
-    element.defaultPlaybackRate = rate;
-    element.playbackRate = rate;
-  }, [rate]);
-
-  // While it plays, how far in it is follows it every frame, so its waveform fills smoothly.
-  useEffect(() => {
-    if (!isPlaying) return;
-    const element = audio.current!;
-    let frame = requestAnimationFrame(function follow() {
-      setTime(element.currentTime);
-      frame = requestAnimationFrame(follow);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [isPlaying]);
-
-  return {
-    audio,
-    duration,
-    time,
-    playing: isPlaying,
-    started,
-    toggle() {
-      const element = audio.current!;
-      // One the browser can't play says so by its error.
-      if (element.paused) element.play().catch(() => {});
-      else element.pause();
-    },
-    seek(seconds) {
-      const to = Math.min(Math.max(0, seconds), duration);
-      audio.current!.currentTime = to;
-      setTime(to);
-      setStarted(true);
-    },
-  };
-}
-
-/**
- * A waveform's slider, which a mouse moves the sound along by at once, pressed or dragged, and shows the time
- * it hovers over. A finger moves it once it's lifted, or once it's dragging sideways, as one moving up or down
- * is scrolling the timeline. The arrows move it 5 seconds, Home and End to its ends, and Space plays or pauses it.
- */
-function useScrubbing(sound: Sound) {
-  const [hover, setHover] = useState<number | null>(null);
-  const press = useRef<{ x: number; dragging: boolean } | null>(null);
-  const along = (event: PointerEvent<HTMLElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    return box.width > 0 ? Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)) : 0;
-  };
-  const drag = (event: PointerEvent<HTMLElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    press.current = { x: event.clientX, dragging: true };
-    sound.seek(along(event) * sound.duration);
-  };
-  return {
-    hover,
-    props: {
-      role: "slider",
-      tabIndex: 0,
-      "aria-label": "Position",
-      "aria-valuemin": 0,
-      "aria-valuemax": Math.round(sound.duration),
-      "aria-valuenow": Math.round(sound.time),
-      "aria-valuetext": `${clipTime(sound.time)} of ${clipTime(sound.duration)}`,
-      onPointerDown(event: PointerEvent<HTMLElement>) {
-        if (event.button !== 0) return;
-        if (event.pointerType === "mouse") drag(event);
-        else press.current = { x: event.clientX, dragging: false };
-      },
-      onPointerMove(event: PointerEvent<HTMLElement>) {
-        if (event.pointerType === "mouse") setHover(along(event));
-        const pressed = press.current;
-        if (pressed?.dragging) sound.seek(along(event) * sound.duration);
-        else if (pressed && Math.abs(event.clientX - pressed.x) > DRAG_SLOP) drag(event);
-      },
-      onPointerUp(event: PointerEvent<HTMLElement>) {
-        if (press.current && !press.current.dragging) sound.seek(along(event) * sound.duration);
-        press.current = null;
-      },
-      // The browser took a finger for scrolling.
-      onPointerCancel() {
-        press.current = null;
-      },
-      onPointerLeave() {
-        setHover(null);
-      },
-      onKeyDown(event: KeyboardEvent<HTMLElement>) {
-        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-        const step = STEPS[event.key];
-        if (step !== undefined) sound.seek(sound.time + step);
-        else if (event.key === "Home") sound.seek(0);
-        else if (event.key === "End") sound.seek(sound.duration);
-        else if (event.key === " ") sound.toggle();
-        else return;
-        event.preventDefault();
-      },
-    },
-  };
-}
-
-/** The time a mouse hovers over on a waveform, `at` its way along, over it. */
-function HoverTime({ at, duration }: { at: number | null; duration: number }) {
-  if (at === null || !duration) return null;
-  return (
-    <span
-      aria-hidden="true"
-      className="pointer-events-none absolute bottom-full z-10 mb-1.5 -translate-x-1/2 rounded-md bg-foreground px-1.5 py-0.5 text-[11px] font-semibold text-background tabular-nums shadow-[0_2px_6px_var(--tooltip-shadow)]"
-      style={{ left: `${at * 100}%` }}
-    >
-      {clipTime(at * duration)}
-    </span>
   );
 }
 
@@ -319,42 +122,4 @@ function useSize(element: RefObject<Element | null>): { width: number; height: n
     return () => observer.disconnect();
   }, [element]);
   return size;
-}
-
-/** The speed last picked on this page, where the browser couldn't keep it, as one whose storage is full can't, or null. */
-let rateHere: number | null = null;
-
-/** Each player, to tell when another speed is picked. */
-const rateFollowers = new Set<() => void>();
-
-/** The speed last picked: on this page, where the browser couldn't keep it, or as the browser keeps it, or 1×. */
-function pickedRate(): number {
-  if (rateHere !== null) return rateHere;
-  try {
-    const kept = Number(localStorage.getItem(RATE_KEY));
-    return RATES.includes(kept) ? kept : 1;
-  } catch {
-    return 1;
-  }
-}
-
-/** Plays every sound at `rate`, from now on. */
-function pickRate(rate: number) {
-  try {
-    localStorage.setItem(RATE_KEY, String(rate));
-    rateHere = null;
-  } catch {
-    rateHere = rate;
-  }
-  for (const follower of rateFollowers) follower();
-}
-
-/** Tells `follower` each time another speed is picked, here or in another of the browser's tabs. */
-function followRate(follower: () => void) {
-  rateFollowers.add(follower);
-  addEventListener("storage", follower);
-  return () => {
-    rateFollowers.delete(follower);
-    removeEventListener("storage", follower);
-  };
 }

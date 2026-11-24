@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clipName, clipTime, clipType, isAudioClipName, recordedClip } from "./clip-recording";
+import { clipName, clipTime, clipType, isAudioClipName, recordedClip, videoClipRecordedAt } from "./clip-recording";
 
 /** A browser's MediaRecorder that records `supported` types alone. */
 function recorderRecording(...supported: string[]) {
@@ -46,6 +46,24 @@ describe("clip recording", () => {
     for (const type of ["audio/mp4", "audio/webm", "audio/ogg"]) expect(isAudioClipName(clipName("audio", at, type))).toBe(true);
     for (const name of ["launch-jingle-v2.mp3", "Audio clip.m4a", "Video clip 2026-11-07 at 6.05.09 PM.mp4", "Audio clip 2026-11-07 at 6.05.09 PM.mp3", "My Audio clip 2026-11-07 at 6.05.09 PM.m4a"]) {
       expect(isAudioClipName(name), name).toBe(false);
+    }
+  });
+
+  it("reads when a video clip was recorded from its name, by its recorder's clock, with its time where the name writes it in numbers", () => {
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 10.43.12 AM.mp4")).toEqual({ at: new Date(2026, 10, 23, 10, 43), timed: true });
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 6.45.12 PM.webm")).toEqual({ at: new Date(2026, 10, 23, 18, 45), timed: true });
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 12.05.00 AM.mp4")?.at).toEqual(new Date(2026, 10, 23, 0, 5));
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 12.05.00 PM.mp4")?.at).toEqual(new Date(2026, 10, 23, 12, 5));
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 6.45.12 p.m..mp4")?.at).toEqual(new Date(2026, 10, 23, 18, 45));
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 18.45.12.mp4")).toEqual({ at: new Date(2026, 10, 23, 18, 45), timed: true });
+    // As this browser names one, in its own language.
+    expect(videoClipRecordedAt(clipName("video", new Date(2026, 10, 7, 14, 5, 9), "video/mp4"))).toEqual({ at: new Date(2026, 10, 7, 14, 5), timed: true });
+
+    // A time written another way, as Chinese writes the afternoon, leaves the day.
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 下午6.45.12.mp4")).toEqual({ at: new Date(2026, 10, 23), timed: false });
+    expect(videoClipRecordedAt("Video clip 2026-11-23 at 13.45.12 PM.mp4")).toEqual({ at: new Date(2026, 10, 23), timed: false });
+    for (const name of ["Audio clip 2026-11-23 at 10.43.12 AM.m4a", "Video clip 2026-11-23 at 10.43.12 AM.mov", "launch.mp4", "Video clip 2026-02-30 at 10.43.12 AM.mp4"]) {
+      expect(videoClipRecordedAt(name), name).toBeNull();
     }
   });
 

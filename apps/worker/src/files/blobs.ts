@@ -50,6 +50,8 @@ export interface RoomBlob {
   alsoSent: boolean;
   /** A sound's waveform, as its uploader's browser sent it as the upload started, or null (migrations/0088_file_waveforms.sql). */
   waveform: number[] | null;
+  /** How long a video plays, in seconds, as its uploader's browser sent it as the upload started, or null (migrations/0089_file_durations.sql). */
+  duration: number | null;
 }
 
 interface BlobRow {
@@ -68,6 +70,7 @@ interface BlobRow {
   parent_id: string | null;
   also_sent: number;
   waveform: string | null;
+  duration: number | null;
 }
 
 const toBlob = (row: BlobRow): RoomBlob => ({
@@ -86,6 +89,7 @@ const toBlob = (row: BlobRow): RoomBlob => ({
   parentId: row.parent_id,
   alsoSent: row.also_sent === 1,
   waveform: row.waveform === null ? null : (JSON.parse(row.waveform) as number[]),
+  duration: row.duration,
 });
 
 /** A file the room has marked deleted, which R2 is to forget: its key, and whether its upload in parts is unfinished. */
@@ -142,8 +146,8 @@ export type AttachedFile = Omit<StoredFile, "url" | "downloadUrl" | "previewUrl"
  * `identified` says if it isn't recorded yet: with its preview, if it's a file shown by one, and that
  * preview's size where its own can't be read, as a video's can't. A picture keeps its preview only where
  * its own size is known and within 250 megapixels: the uploader's browser makes it, so it's checked
- * here. A sound keeps the waveform its uploader's browser sent, which a file its bytes say is anything
- * else doesn't.
+ * here. A sound keeps the waveform its uploader's browser sent, and a video the length it sent, which a
+ * file its bytes say is anything else doesn't.
  */
 export function attachedFile(blob: RoomBlob, identified?: Identified): AttachedFile {
   const { contentType, metadata } = identified ?? { contentType: blob.contentType, metadata: blob.metadata! };
@@ -159,6 +163,7 @@ export function attachedFile(blob: RoomBlob, identified?: Identified): AttachedF
     ...(size && { width: size.width, height: size.height }),
     ...(preview && { preview: true as const }),
     ...(blob.waveform && contentType.startsWith("audio/") && { waveform: blob.waveform }),
+    ...(blob.duration && contentType.startsWith("video/") && { duration: blob.duration }),
   };
 }
 
@@ -170,12 +175,12 @@ export class Blobs {
 
   /** Records that `blob`'s upload has started, at `createdAt`. */
   async create(
-    blob: Pick<RoomBlob, "id" | "uploaderId" | "filename" | "contentType" | "byteSize" | "clientMessageId" | "parentId" | "alsoSent" | "waveform">,
+    blob: Pick<RoomBlob, "id" | "uploaderId" | "filename" | "contentType" | "byteSize" | "clientMessageId" | "parentId" | "alsoSent" | "waveform" | "duration">,
     createdAt: string,
   ): Promise<void> {
     await this.db.run(
-      `INSERT INTO blobs (id, room_id, uploader_id, filename, content_type, byte_size, client_message_id, created_at, parent_id, also_sent, waveform)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO blobs (id, room_id, uploader_id, filename, content_type, byte_size, client_message_id, created_at, parent_id, also_sent, waveform, duration)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       blob.id,
       this.roomId,
       blob.uploaderId,
@@ -187,6 +192,7 @@ export class Blobs {
       blob.parentId,
       blob.alsoSent ? 1 : 0,
       blob.waveform && JSON.stringify(blob.waveform),
+      blob.duration,
     );
   }
 

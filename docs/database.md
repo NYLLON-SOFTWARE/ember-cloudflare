@@ -720,12 +720,14 @@ Objects, D1 or speed call for something else.
 - **A message's file is part of its row.** Campfire attaches a file to its message through Active
   Storage's `active_storage_attachments`, a table of its own, which on D1 would cost a page of
   messages another round trip. A message has at most one file, so ours keeps it as the message shows
-  it, as JSON in `messages.attachment` (room migration 0029): its key, name, type, size, an
-  image's width and height, and a sound's waveform, the 100 levels its uploader's browser works out
-  as the upload starts, which the upload's row in `blobs` keeps in `waveform` until the room posts it
-  (room migration 0088). A page of messages reads no other table for it, and its addresses are
-  signed as the page is answered. An upload's row in `blobs` keeps the id the app gave its message
-  and, once the room posts it, the message's, so a part sent again answers with the same message.
+  it, as JSON in `messages.attachment` (room migration 0029): its key, name, type, size, an image's
+  width and height, a sound's waveform, the 100 levels its uploader's browser works out as the
+  upload starts, which the upload's row in `blobs` keeps in `waveform` until the room posts it (room
+  migration 0088), and a video's length, which that browser reads as the upload starts and the row
+  keeps in `duration` (room migration 0089), so its player shows it without loading the video. A
+  page of messages reads no other table for it, and its addresses are signed as the page is
+  answered. An upload's row in `blobs` keeps the id the app gave its message and, once the room
+  posts it, the message's, so a part sent again answers with the same message.
 - **Accounts elsewhere are linked by their issuer and subject.** Signing in with Memberful links
   someone here to a member of a Memberful site in `identities` (workspace migration 0037), keyed by
   the issuer, the site's origin, and the subject, the member's id there, so a member of another site
