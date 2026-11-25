@@ -23,8 +23,9 @@ export type SignInRules = Pick<SsoProvider, "clientId" | "allowedGroups" | "grou
  * Someone who signed in at an account elsewhere, as Memberful's member API or a single sign-on provider
  * describes them: the id of their account there, which accounts here are linked by, their name there,
  * the names someone new could be called here, the one they'd rather first, their email address, whether
- * the provider verified it, and whether that account lets them in: an active Memberful membership, or a
- * group the Single sign-on card lets in, by the card's rules as they were then, `letInBy`.
+ * the provider verified it, or a code Ember emailed did, and whether that account lets them in: an active
+ * Memberful membership, or a group the Single sign-on card lets in, by the card's rules as they were
+ * then, `letInBy`.
  */
 export interface MemberElsewhere {
   id: string;

@@ -142,14 +142,15 @@ interface CodeEntryProps extends StepProps {
   onSignedIn: (me: Me) => void;
   /** Goes back to ask for another code, at this address or another. */
   onAskAgain: () => void;
-  /** Called with why, once the address is someone's here already, whose password connects their Memberful account. */
+  /** Called with why, once the address is someone's here already whom the code doesn't sign in, as they never proved it theirs, so their password does. */
   onTaken: (refusal: string) => void;
 }
 
 /**
- * The step giving the code Ember emailed to `emailAddress`, which signs in as the member who has it, and
- * someone new goes on to the welcome page, as signing in on Memberful's page has them do. A code that
- * doesn't work is said at the top of the form, keeping what was typed, selected to type again.
+ * The step giving the code Ember emailed to `emailAddress`, which signs in as the member who has it, or
+ * the person here who proved it theirs too, and someone new goes on to the welcome page, as signing in on
+ * Memberful's page has them do. A code that doesn't work is said at the top of the form, keeping what was
+ * typed, selected to type again.
  */
 export function MemberfulCodeEntry({ logo, emailAddress, onSignedIn, onAskAgain, onTaken, onBusy, onProblem, onRefused }: CodeEntryProps) {
   const [busy, setBusy] = useState(false);

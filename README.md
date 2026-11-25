@@ -207,7 +207,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Incoming webhooks** | ✅ Slack-compatible, with attachments and Block Kit | ✅ |
 | **Bots that answer** | ✅ through a webhook per bot | ✅ through Slack apps |
 | **Ways to join** | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
-| **Single sign-on** | OpenID Connect with any provider (Zitadel, Keycloak, Okta, Entra ID, Google), with group rules and back-channel logout, and Memberful, for membership communities | Google on every plan, and SAML SSO with SCIM on Business+ |
+| **Single sign-on** | OpenID Connect with any provider (Zitadel, Keycloak, Okta, Entra ID, Google), with group rules and back-channel logout, and Memberful, for membership communities, whose members can sign in on Ember's own page with a code it emails them | Google on every plan, and SAML SSO with SCIM on Business+ |
 
 ### Where Slack does more
 

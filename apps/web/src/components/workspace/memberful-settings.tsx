@@ -41,6 +41,12 @@ interface Props {
   beside?: string | null;
   /** What's said in place of what it does while SSO only closes it, or null. */
   closed?: string | null;
+  /**
+   * Whether members sign in on Ember's own sign-in page with a code it emails them: "emailed" while Ember
+   * can send email, "unsendable" until it can, or null when the card can't tell, as while the deployment's
+   * secrets may lack the custom app's API key, which finds a member by email address.
+   */
+  codes?: "emailed" | "unsendable" | null;
 }
 
 /**
@@ -63,6 +69,7 @@ export function MemberfulSettings({
   setAside = null,
   beside = null,
   closed = null,
+  codes = null,
 }: Props) {
   const { redirectUrl, webhookUrl } = useMemberfulAddresses();
   // Without the keys, which the server would refuse it for, turning it on sets it up first.
@@ -89,6 +96,8 @@ export function MemberfulSettings({
             ) : (
               <>
                 Members of <strong className="wrap-anywhere">{site}</strong> join and sign in with their Memberful account.
+                {codes === "emailed" && " They sign in on Ember's own sign-in page with a code it emails them, or on Memberful's."}
+                {codes === "unsendable" && " Once Ember can send email, they can sign in on its own sign-in page with a code it emails them."}
                 {/* Beside SSO only, turning it off turns Members only off too, which closes it. */}
                 {beside === null
                   ? " Turned off, it lets nobody new join, but those who did keep signing in with it."

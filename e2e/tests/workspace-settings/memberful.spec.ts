@@ -297,6 +297,28 @@ test.describe("Sign in with a code Ember emails", () => {
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
   }
 
+  /**
+   * Has the administrator invite someone new by email, who joins with the link Ember emails them, with a
+   * password, in a browser of their own, which proves their address is theirs.
+   */
+  async function joinedWithInvitation(browser: Browser, baseURL: string, request: APIRequestContext, name: string): Promise<Joiner> {
+    const joiner = { name, emailAddress: `${crypto.randomUUID()}@example.com`, password: "compiler error" };
+    const sent = resend.sent.length;
+    const invited = await request.post("/api/invitations", { data: { emailAddresses: [joiner.emailAddress] }, headers: await asAdministrator(request) });
+    expect(invited.status(), await invited.text()).toBe(200);
+    await expect.poll(() => resend.sent.length).toBe(sent + 1);
+    const joining = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
+    const page = await joining.newPage();
+    await useOwnAddress(page);
+    await page.goto(/Join here: (\S+)/.exec(resend.sent.at(-1)!.text)![1]!);
+    await page.getByLabel("Name", { exact: true }).fill(joiner.name);
+    await page.getByLabel("Password").fill(joiner.password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(composer(page)).toBeVisible();
+    await joining.close();
+    return joiner;
+  }
+
   test("a member of the Memberful site signs in on the sign-in page with a code Ember emails them, as someone new first, and as themselves from then on", async ({
     page,
     request,
@@ -354,7 +376,28 @@ test.describe("Sign in with a code Ember emails", () => {
     await expect(composer(page)).toBeVisible();
   });
 
-  test("a member whose Memberful email address is someone's here already is sent to sign in with that someone's password, which connects Memberful", async ({
+  test("someone the administrator invited by email signs in as themselves with a code Ember emails them, which connects their Memberful account", async ({
+    page,
+    browser,
+    baseURL,
+    request,
+  }) => {
+    await sendEmail(request, true);
+    const invitee = await joinedWithInvitation(browser, baseURL!, request, nameFor("Grace"));
+    const member = site.add(invitee.name, invitee.emailAddress);
+    await turnMemberful(request, true);
+    await useOwnAddress(page);
+    await page.goto("/");
+    await page.getByLabel("Email address").fill(invitee.emailAddress);
+    await signInWithCode(page, await askForCode(page, invitee.emailAddress));
+    // Joining with the link Ember emailed proved the address theirs, as the code does the member's, so no welcome page or password.
+    await expect(composer(page)).toBeVisible();
+    await page.goto("/users/me/profile");
+    await expect(page.getByLabel("Email address")).toHaveValue(invitee.emailAddress);
+    await expect(memberfulSection(page)).toContainText(`Connected as ${member.fullName} (${member.email}). You can sign in with Memberful or your password.`);
+  });
+
+  test("a member whose Memberful email address someone typed as they joined with the join link is sent to sign in with that someone's password, which connects Memberful", async ({
     page,
     browser,
     baseURL,

@@ -1689,8 +1689,10 @@ export const MEMBERFUL_SIGN_IN_PROBLEMS = {
   /** The Memberful account has no active subscription, nor the all access pass. */
   membership: "Your Memberful account has no active membership.",
   /**
-   * Someone here has the Memberful account's email address already, and accounts are never matched by it,
-   * but connected by its owner, as signing in with that password does while Memberful is members only.
+   * Someone here has the Memberful account's email address already, which matches accounts only where a
+   * code Ember emailed proved it the member's, and someone other than an administrator proved it theirs
+   * here too, by joining with a link emailed to it. Anyone else connects theirs themselves, as signing in
+   * with that password does while Memberful is members only.
    */
   taken: "Someone here has your Memberful email address already. If that's you, sign in with your password.",
   /** The Memberful account is connected to someone else here already. */
