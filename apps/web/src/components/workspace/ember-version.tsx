@@ -18,11 +18,12 @@ import { BUTTON } from "./email-settings";
 // (docs/self-hosting.md#updating), and the docs say how anything else updates. Where the deploy told the
 // Worker which copy on GitHub this is, the card links straight to running its workflow, as the project's
 // owner asked (2026-11-05), or to adding it. A beta says it's one, ahead of the newest release, until its
-// release is out, and is told of the beta after it as of an update (docs/self-hosting.md#betas). A release
-// with nothing newer to update to is offered the newest beta to try, while one is out ahead of it, which it
-// takes only when asked: a box of its own under the card links to running the copy's beta workflow, Update
+// release is out, and is told of the beta after it as of an update (docs/self-hosting.md#betas). Any other
+// Ember the newest beta is newer than is offered it to try, while it's out ahead of the newest release, which
+// it takes only when asked: a box of its own under the card links to running the copy's beta workflow, Update
 // Ember to its newest beta, or to adding it, as the project's owner chose (2026-11-10), and the rail's Admin
 // has no dot for it. The box is a little red, as he asked the same day, so the beta reads as experimental.
+// It shows beside a release to update to, as he asked (2026-11-24), so that a new beta isn't missed.
 // Check for updates, which he asked for (2026-11-11), has the Worker ask GitHub again, as opening Admin
 // does, and under it the card says when GitHub last named the newest release. He moved the card from the
 // end of General to its top (2026-11-17), so that it isn't missed.
