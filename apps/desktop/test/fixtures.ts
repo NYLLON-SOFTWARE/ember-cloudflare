@@ -81,8 +81,13 @@ export const test = base.extend<{ app: App }>({
             new Promise<void>((resolve, reject) => {
               const window = BrowserWindow.getAllWindows().find((window) => window.getTitle() === title);
               if (!window) return reject(new Error(`No window is titled ${title}`));
-              window.once("hide", () => resolve());
-              window.once("closed", () => resolve());
+              // Watched rather than heard: a Mac's windows say they're hidden only as macOS finds them out
+              // of sight, which it may never do for one shown a moment before.
+              const gone = setInterval(() => {
+                if (!window.isDestroyed() && window.isVisible()) return;
+                clearInterval(gone);
+                resolve();
+              }, 20);
               window.close();
             }),
           title,

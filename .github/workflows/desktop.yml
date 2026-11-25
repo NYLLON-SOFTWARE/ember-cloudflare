@@ -61,6 +61,13 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a pnpm test:app; else pnpm test:app; fi
+      # What each failed test's pages held as it failed (error-context.md), to read a failure on CI.
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: ember-desktop-test-results-${{ runner.os }}
+          path: apps/desktop/test-results
+          retention-days: 7
       - name: Package it
         shell: bash
         # Unsigned for now. A Mac's is signed ad hoc, without the hardened runtime that needs a real
