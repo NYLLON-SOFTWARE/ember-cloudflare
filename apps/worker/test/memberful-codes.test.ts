@@ -307,12 +307,14 @@ describe("Sign in with a code Ember emails a Memberful member", () => {
 
     it(`emails an address ${EMAILS_PER_ADDRESS} times an hour, whoever asks, counting with the links to join and codes to reset a password Ember emails it`, async () => {
       await setUp();
-      fakeMemberful();
+      const site = fakeMemberful();
       const sent = await emailing(async () => {
         for (let n = 0; n <= EMAILS_PER_ADDRESS; n++) expect((await ask("katherine@example.com")).status).toBe(202);
       });
       expect(sent).toHaveLength(EMAILS_PER_ADDRESS);
       expect(await workspaceSql("SELECT count FROM email_link_requests")).toEqual([{ count: EMAILS_PER_ADDRESS }]);
+      // Memberful isn't asked about an address Ember wouldn't email.
+      expect(askedAfter(site.requests)).toEqual(["schema", ...Array<string>(EMAILS_PER_ADDRESS).fill("katherine@example.com")]);
       // Only the code emailed last works.
       await expectWrong(await signInWith("katherine@example.com", codeIn(sent[0]!)));
       expect((await signInWith("katherine@example.com", codeIn(sent.at(-1)!))).status).toBe(201);

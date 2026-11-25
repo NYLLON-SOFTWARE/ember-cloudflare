@@ -3715,11 +3715,13 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Emails `emailAddress` the code `code` holds, from the workspace named `workspace`, with `sending`, once
    * the Memberful site that `api` asks finds a member with the address, unless it's been emailed as often
-   * as it is in an hour, whoever asked, and keeps the code once the provider has taken the email, in place
-   * of any sent before, for that site. An email the provider refuses reaches nobody, so it isn't counted,
-   * and changes no code.
+   * as it is in an hour, whoever asked, when Memberful isn't asked either, and keeps the code once the
+   * provider has taken the email, in place of any sent before, for that site. An email the provider
+   * refuses reaches nobody, so it isn't counted, and changes no code.
    */
   private async emailMemberfulCode(emailAddress: string, code: NewResetCode, api: MemberfulApi, workspace: string, sending: { sender: Sender; from: Mailbox }): Promise<void> {
+    // Counting is left until Memberful finds a member, so an address nobody there has writes nothing.
+    if ((await this.store.emailRequestsOf(emailAddress, new Date(Date.now() - EMAIL_ASK_WINDOW_MS).toISOString())) >= EMAILS_PER_ADDRESS) return;
     const member = await this.memberfulMemberWith(api, emailAddress);
     if (member === null || member === "nobody") return;
     const now = Date.now();

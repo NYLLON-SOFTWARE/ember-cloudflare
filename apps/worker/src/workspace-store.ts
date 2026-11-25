@@ -1010,6 +1010,9 @@ const COUNT_EMAIL_LINK_REQUEST = `INSERT INTO email_link_requests (email_address
     count = CASE WHEN email_link_requests.counted_since > ?3 THEN email_link_requests.count + 1 ELSE 1 END
   RETURNING count, counted_since`;
 
+/** How many times the address ?1 has been counted in the hour its count is of, if that hour began after ?2. */
+const EMAIL_LINK_REQUESTS_OF = `SELECT count FROM email_link_requests WHERE email_address = lower(?1) AND counted_since > ?2`;
+
 /** Takes back a time the address ?1 was counted in the hour that began at ?2, while its count is of that hour still. */
 const UNCOUNT_EMAIL_LINK_REQUEST = `UPDATE email_link_requests SET count = count - 1 WHERE email_address = lower(?1) AND counted_since = ?2 AND count > 0`;
 
@@ -4586,14 +4589,20 @@ export class WorkspaceStore {
 
   /**
    * Counts a time someone asked Ember to email `emailAddress`, whatever its case, at `now`: a link to join
-   * with it at the email domains, or a code to reset its password. Answers how many times it's been asked
-   * for in the hour its count is of, and when that hour began, which starts again once `since` is past,
-   * when the counts whose hour is over are forgotten.
+   * with it at the email domains, or a code to reset its password or sign in with Memberful. Answers how
+   * many times it's been asked for in the hour its count is of, and when that hour began, which starts
+   * again once `since` is past, when the counts whose hour is over are forgotten.
    */
   async countEmailRequest(emailAddress: string, now: string, since: string): Promise<{ count: number; countedSince: string }> {
     const [, counted] = await this.db.batch([statement(FORGET_EMAIL_LINK_REQUESTS, since), statement(COUNT_EMAIL_LINK_REQUEST, emailAddress, now, since)]);
     const [row] = counted as Array<{ count: number; counted_since: string }>;
     return { count: row!.count, countedSince: row!.counted_since };
+  }
+
+  /** How many times `countEmailRequest` has counted `emailAddress` in the hour its count is of, if that hour began after `since`, and else 0. */
+  async emailRequestsOf(emailAddress: string, since: string): Promise<number> {
+    const [row] = await this.db.all<{ count: number }>(EMAIL_LINK_REQUESTS_OF, emailAddress, since);
+    return row?.count ?? 0;
   }
 
   /** Takes back a time `countEmailRequest` counted `emailAddress` in the hour that began at `countedSince`, unless its count has started again since. */
