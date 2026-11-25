@@ -53,6 +53,29 @@ const keepBadge = (app: App) =>
 /** The count on the app's icon. */
 const badge = (app: App) => app.electron.evaluate(() => (globalThis as unknown as { badge: { count: number } }).badge.count);
 
+/**
+ * Holds back the windows of the site named `name` from saying their pages are ready to show, as a slow
+ * computer's may say only once a window has closed, until the function it returns is called.
+ */
+async function holdReadyToShow(app: App, name: string): Promise<() => Promise<void>> {
+  await app.electron.evaluate(({ BrowserWindow }, name) => {
+    const { emit } = BrowserWindow.prototype;
+    const held: (() => void)[] = [];
+    BrowserWindow.prototype.emit = function (this: Electron.BrowserWindow, event: string, ...args: unknown[]) {
+      if (event !== "ready-to-show" || !this.getTitle().includes(name)) return emit.call(this, event, ...args);
+      held.push(() => emit.call(this, event, ...args));
+      return true;
+    } as typeof emit;
+    Object.assign(globalThis, {
+      readyToShow() {
+        BrowserWindow.prototype.emit = emit;
+        for (const ready of held) ready();
+      },
+    });
+  }, name);
+  return () => app.electron.evaluate(() => (globalThis as unknown as { readyToShow: () => void }).readyToShow());
+}
+
 test("shows a site's notifications once however many of its windows hand them over, and opens the page of one clicked", async ({ app }) => {
   const [fernwood, birchwood] = [await fakeEmber("Fernwood"), await fakeEmber("Birchwood")];
   const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
@@ -159,6 +182,17 @@ test("keeps a site's window running out of sight as it's closed, to notify, and 
     await app.electron.evaluate(({ app }) => void app.emit("activate", {}, false));
     await expect.poll(() => app.titles("showing")).toEqual(["general · Fernwood"]);
   }
+});
+
+test("keeps a site's window out of sight as it's closed before its page is ready to show", async ({ app }) => {
+  const fernwood = await fakeEmber("Fernwood");
+  const readyToShow = await holdReadyToShow(app, "Fernwood");
+  await app.add(await app.electron.firstWindow(), fernwood.origin);
+
+  // Its window shows at once as it's added, and closes before its page is ready to show.
+  await app.close("general · Fernwood");
+  await readyToShow();
+  expect([await app.titles("showing"), await app.titles("running")]).toEqual([[], ["general · Fernwood"]]);
 });
 
 test("keeps an icon in the tray on Windows and Linux, which shows the app, its menu showing each site or adding one", async ({ app }) => {

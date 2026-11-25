@@ -127,7 +127,8 @@ export class SiteWindows {
       webPreferences: { ...PAGES, session: sessionOf(site.id, () => this.#addressOf(site.id)) },
     });
     this.#keepToSite(window.webContents, site.id);
-    if (shown) window.once("ready-to-show", () => window.show());
+    const showOnceReady = () => window.show();
+    if (shown) window.once("ready-to-show", showOnceReady);
     // Titled by the page and the site, so windows of two sites tell apart in the Window menu.
     window.on("page-title-updated", (event, title) => {
       event.preventDefault();
@@ -138,6 +139,8 @@ export class SiteWindows {
       this.#sites.update(site.id, { bounds: window.getNormalBounds() });
       if (this.#quitting) return;
       event.preventDefault();
+      // Shown at once, as asked for, it can close before its page is ready to show, and stays out of sight as it is.
+      window.off("ready-to-show", showOnceReady);
       hide(window);
     });
     window.on("hide", () => this.#changed());
