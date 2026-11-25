@@ -14,6 +14,7 @@ import {
   type WorkspaceServerFrame,
 } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
+import { desktopApp } from "@/lib/desktop-app";
 import type { InvitationsChange } from "@/lib/huddle-invitations";
 import { activeStore, watchUse } from "@/lib/presence";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
@@ -306,6 +307,8 @@ export function useSidebar(
           unheard = false;
           return active.hear(frame, first);
         }
+        case "notification":
+          return desktopApp()?.notify({ id: frame.id, title: frame.title, body: frame.body, path: frame.path });
       }
     };
 
@@ -337,8 +340,10 @@ export function useSidebar(
     };
 
     reload();
+    // In the desktop app, which shows notifications itself, the socket brings them.
+    const notifications = desktopApp() !== null;
     const workspace = reconnectingSocket<WorkspaceClientFrame>({
-      url: () => workspaceSocketUrl({ visible: (told = shown()) }),
+      url: () => workspaceSocketUrl(notifications ? { visible: (told = shown()), notifications } : { visible: (told = shown()) }),
       onMessage,
       onConnecting,
       onClose,

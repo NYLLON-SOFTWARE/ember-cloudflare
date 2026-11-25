@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { PushProvider } from "@/hooks/use-push";
 import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
+import { inTheDesktopApp } from "@/test-desktop-app";
 import { CHROME_MAC } from "@/test-platforms";
 import { FEEDBACK_MS, INVOLVEMENT_NOT_SAVED, NotificationBell } from "./notification-bell";
 
@@ -60,6 +61,15 @@ describe("Turn on notifications", () => {
     expect(await screen.findByRole("checkbox", { name: "Notifying about @ mentions" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Enable notifications" })).not.toBeInTheDocument();
     expect(turnOnPush).not.toHaveBeenCalled();
+  });
+
+  it("is your level's bell from the start in the desktop app, which shows notifications itself, asking nothing of the browser", async () => {
+    inTheDesktopApp();
+    renderBell();
+    expect(levelBell()).toBeInTheDocument();
+    await act(async () => {});
+    expect(isPushOn).not.toHaveBeenCalled();
+    expect(subscribeToPushEnding).not.toHaveBeenCalled();
   });
 
   it("saves this browser's subscription again once it finds them on, so the server keeps it among your most recent", async () => {

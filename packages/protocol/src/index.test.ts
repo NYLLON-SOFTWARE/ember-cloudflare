@@ -401,6 +401,15 @@ describe("One live connection per tab outside the open room", () => {
     expect(read({ visible: "yes" })).toEqual({ visible: false });
   });
 
+  it("carries on a workspace socket's address that its tab is in an app that shows notifications itself, only when it is", () => {
+    expect(workspaceSocketQuery({ visible: true, notifications: true })).toBe("?visible=1&notifications=1");
+    expect(workspaceSocketQuery({ visible: false })).toBe("?visible=0");
+    const read = (params: Record<string, string>) => parseWorkspaceSocketParams({ get: (name) => params[name] ?? null });
+    expect(read({ visible: "0", notifications: "1" })).toEqual({ visible: false, notifications: true });
+    expect(read({ visible: "1", notifications: "0" })).toEqual({ visible: true });
+    expect(read({ visible: "1", notifications: "yes" })).toEqual({ visible: true });
+  });
+
   it("reads the workspace socket's frames as the server sends them", () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",

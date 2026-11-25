@@ -18,6 +18,7 @@ import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/us
 import { useSidebar } from "@/hooks/use-sidebar";
 import { agentsToAsk, canAsk } from "@/lib/agents";
 import { answerHuddleInvitation, ApiError, changeBlock, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
+import { desktopApp } from "@/lib/desktop-app";
 import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
 import { hasHuddles } from "@/lib/huddle-people";
 import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, sendVideoAt, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
@@ -780,6 +781,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
+  // The desktop app shows notifications itself, and a click on one opens its page here, as a push's does in a browser.
+  useEffect(() => desktopApp()?.onOpen((path) => navigate(path)), []);
   const rail = (
     <Rail
       me={me}

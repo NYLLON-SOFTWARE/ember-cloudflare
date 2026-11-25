@@ -194,6 +194,7 @@ import {
   WorkspaceStore,
   type AccountChange,
   type AgentSetup,
+  type AppNotifications,
   type AvatarOwner,
   type BotKey,
   type Client,
@@ -366,6 +367,12 @@ const READERS_PER_RUN = 100;
  * to a room that takes longer.
  */
 const CLOSING_SOCKETS_MS = 2_000;
+
+/**
+ * The tag on the workspace sockets of an app that shows notifications itself, as the desktop app does,
+ * which are sent them (`notify`), after the tags of their person and session.
+ */
+const NOTIFYING_TAG = "notifications";
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
 /**
@@ -1252,7 +1259,8 @@ export class Workspace extends DurableObject<Env> {
    * Lets in a tab's workspace socket, which the Worker sends on with the credentials of the request
    * for it, if they sign someone in. Like a room's, it's tagged with its person and its session, so
    * signing out can find it, and keeps whether its tab is shown, as its address says, and in use, as it
-   * counts until the tab says otherwise (`Presence`).
+   * counts until the tab says otherwise (`Presence`). One whose address says its tab is in an app that
+   * shows notifications itself is tagged so too, and sent them (`notify`).
    */
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket upgrade", { status: 426 });
@@ -1261,9 +1269,9 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.session(credentials);
     if (!session) return Response.json({ error: "Sign in first" }, { status: 401 });
 
-    const { visible } = parseWorkspaceSocketParams(urlOf(request).searchParams);
+    const { visible, notifications } = parseWorkspaceSocketParams(urlOf(request).searchParams);
     const { 0: client, 1: server } = new WebSocketPair();
-    this.ctx.acceptWebSocket(server, [session.user.id, sessionTag(session.id)]);
+    this.ctx.acceptWebSocket(server, [session.user.id, sessionTag(session.id), ...(notifications ? [NOTIFYING_TAG] : [])]);
     this.presence.connected(server, session.user.id, visible);
     // On D1, signing out can end the session while the check above reads it, and close the session's
     // sockets before this one is among them. Now that it is, checking again settles it: the session
@@ -2205,13 +2213,19 @@ export class Workspace extends DurableObject<Env> {
    * told on every tab they have open, where it rings. Nobody else is told, so nobody hears of a room they
    * aren't in, and nothing is kept of an invitation. Whoever of them has Ember in view nowhere, with no tab open or
    * none of them shown, is pushed it too, while Web Push is on: this answers their pushes, for the room
-   * to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in.
+   * to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in. Those
+   * of them with an app open that shows notifications itself are sent its notification there, whether or
+   * not Web Push is on.
    */
   async inviteToHuddle(roomId: RoomId, by: UserId, userIds: UserId[]): Promise<InvitationPush[]> {
     const invited = await this.store.huddleInvitees(roomId, by, userIds);
     this.tell(invited, { type: "huddle.invited", roomId, by });
     const away = invited.filter((userId) => !this.presence.inView(userId));
-    if (away.length === 0 || !(await webPush(this.env)).on) return [];
+    if (away.length === 0) return [];
+    const notifying = new Set(this.notifyingIds());
+    const notified = away.filter((userId) => notifying.has(userId));
+    if (notified.length > 0) this.notify(await this.store.invitationNotifications(roomId, by, notified, guestSignIn(this.env)));
+    if (!(await webPush(this.env)).on) return [];
     return this.store.invitationPushes(roomId, by, away, guestSignIn(this.env));
   }
 
@@ -3951,17 +3965,17 @@ export class Workspace extends DurableObject<Env> {
    * Keeps `report`, made by `reporter` of someone named `subjectName`, unless they have an open report of
    * the same message or person. Then every tab of every active administrator but whoever it's of hears
    * how many reports are open, and their pushes say who reported whom, but to whoever made it, and those
-   * who've blocked them. Nobody else hears of it. Answers false, keeping nothing, once whoever it's of
-   * has deleted their account, which they can have since what it keeps of them was read.
+   * who've blocked them, as do their apps that show notifications themselves. Nobody else hears of it.
+   * Answers false, keeping nothing, once whoever it's of has deleted their account, which they can have
+   * since what it keeps of them was read.
    */
   private async keepReport(reporter: User, report: ReportToKeep, subjectName: string): Promise<boolean> {
-    const kept = await this.reports.keep(report);
+    const kept = await this.reports.keep(report, this.notifyingIds());
     if (!kept) return !(await this.reports.isDeletedAccount(report.subjectId));
     this.tellOpenReports(kept.open.filter(({ userId }) => userId !== report.subjectId));
-    if (kept.deliveries.length > 0) {
-      const payload = reportPayload(reporter.name, subjectName, report.subject, report.reason);
-      this.ctx.waitUntil(this.pushReport([{ payload, deliveries: kept.deliveries }], reporter.id));
-    }
+    const payload = reportPayload(reporter.name, subjectName, report.subject, report.reason);
+    if (kept.deliveries.length > 0) this.ctx.waitUntil(this.pushReport([{ payload, deliveries: kept.deliveries }], reporter.id));
+    this.notify([{ id: `report:${report.id}`, notification: payload, userIds: kept.notifiedIds }]);
     return true;
   }
 
@@ -4060,6 +4074,31 @@ export class Workspace extends DurableObject<Env> {
           socket.send(data);
         } catch {
           // It has closed since, and its close handler has nothing to clean up.
+        }
+      }
+    }
+  }
+
+  /** Who has an app open that shows notifications itself, whose workspace sockets there are tagged so, after their person. */
+  private notifyingIds(): UserId[] {
+    return [...new Set(this.ctx.getWebSockets(NOTIFYING_TAG).map((socket) => this.ctx.getTags(socket)[0] as UserId))];
+  }
+
+  /**
+   * Sends each of `notifications` on the workspace sockets of its people's apps that show notifications
+   * themselves, and on no other socket: their browsers are pushed it, as Web Push has it.
+   */
+  private notify(notifications: AppNotifications[]): void {
+    for (const { id, notification, userIds } of notifications) {
+      const data = JSON.stringify({ type: "notification", id, ...notification } satisfies WorkspaceServerFrame);
+      for (const userId of userIds) {
+        for (const socket of this.ctx.getWebSockets(userId)) {
+          if (!this.ctx.getTags(socket).includes(NOTIFYING_TAG)) continue;
+          try {
+            socket.send(data);
+          } catch {
+            // It has closed since, and its close handler has nothing to clean up.
+          }
         }
       }
     }
@@ -5858,7 +5897,9 @@ export class Workspace extends DurableObject<Env> {
    * answers the bots' webhooks each new message is delivered to, the new messages @ember is to answer
    * and, while Web Push is on, their pushes, for the room to send, none of them to a guest while
    * `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in, and the version of the blocked words, which
-   * tells the room whether the list it keeps is still the latest.
+   * tells the room whether the list it keeps is still the latest. Whoever a new message would be pushed
+   * to who has an app open that shows notifications itself is sent its notification there, whether or not
+   * Web Push is on.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventAnswer> {
     const { version: blockedWords } = await this.blockedWordsNow();
@@ -5866,9 +5907,11 @@ export class Workspace extends DurableObject<Env> {
     const { on: pushing } = await webPush(this.env);
     // @here notifies those who are active, as presence has them now, which pushes and counts its mentions.
     const activeIds = events.some((event) => event.message?.notifies === "here") ? [...this.presence.active()] : [];
-    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env), activeIds);
+    const applied = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env), activeIds, this.notifyingIds());
+    const { marks, active, pushes, notifications, webhooks, asks } = applied;
     for (const [userId, mark] of marks) this.tell([userId], mark === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, ...mark });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
+    this.notify(notifications);
     return { pushes, webhooks, asks, blockedWords };
   }
 
