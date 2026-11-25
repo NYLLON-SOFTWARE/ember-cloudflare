@@ -63,8 +63,8 @@ export function applicationMenu(sites: readonly Site[], shown: Site | undefined,
   return Menu.buildFromTemplate(template);
 }
 
-/** `site`'s name, with its address where another site has the same name. */
-function labelOf(site: Site, sites: readonly Site[]): string {
+/** `site`'s name, with its address where another of `sites` has the same name. */
+export function labelOf(site: Site, sites: readonly Site[]): string {
   const named = sites.filter(({ name }) => name === site.name);
   return named.length > 1 ? `${site.name} (${new URL(site.address).host})` : site.name;
 }

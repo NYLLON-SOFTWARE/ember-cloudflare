@@ -280,20 +280,37 @@ test("saves a file the site offers where the person says, from the Downloads fol
   await expect(page).toHaveURL(`${fernwood.origin}/`);
 });
 
-test("asks before leaving a page that has changes it hasn't saved", async ({ app }) => {
-  const fernwood = await fakeEmber("Fernwood");
+test("asks before leaving a page that has changes it hasn't saved, as its window closes or the app quits", async ({ app }) => {
+  const [fernwood, birchwood] = [await fakeEmber("Fernwood"), await fakeEmber("Birchwood")];
   const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
-  await page.evaluate(() => addEventListener("beforeunload", (event) => event.preventDefault()));
-  // A page asks only once someone has done something on it.
-  await page.getByRole("heading").click();
+  await app.clickMenu("Sites", "Add Site…");
+  const atBirchwood = await app.add(await app.electron.waitForEvent("window"), birchwood.origin);
+  const [opened] = await Promise.all([app.electron.waitForEvent("window"), page.evaluate(() => window.open("/rooms/3"))]);
+  await opened.waitForLoadState("domcontentloaded");
+  for (const changed of [page, opened]) {
+    await changed.evaluate(() => addEventListener("beforeunload", (event) => event.preventDefault()));
+    // A page asks only once someone has done something on it.
+    await changed.getByRole("heading").click();
+  }
+  const closeOpened = () => app.electron.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL() === url)!.close(), opened.url());
 
   await app.answer("Stay");
-  await app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
-  await page.waitForTimeout(500);
-  expect(page.isClosed()).toBe(false);
+  await closeOpened();
+  await opened.waitForTimeout(500);
+  expect(opened.isClosed()).toBe(false);
+
+  // Fernwood's own window goes out of sight as it closes, its page kept as it is, and shows again to ask
+  // as the app quits. Staying keeps the app running, with Birchwood's window, which the quit closed, open
+  // again as it was.
+  await app.close("general · Fernwood");
+  expect(await app.titles("showing")).toEqual(["general", "general · Birchwood"]);
+  await app.electron.evaluate(({ app }) => app.quit());
+  await expect.poll(() => atBirchwood.isClosed()).toBe(true);
+  await expect.poll(() => app.titles("showing")).toEqual(["general", "general · Birchwood", "general · Fernwood"]);
+  expect([page.isClosed(), opened.isClosed()]).toEqual([false, false]);
 
   await app.answer("Leave");
-  await Promise.all([page.waitForEvent("close"), app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())]);
+  await Promise.all([opened.waitForEvent("close"), closeOpened()]);
 });
 
 test("says when a site can't be reached, and opens it once it can be", async ({ app }) => {
@@ -368,59 +385,50 @@ test("removes a site, forgetting its sign-in, and asks for another once there's 
   await expect(again.getByRole("heading")).toHaveText("Signed out at Fernwood");
 });
 
-test("opens a site again as it starts where a window the site's pages opened was open as it quit", async ({ app }) => {
+test("shows a site again as it starts where a window the site's pages opened was open as it quit, and starts the rest out of sight", async ({ app }) => {
   const [fernwood, birchwood] = [await fakeEmber("Fernwood"), await fakeEmber("Birchwood")];
   let atFernwood = await app.add(await app.electron.firstWindow(), fernwood.origin);
   await app.clickMenu("Sites", "Add Site…");
   await app.add(await app.electron.waitForEvent("window"), birchwood.origin);
-  const titles = () => app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => window.getTitle()).sort());
   const openRoom = async () => {
     const [opened] = await Promise.all([app.electron.waitForEvent("window"), atFernwood.evaluate(() => window.open("/rooms/3"))]);
     await opened.waitForLoadState("domcontentloaded");
   };
-  const close = (title: string) =>
-    app.electron.evaluate(
-      ({ BrowserWindow }, title) =>
-        new Promise<void>((resolve) => {
-          const window = BrowserWindow.getAllWindows().find((window) => window.getTitle() === title)!;
-          window.once("closed", () => resolve());
-          window.close();
-        }),
-      title,
-    );
 
   // Fernwood's own window closes while Birchwood's is open, but the window its page opened is open as the app quits.
   await openRoom();
-  await close("general · Fernwood");
+  await app.close("general · Fernwood");
   await app.restart();
-  await expect.poll(titles).toEqual(["general · Birchwood", "general · Fernwood"]);
+  await expect.poll(() => app.titles("showing")).toEqual(["general · Birchwood", "general · Fernwood"]);
 
-  // Birchwood's closes too, not the last window open, which is the one Fernwood's page opened. Playwright
-  // can hear where a window's page is a moment after the app has the page's title.
+  // Birchwood's closes too, so of the windows open as the app quits, only the one Fernwood's page opened
+  // shows. Birchwood's window starts out of sight, for its pages to notify. Playwright can hear where a
+  // window's page is a moment after the app has the page's title.
   const fernwoodsPage = () => app.electron.windows().find((page) => page.url().startsWith(fernwood.origin));
   await expect.poll(fernwoodsPage).toBeDefined();
   atFernwood = fernwoodsPage()!;
   await openRoom();
-  await close("general · Fernwood");
-  await close("general · Birchwood");
+  await app.close("general · Fernwood");
+  await app.close("general · Birchwood");
   await app.restart();
-  await expect.poll(titles).toEqual(["general · Fernwood"]);
+  await expect.poll(() => app.titles("showing")).toEqual(["general · Fernwood"]);
+  await expect.poll(() => app.titles("running")).toEqual(["general · Birchwood", "general · Fernwood"]);
 });
 
-test("counts the windows a site's pages opened as the site's, and opens another site's in their place as it's removed", async ({ app }) => {
+test("counts the windows a site's pages opened as the site's, and shows another site's in their place as it's removed", async ({ app }) => {
   const [fernwood, birchwood] = [await fakeEmber("Fernwood"), await fakeEmber("Birchwood")];
   const page = await app.add(await app.electron.firstWindow(), fernwood.origin);
   await app.clickMenu("Sites", "Add Site…");
-  await app.add(await app.electron.waitForEvent("window"), birchwood.origin);
-  await app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getTitle() === "general · Birchwood")?.close());
+  const atBirchwood = await app.add(await app.electron.waitForEvent("window"), birchwood.origin);
+  await app.close("general · Birchwood");
   await page.goto(`${fernwood.origin}/sign-in`);
 
   // A window the site's pages opened stays open as the site's own closes, as a browser's would.
   const [opened] = await Promise.all([app.electron.waitForEvent("window"), page.evaluate(() => window.open("/rooms/3"))]);
   await opened.waitForLoadState("domcontentloaded");
-  await Promise.all([page.waitForEvent("close"), app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getTitle() === "general · Fernwood")?.close())]);
+  await app.close("general · Fernwood");
   await expect(opened.getByRole("heading")).toHaveText("Signed in at Fernwood");
-  await app.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.focus());
+  await app.electron.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL() === url)?.focus(), opened.url());
   const sitesMenu = () =>
     app.electron.evaluate(({ BrowserWindow, Menu }) => ({
       inFront: BrowserWindow.getFocusedWindow()?.webContents.getURL(),
@@ -439,11 +447,14 @@ test("counts the windows a site's pages opened as the site's, and opens another 
     ],
   });
 
-  // Its window was the only one open, so Birchwood's opens as it closes, rather than the app quitting.
+  // Its windows were the only ones showing, so Birchwood's shows as they close, rather than the app
+  // being left out of sight.
   await app.answer("Remove");
-  const [atBirchwood] = await Promise.all([app.electron.waitForEvent("window"), app.clickMenu("Sites", "Remove Fernwood…")]);
+  await app.clickMenu("Sites", "Remove Fernwood…");
+  await expect.poll(() => app.titles("running")).toEqual(["general · Birchwood"]);
+  expect(await app.titles("showing")).toEqual(["general · Birchwood"]);
   await expect(atBirchwood.getByRole("heading")).toHaveText("Signed out at Birchwood");
-  expect(opened.isClosed()).toBe(true);
+  await expect.poll(() => [page.isClosed(), opened.isClosed()]).toEqual([true, true]);
   expect(app.sites()).toMatchObject([{ name: "Birchwood" }]);
 
   await app.clickMenu("Sites", "Add Site…");

@@ -1,7 +1,8 @@
 # Ember for desktop
 
 Ember's app for Mac, Windows and Linux. It opens each Ember site's own web app in windows of its own,
-so an Ember lives in the Dock or taskbar, with menus and huddles, wherever the site is hosted. The
+so an Ember lives in the Dock or taskbar, with menus, huddles, notifications and a count of what's
+unread, wherever the site is hosted. The
 app holds no Ember of its own: each site serves its pages as it does to a browser, so the app shows
 each site as up to date as the site is.
 
@@ -14,7 +15,17 @@ adds more, lists them with ⌘1 to ⌘9 (Ctrl on Windows and Linux) to bring eac
 removes the one in front, which forgets its address and your sign-in there.
 
 - Each site keeps its sign-in, storage and permissions apart from every other site's, as a browser
-  profile would, and the app remembers which windows were open, and where, as it quits.
+  profile would.
+- Closing a site's window puts it out of sight, still running, so its notifications keep coming until
+  you quit the app. They show as your system's, once each however many of the site's windows are
+  open, naming the site once you've added another, and clicking one opens its page in the site's window.
+  The app's icon counts what every site has unread: on the Dock, on a Linux dock that shows counts, and
+  drawn over the taskbar's icon on Windows.
+- Clicking the app's icon in the Dock brings its windows back on a Mac. On Windows and Linux, the app
+  keeps an icon in the notification area or tray while it runs: clicking it brings the app back, and
+  its menu opens each site's window, adds a site, or quits Ember.
+- As it quits, the app remembers which sites' windows were showing, and where, and shows them again as
+  it next starts, the rest out of sight, running.
 - A site's window stays on the site. Links elsewhere open in your browser, email addresses in your
   email app, and Sign in with Memberful or SSO, and connecting your account there, pass through the
   site's Memberful site or single sign-on provider, at its custom domain if it has one, and come back.
@@ -28,10 +39,8 @@ removes the one in front, which forgets its address and your sign-in there.
   may use the camera and microphone, and the app says where in System Settings to allow them if not.
 - Downloads ask where to save, starting in your Downloads folder.
 
-Not yet: notifications of new messages, which a browser gets from Ember by Web Push and Electron
-can't, so the app is to show them itself; sharing a screen in a huddle; a count of unread messages on
-the app's icon; links that open the app; and updates, which wait on signing (below). Until then, a new
-version is downloaded and installed by hand.
+Not yet: sharing a screen in a huddle; links that open the app; and updates, which wait on signing
+(below). Until then, a new version is downloaded and installed by hand.
 
 ## Opening a build that isn't signed
 
@@ -70,9 +79,14 @@ or later let Electron's sandbox start with `sudo sysctl -w kernel.apparmor_restr
 The code is in `src/`: `main.ts` starts the app, `site-window.ts` opens each site's window and keeps it
 to the site (with `navigation.ts`), `site-session.ts` keeps each site's session and what it may use
 (`permissions.ts`), `site-check.ts` checks an address is an Ember, and `pages/` holds the app's own
-pages, Add Site and the page a window shows when its site doesn't answer. Electron's security
-checklist holds throughout: every window is sandboxed with context isolation and no Node, and only Add
-Site's page has a preload, which exposes one function.
+pages, Add Site and the page a window shows when its site doesn't answer. A site's pages hand the app
+what Ember's workspace socket says a push would show, since no push service reaches Electron, and how
+many conversations are unread, through `preload/site.cts` and `site-bridge.ts`, which match Ember's
+`apps/web/src/lib/desktop-app.ts`; `site-notifications.ts` shows the notifications, `app-badge.ts`
+counts the unread on the app's icon (drawn by `badge-image.ts` on Windows), and `tray.ts` keeps the
+tray's icon. Electron's security checklist holds throughout: every window is sandboxed with context
+isolation and no Node, and only two kinds of page have a preload: Add Site's, which exposes one
+function, and the sites' windows', whose bridge the app heeds only from the site's own pages.
 
 GitHub Actions' **Desktop** workflow type-checks, tests and packages the app on macOS, Windows and
 Linux whenever a pull request changes it, and keeps each system's packages for a week.

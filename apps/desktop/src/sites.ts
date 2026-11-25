@@ -21,7 +21,7 @@ export interface Site {
   name: string;
   /** Where its window was last, to open it there again. */
   bounds?: Bounds;
-  /** Whether its window, or one its pages opened, was open as the app last quit, to open it again as the app starts. */
+  /** Whether its window, or one its pages opened, was showing as the app last quit, to show it again as the app starts. */
   open?: boolean;
 }
 
