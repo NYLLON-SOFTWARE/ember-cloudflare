@@ -851,6 +851,23 @@ describe("Sign in with a code Ember emails a Memberful member", () => {
     await user.click(screen.getByRole("button", { name: "Send another code" }));
     expect(emailField()).toHaveValue("ada@example.com");
   });
+
+  it("asks for the password of the address it asked for a code for, whatever the field said meanwhile", async () => {
+    let answer = (_: Response) => {};
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)))
+      .mockImplementationOnce(async () => refused(MEMBERFUL_SIGN_IN_PROBLEMS.taken, "password", 403)());
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await user.type(emailField(), "ada@example.com");
+    await user.click(emailMe());
+    await user.type(emailField(), ".uk");
+    await act(async () => answer(asked()));
+    await user.type(await screen.findByRole("textbox", { name: "Code" }), "12345678{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(MEMBERFUL_SIGN_IN_PROBLEMS.taken);
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(emailField()).toHaveValue("ada@example.com");
+  });
 });
 
 describe("Reset a forgotten password with an emailed code", () => {
