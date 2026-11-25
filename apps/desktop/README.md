@@ -53,7 +53,8 @@ Builds aren't signed or notarized yet, so each system warns before it opens one.
   when macOS asks again, with your password if it asks for it, and Ember opens, as it does from then on.
   Since macOS 15, Control-clicking Ember and choosing **Open** no longer gets past the warning. Or run
   `xattr -dr com.apple.quarantine /Applications/Ember.app` in Terminal, then open Ember, which also works
-  when macOS says Ember is damaged.
+  when macOS says Ember is damaged. An unsigned build keeps your sign-ins unencrypted on your Mac, since
+  macOS would ask for your keychain's password as each new one starts; signed builds will encrypt them.
 - **Windows:** run the installer, and when SmartScreen says it protected your PC, choose **More info**,
   then **Run anyway**.
 - **Linux:** make the `.AppImage` runnable (`chmod +x Ember-*.AppImage`) and run it, or install the
@@ -72,6 +73,9 @@ pnpm test             # the unit tests beside the code (src/*.test.ts)
 pnpm test:app         # starts the built app with Playwright and drives it (test/)
 pnpm package          # packages it for the system you're on, into release/
 ```
+
+On a Mac without a Developer ID certificate, package it as CI does, signed ad hoc with sign-ins
+unencrypted: `pnpm package -c.mac.identity=- -c.mac.hardenedRuntime=false -c.electronFuses.enableCookieEncryption=false`.
 
 `pnpm test:app` adds made-up Ember sites, served by the tests on your computer, and keeps each test's
 sites in a folder of its own. On Linux it needs a display: run it under `xvfb-run`, and on Ubuntu 24.04
