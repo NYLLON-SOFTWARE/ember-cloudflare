@@ -26,6 +26,10 @@ export interface App {
   clickMenu(menu: string, label: string): Promise<void>;
   /** Answers the app's next question in a message box with its button labelled `button`. */
   answer(button: string): Promise<void>;
+  /** The titles of the app's windows, sorted: those showing, or every one running, out of sight or not. */
+  titles(which: "showing" | "running"): Promise<string[]>;
+  /** Closes the window titled `title`, as a person would, until it's out of sight, as a site's own goes, or closed. */
+  close(title: string): Promise<void>;
 }
 
 export const test = base.extend<{ app: App }>({
@@ -62,6 +66,32 @@ export const test = base.extend<{ app: App }>({
           dialog.showMessageBox = (async (...args: unknown[]) => ({ response: choose(args.at(-1) as Electron.MessageBoxOptions), checkboxChecked: false })) as typeof dialog.showMessageBox;
           dialog.showMessageBoxSync = ((...args: unknown[]) => choose(args.at(-1) as Electron.MessageBoxOptions)) as typeof dialog.showMessageBoxSync;
         }, button),
+      titles: (which) =>
+        electron.evaluate(
+          ({ BrowserWindow }, which) =>
+            BrowserWindow.getAllWindows()
+              .filter((window) => which === "running" || window.isVisible() || window.isMinimized())
+              .map((window) => window.getTitle())
+              .sort(),
+          which,
+        ),
+      close: (title) =>
+        electron.evaluate(
+          ({ BrowserWindow }, title) =>
+            new Promise<void>((resolve, reject) => {
+              const window = BrowserWindow.getAllWindows().find((window) => window.getTitle() === title);
+              if (!window) return reject(new Error(`No window is titled ${title}`));
+              // Watched rather than heard: a Mac's windows say they're hidden only as macOS finds them out
+              // of sight, which it may never do for one shown a moment before.
+              const gone = setInterval(() => {
+                if (!window.isDestroyed() && window.isVisible()) return;
+                clearInterval(gone);
+                resolve();
+              }, 20);
+              window.close();
+            }),
+          title,
+        ),
     });
     await electron.close();
     fs.rmSync(folder, { recursive: true, force: true });

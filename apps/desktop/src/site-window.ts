@@ -1,15 +1,23 @@
-import { BrowserWindow, dialog, nativeTheme, screen, shell, type WebContents } from "electron";
+import { BrowserWindow, dialog, nativeTheme, screen, shell, type IpcMainEvent, type WebContents } from "electron";
+import path from "node:path";
 import { pageAddress } from "./app-pages.ts";
 import { contextMenuOf } from "./context-menu.ts";
 import { destinationOf, mayBeMoving, mayBeSigningIn, onwardPassageOf, passageOf } from "./navigation.ts";
+import { OPEN } from "./site-bridge.ts";
 import { checkSite, signsInAt } from "./site-check.ts";
 import { fetchFollowing, redirectOf } from "./site-fetch.ts";
 import { sessionOf } from "./site-session.ts";
-import type { Bounds, Site, SiteChanges, Sites } from "./sites.ts";
+import type { Bounds, Site, Sites } from "./sites.ts";
 
 /** How large a site's window opens the first time, and how small it can be made. */
 const FIRST_SIZE = { width: 1280, height: 860 };
 const SMALLEST = { minWidth: 400, minHeight: 500 };
+
+/**
+ * How the sites' windows run their pages: as a browser tab would, sandboxed, apart from the app's code and
+ * without Node, but for what the preload lets the site's own pages ask of the app (site-bridge.ts).
+ */
+const PAGES = { preload: path.join(import.meta.dirname, "preload", "site.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false };
 
 /** Chromium's errors for a certificate it doesn't trust, from -200 to -299. */
 const isCertificateError = (code: number) => code <= -200 && code > -300;
@@ -26,9 +34,9 @@ interface Leaving {
 }
 
 /**
- * Each site's window, which opens the site's own Ember and keeps to it, as a browser tab would, and
- * remembers where it was and whether it was open as the app quit, and the windows its pages open, which
- * keep to the site too.
+ * Each site's window, which opens the site's own Ember and keeps to it, as a browser tab would, goes out of
+ * sight as it's closed, its pages still running to notify, until the app quits, and remembers where it was
+ * and whether it was showing as the app quit; and the windows its pages open, which keep to the site too.
  */
 export class SiteWindows {
   readonly #sites: Sites;
@@ -36,18 +44,29 @@ export class SiteWindows {
   /** The windows the sites' pages opened, each with the id of the site whose pages opened it. */
   readonly #opened = new Map<BrowserWindow, string>();
   readonly #listeners = new Set<() => void>();
+  /** The id of the site whose window, or one its pages opened, was in front last. */
+  #lastShown: string | null = null;
   #quitting = false;
+  /** The ids of the sites whose own windows were showing as the app last began to quit, to show them again should someone stay. */
+  #showingAtQuit = new Set<string>();
 
   constructor(sites: Sites) {
     this.#sites = sites;
   }
 
-  /** Brings the site's window to the front, opening it if it isn't open. */
-  show(site: Site): void {
-    const window = this.#windows.get(site.id) ?? this.#open(site);
+  /** Brings the site's window to the front, opening it if it isn't open, at its page at `path` where one's given. */
+  show(site: Site, path?: string): void {
+    const open = this.#windows.get(site.id);
+    const window = open ?? this.#open(site, { path });
+    if (open !== undefined && path !== undefined) openPage(open.webContents, site.address, path);
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
+  }
+
+  /** Opens the site's window out of sight, unless it's open, for its pages to notify and count what's unread. */
+  start(site: Site): void {
+    if (!this.#windows.has(site.id)) this.#open(site, { shown: false });
   }
 
   /** Closes the site's windows that are open, its own and those its pages opened, asking its pages nothing. */
@@ -62,14 +81,30 @@ export class SiteWindows {
     return id === undefined ? undefined : this.#sites.find(id);
   }
 
-  /** Whether any of the app's windows is open but the site with `id`'s, its own and those its pages opened. */
-  anyOpenBut(id: string): boolean {
-    return BrowserWindow.getAllWindows().some((window) => this.#idOf(window) !== id);
+  /** The site whose own page, in one of its windows, sent `event`, or undefined for any other page, such as a site's its window passes through. */
+  siteOfSender({ sender, senderFrame }: IpcMainEvent): Site | undefined {
+    const site = this.siteOf(BrowserWindow.fromWebContents(sender));
+    return site !== undefined && URL.parse(senderFrame?.url ?? "")?.origin === site.address ? site : undefined;
   }
 
-  /** Remembers each window that closes from now on as open, to open it again as the app next starts. */
+  /** The site whose window, or one its pages opened, was in front last, unless it's been removed since. */
+  lastShown(): Site | undefined {
+    return this.#lastShown === null ? undefined : this.#sites.find(this.#lastShown);
+  }
+
+  /** Whether any of the app's windows is showing but the site with `id`'s, its own and those its pages opened. */
+  anyShowingBut(id: string): boolean {
+    return BrowserWindow.getAllWindows().some((window) => isShowing(window) && this.#idOf(window) !== id);
+  }
+
+  /**
+   * Remembers, as the app quits, which sites are showing, in their own windows or ones their pages opened,
+   * to show them again as it next starts, and lets each site's window close rather than go out of sight.
+   */
   quitting(): void {
     this.#quitting = true;
+    this.#showingAtQuit = new Set([...this.#windows].filter(([, window]) => isShowing(window)).map(([id]) => id));
+    for (const id of this.#windows.keys()) this.#sites.update(id, { open: this.#showing(id) });
   }
 
   /** Calls `listener` whenever a window opens or closes. */
@@ -77,55 +112,73 @@ export class SiteWindows {
     this.#listeners.add(listener);
   }
 
-  #open(site: Site): BrowserWindow {
+  /** Opens the site's window, at its page at `path` or its first, and shows it unless it's not `shown`. */
+  #open(site: Site, { path, shown = true }: { path?: string; shown?: boolean }): BrowserWindow {
     const window = new BrowserWindow({
       ...FIRST_SIZE,
       ...onScreen(site.bounds),
       ...SMALLEST,
       title: site.name,
       show: false,
+      // Its page says it's out of sight, as Ember asks to tell whether someone's there, only where
+      // Chromium doesn't draw it until it's shown.
+      paintWhenInitiallyHidden: shown,
       backgroundColor: nativeTheme.shouldUseDarkColors ? "#171717" : "#ffffff",
-      webPreferences: { session: sessionOf(site.id, () => this.#addressOf(site.id)), sandbox: true, contextIsolation: true, nodeIntegration: false },
+      webPreferences: { ...PAGES, session: sessionOf(site.id, () => this.#addressOf(site.id)) },
     });
     this.#keepToSite(window.webContents, site.id);
-    window.once("ready-to-show", () => window.show());
+    const showOnceReady = () => window.show();
+    if (shown) window.once("ready-to-show", showOnceReady);
     // Titled by the page and the site, so windows of two sites tell apart in the Window menu.
     window.on("page-title-updated", (event, title) => {
       event.preventDefault();
       window.setTitle(windowTitleOf(title, this.#sites.find(site.id)?.name ?? site.name));
     });
-    window.on("close", () => this.#closing(window, site.id));
+    window.on("focus", () => this.#inFront(window, site.id));
+    window.on("close", (event) => {
+      this.#sites.update(site.id, { bounds: window.getNormalBounds() });
+      if (this.#quitting) return;
+      event.preventDefault();
+      // Shown at once, as asked for, it can close before its page is ready to show, and stays out of sight as it is.
+      window.off("ready-to-show", showOnceReady);
+      hide(window);
+    });
+    window.on("hide", () => this.#changed());
+    window.on("show", () => this.#changed());
+    // Windows ends its session without the app quitting first.
+    window.on("session-end", () => this.quitting());
     window.on("closed", () => {
       this.#windows.delete(site.id);
       this.#changed();
+      // A quit someone stayed for, on a page with changes it hadn't saved, closed it anyway.
+      const stayed = this.#quitting ? undefined : this.#sites.find(site.id);
+      if (stayed) this.#reopen(stayed);
     });
-    void window.loadURL(site.address);
+    void window.loadURL(path === undefined ? site.address : new URL(path, site.address).href);
     void this.#rename(site.id);
     this.#windows.set(site.id, window);
     this.#changed();
     return window;
   }
 
-  /**
-   * Remembers, as `window`, one of the site with `id`'s, closes, where it was, if it's the site's own, and
-   * whether to open the site again as the app next starts: yes as the app quits, or as the last of the sites'
-   * windows closes, which quits it, but on a Mac, where reopening the app from the Dock opens it again; no as
-   * the site's last window closes otherwise. As one of several of the site's windows closes, the one that
-   * closes last decides.
-   */
-  #closing(window: BrowserWindow, id: string): void {
-    const changes: SiteChanges = window === this.#windows.get(id) ? { bounds: window.getNormalBounds() } : {};
-    // The site of each of the sites' windows still open, `window` among them.
-    const sitesOpen = [...this.#windows.keys(), ...this.#opened.values()];
-    if (this.#quitting || sitesOpen.length === 1) changes.open = true;
-    else if (sitesOpen.filter((site) => site === id).length === 1) changes.open = false;
-    if (Object.keys(changes).length > 0) this.#sites.update(id, changes);
+  /** Whether the site with `id` is showing, in its own window or one its pages opened, which go out of sight only as they close. */
+  #showing(id: string): boolean {
+    const own = this.#windows.get(id);
+    return (own !== undefined && isShowing(own)) || [...this.#opened.values()].includes(id);
   }
 
   /** Asks the site with `id` its name again, which its administrators can change, for the Sites menu. */
   async #rename(id: string): Promise<void> {
     const checked = await checkSite(this.#addressOf(id), fetchFollowing);
     if (typeof checked !== "string" && checked.name !== this.#sites.find(id)?.name) this.#sites.update(id, { name: checked.name });
+  }
+
+  /**
+   * Notes the site with `id` as the one in front last, as `window`, one of its windows, comes to the front,
+   * unless the window is out of sight, as one a system without a window manager focuses after hiding it.
+   */
+  #inFront(window: BrowserWindow, id: string): void {
+    if (isShowing(window)) this.#lastShown = id;
   }
 
   #addressOf(id: string): string {
@@ -193,20 +246,20 @@ export class SiteWindows {
     contents.setWindowOpenHandler(({ url }) => {
       const destination = destinationOf(url, address());
       // Its window stays open as its opener's closes, as a browser's would, to ask before it leaves changes of its own.
-      if (destination === "window") return { action: "allow", outlivesOpener: true, overrideBrowserWindowOptions: { ...SMALLEST, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } };
+      if (destination === "window") return { action: "allow", outlivesOpener: true, overrideBrowserWindowOptions: { ...SMALLEST, webPreferences: PAGES } };
       if (destination === "outside") void shell.openExternal(url);
       return { action: "deny" };
     });
     contents.on("did-create-window", (opened) => {
       this.#opened.set(opened, id);
-      opened.on("close", () => this.#closing(opened, id));
+      opened.on("focus", () => this.#inFront(opened, id));
       opened.once("closed", () => this.#opened.delete(opened));
       this.#keepToSite(opened.webContents, id);
     });
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.on("will-prevent-unload", (event) => {
       if (askToLeave(contents)) event.preventDefault();
-      else this.#quitting = false;
+      else this.#stay();
     });
     contents.on("context-menu", (_event, params) => contextMenuOf(contents, params)?.popup());
     contents.on("did-fail-load", (_event, code, _description, url, isMainFrame) => {
@@ -250,6 +303,20 @@ export class SiteWindows {
     await shell.openExternal(url);
   }
 
+  /**
+   * Keeps the app running as someone stays on a page with changes it hasn't saved, should it be quitting,
+   * with every site's window: those the quit closed already open again, as the rest will as they close.
+   */
+  #stay(): void {
+    this.#quitting = false;
+    for (const site of this.#sites.list()) if (!this.#windows.has(site.id)) this.#reopen(site);
+  }
+
+  /** Opens the site's window again, as a quit someone stayed for closed it: showing, if it was, or out of sight. */
+  #reopen(site: Site): void {
+    this.#open(site, { shown: this.#showingAtQuit.has(site.id) });
+  }
+
   #changed(): void {
     for (const listener of this.#listeners) listener();
   }
@@ -261,6 +328,8 @@ export class SiteWindows {
  */
 function askToLeave(contents: WebContents): boolean {
   const window = BrowserWindow.fromWebContents(contents);
+  // A site's window that's out of sight, as the app quits, shows the page it asks about.
+  if (window && !isShowing(window)) window.show();
   const options = {
     type: "question" as const,
     message: "Leave this page?",
@@ -270,6 +339,26 @@ function askToLeave(contents: WebContents): boolean {
     cancelId: 1,
   };
   return (window ? dialog.showMessageBoxSync(window, options) : dialog.showMessageBoxSync(options)) === 0;
+}
+
+/**
+ * Opens the page at `path` of the site at `address` in `contents`: in place, as Ember opens it, while the
+ * window is on the site, or by loading it, while it's on a site it passes through or the app's page saying
+ * the site can't be reached.
+ */
+function openPage(contents: WebContents, address: string, path: string): void {
+  if (URL.parse(contents.getURL())?.origin === address) contents.send(OPEN, path);
+  else void contents.loadURL(new URL(path, address).href);
+}
+
+/** Whether `window` is showing, minimized as it may be. */
+export const isShowing = (window: BrowserWindow) => window.isVisible() || window.isMinimized();
+
+/** Puts `window` out of sight, leaving full screen first on a Mac, where its space would otherwise stay, black. */
+function hide(window: BrowserWindow): void {
+  if (process.platform !== "darwin" || !window.isFullScreen()) return window.hide();
+  window.once("leave-full-screen", () => window.hide());
+  window.setFullScreen(false);
 }
 
 /** A site's window's title: its page's, then the site's name, unless the page names it already. */

@@ -22,6 +22,10 @@ icon: ../web/public/logos/app-icon.png
 # files as it starts.
 electronFuses:
   runAsNode: false
+  # Sign-ins are encrypted with a key the system keeps, as Chrome's are, except in a Mac build that
+  # isn't signed (.github/workflows/desktop.yml), since macOS would ask for the keychain's password
+  # as each new one starts. Turning this on keeps what was saved without it; turning it off loses
+  # what was saved with it.
   enableCookieEncryption: true
   enableNodeOptionsEnvironmentVariable: false
   enableNodeCliInspectArguments: false

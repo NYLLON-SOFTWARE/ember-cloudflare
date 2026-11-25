@@ -61,16 +61,29 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a pnpm test:app; else pnpm test:app; fi
+      # What each failed test's pages held as it failed (error-context.md), to read a failure on CI.
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: ember-desktop-test-results-${{ runner.os }}
+          path: apps/desktop/test-results
+          retention-days: 7
       - name: Package it
         shell: bash
         # Unsigned for now. A Mac's is signed ad hoc, without the hardened runtime that needs a real
         # signature, since an Apple silicon Mac opens no app that's unsigned. electron-builder signs
         # nothing for a pull request unless told to, to keep a real signature's secrets from one, and
-        # an ad hoc signature has none.
+        # an ad hoc signature has none. A Mac's leaves its sign-ins unencrypted, too: macOS gives the
+        # keychain's key for them, without asking, only to the build that saved it, and to macOS each
+        # ad hoc build is another app, so it would ask for the keychain's password as each one starts.
         env:
           CSC_FOR_PULL_REQUEST: true
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then pnpm package -c.mac.identity=- -c.mac.hardenedRuntime=false; else pnpm package; fi
+          if [ "$RUNNER_OS" = macOS ]; then
+            pnpm package -c.mac.identity=- -c.mac.hardenedRuntime=false -c.electronFuses.enableCookieEncryption=false
+          else
+            pnpm package
+          fi
       - uses: actions/upload-artifact@v6
         with:
           name: ember-desktop-${{ runner.os }}
