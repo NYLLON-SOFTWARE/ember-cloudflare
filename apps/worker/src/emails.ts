@@ -75,6 +75,23 @@ export function passwordResetCodeEmail(to: string, workspace: string, code: stri
 }
 
 /**
+ * The email with the code that signs a member of the Memberful site in to the workspace named `workspace`,
+ * who asked for it with `to`, the address their Memberful account has.
+ */
+export function memberfulCodeEmail(to: string, workspace: string, code: string): Email {
+  const name = oneLine(workspace) || "Ember";
+  const asked = (workspaceName: string) => `Someone asked to sign in to ${workspaceName} with the Memberful account that has this email address.`;
+  const use = `Enter it within ${PASSWORD_RESET_CODE_MINUTES} minutes, where you asked for it. Don't give it to anyone.`;
+  const ignore = "If you didn't ask, you can ignore this email: nobody signs in without the code.";
+  return {
+    to,
+    subject: `Sign in to ${name}`,
+    text: `${asked(name)}\n\nYour code: ${code}\n\n${use}\n\n${ignore}\n`,
+    html: htmlOf([asked(escapeHtml(name)), `Your code: <strong style="font-size: 24px; letter-spacing: 0.08em;">${code}</strong>`, use, ignore]),
+  };
+}
+
+/**
  * The email someone asking to join the workspace named `workspace` with `to` gets in place of a link,
  * since the address has an account there already: `signIn`, where it signs in, so that `/join/email`
  * says the same whoever has an account.

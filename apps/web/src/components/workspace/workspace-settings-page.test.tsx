@@ -2209,7 +2209,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     const check = await screen.findByTitle<HTMLIFrameElement>("Turnstile's check");
     act(() => void window.dispatchEvent(new MessageEvent("message", { data: { turnstileCheck: { token: "XXXX.DUMMY.TOKEN.XXXX" } }, origin: location.origin, source: check.contentWindow })));
     await user.click(await screen.findByRole("button", { name: "Done" }));
-    expect(turnstile).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person.");
+    expect(turnstile).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person.");
     expect(turnstileSwitch).toBeChecked();
     expect(openCard).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up is a person.");
     expect(openCard).not.toHaveTextContent("in an hour");

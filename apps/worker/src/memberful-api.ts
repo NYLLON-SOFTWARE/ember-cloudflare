@@ -16,9 +16,10 @@ import { seal, unseal } from "./sealed";
 // secrets or else the ones an administrator gave in Set up Memberful: its member API, with the access
 // token a sign-in's code is exchanged for, says who signed in, and its admin API, with the custom app's
 // API key, says whose memberships are active, which the Workspace checks when a webhook says one
-// changed, and once a day. Set up Memberful's keys are tried on both before Ember keeps them. None of it
-// follows a redirect, which would take a secret elsewhere, and Memberful's answers are logged by their
-// status alone.
+// changed, and once a day, and who has an email address, which a member signing in with a code Ember
+// emails them proves is theirs. Set up Memberful's keys are tried on both before Ember keeps them. None
+// of it follows a redirect, which would take a secret elsewhere, and Memberful's answers are logged by
+// their status alone.
 
 /** Ember's Memberful site, and the keys of its custom app that members sign in with. */
 export interface MemberfulKeys {
@@ -71,12 +72,23 @@ export interface MemberfulMember {
 
 /** How long Memberful has to answer each request. */
 const MEMBERFUL_TIMEOUT_MS = 10_000;
+/** What Memberful is asked of a member who signs in. */
+const MEMBER_FIELDS = "{ id email fullName unrestrictedAccess subscriptions { active } }";
 /** What the member API is asked of who signed in. */
-const MEMBER_QUERY = "{ currentMember { id email fullName unrestrictedAccess subscriptions { active } } }";
+const MEMBER_QUERY = `{ currentMember ${MEMBER_FIELDS} }`;
 /** What the admin API is asked of each member whose membership is checked. */
 const MEMBERSHIP_FIELDS = "{ unrestrictedAccess subscriptions { active } }";
 /** What the admin API is asked to try an API key Set up Memberful was given: as little as it answers anything to. */
 const API_KEY_QUERY = "{ members(first: 1) { pageInfo { hasNextPage } } }";
+/**
+ * What the admin API is asked of the queries it answers, to find the one that finds a member by email
+ * address, which Memberful's documentation doesn't name: each one's name, what it answers, and what it
+ * takes, with each type as far as a required list of required members goes.
+ */
+const QUERIES_QUERY =
+  "{ __schema { queryType { fields { name type { ...TypeRef } args { name defaultValue type { ...TypeRef } } } } } } fragment TypeRef on __Type { kind name ofType { kind name ofType { kind name } } }";
+/** A name GraphQL can call a query by. */
+const GRAPHQL_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** The longest member id kept: far longer than Memberful's, which are numbers. */
 const MAX_SUBJECT_LENGTH = 255;
 
@@ -164,13 +176,7 @@ export async function membershipsOf({ site, apiKey }: MemberfulApi, subjects: st
   // Each member by an alias of its own, its id written as GraphQL writes a string, as JSON does.
   const query = `{ ${subjects.map((subject, i) => `m${i}: member(id: ${JSON.stringify(subject)}) ${MEMBERSHIP_FIELDS}`).join(" ")} }`;
   try {
-    const asked = await fetch(new URL("/api/graphql", site), {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query }),
-      redirect: "manual",
-      signal: AbortSignal.timeout(MEMBERFUL_TIMEOUT_MS),
-    });
+    const asked = await askAdminApi({ site, apiKey }, { query });
     const data = asked.ok ? dataOf(await asked.json()) : null;
     if (!data) return refused("admin", asked);
     const memberships = new Map<string, boolean>();
@@ -186,6 +192,103 @@ export async function membershipsOf({ site, apiKey }: MemberfulApi, subjects: st
     return null;
   }
 }
+
+/**
+ * The query that finds a member of the Memberful site by email address, as `schema`, its admin API's
+ * answer to `QUERIES_QUERY`, has it: the one query that answers a member, rather than a list of them,
+ * given an `email` that's a string, and needing nothing else, asking what signing in asks of a member,
+ * as `member`. Null when it has none, or more than one, which only a person could choose between.
+ */
+export function memberByEmailQueryOf(schema: unknown): string | null {
+  const fields = (schema as { __schema?: { queryType?: { fields?: unknown } | null } } | null)?.__schema?.queryType?.fields;
+  const found = Array.isArray(fields) ? fields.filter(findsMemberByEmail) : [];
+  if (found.length !== 1) return null;
+  const { name, args } = found[0]!;
+  const email = args.find((arg) => arg.name === "email")!;
+  return `query ($email: ${typeNameOf(email.type)}) { member: ${name}(email: $email) ${MEMBER_FIELDS} }`;
+}
+
+/** A query of the admin API's schema, or one of its arguments, as `QUERIES_QUERY` describes them. */
+interface SchemaField {
+  name: string;
+  type: TypeRef;
+  args: Array<{ name: string; defaultValue: unknown; type: TypeRef }>;
+}
+
+/** A type as GraphQL's introspection describes it: its kind, its name if it has one, and the type it wraps, as a list's or a required one's. */
+interface TypeRef {
+  kind?: unknown;
+  name?: unknown;
+  ofType?: TypeRef | null;
+}
+
+/** Whether `field` is a query that answers one member given an `email` that's a string, needing nothing else (`memberByEmailQueryOf`). */
+function findsMemberByEmail(field: unknown): field is SchemaField {
+  const { name, type, args } = (field ?? {}) as Partial<SchemaField>;
+  if (typeof name !== "string" || !GRAPHQL_NAME.test(name) || !Array.isArray(args) || namedType(type) !== "Member") return false;
+  const email = args.find((arg) => arg?.name === "email");
+  const needed = (arg: SchemaField["args"][number]) => arg?.type?.kind === "NON_NULL" && (arg.defaultValue === null || arg.defaultValue === undefined);
+  return email !== undefined && namedType(email.type) === "String" && args.every((arg) => arg === email || !needed(arg));
+}
+
+/** The name of the type `type` is, required or not, or null for a list, or any other type without a name. */
+function namedType(type: TypeRef | null | undefined): string | null {
+  const inner = type?.kind === "NON_NULL" ? type.ofType : type;
+  return typeof inner?.name === "string" && inner.kind !== "LIST" ? inner.name : null;
+}
+
+/** How a query's variable is typed to stand for an argument of `type`, a named type, required or not: `String!`, say. */
+const typeNameOf = (type: TypeRef) => (type.kind === "NON_NULL" ? `${namedType(type)}!` : namedType(type)!);
+
+/**
+ * The query that finds a member by email address at the Memberful site, as its admin API's schema has it
+ * now (`memberByEmailQueryOf`). Null when it has none, which is logged, or doesn't answer, or not as it
+ * should, which is logged without anything it sent.
+ */
+export async function memberByEmailQuery(api: MemberfulApi): Promise<string | null> {
+  try {
+    const asked = await askAdminApi(api, { query: QUERIES_QUERY });
+    const schema = asked.ok ? dataOf(await asked.json()) : null;
+    if (!schema) return refused("admin", asked);
+    const query = memberByEmailQueryOf(schema);
+    if (query === null) console.error("Memberful's admin API has no one query that finds a member by email address, so Ember emails no member a code to sign in with");
+    return query;
+  } catch (error) {
+    console.error("Reading Memberful's admin API failed:", error instanceof Error ? error.name : "unknown error");
+    return null;
+  }
+}
+
+/**
+ * The member of the Memberful site whose email address is `emailAddress`, whatever its case, as its admin
+ * API finds them with `query` (`memberByEmailQuery`), or "nobody" when nobody has it, as when Memberful
+ * finds a member whose address is another one. Null when Memberful doesn't answer, or not as it should,
+ * which is logged without anything it sent.
+ */
+export async function memberWithEmail(api: MemberfulApi, query: string, emailAddress: string): Promise<MemberfulMember | "nobody" | null> {
+  try {
+    const asked = await askAdminApi(api, { query, variables: { email: emailAddress } });
+    const data = asked.ok ? dataOf(await asked.json()) : null;
+    if (!data || !Object.hasOwn(data, "member")) return refused("admin", asked);
+    if (data.member === null) return "nobody";
+    const member = memberIn(data.member);
+    if (!member) return refused("admin", asked);
+    return member.emailAddress !== null && member.emailAddress.toLowerCase() === emailAddress.toLowerCase() ? member : "nobody";
+  } catch (error) {
+    console.error("Finding a member by email address with Memberful failed:", error instanceof Error ? error.name : "unknown error");
+    return null;
+  }
+}
+
+/** Asks the Memberful site's admin API `request`, a GraphQL query and its variables, with the custom app's API key. */
+const askAdminApi = ({ site, apiKey }: MemberfulApi, request: { query: string; variables?: Record<string, unknown> }) =>
+  fetch(new URL("/api/graphql", site), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(request),
+    redirect: "manual",
+    signal: AbortSignal.timeout(MEMBERFUL_TIMEOUT_MS),
+  });
 
 /** Why Memberful didn't take the keys Set up Memberful was given, on the field it's about, if it's about one, and the status that refuses them. */
 export interface MemberfulKeysRefusal {
@@ -217,13 +320,7 @@ export async function refusalOfMemberfulKeys({ site, clientId, clientSecret, api
 async function refusalOfApiKey(site: string, apiKey: string): Promise<MemberfulKeysRefusal | null> {
   let asked: Response;
   try {
-    asked = await fetch(new URL("/api/graphql", site), {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query: API_KEY_QUERY }),
-      redirect: "manual",
-      signal: AbortSignal.timeout(MEMBERFUL_TIMEOUT_MS),
-    });
+    asked = await askAdminApi({ site, apiKey }, { query: API_KEY_QUERY });
   } catch (error) {
     const name = (error as { name?: unknown } | null)?.name;
     console.error("Trying an API key with Memberful failed:", typeof name === "string" ? name : "unknown error");
@@ -295,8 +392,10 @@ function dataOf(answer: unknown): Record<string, unknown> | null {
 }
 
 /** The member the member API's answer describes, or null when it describes none. */
-function memberOf(answer: unknown): MemberfulMember | null {
-  const member = dataOf(answer)?.currentMember;
+const memberOf = (answer: unknown) => memberIn(dataOf(answer)?.currentMember);
+
+/** The member `member` is, as Memberful describes one with `MEMBER_FIELDS`, or null when it isn't one. */
+function memberIn(member: unknown): MemberfulMember | null {
   if (typeof member !== "object" || member === null) return null;
   const { id, email, fullName } = member as Record<string, unknown>;
   if (!isSubject(id)) return null;

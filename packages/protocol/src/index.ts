@@ -1284,6 +1284,13 @@ export interface Bootstrap {
    */
   signInWithMemberful: boolean;
   /**
+   * Whether the sign-in page signs Memberful's members in on Ember's own form, with a code Ember emails
+   * the address their Memberful account has, rather than sending them to Memberful's page, which it then
+   * links to under the form: while it offers Sign in with Memberful, Ember can send email, and it has the
+   * custom app's API key, which finds the member an address belongs to.
+   */
+  memberfulCodes: boolean;
+  /**
    * What the sign-in page calls the single sign-on provider it offers Sign in with, while single sign-on
    * lets its people join, or while anyone here signs in with it, as people who joined with it keep doing
    * once it's off, or null while it offers none.
@@ -1291,9 +1298,9 @@ export interface Bootstrap {
   signInWithSso: string | null;
   /**
    * The site key of the Turnstile widget whose check the open sign-up form shows, and the forms that ask
-   * Ember to email a link to join or a code to reset a password, to check that whoever fills them in is a
-   * person: the deployment's `TURNSTILE_SITE_KEY`, while it has both Turnstile's keys, or else the one an
-   * administrator gave in Set up Turnstile, or null while Ember has neither.
+   * Ember to email a link to join or a code to reset a password or sign in, to check that whoever fills
+   * them in is a person: the deployment's `TURNSTILE_SITE_KEY`, while it has both Turnstile's keys, or
+   * else the one an administrator gave in Set up Turnstile, or null while Ember has neither.
    */
   turnstileSiteKey: string | null;
   /**
@@ -1492,6 +1499,43 @@ export const PASSWORD_RESET_DONE = "Your password has been reset.";
 
 /** What the sign-in page says once a new password has been chosen by someone who signs in themselves. */
 export const PASSWORD_RESET_SIGN_IN = "Your password has been reset. Sign in with it.";
+
+/**
+ * A member of the Memberful site asking Ember to email them a code to sign in with, as the sign-in page
+ * sends it to `POST /api/memberful_codes`, with the token Turnstile's check gave the page while Ember has
+ * a widget's keys: the address their Memberful account has, taken as given, as sign-in takes it.
+ */
+export interface MemberfulCodeRequest {
+  emailAddress: string;
+  turnstileToken?: string;
+}
+
+/** The code Ember emailed a member, and the address it went to, as the sign-in page sends them to `PUT /api/memberful_codes` to sign in with. */
+export interface MemberfulCodeSignIn {
+  emailAddress: string;
+  code: string;
+}
+
+/**
+ * What signing in with a code answers: who it signed this browser in as, or, for someone new, that they
+ * joined, who then choose how people here see them on the welcome page, as signing in on Memberful's
+ * page has them do.
+ */
+export type MemberfulCodeSignedIn = { user: Me } | { joined: true };
+
+// The codes Ember emails Memberful's members to sign in with work as Forgot password's do: they have as
+// many digits, work for as many minutes and tries, and are read as those are (`passwordResetCodeOf`).
+// Asking for one counts against an address's emails, and while Ember lacks Turnstile's keys, against the
+// network's codes, as asking for a code to reset a password does, and trying one against sign-in's limit.
+
+/** Why the sign-in page's code form is refused while Ember doesn't offer it, as once an administrator turns Memberful off, or takes its keys away. */
+export const MEMBERFUL_CODES_OFF = "Ember can't email you a code to sign in with right now. Continue with Memberful instead.";
+
+/** Why a right code signs nobody in once Memberful has no member with the address it went to, as once theirs has changed there. */
+export const MEMBERFUL_CODE_NO_MEMBER = "No Memberful account has this email address now. Sign in with the one yours has.";
+
+/** Why a right code signs nobody in yet, while Memberful can't say who has the address, which leaves the code working. */
+export const MEMBERFUL_CODE_UNCHECKED = "Ember couldn't reach Memberful just now. Try again in a moment.";
 
 /** What `POST /api/first_run` answers: the administrator it signed in, and general, which opens first. */
 export interface NewWorkspace {
@@ -3312,6 +3356,23 @@ export function parsePasswordResetWithCode(data: unknown): PasswordResetWithCode
   const read = passwordResetCodeOf(code);
   if (read === null) return { error: PASSWORD_RESET_CODE_NEEDED, field: "code" };
   return { emailAddress, code: read, password };
+}
+
+/** Parses an untrusted `POST /api/memberful_codes`, as `parsePasswordResetRequest` parses asking for a code to reset a password. */
+export const parseMemberfulCodeRequest = (data: unknown): MemberfulCodeRequest | string => parsePasswordResetRequest(data);
+
+/**
+ * Parses an untrusted `PUT /api/memberful_codes`, answering the address and the code, as
+ * `passwordResetCodeOf` reads it, or why it's refused instead, with the field it's about.
+ */
+export function parseMemberfulCodeSignIn(data: unknown): MemberfulCodeSignIn | { error: string; field?: "emailAddress" | "code" } {
+  if (!isJsonObject(data)) return { error: "Expected a JSON object" };
+  const { emailAddress, code } = data;
+  if (typeof emailAddress !== "string" || !emailAddress || typeof code !== "string") return { error: "Email address and code are required" };
+  if (emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return { error: EMAIL_ADDRESS_TOO_LONG, field: "emailAddress" };
+  const read = passwordResetCodeOf(code);
+  if (read === null) return { error: PASSWORD_RESET_CODE_NEEDED, field: "code" };
+  return { emailAddress, code: read };
 }
 
 /** Whether a new password is shorter than Ember takes, counting an emoji as one character. */

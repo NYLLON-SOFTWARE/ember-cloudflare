@@ -203,6 +203,7 @@ import {
   withDeployedMemberful,
 } from "./memberful";
 import { deployedMemberfulOf } from "./memberful-api";
+import { askForMemberfulCode, signInWithMemberfulCode } from "./memberful-codes";
 import { anyOtherPage, formAnswer } from "./pages";
 import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
@@ -329,8 +330,9 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
+  const deployedMemberful = deployedMemberfulOf(env);
   const [{ account, user, signInWithMemberful, signInWithSso, passwordResetCodes, turnstileSiteKey }, push] = await Promise.all([
-    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, deployedMemberfulOf(env)?.site ?? null, deployedAddressOf(request)),
+    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, deployedMemberful?.site ?? null, deployedAddressOf(request)),
     webPush(env),
   ]);
   const body: Bootstrap = {
@@ -339,6 +341,8 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env) && !(account && signsInElsewhereOnly(account)),
     signInWithMemberful,
+    // The keys an administrator gives always have the API key, and the deployment's may lack it.
+    memberfulCodes: signInWithMemberful && passwordResetCodes && (deployedMemberful === null || deployedMemberful.apiKey !== null),
     signInWithSso,
     // The deployment's keys take the place of any an administrator gave.
     turnstileSiteKey: turnstileKeysOf(env)?.siteKey ?? turnstileSiteKey,
@@ -1671,6 +1675,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/email_links/lookup" && request.method === "POST") return () => lookUpEmailLink(request, env);
   if (pathname === "/api/password_resets" && request.method === "POST") return () => askForPasswordReset(request, env);
   if (pathname === "/api/password_resets" && request.method === "PUT") return () => resetPasswordWithCode(request, env);
+  if (pathname === "/api/memberful_codes" && request.method === "POST") return () => askForMemberfulCode(request, env);
+  if (pathname === "/api/memberful_codes" && request.method === "PUT") return () => signInWithMemberfulCode(request, env);
   if (pathname === "/api/invitations" && request.method === "POST") return () => invite(request, env);
   // Invitations' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
   const invitation = pathname.match(/^\/api\/invitations\/([^/]+)$/);

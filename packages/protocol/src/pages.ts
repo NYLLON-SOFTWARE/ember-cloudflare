@@ -275,9 +275,9 @@ export const emailSignUpLink = (token: string) => `${EMAIL_SIGN_UP_PATH}#token=$
 export const PASSWORD_RESET_PATH = "/passwords/new";
 
 /**
- * The page Set up Turnstile draws a widget's check in, in a frame of its own: the Worker answers it
- * itself, with a policy that lets Turnstile's script load there, where the app's pages let it load only
- * where people sign up or ask Ember to email them. The fragment names the site key.
+ * The page Set up Turnstile and the sign-in page draw a widget's check in, in a frame of their own: the
+ * Worker answers it itself, with a policy that lets Turnstile's script load there, where the app's pages
+ * let it load only where people sign up or ask Ember to email them. The fragment names the site key.
  */
 export const TURNSTILE_CHECK_PATH = "/account/turnstile_check";
 

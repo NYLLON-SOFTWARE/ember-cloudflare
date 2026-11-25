@@ -112,12 +112,12 @@ function fakeBinding(refusal: () => unknown = () => undefined, held?: Promise<vo
 }
 
 /** The links to join with on their way to each address: how many, and the last of them, which that address's next waits for. */
-type EmailsLinks = { emailingLinks: Map<string, { asked: number; last: Promise<unknown> }> };
+type EmailsLinks = { emailsOnTheirWay: Map<string, { asked: number; last: Promise<unknown> }> };
 
 /** Waits for the links the Workspace is emailing, which it emails once it has answered. */
 const emailed = () =>
   runInDurableObject(workspaceStub(), async (instance: Workspace) => {
-    await Promise.all(Array.from((instance as unknown as EmailsLinks).emailingLinks.values(), ({ last }) => last));
+    await Promise.all(Array.from((instance as unknown as EmailsLinks).emailsOnTheirWay.values(), ({ last }) => last));
   });
 
 /** Runs `run` with the Workspace sending email through a fake binding, answering what it was asked to send once it has sent it. */
@@ -525,7 +525,7 @@ describe("Join with an email domain", () => {
       // The link Ann asked for last is the one that works.
       await expectGone(await lookUp(tokenIn(linkIn(sent[0]!))));
       expect(await (await lookUp(tokenIn(linkIn(sent[2]!)))).json()).toEqual({ kind: "email_domain", emailAddress: "ANN@example.org" });
-      expect(await runInDurableObject(workspaceStub(), (instance: Workspace) => (instance as unknown as EmailsLinks).emailingLinks.size)).toBe(0);
+      expect(await runInDurableObject(workspaceStub(), (instance: Workspace) => (instance as unknown as EmailsLinks).emailsOnTheirWay.size)).toBe(0);
     });
 
     it("has no more on their way to an address at once than it's emailed in an hour, however many are asked for", async () => {
@@ -536,7 +536,7 @@ describe("Join with an email domain", () => {
       await withWorkspaceEnv({ EMAIL: binding }, async () => {
         for (let n = 1; n <= EMAILS_PER_ADDRESS + 2; n++) expect((await ask(n % 2 ? "hal@example.org" : "HAL@example.org")).status).toBe(202);
         await vi.waitFor(() => expect(sent).toHaveLength(1));
-        expect(await runInDurableObject(workspaceStub(), (instance: Workspace) => (instance as unknown as EmailsLinks).emailingLinks.get("hal@example.org")?.asked)).toBe(EMAILS_PER_ADDRESS);
+        expect(await runInDurableObject(workspaceStub(), (instance: Workspace) => (instance as unknown as EmailsLinks).emailsOnTheirWay.get("hal@example.org")?.asked)).toBe(EMAILS_PER_ADDRESS);
         // Another address's is on its way all the same.
         expect((await ask("ann@example.org")).status).toBe(202);
         await vi.waitFor(() => expect(sent.map(({ to }) => to)).toEqual(["hal@example.org", "ann@example.org"]));

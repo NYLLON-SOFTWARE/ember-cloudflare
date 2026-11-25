@@ -139,7 +139,7 @@ function serve({
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
-      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, signInWithMemberful: false, signInWithSso: null, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, passwordResetCodes, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, signInWithMemberful: false, memberfulCodes: false, signInWithSso: null, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, passwordResetCodes, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];

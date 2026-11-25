@@ -8,8 +8,9 @@ import { MEMBERFUL_KEYS, MEMBERFUL_SITE_PORT } from "../../projects/workspace-se
 // what Ember asks of one (apps/worker/src/memberful-api.ts): its sign-in page, which lists its members to
 // sign in as and sends the browser back to Ember with a code, as Memberful's OAuth does; its token
 // endpoint and member API, which say who signed in; and its admin API, which says whose subscriptions are
-// active. Both refuse keys that aren't its custom app's as Memberful does, which Set up Memberful asks
-// them about. Its webhooks come from the specs themselves, signed as Memberful signs them.
+// active, and finds a member by email address, with a query its schema names, for Ember to email them a
+// code to sign in with. Both refuse keys that aren't its custom app's as Memberful does, which Set up
+// Memberful asks them about. Its webhooks come from the specs themselves, signed as Memberful signs them.
 
 export interface FakeMember {
   /** Their member id, a number as Memberful's are. */
@@ -88,7 +89,15 @@ async function answer(request: IncomingMessage, response: ServerResponse, member
   if (request.method === "POST" && url.pathname === "/api/graphql") {
     // Memberful's GraphQL API answers 200 whatever's wrong, saying what in its errors.
     if (bearer !== MEMBERFUL_KEYS.apiKey) return json(200, { errors: [{ message: "Invalid authentication token." }] });
-    const { query } = JSON.parse(await bodyOf(request)) as { query: string };
+    const { query, variables } = JSON.parse(await bodyOf(request)) as { query: string; variables?: { email?: unknown } };
+    // Its queries, which Ember reads for the one that finds a member by email address.
+    if (/\b__schema\b/.test(query)) return json(200, { data: SCHEMA });
+    // The member with an email address, whatever its case, as Ember asks with the query it found.
+    if (/\bmember: memberByEmail\(email: \$email\)/.test(query)) {
+      const email = String(variables?.email).toLowerCase();
+      const member = [...members.values()].find((member) => member.email.toLowerCase() === email);
+      return json(200, { data: { member: member ? { id: member.id, email: member.email, fullName: member.fullName, ...membershipOf(member) } : null } });
+    }
     // The first page of members, which Set up Memberful tries the API key with.
     if (/\bmembers\(first: 1\)/.test(query)) return json(200, { data: { members: { pageInfo: { hasNextPage: members.size > 1 } } } });
     // Each member asked about by an alias of its own, as Ember asks, its id a JSON string.
@@ -101,6 +110,23 @@ async function answer(request: IncomingMessage, response: ServerResponse, member
   }
   response.writeHead(404).end();
 }
+
+/** A type as GraphQL's introspection describes one: a named one, and a required one. */
+const named = (kind: string, name: string) => ({ kind, name, ofType: null });
+const required = (type: ReturnType<typeof named>) => ({ kind: "NON_NULL", name: null, ofType: type });
+
+/** The admin API's queries, as its schema describes them: a member by id, a member by email address, and a page of members. */
+const SCHEMA = {
+  __schema: {
+    queryType: {
+      fields: [
+        { name: "member", type: named("OBJECT", "Member"), args: [{ name: "id", defaultValue: null, type: required(named("SCALAR", "ID")) }] },
+        { name: "memberByEmail", type: named("OBJECT", "Member"), args: [{ name: "email", defaultValue: null, type: required(named("SCALAR", "String")) }] },
+        { name: "members", type: required(named("OBJECT", "MemberConnection")), args: [{ name: "first", defaultValue: null, type: named("SCALAR", "Int") }] },
+      ],
+    },
+  },
+};
 
 async function bodyOf(request: IncomingMessage): Promise<string> {
   let body = "";

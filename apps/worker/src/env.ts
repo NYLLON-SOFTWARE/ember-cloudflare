@@ -96,8 +96,8 @@ export interface Env {
   SSO_CLIENT_SECRET?: string;
   /**
    * The site key of a Cloudflare Turnstile widget, whose check the open sign-up form shows, and the forms
-   * that ask Ember to email a link to join or a code to reset a password, to check that whoever fills
-   * them in is a person (turnstile.ts). With the secret key below, it takes the place of the keys an
+   * that ask Ember to email a link to join or a code to reset a password or sign in, to check that
+   * whoever fills them in is a person (turnstile.ts). With the secret key below, it takes the place of the keys an
    * administrator gives in Set up Turnstile. Without either, the forms have no check, and only their
    * limits hold bots back.
    */

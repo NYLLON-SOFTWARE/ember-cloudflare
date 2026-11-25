@@ -907,7 +907,7 @@ describe("What a ban blocks", () => {
     const token = new URL(link!).hash.slice("#token=".length);
     const everything = () =>
       Promise.all(
-        ["accounts", "bans", "email_link_requests", "email_links", "favorites", "memberships", "password_resets", "rooms", "sessions", "users"].map((table) =>
+        ["accounts", "bans", "email_link_requests", "email_links", "favorites", "memberful_codes", "memberships", "password_resets", "rooms", "sessions", "users"].map((table) =>
           workspaceSql(`SELECT * FROM ${table} ORDER BY rowid`),
         ),
       );
@@ -926,6 +926,8 @@ describe("What a ban blocks", () => {
       ["POST", "/api/join/email", { name: "Hal", password: "heuristically", token }],
       ["POST", "/api/password_resets", { emailAddress: ada.emailAddress }],
       ["PUT", "/api/password_resets", { emailAddress: ada.emailAddress, code: "12345678", password: "new password" }],
+      ["POST", "/api/memberful_codes", { emailAddress: ada.emailAddress }],
+      ["PUT", "/api/memberful_codes", { emailAddress: ada.emailAddress, code: "12345678" }],
       ["PATCH", "/api/account", { name: "Banned" }],
       ["POST", "/api/invitations", { emailAddresses: ["linus@example.com"] }],
       ["POST", `/api/invitations/${invitation.id}/resend`],
