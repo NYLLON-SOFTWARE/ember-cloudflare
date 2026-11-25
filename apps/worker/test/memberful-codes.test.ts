@@ -213,6 +213,45 @@ async function signedInAs(response: Response): Promise<Me> {
 
 const bootstrap = async (keys: Partial<Env> = KEYS) => (await (await apiWith(keys, "/api/bootstrap")).json()) as Bootstrap;
 
+/** Katherine's password, once she has an account here. */
+const PASSWORD = "hidden figures";
+
+/** The session an answer to joining starts. */
+const sessionOf = async (joined: Response): Promise<Session> => ({ user: shown(((await joined.json()) as { user: Me }).user), cookie: cookieOf(joined) });
+
+/** Joins as Katherine with the join link, with a password, as people do before Memberful is members only, which proves nothing of her address. */
+async function joinWithLink(): Promise<Session> {
+  const [{ join_code }] = (await workspaceSql("SELECT join_code FROM accounts")) as [{ join_code: string }];
+  const joined = await api(`/api/join/${join_code}`, { method: "POST", body: JSON.stringify({ name: katherine.fullName, emailAddress: katherine.email, password: PASSWORD }) });
+  expect(joined.status, await joined.clone().text()).toBe(201);
+  return sessionOf(joined);
+}
+
+/** Invites Katherine by email as `administrator`, and joins with the link Ember emails her, which proves her address is hers. */
+async function joinWithInvitation(administrator: Session): Promise<Session> {
+  const [invitation, ...more] = await emailing(async () => {
+    const invited = await api("/api/invitations", { method: "POST", headers: as(administrator), body: JSON.stringify({ emailAddresses: [katherine.email] }) });
+    expect(invited.status, await invited.clone().text()).toBe(200);
+  });
+  expect(more).toEqual([]);
+  const token = /#token=(\S+)/.exec(invitation!.text ?? "")![1]!;
+  const joined = await api("/api/join/invitation", { method: "POST", body: JSON.stringify({ name: katherine.fullName, password: PASSWORD, token }) });
+  expect(joined.status, await joined.clone().text()).toBe(201);
+  return sessionOf(joined);
+}
+
+/** Whether Katherine's password signs her in. */
+const passwordSignsIn = async () =>
+  (await api("/api/session", { method: "POST", headers: { "CF-Connecting-IP": nextAddress() }, body: JSON.stringify({ emailAddress: katherine.email, password: PASSWORD }) })).status === 201;
+
+/** The answer to a code that works for someone here with the address already, who connects their Memberful account with their password. */
+async function expectTaken(response: Response): Promise<void> {
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({ error: MEMBERFUL_SIGN_IN_PROBLEMS.taken, field: "password" });
+  expect(response.headers.get("Set-Cookie")).toBeNull();
+  expect(await count("identities")).toBe(0);
+}
+
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
@@ -460,14 +499,63 @@ describe("Sign in with a code Ember emails a Memberful member", () => {
       await expectWrong(await signInWith("katherine@example.com", code));
     });
 
-    it("asks someone here with the address already for their password, which connects their account", async () => {
-      await setUp();
-      fakeMemberful([{ ...katherine, email: ada.emailAddress }]);
-      const response = await signInWith(ada.emailAddress, await codeFor(ada.emailAddress));
+    it.each([
+      ["while Memberful is members only", true],
+      ["beside the password", false],
+    ])("connects the account of someone here who proved the address theirs, by joining with a link emailed to it, %s", async (_, membersOnly) => {
+      const administrator = await setUp({ membersOnly });
+      fakeMemberful();
+      const member = await joinWithInvitation(administrator);
+      const response = await signInWith("katherine@example.com", await codeFor("katherine@example.com"));
+      expect(response.status, await response.clone().text()).toBe(201);
+      expect(await response.json()).toEqual({ user: { ...member.user, administrator: false } } satisfies MemberfulCodeSignedIn);
+      expect((await signedInAs(response)).id).toBe(member.user.id);
+      expect(await workspaceSql("SELECT issuer, subject, user_id, via FROM identities")).toEqual([{ issuer: SITE, subject: "4242", user_id: member.user.id, via: "memberful" }]);
+      expect(await count("users")).toBe(2);
+      // Their password still signs them in, as it does someone an administrator invited.
+      expect(await passwordSignsIn()).toBe(true);
+    });
+
+    it("asks someone here who joined with the join link, which proves nothing of their address, for their password, which connects their account", async () => {
+      const administrator = await setUp({ memberful: false });
+      // Anyone with the join link can type a colleague's address before the colleague joins.
+      await joinWithLink();
+      await change(administrator, { settings: { memberfulJoin: true, memberfulSignIn: true } });
+      fakeMemberful();
+      await expectTaken(await signInWith("katherine@example.com", await codeFor("katherine@example.com")));
+    });
+
+    it("forgets that someone proved their address once they change it, even back", async () => {
+      const administrator = await setUp();
+      fakeMemberful();
+      const member = await joinWithInvitation(administrator);
+      for (const emailAddress of ["kj@example.com", katherine.email]) {
+        const body = { name: katherine.fullName, emailAddress, bio: "", currentPassword: PASSWORD };
+        const changed = await api("/api/users/me/profile", { method: "PATCH", headers: as(member), body: JSON.stringify(body) });
+        expect(changed.status, await changed.clone().text()).toBe(200);
+      }
+      await expectTaken(await signInWith("katherine@example.com", await codeFor("katherine@example.com")));
+    });
+
+    it("never connects an administrator's account by their address, asking for their password, as they connect Memberful from their profile", async () => {
+      const administrator = await setUp();
+      fakeMemberful([katherine, { ...dorothy, email: ada.emailAddress }]);
+      await expectTaken(await signInWith(ada.emailAddress, await codeFor(ada.emailAddress)));
+      const member = await joinWithInvitation(administrator);
+      const promoted = await api(`/api/account/users/${member.user.id}`, { method: "PATCH", headers: as(administrator), body: JSON.stringify({ role: "administrator" }) });
+      expect(promoted.status, await promoted.clone().text()).toBe(200);
+      await expectTaken(await signInWith("katherine@example.com", await codeFor("katherine@example.com")));
+    });
+
+    it("connects nobody's account by their address without an active membership, leaving them be", async () => {
+      const administrator = await setUp();
+      fakeMemberful([{ ...katherine, subscriptions: [{ active: false }] }]);
+      await joinWithInvitation(administrator);
+      const response = await signInWith("katherine@example.com", await codeFor("katherine@example.com"));
       expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({ error: MEMBERFUL_SIGN_IN_PROBLEMS.taken, field: "password" });
-      expect(response.headers.get("Set-Cookie")).toBeNull();
+      expect(await response.json()).toEqual({ error: MEMBERFUL_SIGN_IN_PROBLEMS.membership });
       expect(await count("identities")).toBe(0);
+      expect(await passwordSignsIn()).toBe(true);
     });
 
     it("keeps the code working while Memberful can't say who has the address", async () => {

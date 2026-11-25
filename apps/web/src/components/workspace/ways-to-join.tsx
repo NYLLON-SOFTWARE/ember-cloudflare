@@ -131,6 +131,9 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   // Why the ways that people who sign in only elsewhere turn off are greyed out, if they are.
   const elsewhereOnly =
     membersOnlyOverrides && ssoOnlyOverrides ? EITHER_ONLY_OVERRIDES : membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : ssoOnlyOverrides ? SSO_ONLY_OVERRIDES : null;
+  // Whether Memberful's members sign in with a code Ember emails them, which takes the custom app's API
+  // key: the keys an administrator gives always have it, and the deployment's do while they take webhooks.
+  const memberfulCodes = settings.memberfulKeys === "saved" || settings.memberfulWebhooks ? (sendsEmail(settings.email) ? "emailed" : "unsendable") : null;
 
   const switchTo =
     (setting: WaySetting, asking = true) =>
@@ -224,6 +227,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         site={settings.memberfulSite}
         webhooks={settings.memberfulWebhooks}
         keys={settings.memberfulKeys}
+        codes={memberfulCodes}
         onSetUp={onSetUpMemberful}
         checked={ssoOnly ? membersOnly : memberful}
         onCheckedChange={ssoOnly ? switchBeside("memberfulJoin", "memberfulSignIn", "ssoSignIn") : switchTo("memberfulJoin")}

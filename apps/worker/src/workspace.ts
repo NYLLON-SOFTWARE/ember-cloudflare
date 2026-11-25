@@ -3110,7 +3110,8 @@ export class Workspace extends DurableObject<Env> {
    * a username made from it (`firstFreeUsername`), which answers "joined".
    * Accounts are linked by the issuer and the member's id there, never matched by email address, but for
    * one the single sign-on provider says it verified, while the Single sign-on card says to go by those,
-   * which links whoever here has it, once, if only one person does (`linkVerifiedEmail`).
+   * or one a code Ember emailed proved the Memberful member's, which links whoever here has it, once, if
+   * only one person does, who proved it theirs here too (`linkVerifiedEmail`).
    * What it said of their membership, as of `readAt`, is gone by as a check's is (`settleMembership`),
    * unless the Workspace has gone by a newer read: a member whose membership has lapsed, or who is in no
    * group the card lets in, is suspended, their sessions elsewhere ending, and one whose membership is
@@ -3205,14 +3206,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Links `member`'s account at the single sign-on provider `issuer` to whoever here has the email address
-   * the provider says it verified, while the Single sign-on card says to go by those, as signing in for
-   * the first time does (`signInElsewhere`), answering whom it linked, as signing in finds them.
+   * Links `member`'s account at `issuer`, which `via` signs in with, to whoever here has the email address
+   * verified as theirs, as signing in for the first time does (`signInElsewhere`): one the single sign-on
+   * provider says it verified, while the Single sign-on card says to go by those, or one a code Ember
+   * emailed proved the Memberful member's (`signInWithMemberfulCode`). Answers whom it linked, as signing
+   * in finds them.
    */
   private async linkVerifiedEmail(via: SignInElsewhere, issuer: string, member: MemberElsewhere, readAt: number, otherWays: OtherWays): Promise<LinkedPerson | null> {
-    if (via !== "sso" || !member.emailVerified || member.emailAddress === null) return null;
-    if (!(await this.ssoProvider())?.linksVerifiedEmails) return null;
-    const userId = await this.store.linkVerifiedEmail(linkedAccountOf(issuer, member), member.emailAddress, readAt, new Date().toISOString());
+    if (!member.emailVerified || member.emailAddress === null) return null;
+    if (via === "sso" && !(await this.ssoProvider())?.linksVerifiedEmails) return null;
+    const userId = await this.store.linkVerifiedEmail(linkedAccountOf(issuer, member), via, member.emailAddress, readAt, new Date().toISOString());
     return userId === null ? null : this.store.linkedPerson(issuer, member.id, otherWays);
   }
 
@@ -3741,7 +3744,10 @@ export class Workspace extends DurableObject<Env> {
    * (`signInElsewhere`), with the session `tokenDigest` names. The try counts against sign-in's limit
    * from `ip`, then against the code, and Memberful is asked who has the address only once the code is
    * right, which spends it, unless Memberful can't be asked. A code emailed for another site than `api`'s,
-   * as before an administrator gave Ember another site's keys, answers "failed".
+   * as before an administrator gave Ember another site's keys, answers "failed". The code proves the
+   * address is the member's, so it links them to whoever here proved it theirs too, by joining with a
+   * link emailed to it, where signing in on Memberful's page asks them for their password
+   * (`linkVerifiedEmail`).
    */
   async signInWithMemberfulCode(ip: string, emailAddress: string, codeDigest: string, api: MemberfulApi, tokenDigest: string, client: Client): Promise<MemberfulCodeOutcome> {
     if (!this.signInAttempts.attempt(ip)) return "limited";
@@ -3754,7 +3760,8 @@ export class Workspace extends DurableObject<Env> {
     if (member === null) return "unchecked";
     if (!(await this.store.spendMemberfulCode(emailAddress, codeDigest, new Date().toISOString()))) return "wrong";
     if (member === "nobody") return "nobody";
-    return this.signInElsewhere("memberful", api.site, member, readAt, tokenDigest, client, NOTHING_KEPT);
+    // The code proves the address is theirs, which Memberful's word alone doesn't.
+    return this.signInElsewhere("memberful", api.site, { ...member, emailVerified: true }, readAt, tokenDigest, client, NOTHING_KEPT);
   }
 
   /**

@@ -1169,16 +1169,17 @@ const CONNECT_IDENTITY = `INSERT INTO identities (issuer, subject, user_id, chec
   RETURNING user_id`;
 
 /**
- * Links the account at issuer ?1 with subject ?2, its membership read at ?3, named ?5 with the email
- * address ?6, at ?4, to whoever here has the address ?7, whatever its case, if only one person does, and
- * they can have one connected and aren't connected to another account there: what signing in for the
- * first time does with an address the single sign-on provider verified, while it's set to. Only someone
- * who proved the address is theirs here too, by joining with a link emailed to it, and hasn't changed it
- * since, is linked by it, so that nobody can claim a colleague's address ahead of them, and never an
+ * Links the account at issuer ?1 with subject ?2, signed in with by way of ?8, its membership read at ?3,
+ * named ?5 with the email address ?6, at ?4, to whoever here has the address ?7, whatever its case, if
+ * only one person does, and they can have one connected and aren't connected to another account there:
+ * what signing in for the first time does with an address the single sign-on provider verified, while
+ * it's set to, or one a code Ember emailed proved the Memberful member's. Only someone who proved the
+ * address is theirs here too, by joining with a link emailed to it, and hasn't changed it since, is
+ * linked by it, so that nobody can claim a colleague's address ahead of them, and never an
  * administrator, who connects one from their profile, with their password.
  */
 const LINK_VERIFIED_EMAIL = `INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at, name, email_address, via)
-  SELECT ?1, ?2, users.id, ?3, ?4, ?4, ?5, ?6, 'sso' FROM users WHERE lower(users.email_address) = lower(?7) AND ${CONNECTABLE}
+  SELECT ?1, ?2, users.id, ?3, ?4, ?4, ?5, ?6, ?8 FROM users WHERE lower(users.email_address) = lower(?7) AND ${CONNECTABLE}
     AND users.email_verified_at IS NOT NULL AND users.role <> ${ADMINISTRATOR}
     AND (SELECT count(*) FROM users AS same WHERE lower(same.email_address) = lower(?7)) = 1
     AND NOT EXISTS (SELECT 1 FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?1)
@@ -4327,13 +4328,14 @@ export class WorkspaceStore {
   }
 
   /**
-   * Links `account`, at a single sign-on provider, to whoever here has `emailAddress`, which the provider
-   * says it verified, whatever its case, its membership read at `checkedAt`: only if one person does, who
-   * can have an account connected and isn't connected to another there. Answers whom it linked it to.
+   * Links `account`, at the single sign-on provider or the Memberful site, as `via` says, to whoever here
+   * has `emailAddress`, which the provider says it verified, or a code Ember emailed proved the member's,
+   * whatever its case, its membership read at `checkedAt`: only if one person does, who can have an
+   * account connected and isn't connected to another there. Answers whom it linked it to.
    */
-  async linkVerifiedEmail(account: LinkedAccount, emailAddress: string, checkedAt: number, now: string): Promise<UserId | null> {
+  async linkVerifiedEmail(account: LinkedAccount, via: "memberful" | "sso", emailAddress: string, checkedAt: number, now: string): Promise<UserId | null> {
     const { issuer, subject, name, emailAddress: shown } = account;
-    const [row] = await this.db.all<{ user_id: UserId }>(LINK_VERIFIED_EMAIL, issuer, subject, checkedAt, now, name, shown, emailAddress);
+    const [row] = await this.db.all<{ user_id: UserId }>(LINK_VERIFIED_EMAIL, issuer, subject, checkedAt, now, name, shown, emailAddress, via);
     return row?.user_id ?? null;
   }
 
