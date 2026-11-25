@@ -835,7 +835,7 @@ describe("Sign in with a code Ember emails a Memberful member", () => {
     expect(screen.getByRole("button", { name: "Sign in with a password" })).toBeInTheDocument();
   });
 
-  it("keeps the card from switching while a code is on its way, so only one sign-in is", async () => {
+  it("keeps the card from switching while a code is on its way, so only one sign-in is, then keeps to the address it asked for", async () => {
     let answer = (_: Response) => {};
     vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
     const user = userEvent.setup();
@@ -844,8 +844,12 @@ describe("Sign in with a code Ember emails a Memberful member", () => {
     await user.click(emailMe());
     expect(emailMe()).toBeDisabled();
     expect(screen.getByRole("button", { name: "Sign in with a password" })).toBeDisabled();
+    await user.type(emailField(), ".uk");
     await act(async () => answer(asked()));
     await screen.findByRole("heading", { level: 1, name: "Check your email" });
+    expect(screen.getByText(/If a Memberful account has ada@example\.com,/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send another code" }));
+    expect(emailField()).toHaveValue("ada@example.com");
   });
 });
 

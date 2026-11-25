@@ -124,9 +124,12 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     setConnections(asked);
   }
 
+  /** Asks for the code Ember was asked to email to `address`, or for an address again with null. */
   function changeCodeAsked(address: string | null) {
     keepMemberfulCodeAsked(address);
     setCodeAsked(address);
+    // The field may have changed while the ask was on its way; asking again and the password form go on from the address asked for.
+    if (address !== null) setEmailAddress(address);
   }
 
   /** Asks for `next` in place of what the card asks for now, forgetting why the last try was refused. */
