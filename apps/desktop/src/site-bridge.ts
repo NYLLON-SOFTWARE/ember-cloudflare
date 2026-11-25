@@ -44,8 +44,11 @@ export function notificationOf(value: unknown): SiteNotification | null {
 /** `value` as how many conversations a site's page says are unread, or null if it isn't a count. */
 export const countOf = (value: unknown): number | null => (typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null);
 
+/** Two sites to open a path at: one naming a host, even one of these, opens at no more than one of them. */
+const SITES = ["https://one.invalid", "https://another.invalid"];
+
 /** Whether `path` is a page of whichever site a page is on, as /rooms/1 is, and //example.com isn't. */
-const isPagePath = (path: string) => path.startsWith("/") && URL.parse(path, "https://site.invalid")?.origin === "https://site.invalid";
+const isPagePath = (path: string) => path.startsWith("/") && SITES.every((site) => URL.parse(path, site)?.origin === site);
 
 /** `text`, cut to `longest` characters, an ellipsis among them, where it's longer, without splitting one. */
 function shortened(text: string, longest: number): string {

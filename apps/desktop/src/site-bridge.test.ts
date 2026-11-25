@@ -20,6 +20,10 @@ describe("notificationOf", () => {
       { ...MESSAGE, path: "rooms/7" },
       { ...MESSAGE, path: "//example.com/rooms/7" },
       { ...MESSAGE, path: "/\\example.com/rooms/7" },
+      { ...MESSAGE, path: "/\t/example.com/rooms/7" },
+      // Hosts the check itself opens paths at.
+      { ...MESSAGE, path: "//one.invalid/rooms/7" },
+      { ...MESSAGE, path: "/\\another.invalid/rooms/7" },
       { ...MESSAGE, path: "https://example.com/rooms/7" },
     ]) {
       expect(notificationOf(value)).toBeNull();
