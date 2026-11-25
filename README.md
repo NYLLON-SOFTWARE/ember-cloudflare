@@ -4,7 +4,7 @@
 
 <p align="center">
   A real-time chat app that runs entirely on Cloudflare.<br>
-  Rooms, threads, DMs, files, search, bots and push notifications, deployed in one click.
+  Rooms, threads, DMs, huddles, files, search, AI agents, bots and push notifications, deployed in one click.
 </p>
 
 <p align="center">
@@ -41,45 +41,69 @@ Cloudflare's network, quiet rooms hibernate, and every push to your copy deploys
 Rooms for every project, private rooms for the few who need them, and DMs with one person or a few.
 Reply in a thread to keep a room on topic, and tick **Also send to the room** when everyone should see
 the answer. Mention people, or the whole room with @channel and @here, and everyone with @everyone in
-an open room, which ask first in a room of six or more, as Slack's do, and which administrators can keep
-to themselves or turn off in a room. Link a room with #, as Slack links a channel: anyone who isn't in a
-private room sees a lock and "private room" in place of its name. Quote a message, react with any emoji
-or a few words of your own, and edit or delete what you wrote.
+an open room, which ask first in a room of six or more, and which administrators can keep to
+themselves or turn off in a room. Link a room with #: anyone who isn't in a private room sees a lock
+and "private room" in place of its name. Quote a message, react with any emoji or a few words of your
+own, and edit or delete what you wrote. You see who's here and who's typing, as it happens.
 
-Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
-says whether you hear about every message, only mentions, or nothing. **Pause notifications** quiets
-them all for half an hour, a few hours or until tomorrow, with a half-moon on your picture meanwhile, as
-Slack's does. You see who's here and who's typing, as it happens.
-
-![Ember's Launch room: a deploy bot's card, reactions, and a thread open beside the room](docs/screenshots/hero.png)
+![Ember's Launch room under its top bar: the sidebar in sections, a deploy bot's card, reactions, and a thread open beside the room](docs/screenshots/hero.png)
 
 <p align="center">
   <sub>The people and conversations in these screenshots are made up: they're the Fernwood team that <code>pnpm seed</code> creates.</sub>
 </p>
 
+### Find your way around
+
+A Slack-inspired top bar holds search, Back and Forward, and History, which lists the places you were
+just in. Sort the sidebar into named sections that fold, star the rooms you live in, and mute the ones
+you only look in now and then: a muted room stays dim, and stays out of **Activity** unless someone
+mentions you. Unread rooms stand out, each counting the mentions waiting in it, **Activity** narrows
+the list to what you haven't read, and a New line marks where you left off. Each room's bell says
+whether you hear about every message, only mentions, or nothing, and **Pause notifications** quiets
+them all for half an hour, a few hours or until tomorrow, with a half-moon on your picture meanwhile.
+Whoever joins has a DM with each person already here, which opens with their joining, and ⌘/, or
+Ctrl+/, lists the keyboard shortcuts.
+
 ### Say it clearly
 
-Bold, lists, quotes, and code blocks with syntax highlighting. Paste a link and Ember shows a preview,
-and share a chart, a spreadsheet or anything else right in the conversation. Light, dark, or whatever
-your system says.
+A Slack-inspired composer puts its formatting over what you write and its buttons under it: bold,
+lists, quotes, and code blocks with syntax highlighting, emoji, mentions, and 13 / commands, from
+/huddle to /snippet. Drafts wait for you to come back to them, a message can be scheduled for later,
+and an audio or video clip of up to five minutes records right where you type. A link gets its
+preview a moment after you send it, a code block has a button that copies it, a text file reads as a
+snippet in its message, and a message can run to 40,000 characters. Light, dark, or whatever your
+system says.
 
-![Ember in dark mode: a chart, a code block, a quote and a shared CSV in the Engineering room](docs/screenshots/dark.png)
+![Ember in dark mode: a chart, a code block, a quote and a CSV read as a snippet in the Engineering room](docs/screenshots/dark.png)
 
 ### Files, pictures and video
 
-Share files of up to 250 MB. Pictures show in the conversation, videos play where they're posted, and
-everything else is a click away. Files go to an R2 bucket in your Cloudflare account, which charges
-nothing for downloads.
+Share files of up to 250 MB. Pictures show in the conversation, GIFs play, videos play in a card
+player of Ember's own, and sounds in one that draws their waveform, while everything else is a click
+away. Files go to an R2 bucket in your Cloudflare account, which charges nothing for downloads.
 
-![A PDF, a quote and a video playing inline in the Design room](docs/screenshots/files.png)
+![A PDF, two quotes, and a video in Ember's card player, in the Design room](docs/screenshots/files.png)
+
+### Huddles
+
+Call a room or a DM by voice, camera and shared screen, in a Slack-inspired layout, for up to 50
+people, over Cloudflare's [Realtime SFU](https://developers.cloudflare.com/realtime/sfu/). A huddle in
+a DM rings the others in it, **Invite people** rings whoever else you pick, and whoever doesn't have
+Ember in view gets the invitation as a push notification. Video is HD unless an administrator picks
+Standard or Full HD, and steps down on a slow connection. Raise a hand, show a sticker, or react with
+emoji. Each huddle has a message in its room, whose thread the huddle shows beside the people in it,
+and **Huddles**, in the sidebar, lists the ones going on and the recent ones. Administrators turn
+huddles on with a Realtime SFU app's keys, and can turn them off in a room.
 
 ### Bots that already speak Slack
 
 Point Alertmanager, Grafana, your CI pipeline, or anything else that posts to a Slack incoming webhook
 at Ember instead. Every bot gets a Slack-compatible webhook URL for each of its rooms, which takes the
-same payloads, with Slack's formatting, attachments and Block Kit cards. Bots can answer too: mention
-one, or DM it, and Ember sends the message to the bot's own webhook and posts what it answers within
-30 seconds. A card's buttons can act: a click goes to the bot, which puts a new card in its place.
+same payloads, with Slack's formatting, attachments and Block Kit cards, and status pages on Atlassian
+Statuspage, such as githubstatus.com, post their incidents there as cards. Bots can answer too:
+mention one, or DM it, and Ember sends the bot the message, with any files in it, and posts what it
+answers within 30 seconds, in the thread it was asked in. A card's buttons can act: a click goes to
+the bot, which puts a new card in its place.
 
 ![Alerts from a monitoring bot, firing and resolved, in the Support room](docs/screenshots/bots.png)
 
@@ -89,23 +113,40 @@ Turn on Ember AI and choose Claude, GPT or Grok, asked through
 [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/), or a model Cloudflare runs
 itself on [Workers AI](https://developers.cloudflare.com/workers-ai/). Ember checks for new models
 every day, so they show up without an update. Then mention @ember in a room or a thread, or DM it, and
-it reads the conversation and answers right there, with links, lists, code and pictures, as a teammate
-would. It searches the web too, when you let it, listing the pages its answer came from, and Claude,
-GPT and Grok search the room for what was said before. Administrators set how long it may think and
-write, and each person picks their own levels on their profile. Administrators can add agents of their
-own too, each with its instructions, model and rooms, such as one that sums up long threads or drafts
-replies in Support, and people mention or DM them just the same. Available Agents, in everyone's
-sidebar, lists the agents they can ask, with what each does and the rooms it's in, and administrators
-can keep an agent for themselves, in its rooms or only in their own DMs with it.
+it reads the conversation and answers right there, with links, lists, code, pictures and cards, as a
+teammate would. It searches the web too, when you let it, listing the pages its answer came from, and
+Claude, GPT and Grok read back through the room and its threads, and search for who said what, but
+only in the conversation they're asked in. Administrators set how long it may think and write, and
+each person picks their own levels on their profile.
+
+Administrators can add agents of their own too, each with its instructions, model and rooms, such as
+one that sums up long threads or drafts replies in Support, and people mention or DM them just the
+same. Give an agent apps, other services' [MCP](https://modelcontextprotocol.io) servers, and it uses
+the tools you pick for it, once the person who asked allows each call, unless you always allow a tool
+in open rooms. **Available Agents**, in everyone's sidebar, lists the agents they can ask, with what
+each does and the rooms it's in, and administrators can keep an agent for themselves.
+
+It works the other way round too: turn on Outside AI, and an AI app such as Claude or ChatGPT can
+connect to Ember as one of its people, to read and search the rooms they're in, and to send messages
+as them if they let it, in their DMs and private rooms only if they let it in there as well.
 
 ### Find anything
 
 Press ⌘F, or Ctrl+F, to search every message in the rooms and DMs you're in, thread replies included,
-and narrow it as you would in Slack: to a room, to what someone wrote, to what mentions you, or to
-links, files or threads. Results come newest or oldest first, with the words they matched marked, and
-your recent searches are a key away.
+and narrow it to a room, to what someone wrote, to what mentions you, or to links, files or threads.
+Results come newest or oldest first, with the words they matched marked, and your recent searches are
+a key away. Search finds Japanese, Chinese and Korean words inside a sentence, too.
 
-![Search results for "thanks" under Slack's filter chips, each a card naming its DM or room, with the word marked](docs/screenshots/search.png)
+![Search results for "thanks" under its filter chips, each a card naming its DM or room, with the word marked](docs/screenshots/search.png)
+
+### Keep it safe
+
+Anyone can **Report** a message, or someone's name, picture or bio, and administrators find it in
+Membership, beside **Delete message**, **Remove** and **Ban**. A ban signs someone out, deletes their
+messages and blocks their IP addresses. **Block** someone, and their messages fold away for you.
+**Blocked words** keeps the words and phrases an administrator lists out of messages, reactions, the
+names of files and rooms, and people's names, usernames and bios. And **Delete my account**, on
+everyone's profile, deletes their account with their messages, files and reactions.
 
 ### On your phone
 
@@ -114,7 +155,7 @@ on push notifications for the messages you want to hear about. It's made for pho
 rooms, tap targets sized for thumbs, nothing hiding under the notch, and messages written without
 signal send once you're back online. To sign in on your phone, scan the QR code on your profile.
 
-![Ember on three phones: the room drawer, the Launch room, and a photo in dark mode](docs/screenshots/phones.png)
+![Ember on three phones: the room drawer with search atop it, the Launch room, and a photo in dark mode](docs/screenshots/phones.png)
 
 ### Make it yours
 
@@ -127,13 +168,13 @@ with [Cloudflare Turnstile](https://www.cloudflare.com/application-services/prod
 keeping bots out.
 
 <p align="center">
-  <img src="docs/screenshots/membership.png" width="640" alt="Membership settings: Open, Join link with its QR code, Email domain and Memberful, each with a switch">
+  <img src="docs/screenshots/membership.png" width="640" alt="Who can join, in Membership: Open, Join link with its address, Email domain, Memberful and Single sign-on, each with a switch">
 </p>
 
 ## Ember and Slack, side by side
 
 Slack does more, and charges for it per person. Ember does the everyday core of team chat well, and
-it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) listed them in October
+it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) listed them in November
 2026.
 
 ### Price and ownership
@@ -155,9 +196,11 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Threads** | ✅ with Also send to the room | ✅ with Also send to the channel |
 | **Mentions, quotes, reactions and edits** | ✅ @channel, @here and @everyone as well, #rooms, and react with any emoji or a few words | ✅ plus custom emoji |
 | **Rich text, code blocks and link previews** | ✅ | ✅ |
+| **Drafts, scheduled messages, / commands, and audio and video clips** | ✅ | ✅ |
+| **Huddles, by voice, camera and shared screen** | ✅ for up to 50 people | ✅ (Free: two people, for up to 30 minutes) |
 | **Files** | ✅ up to 250 MB each | ✅ up to 1 GB each |
-| **Search** | ✅ every message in your rooms and DMs, with Slack's filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |
-| **Unread, Activity, starred rooms, per-room notifications** | ✅ | ✅ |
+| **Search** | ✅ every message in your rooms and DMs, with filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |
+| **Unread, Activity, sidebar sections, muted rooms, per-room notifications** | ✅ | ✅ |
 | **Phones** | ✅ installable web app with push notifications | ✅ native iPhone and Android apps |
 | **Computers** | ✅ any modern browser, or installed as an app | ✅ native Mac, Windows and Linux apps, or the browser |
 | **Light and dark** | ✅ | ✅ |
@@ -170,12 +213,12 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 
 | | Ember | Slack |
 |---|---|---|
-| **Apps and workflows** | — | ✅ a directory of 2,600+ apps (Free: 10 of them) and Workflow Builder |
-| **Voice and video calls** | Huddles in any room or DM, by voice, camera and shared screen, in HD, or Standard or Full HD as an administrator chooses, with raised hands, stickers and emoji reactions, for up to 50 people; one in a DM rings the others in it, Invite people rings whoever else in the room you pick, and whoever doesn't have Ember in view gets the invitation as a push notification; each has a message in its room to join it from, with a thread of its own, which the huddle shows beside the people in it; Huddles, in the sidebar, lists the ones going on, to join, and the recent ones, with their threads; an administrator can turn huddles off in a room, in its settings, and each person chooses which of a huddle's sounds they hear | ✅ huddles (Free: one-on-one only) |
-| **AI** | @ember and agents of your own answer when you mention or DM them, each on the model you choose | ✅ summaries, recaps and AI search on every plan, more on Business+ |
-| **Canvases, lists and clips** | — | ✅ |
+| **Apps and workflows** | Apps for AI agents: another service's MCP server, whose tools you pick for each agent | ✅ a directory of over 2,600 apps (Free: 10 of them) and Workflow Builder |
+| **AI** | @ember and agents of your own answer when you mention or DM them, each on the model you choose | ✅ summaries and huddle notes from Pro, and AI search, recaps and translations on Business+ |
+| **Canvases and lists** | — | ✅ |
 | **Channels shared with other companies** | — | ✅ Slack Connect |
-| **Scheduled messages and reminders** | — | ✅ |
+| **Reminders** | — | ✅ |
+| **Pinned and saved messages, and custom status** | — | ✅ |
 | **Guest accounts** | — | ✅ on paid plans |
 | **Exports of every message, DMs included** | — not yet | ✅ on Business+ and up |
 | **Support** | GitHub issues | ✅ 24/7 on Business+ |
@@ -244,9 +287,10 @@ was made.
 
 From then on, every push to your copy deploys again, and each new release of Ember arrives in your copy
 as a pull request that deploys it once you merge it, while Ember's admin settings say it's out, with a
-button that opens the workflow on GitHub to run it sooner. The
+button that opens the workflow on GitHub to run it sooner. A copy can take the next release's betas
+too, only when it asks for them, as [Betas](docs/self-hosting.md#betas) says. The
 [self-hosting guide](docs/self-hosting.md) covers updating, deploying from your own machine, a custom
-domain, email, push notifications, Memberful, single sign-on and more.
+domain, email, push notifications, Memberful, single sign-on, AI, apps, huddles and more.
 
 ### Try it on your computer
 
@@ -267,17 +311,20 @@ pnpm seed       # in a second terminal: the made-up Fernwood team sets Ember up 
   holding the room's live connections, who's here and who's typing, and, by default, its messages in
   its own SQLite database. Quiet rooms hibernate, so an idle workspace uses next to nothing.
 - **Secure by default.** HTTPS everywhere with HSTS, a strict Content Security Policy, passwords hashed
-  with scrypt, and setup only through the deploy's own link. Removing someone ends their sessions
-  within a minute. The [security notes](docs/self-hosting.md#security-notes) have the rest.
+  with scrypt, and setup only with the deploy's own password or link. Removing someone ends their
+  sessions within a minute. The [security notes](docs/self-hosting.md#security-notes) have the rest.
 - **Tested hard.** The Worker's tests run on both storage backends, and browser tests drive the app on
-  a desktop and on seven emulated phones, from a 320px iPhone SE up.
+  a desktop and on seven emulated phones, from a 320px iPhone SE up, and again in Safari's engine.
 
 ## Learn more
 
-- [Self-hosting guide](docs/self-hosting.md): deploying, what it costs, custom domains, who can join,
-  email, push notifications, files and security.
+- [Self-hosting guide](docs/self-hosting.md): deploying, updates and betas, what it costs, custom
+  domains, who can join, single sign-on, email, push notifications, files, Ember AI, agents, apps,
+  outside AI, huddles and security.
 - [Slack-compatible webhooks](docs/slack-webhooks.md): what bots can post, and how it looks.
 - [The models file](docs/models.md): the models every copy of Ember offers, and how to change them.
+- [Releases](https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases): what each version of Ember
+  brought.
 - [Development](docs/development.md): the code's layout, running Ember locally, tests and performance.
 - [The database](docs/database.md): Ember's schema beside Campfire's.
 - [Security policy](SECURITY.md): how to report a vulnerability privately.
