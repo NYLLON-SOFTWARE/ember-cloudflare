@@ -32,6 +32,7 @@ const huddleWith = (...others: User[]): JoinedHuddle => ({
   people: [ada, ...others].map(inHuddle),
   muted: false,
   sticker: null,
+  unstable: false,
   microphone: true,
   microphoneId: "",
   speakerId: "",

@@ -9,8 +9,9 @@ import type { RoomFrames } from "@/hooks/use-room";
 import { roomPath, useVisit } from "@/hooks/use-route";
 import { useThread } from "@/hooks/use-thread";
 import { isPending, type ConnectionStatus } from "@/lib/room-state";
+import type { CommandRunner, SlashCommand } from "@/lib/slash-commands";
 import { cn } from "@/lib/utils";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { Composer, RoomDeleted, type ComposerHandle, type ComposerScheduling } from "./composer";
 import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 import { MessageList } from "./message-list";
 import { RoomNotice } from "./room-notice";
@@ -36,6 +37,11 @@ interface Props {
   /** What the room has to say while the thread covers it, as why it refused something done in the thread. */
   roomNotice: string | null;
   onDismissRoomNotice: () => void;
+  /** The commands / lists, which run as the room's composer runs them. */
+  commands?: readonly SlashCommand[];
+  onCommand?: CommandRunner;
+  /** Schedule for later, as the room's composer has it, whose line over the thread's composer counts what's scheduled in the thread. */
+  scheduling?: ComposerScheduling;
 }
 
 /**
@@ -44,7 +50,7 @@ interface Props {
  * the room's right, below that it covers the room, and on phones the whole page, with Back in its header
  * in Close thread's place.
  */
-export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice }: Props) {
+export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice, commands, onCommand, scheduling }: Props) {
   const thread = useThread(room.id, frames, status, offline, me, parentId, replyId);
 
   // Following a reply's permalink in the thread goes to it, or the thread's own link to its end, as a
@@ -96,7 +102,19 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
           <Xmark className="size-5" />
         </PageLink>
       </header>
-      <ThreadReplies room={room} name={name} me={me} thread={thread} offline={offline} deleted={deleted} roomNotice={roomNotice} onDismissRoomNotice={onDismissRoomNotice} />
+      <ThreadReplies
+        room={room}
+        name={name}
+        me={me}
+        thread={thread}
+        offline={offline}
+        deleted={deleted}
+        roomNotice={roomNotice}
+        onDismissRoomNotice={onDismissRoomNotice}
+        commands={commands}
+        onCommand={onCommand}
+        scheduling={scheduling}
+      />
     </aside>
   );
 }
@@ -120,13 +138,18 @@ interface RepliesProps {
   autoFocus?: boolean;
   /** Whether the people the composer's @ lists show above the text with a mouse too, as where the panel ends over something that would cut the list off. */
   mentionsAbove?: boolean;
+  /** The commands / lists, which run as the room's composer runs them. Without them, as in a huddle's thread, a / is just a /. */
+  commands?: readonly SlashCommand[];
+  onCommand?: CommandRunner;
+  /** Schedule for later, as the room's composer has it. Without it, as in a huddle's thread, replies go as they're sent. */
+  scheduling?: ComposerScheduling;
 }
 
 /**
  * A thread under its panel's header, wherever the panel is: what the room has to say, the thread's
  * message over its replies, and a composer to reply with, while the room has the message.
  */
-export function ThreadReplies({ room, name, me, thread, offline, deleted, roomNotice, onDismissRoomNotice, intro, autoFocus, mentionsAbove }: RepliesProps) {
+export function ThreadReplies({ room, name, me, thread, offline, deleted, roomNotice, onDismissRoomNotice, intro, autoFocus, mentionsAbove, commands, onCommand, scheduling }: RepliesProps) {
   const { parentId, parent, replies } = thread.state;
   // Replying tells nobody you're typing, so only @ember shows as typing here, as it answers in the thread.
   const typing = useMemo(() => Object.values(replies.typing), [replies.typing]);
@@ -185,6 +208,9 @@ export function ThreadReplies({ room, name, me, thread, offline, deleted, roomNo
             onEditLastMessage={editLastReply}
             autoFocus={autoFocus}
             mentionsAbove={mentionsAbove}
+            commands={commands}
+            onCommand={onCommand}
+            scheduling={scheduling}
           />
         )
       )}

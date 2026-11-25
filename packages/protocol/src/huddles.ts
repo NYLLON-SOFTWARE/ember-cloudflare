@@ -251,6 +251,11 @@ export interface HuddlePerson {
   screen: boolean;
   /** The sticker they show, while they show one. */
   sticker?: HuddleSticker;
+  /**
+   * Set while their connection is unstable, as their tab judges it: much of what it sends or receives is
+   * lost on the way, or a round trip to the SFU takes a second or more.
+   */
+  unstable?: true;
 }
 
 /**
@@ -384,6 +389,8 @@ export type HuddleClientFrame =
   | { type: "huddle.invite"; userIds: UserId[] }
   /** The person shows a sticker, in place of any they showed, or with null, takes theirs off. */
   | { type: "huddle.sticker"; sticker: HuddleSticker | null }
+  /** The tab's connection has become unstable, or steady again, which the others see on its person's tile. */
+  | { type: "huddle.connection"; unstable: boolean }
   /**
    * The person reacts with an emoji, which everyone in the huddle sees for a moment, as `huddle.reacted`
    * tells them, their own tab included. The room tells of only so many of a tab's in a while, and says
@@ -405,10 +412,10 @@ export type HuddleServerFrame =
   | { type: "huddle.welcome"; you: User; people: HuddlePerson[]; startedAt: string; messageId?: string; iceServers?: HuddleIceServer[] }
   | { type: "huddle.joined"; person: HuddlePerson }
   /**
-   * Someone muted or unmuted, shows a sticker or took theirs off, can be listened to or watched now, or
-   * can't be: they've turned their camera off or stopped sharing their screen, their tab is publishing
-   * again, or they've joined from another one. A tab asks to hear whoever it can listen to and doesn't,
-   * and to see whoever it's to watch and doesn't.
+   * Someone muted or unmuted, shows a sticker or took theirs off, has an unstable connection or a steady
+   * one again, can be listened to or watched now, or can't be: they've turned their camera off or
+   * stopped sharing their screen, their tab is publishing again, or they've joined from another one. A
+   * tab asks to hear whoever it can listen to and doesn't, and to see whoever it's to watch and doesn't.
    */
   | { type: "huddle.changed"; person: HuddlePerson }
   | { type: "huddle.left"; userId: UserId }
@@ -626,6 +633,8 @@ export function parseHuddleClientFrame(raw: string): HuddleClientFrame | null {
       const sticker = stickerOf(frame.sticker);
       return sticker !== undefined ? { type: "huddle.sticker", sticker } : null;
     }
+    case "huddle.connection":
+      return typeof frame.unstable === "boolean" ? { type: "huddle.connection", unstable: frame.unstable } : null;
     case "huddle.react": {
       const emoji = reactionOf(frame.emoji);
       return emoji !== null ? { type: "huddle.react", emoji } : null;

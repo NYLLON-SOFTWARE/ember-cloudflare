@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
 import type { Locator } from "@playwright/test";
 import { ROOM_SOCKET } from "../../fixtures";
-import { expect, paste, test, type Member } from "./fixtures";
+import { expect, paste, recordsClips, test, type Member } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
@@ -17,6 +17,9 @@ const card = (member: Member) => member.page.locator("form.composer > div:has([r
 
 /** A button under the composer's text, by its name, found while a menu over the page hides it from the rest too. */
 const underText = (member: Member, name: string) => card(member).getByRole("button", { name, exact: true, includeHidden: true });
+
+/** The clips' buttons under the text, where the browser can record them. */
+const clipButtons = (browserName: string) => (recordsClips(browserName) ? ["Record video clip", "Record audio clip"] : []);
 
 /** Show formatting, under the text, which shows or hides the formatting row. */
 const showFormatting = (member: Member) => underText(member, "Show formatting");
@@ -91,7 +94,7 @@ async function openRoom(member: Member, name: string) {
 }
 
 test.describe("Composer", () => {
-  test("is a card at least 108px tall, with the formatting row and the text on top and Slack's buttons below, ending in a round Send", async ({ members }) => {
+  test("is a card at least 108px tall, with the formatting row and the text on top and Slack's buttons below, in its groups, ending in a round Send", async ({ members, browserName }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const field = ada.composer();
     const send = underText(ada, "Send Message");
@@ -105,13 +108,23 @@ test.describe("Composer", () => {
     expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(fieldBox.y);
     expect(sendBox.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height);
     let left = 0;
-    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone"]) {
+    for (const name of ["Attach", "Show formatting", "Emoji", "Mention someone", ...clipButtons(browserName), "Run shortcut"]) {
       const buttonBox = await box(underText(ada, name));
       expect(buttonBox.y, name).toBe(sendBox.y);
       expect(buttonBox.x, name).toBeGreaterThan(left);
       left = buttonBox.x;
     }
     expect(sendBox.x).toBeGreaterThan(left);
+    // As in Slack's, lines part the buttons' groups: + Aa emoji @ | the clips | Run shortcut, the clips and their
+    // line only where the browser records them.
+    const row = await card(ada).evaluate((card) =>
+      [...card.querySelectorAll("button, [aria-hidden=true]")]
+        .filter((el) => el.closest("[role=toolbar]") === null)
+        .filter((el) => el.tagName === "BUTTON" || el.getBoundingClientRect().width === 1)
+        .map((el) => (el.tagName === "BUTTON" ? el.getAttribute("aria-label") : "|")),
+    );
+    const groups = ["Attach", "Show formatting", "Emoji", "Mention someone", "|", ...(recordsClips(browserName) ? ["Record video clip", "Record audio clip", "|"] : []), "Run shortcut"];
+    expect(row.slice(0, groups.length)).toEqual(groups);
     expect(sendBox.width).toBe(sendBox.height);
     expect(parseFloat(await send.evaluate((el) => getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThanOrEqual(sendBox.width / 2);
   });
@@ -360,6 +373,89 @@ test.describe("Formatting row", () => {
     await expect(ada.composer().locator("li")).toHaveText("Hello big wide world");
   });
 
+  test("styles just the empty line Shift+Enter leaves, so a list, a quote, a heading or code starts under a line, as in Slack", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.composer().pressSequentially("Launch plan");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().press("ControlOrMeta+Shift+8");
+    await ada.composer().pressSequentially("Press kit");
+    await expect(ada.composer().locator(":scope > p")).toHaveText("Launch plan");
+    await expect(ada.composer().locator("ul > li")).toHaveText(["Press kit"]);
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("FAQ");
+    await ada.composer().press("Enter");
+    const plan = grace.message("Launch plan").locator(".message-content");
+    await expect(plan.locator(":scope > p")).toHaveText("Launch plan");
+    await expect(plan.locator("ul > li")).toHaveText(["Press kit", "FAQ"]);
+
+    // The row's buttons, and its headings, as its keys do.
+    for (const [style, selector] of [
+      ["Ordered list", "ol > li"],
+      ["Blockquote", "blockquote"],
+      ["Code block", "code"],
+      ["Big heading", "h1"],
+    ] as const) {
+      await ada.composer().pressSequentially("Above");
+      await ada.composer().press("Shift+Enter");
+      if (style === "Big heading") {
+        await tool(ada, "Paragraph").click();
+        await paragraphStyle(ada, style).click();
+      } else {
+        await tool(ada, style).click();
+      }
+      await ada.composer().pressSequentially("Below");
+      await expect(ada.composer().locator(":scope > p"), style).toHaveText("Above");
+      await expect(ada.composer().locator(selector), style).toHaveText("Below");
+      await write(ada, "");
+    }
+  });
+
+  test("lists the line - or * and a space start, or 1. and a space, on any line, as Slack does, as > quotes it", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.composer().pressSequentially("Launch plan");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("- Press kit");
+    await expect(ada.composer().locator(":scope > p")).toHaveText("Launch plan");
+    await expect(ada.composer().locator("ul > li")).toHaveText(["Press kit"]);
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("FAQ");
+    // Shift+Enter on an empty item ends the list.
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("Then");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("1. Ship it");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("Celebrate");
+    await ada.composer().press("Enter");
+    const plan = grace.message("Launch plan").locator(".message-content");
+    await expect(plan.locator(":scope > p")).toHaveText(["Launch plan", "Then"]);
+    await expect(plan.locator("ul > li")).toHaveText(["Press kit", "FAQ"]);
+    await expect(plan.locator("ol > li")).toHaveText(["Ship it", "Celebrate"]);
+
+    // * too, and on the first of two lines, just that line.
+    await ada.composer().pressSequentially("Milk");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("from the shop");
+    await ada.composer().press("ArrowUp");
+    await ada.composer().press("Home");
+    // Lexical hears the caret move with the selectionchange after the key, as a frame goes by.
+    await ada.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await ada.composer().pressSequentially("* ");
+    await expect(ada.composer().locator("ul > li")).toHaveText(["Milk"]);
+    await expect(ada.composer().locator(":scope > p")).toHaveText("from the shop");
+
+    // Anywhere else, and with another number, it's written as typed.
+    await write(ada, "");
+    await ada.composer().pressSequentially("Price - 5");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("2. Two");
+    await expect(ada.composer().locator("li")).toHaveCount(0);
+    await expect(ada.composer()).toHaveText("Price - 5\n2. Two", { useInnerText: true });
+  });
+
   test("keeps what's selected as it styles the line, so what's typed next takes only its place", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const select = async (word: string, before: string) => {
@@ -512,6 +608,17 @@ test.describe("Formatting row", () => {
     await pressAsSelectionMoves(ada, "extend", 1, { key: "*", code: "Digit8", shiftKey: true });
     await ada.composer().pressSequentially("plan");
     await expect(ada.composer().locator("li")).toHaveText("Launch week plan");
+  });
+
+  test("bolds what's selected as Cmd or Ctrl+B is pressed, the editor's own key, though the page has yet to tell it the selection grew", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.composer().pressSequentially("Launch week");
+    // "week" selected, then Cmd or Ctrl+B at once.
+    await pressAsSelectionMoves(ada, "extend", 4, { key: "b", code: "KeyB" });
+    await expect(ada.composer().locator("strong")).toHaveText("week");
+    await ada.composer().pressSequentially("month");
+    await expect(ada.composer().locator("strong")).toHaveText("month");
+    await expect(ada.composer()).toHaveText("Launch month");
   });
 
   test("puts what's typed after a key where the cursor's moved to, in its text's format, though the page has yet to tell the editor", async ({ members }) => {
@@ -693,15 +800,17 @@ test.describe("Formatting row", () => {
 });
 
 test.describe("Buttons under the text", () => {
-  test("names each in a tooltip, as Slack's do", async ({ members }) => {
+  test("names each in a tooltip, as Slack's do", async ({ members, browserName }) => {
     const ada = await members.signIn("Ada");
-    // Once the text's ready, which Emoji and Mention someone wait for.
+    // Once the text's ready, which Emoji, Mention someone and Run shortcut wait for.
     await expect(ada.composer()).toBeFocused();
     const tips = [
       ["Attach", "Attach"],
       ["Show formatting", "Hide formatting"],
       ["Emoji", "Emoji"],
       ["Mention someone", "Mention someone"],
+      ...clipButtons(browserName).map((name) => [name, name] as const),
+      ["Run shortcut", "Run shortcut"],
       ["Send Message", "Send message"],
     ] as const;
     for (const [name, tip] of tips) {
@@ -851,7 +960,7 @@ test.describe("Buttons under the text", () => {
     await expect(ada.composer().getByText(`Jason ${tag}`, { exact: true })).toBeVisible();
   });
 
-  test("keeps Emoji and Mention someone off until the text they write in is ready", async ({ members }) => {
+  test("keeps Emoji, Mention someone and Run shortcut off until the text they write in is ready", async ({ members }) => {
     const ada = await members.signIn("Ada");
     // The editor's code loads once the room has shown its messages. Holding it shows the composer without it.
     let release!: () => void;
@@ -864,9 +973,11 @@ test.describe("Buttons under the text", () => {
     const button = (name: string) => ada.page.locator("form.composer").getByRole("button", { name, exact: true });
     await expect(button("Emoji")).toBeDisabled();
     await expect(button("Mention someone")).toBeDisabled();
+    await expect(button("Run shortcut")).toBeDisabled();
     release();
     await expect(button("Emoji")).toBeEnabled();
     await expect(button("Mention someone")).toBeEnabled();
+    await expect(button("Run shortcut")).toBeEnabled();
   });
 
   test("shows Send as a grey paper plane until there's something to send, a file too", async ({ members }) => {

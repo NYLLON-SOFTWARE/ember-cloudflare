@@ -310,6 +310,16 @@ describe("a huddle's socket", () => {
     }
   });
 
+  it("reads whether a tab's connection is unstable, about its own person alone", () => {
+    expect(read({ type: "huddle.connection", unstable: true })).toEqual({ type: "huddle.connection", unstable: true });
+    expect(read({ type: "huddle.connection", unstable: false })).toEqual({ type: "huddle.connection", unstable: false });
+    expect(read({ type: "huddle.connection", unstable: true, userId: "grace" })).toEqual({ type: "huddle.connection", unstable: true });
+    // Nothing said isn't steady, and neither is anything but yes or no.
+    for (const unstable of [undefined, null, "true", 1, 0, [true], { unstable: true }]) {
+      expect(read({ type: "huddle.connection", unstable }), JSON.stringify(unstable)).toBeNull();
+    }
+  });
+
   it("reads the emoji a tab's person reacts with, which is one emoji and nothing else", () => {
     const [joiner, picture] = ["\u200D", "\uFE0F"];
     const emoji = [

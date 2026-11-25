@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CJK_CHARACTER,
   hasFilters,
   isSearchable,
   MAX_SEARCH_LENGTH,
@@ -50,6 +51,11 @@ describe("Search messages", () => {
     expect(searchWords('say "hi" to_me')).toEqual(["say", "hi", "to_me"]);
     expect(searchWords("eel\0shark")).toEqual(["eel", "shark"]);
     for (const q of ["", "   ", "!!!", "\0"]) expect(searchWords(q), JSON.stringify(q)).toEqual([]);
+  });
+
+  it("tells the letters and numbers of Chinese, Japanese and Korean, which run words together, from their punctuation and other scripts", () => {
+    for (const c of ["日", "語", "の", "カ", "ｶ", "ー", "々", "〇", "𠀋", "한", "ㄱ"]) expect(CJK_CHARACTER.test(c), c).toBe(true);
+    for (const c of ["a", "é", "Я", "1", "１", "、", "。", "「", "・", "〜", "\u{3099}", " "]) expect(CJK_CHARACTER.test(c), c).toBe(false);
   });
 });
 

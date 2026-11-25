@@ -13,7 +13,12 @@ export function updateOf({ beta, newest, newestBeta }: ReleaseCheck): NamedRelea
   return beta && newestBeta?.newer ? newestBeta : null;
 }
 
-/** The beta a release is offered to try, once it has nothing newer to update to, which it takes only if asked. */
+/**
+ * The beta this Ember is offered to try, which it takes only if asked: the newest beta once it's newer,
+ * beside any release to update to, so that a new beta isn't missed, unless it's the update itself, as
+ * for a beta no release has passed.
+ */
 export function betaToTryOf(check: ReleaseCheck): NamedRelease | null {
-  return !check.beta && !updateOf(check) && check.newestBeta?.newer ? check.newestBeta : null;
+  const { newestBeta } = check;
+  return newestBeta?.newer && updateOf(check)?.version !== newestBeta.version ? newestBeta : null;
 }

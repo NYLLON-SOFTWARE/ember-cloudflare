@@ -66,13 +66,12 @@ test.describe("Someone's profile page", () => {
 });
 
 test.describe("Avatars open people's pages", () => {
-  test("a message's avatar, its reactions' and its mentions' open each person's page, titled with their name and bio", async ({ members, participant, request }) => {
+  test("a message's avatar and its mentions open each person's page, titled with their name and bio", async ({ members, participant, request }) => {
     const tag = crypto.randomUUID().slice(0, 8);
     const grace = await participant(`Grace ${tag}`);
     const linus = await participant(`Linus ${tag}`);
     await changeProfile(request, grace.session, { bio: "Wrote the first compiler" });
-    const asked = await grace.say("Ask me anything");
-    await linus.boost(asked.id, "👍");
+    await grace.say("Ask me anything");
     const ada = await members.signIn(unique("Ada"));
     const { page } = ada;
     const graceTitle = `Grace ${tag} – Wrote the first compiler`;
@@ -92,13 +91,6 @@ test.describe("Avatars open people's pages", () => {
     await question.getByRole("link", { name: graceTitle }).click();
     await expect(page).toHaveURL(new RegExp(`/users/${grace.session.user.id}$`));
     await expect(heading(page)).toHaveText(`Grace ${tag}`);
-
-    await page.goBack();
-    await ada.connected();
-    const boost = question.getByRole("list", { name: "Reactions" }).getByRole("link", { name: `Linus ${tag} boosted 👍` });
-    await expect(boost).toHaveAttribute("title", `Linus ${tag}`);
-    await boost.click();
-    await expect(heading(page)).toHaveText(`Linus ${tag}`);
 
     await page.goBack();
     await ada.connected();

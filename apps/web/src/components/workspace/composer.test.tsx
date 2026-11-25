@@ -1,19 +1,29 @@
-import { MAX_FILE_SIZE, type LinkPreview, type NotifiedCounts } from "@ember/protocol";
-import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, type SpecialMention } from "@ember/richtext/dom";
+import { MAX_FILE_SIZE, SCHEDULE_TIME_REFUSED, THREAD_DELETED, type LinkPreview, type NotifiedCounts, type ScheduledMessage } from "@ember/protocol";
+import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, ROOM_MENTION_CONTENT_TYPE, type SpecialMention } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
-import { PeopleContext } from "@/hooks/use-directory";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { RoomsContext, type Rooms } from "@/hooks/use-rooms";
+import { previewOf } from "@/lib/previews";
 import type { Typist } from "@/lib/room-state";
+import { SHRUG, SLASH_COMMANDS, type CommandRunner, type WrittenCommand } from "@/lib/slash-commands";
+import { installRecording, lastRecorder } from "@/test-recording";
 import { createRef, type ReactNode } from "react";
-import { Composer, RoomDeleted, type AddPreview, type ComposerHandle } from "./composer";
+import { Composer, RoomDeleted, type AddPreview, type ComposerHandle, type ComposerScheduling } from "./composer";
 import { editorLoaded } from "./editor";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
+
+// Of the pages few visits need, the clips' recorders, which are all the composer loads of them, without the rest,
+// which take a while to load here.
+vi.mock("./pages", () => import("./clip-recorders"));
+
+// A video's poster, which jsdom can't decode one to take: none, unless a test makes one.
+vi.mock("@/lib/previews", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/previews")>()), previewOf: vi.fn(async () => null) }));
 
 // The emoji picker, without Emojibase's data, which isn't served here: one emoji to pick.
 vi.mock("./emoji-panel", () => ({
@@ -41,7 +51,10 @@ async function showComposer({
   autoFocus = true,
   mentionsAbove = false,
   warns = true,
+  onCommand = undefined as CommandRunner | undefined,
   rooms = null as Rooms | null,
+  people = new Map() as People,
+  scheduling = undefined as ComposerScheduling | undefined,
 } = {}) {
   // Hears a link's preview that comes once the message has gone.
   const addPreview = vi.fn((_preview: LinkPreview) => {});
@@ -51,23 +64,28 @@ async function showComposer({
   const composer = createRef<ComposerHandle>();
   const view = render(
     <Warning on={warns}>
-      <RoomsContext value={rooms}>
-        <Composer
-          ref={composer}
-          roomId={roomId}
-          roomName="general"
-          direct={direct}
-          userId="u1"
-          typing={typing}
-          disabled={disabled}
-          threadId={threadId}
-          onSend={onSend}
-          onSendFiles={onSendFiles}
-          onTyping={onTyping}
-          autoFocus={autoFocus}
-          mentionsAbove={mentionsAbove}
-        />
-      </RoomsContext>
+      <PeopleContext value={people}>
+        <RoomsContext value={rooms}>
+          <Composer
+            ref={composer}
+            roomId={roomId}
+            roomName="general"
+            direct={direct}
+            userId="u1"
+            typing={typing}
+            disabled={disabled}
+            threadId={threadId}
+            onSend={onSend}
+            onSendFiles={onSendFiles}
+            onTyping={onTyping}
+            autoFocus={autoFocus}
+            mentionsAbove={mentionsAbove}
+            commands={onCommand && SLASH_COMMANDS}
+            onCommand={onCommand}
+            scheduling={scheduling}
+          />
+        </RoomsContext>
+      </PeopleContext>
     </Warning>,
   );
   // The editor loads as the first composer shows.
@@ -89,6 +107,7 @@ const fileField = () => document.querySelector<HTMLInputElement>('input[type="fi
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.mocked(editorLoaded).mockReturnValue(false);
+  vi.mocked(previewOf).mockReset();
 });
 
 describe("Composer", () => {
@@ -618,6 +637,92 @@ describe("Ask before notifying a room", () => {
     expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "agenda.txt" }), expect.objectContaining({ name: "slides.pdf" })], false);
     expect(chips()).toEqual([]);
   });
+
+  it("asks of /shrug's message as what's written reads when the room's counts come, written over while they were on their way, and sends that", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { onSend, input, user } = await showComposer({ onCommand: vi.fn(async () => true) });
+    await user.type(input, "/shrug @here Lunch?{Enter}");
+    await user.clear(input);
+    await user.type(input, "/shrug @channel Lunch?");
+    answer(Response.json(six));
+    const dialog = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    await user.click(within(dialog).getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(`<p>${special("channel")} Lunch? ${SHRUG}</p>`, false);
+    expect(input).toHaveValue("");
+
+    // Written over as a message by then, it goes as one, without asking where it's lost its mention.
+    await user.type(input, "/shrug @channel Standup{Enter}");
+    await user.clear(input);
+    await user.type(input, "Standup");
+    answer(Response.json(six));
+    await waitFor(() => expect(onSend).toHaveBeenLastCalledWith("<p>Standup</p>", false));
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("sends nothing where what's written has become a command while the room's counts were on their way, which runs once it's sent again", async () => {
+    let answer!: (response: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => (answer = resolve)));
+    vi.stubGlobal("fetch", fetch);
+    const onCommand = vi.fn<CommandRunner>(async () => true);
+    const { onSend, input, user } = await showComposer({ onCommand });
+    for (const first of ["/shrug @here hello", "@here hello"]) {
+      await user.type(input, `${first}{Enter}`);
+      await user.clear(input);
+      await user.type(input, "/msg @Ada private text");
+      answer(Response.json(six));
+      await act(async () => {});
+      expect(onSend).not.toHaveBeenCalled();
+      expect(asking()).not.toBeInTheDocument();
+      expect(input).toHaveValue("/msg @Ada private text");
+      await user.clear(input);
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(onCommand).not.toHaveBeenCalled();
+
+    await user.type(input, "/msg @Ada private text{Enter}");
+    expect(onCommand).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  /** Runs a command as /msg does, sending `body` to #design, which it says whether to send. */
+  function sendsToDesign(body: string) {
+    const asked: Promise<boolean>[] = [];
+    const onCommand = vi.fn<CommandRunner>((_written, askToNotify) => asked[asked.push(askToNotify({ id: "r2", name: "design" }, body)) - 1]!);
+    return { onCommand, asked };
+  }
+
+  it("asks of a message a command sends to a room, of that room, settling with whether it's to go: one that's not is written again", async () => {
+    const fetch = counts(six);
+    const { onCommand, asked } = sendsToDesign(`<p>${special("channel")} See the brief</p>`);
+    const { input, user } = await showComposer({ onCommand });
+    await user.type(input, "/msg #design @channel See the brief{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    expect(dialog).toHaveAccessibleDescription("@channel notifies everyone in #design.");
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/rooms/r2/notified"]);
+    expect(input).toHaveValue("");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(await asked[0]).toBe(false);
+    await waitFor(() => expect(input).toHaveValue("/msg #design @channel See the brief"));
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    expect(input).toHaveFocus();
+
+    await user.type(input, "{Enter}");
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Send" }));
+    expect(await asked[1]).toBe(true);
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps a command's message as its draft where the composer goes as it asks, as when its room's been left", async () => {
+    counts(six);
+    const { onCommand, asked } = sendsToDesign(`<p>${special("channel")} See the brief</p>`);
+    const { input, user, view } = await showComposer({ onCommand });
+    await user.type(input, "/msg #design @channel See the brief{Enter}");
+    await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    view.unmount();
+    expect(await asked[0]).toBe(false);
+    await waitFor(() => expect(localStorage.getItem("composer-draft-u1-r1")).toBe(`<p>/msg #design ${special("channel")} See the brief</p>`));
+  });
 });
 
 /** A file named `name` of `size` bytes, as the browser gives it, which says it's that size without holding them. */
@@ -674,6 +779,25 @@ describe("Attach files", () => {
     expect(within(archive).getByText("gz")).toHaveClass("shrink-0");
     // A name with no dot shows whole.
     expect(within(screen.getByRole("button", { name: "Remove README" })).getByText("README")).toHaveClass("truncate");
+  });
+
+  it("shows a video's poster once it's taken, the one its message will show, as Slack shows a clip, and a file icon until then", async () => {
+    const { revoked } = thumbnails();
+    let take!: (poster: Blob) => void;
+    vi.mocked(previewOf).mockReturnValueOnce(new Promise((resolve) => (take = resolve)));
+    const { user } = await showComposer();
+    const tour = fileOf("tour.mp4", { type: "video/mp4" });
+    await user.upload(fileField(), tour);
+    const chip = screen.getByRole("button", { name: "Remove tour.mp4" });
+    expect(previewOf).toHaveBeenCalledExactlyOnceWith(tour);
+    expect(chip.querySelector("img")).toBeNull();
+    expect(chip.querySelector("svg")).toHaveClass("iconoir-page");
+
+    await act(async () => take(new File(["poster"], "tour poster.jpg", { type: "image/jpeg" })));
+    expect(chip.querySelector("img")).toHaveAttribute("src", "blob:tour poster.jpg");
+    expect(chip.querySelector("svg.iconoir-page")).toBeNull();
+    await user.click(chip);
+    expect(revoked).toEqual(["blob:tour poster.jpg"]);
   });
 
   it("takes a file back out when its chip is pressed, letting go of its thumbnail", async () => {
@@ -855,6 +979,549 @@ describe("The buttons under the text", () => {
   });
 });
 
+describe("/ commands", () => {
+  const ran = () => vi.fn((_written: WrittenCommand) => Promise.resolve(true));
+
+  it("has Run shortcut after Mention someone, which types / for the commands, before what's written", async () => {
+    const { input, view, user } = await showComposer({ onCommand: ran() });
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["Attach", "Show formatting", "Emoji", "Mention someone", "Run shortcut", "Send Message"]);
+    expect(input).toHaveAttribute("data-commands", SLASH_COMMANDS.map(({ name }) => name).join(" "));
+
+    await user.click(screen.getByRole("button", { name: "Run shortcut" }));
+    expect(input).toHaveValue("/");
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, "hello");
+    await user.click(screen.getByRole("button", { name: "Run shortcut" }));
+    expect(input).toHaveValue("/ hello");
+    expect(input).toHaveProperty("selectionStart", 1);
+  });
+
+  it("runs the command written rather than sending it, emptying the composer as it starts", async () => {
+    const onCommand = ran();
+    const { input, onSend, onTyping, user } = await showComposer({ onCommand });
+    await user.type(input, "/MUTE  #design{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ command: SLASH_COMMANDS.find(({ name }) => name === "mute"), typed: { name: "MUTE", argument: "#design" } }), expect.any(Function));
+    expect(input).toHaveValue("");
+    expect(onTyping).toHaveBeenLastCalledWith(false);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+  });
+
+  it("writes a command that didn't run back, to put right", async () => {
+    const onCommand = vi.fn(() => Promise.resolve(false));
+    const { input, user } = await showComposer({ onCommand });
+    await user.type(input, "/mute #nowhere{Enter}");
+    await waitFor(() => expect(input).toHaveValue("/mute #nowhere"));
+  });
+
+  it("keeps a command that didn't run as its draft where the composer has gone meanwhile, as when its room was left, unless something else is written there", async () => {
+    let answer!: (ran: boolean) => void;
+    const onCommand = vi.fn(() => new Promise<boolean>((resolve) => (answer = resolve)));
+    const first = await showComposer({ onCommand });
+    await first.user.type(first.input, "/mute #nowhere{Enter}");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+    first.view.unmount();
+    await act(async () => answer(false));
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>/mute #nowhere</p>");
+
+    // The composer, open again, takes it up.
+    localStorage.clear();
+    const second = await showComposer({ onCommand });
+    await second.user.type(second.input, "/mute #nowhere{Enter}");
+    second.view.unmount();
+    const third = await showComposer({ onCommand });
+    await act(async () => answer(false));
+    await waitFor(() => expect(within(third.view.container).getByRole("textbox", { name: "Write a message" })).toHaveValue("/mute #nowhere"));
+    expect(within(third.view.container).getByText("Mute or unmute a conversation")).toBeInTheDocument();
+    third.view.unmount();
+
+    // Though not over what's been written there since.
+    localStorage.clear();
+    const fourth = await showComposer({ onCommand });
+    await fourth.user.type(fourth.input, "/mute #nowhere{Enter}");
+    fourth.view.unmount();
+    localStorage.setItem("composer-draft-u1-r1", "<p>Something else</p>");
+    await act(async () => answer(false));
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Something else</p>");
+  });
+
+  it("says a / that names no command isn't one, as Slack does, sending nothing until it's changed", async () => {
+    const onCommand = ran();
+    const { input, onSend, user } = await showComposer({ onCommand });
+    await user.type(input, "/r/programming is great{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("/r/programming isn't a command. To send a message that starts with /, put a space before it.");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(input).toHaveValue("/r/programming is great");
+
+    await user.type(input, "{Home} ");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.type(input, "{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p> /r/programming is great</p>", false);
+  });
+
+  it("sends /shrug's message with ¯\\_(ツ)_/¯ at its end, after the files picked", async () => {
+    const { input, onSend, onSendFiles, user } = await showComposer({ onCommand: ran() });
+    await user.upload(fileField(), fileOf("a.txt"));
+    await user.type(input, "/shrug it works{Enter}");
+    expect(onSendFiles).toHaveBeenCalledOnce();
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(`<p>it works ${SHRUG}</p>`, false);
+    expect(input).toHaveValue("");
+  });
+
+  it("opens Text snippet for /snippet, leaving what follows it written", async () => {
+    const { input, user } = await showComposer({ onCommand: ran() });
+    await user.type(input, "/snippet{Enter}");
+    expect(await screen.findByRole("dialog", { name: "Create a text snippet" })).toBeInTheDocument();
+    expect(input).toHaveValue("");
+  });
+
+  it("shows a command's usage over the card once its name is written", async () => {
+    const { input, user } = await showComposer({ onCommand: ran() });
+    await user.type(input, "/invite");
+    expect(screen.queryByText("Add someone to a room")).not.toBeInTheDocument();
+    await user.type(input, " ");
+    expect(screen.getByText("Add someone to a room").parentElement).toHaveTextContent("/invite [@someone] [#room] Add someone to a room");
+    await user.clear(input);
+    expect(screen.queryByText("Add someone to a room")).not.toBeInTheDocument();
+  });
+
+  it("shows the usage of the command a draft opens with", async () => {
+    localStorage.setItem("composer-draft-u1-r1", "<p>/invite #design</p>");
+    await showComposer({ onCommand: ran() });
+    expect(screen.getByText("Add someone to a room").parentElement).toHaveTextContent("/invite [@someone] [#room] Add someone to a room");
+  });
+
+  it("sends a message that starts with a / as it is where there are no commands", async () => {
+    const { input, onSend, user } = await showComposer();
+    expect(screen.queryByRole("button", { name: "Run shortcut" })).not.toBeInTheDocument();
+    await user.type(input, "/shrug{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>/shrug</p>", false);
+  });
+});
+
+describe("Clips", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "mediaDevices");
+    vi.restoreAllMocks();
+  });
+
+  /** A browser that records clips, and plays nothing. */
+  function recordingBrowser() {
+    installRecording();
+    thumbnails();
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  }
+
+  it("has Record video clip and Record audio clip after Mention someone where the browser records, before Run shortcut, as Slack's row has them", async () => {
+    recordingBrowser();
+    const { view } = await showComposer({ onCommand: vi.fn((_written: WrittenCommand) => Promise.resolve(true)) });
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual([
+      "Attach",
+      "Show formatting",
+      "Emoji",
+      "Mention someone",
+      "Record video clip",
+      "Record audio clip",
+      "Run shortcut",
+      "Send Message",
+    ]);
+  });
+
+  it("records an audio clip in the card's place, keeping what's written, then waits to send it with the files, and puts focus back in the text", async () => {
+    recordingBrowser();
+    const { input, onSend, onSendFiles, user } = await showComposer();
+    await user.type(input, "Listen to this");
+    await user.click(screen.getByRole("button", { name: "Record audio clip" }));
+    // It records once the browser lets Ember use the microphone.
+    const recording = await screen.findByRole("group", { name: "Record audio clip" });
+    const done = await within(recording).findByRole("button", { name: "Done" });
+    await waitFor(() => expect(done).toHaveFocus());
+
+    await user.click(done);
+    await lastRecorder().end();
+    expect(screen.queryByRole("group", { name: "Record audio clip" })).not.toBeInTheDocument();
+    expect(chips()).toEqual([expect.stringMatching(/^Remove Audio clip .+\.m4a$/)]);
+    expect(input).toHaveValue("Listen to this");
+    await waitFor(() => expect(input).toHaveFocus());
+
+    await user.click(sendButton());
+    expect(onSendFiles.mock.calls[0]![0].map((file) => file.type)).toEqual(["audio/mp4"]);
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Listen to this</p>", false);
+  });
+
+  it("goes back to the text when the audio clip's discarded", async () => {
+    recordingBrowser();
+    const { input, user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Record audio clip" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Done" })).toHaveFocus());
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("group", { name: "Record audio clip" })).not.toBeInTheDocument();
+    expect(chips()).toEqual([]);
+    expect(input).toHaveFocus();
+  });
+
+  it("records a video clip in its dialog, which waits to send it with the files, and puts focus back in the text", async () => {
+    recordingBrowser();
+    const { input, user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Record video clip" }));
+    const dialog = await screen.findByRole("dialog", { name: "Record video clip" });
+    const record = within(dialog).getByRole("button", { name: "Record" });
+    await waitFor(() => expect(record).toBeEnabled());
+
+    await user.click(record);
+    await user.click(within(dialog).getByRole("button", { name: "Stop recording" }));
+    await lastRecorder().end();
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(chips()).toEqual([expect.stringMatching(/^Remove Video clip .+\.mp4$/)]);
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("offers the clips from + where the row has no room for their buttons, as on touch screens, as Slack's apps do", async () => {
+    recordingBrowser();
+    const { user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+    await user.keyboard("{Escape}");
+
+    // As the row's styles hide them, which jsdom has none of.
+    for (const name of ["Record video clip", "Record audio clip"]) screen.getByRole("button", { name }).style.display = "none";
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Text snippetCtrl+Shift+Enter", "Upload from your computerCtrl+O", "Record a video clip", "Record an audio clip"]);
+    expect(screen.getByRole("menuitem", { name: "Record a video clip" })).not.toHaveAttribute("aria-keyshortcuts");
+
+    await user.click(screen.getByRole("menuitem", { name: "Record an audio clip" }));
+    const recording = await screen.findByRole("group", { name: "Record audio clip" });
+    await waitFor(() => expect(within(recording).getByRole("button", { name: "Done" })).toHaveFocus());
+  });
+
+  it("offers no clips where the browser can't record them, as over plain HTTP", async () => {
+    const { user } = await showComposer();
+    expect(screen.queryByRole("button", { name: /clip/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Text snippetCtrl+Shift+Enter", "Upload from your computerCtrl+O"]);
+  });
+});
+
+describe("Schedule for later", () => {
+  // Tuesday, November 17, 2026, at 10:30 AM, when Slack's menu was read.
+  const TUESDAY = new Date(2026, 10, 17, 10, 30);
+  const scheduleButton = () => screen.getByRole("button", { name: "Schedule for later" });
+  const choices = () => screen.getAllByRole("menuitem").map((item) => item.textContent);
+  const scheduledAs = (id: string, overrides: Partial<ScheduledMessage> = {}): ScheduledMessage => ({
+    id,
+    clientMessageId: id,
+    body: `<p>${id}</p>`,
+    sendAt: new Date(2026, 10, 18, 9).toISOString(),
+    ...overrides,
+  });
+
+  /** Schedule for later, with what's scheduled in the room, answering each message scheduled with `answer`. */
+  function schedulingWith({ scheduled = [] as ScheduledMessage[], answer = null as string | null } = {}) {
+    return {
+      scheduled,
+      schedule: vi.fn(async (_body: string, _at: Date, _reply?: { parentId: string; alsoSend: boolean }) => answer),
+      edit: vi.fn(async (_id: string, _body: string) => null as string | null),
+      reschedule: vi.fn((_id: string, _at: Date) => null as string | null),
+      sendNow: vi.fn((_id: string) => null as string | null),
+      remove: vi.fn((_id: string) => null as string | null),
+      onScheduled: vi.fn((_at: Date) => {}),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(TUESDAY);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("joins its chevron to Send, as Slack does, which waits for something written to schedule", async () => {
+    const { input, user, view } = await showComposer({ scheduling: schedulingWith() });
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent).slice(-2)).toEqual(["Send Message", "Schedule for later"]);
+    expect(scheduleButton()).toBeDisabled();
+    await user.type(input, "Hello");
+    expect(scheduleButton()).toBeEnabled();
+  });
+
+  it("offers Slack's times, and schedules what's written for the one picked, emptying the composer once the room has it", async () => {
+    const scheduling = schedulingWith();
+    const { input, onTyping, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    expect(screen.getByText("Schedule message")).toBeInTheDocument();
+    expect(choices()).toEqual(["Later today at 1:00 PM", "Tomorrow at 9:00 AM", "Monday at 9:00 AM", "Custom time"]);
+
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith("<p>Hello</p>", new Date(2026, 10, 18, 9), undefined);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(scheduling.onScheduled).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 18, 9));
+    expect(onTyping).toHaveBeenLastCalledWith(false);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("asks first, as Send does, before scheduling what would notify a room of six or more once it's sent, keeping it on Cancel", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ members: 6, mentions: { here: 2, channel: 5 } })));
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ scheduling });
+    await user.type(input, "@channel Standup");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    const asked = await screen.findByRole("dialog", { name: "Notify 5 people?" });
+    expect(scheduling.schedule).not.toHaveBeenCalled();
+    await user.click(within(asked).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(input).toHaveValue("@channel Standup");
+
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Notify 5 people?" })).getByRole("button", { name: "Schedule" }));
+    const channel = `<action-text-attachment sgid="channel" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith(`<p>${channel} Standup</p>`, new Date(2026, 10, 18, 9), undefined);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(scheduling.onScheduled).toHaveBeenCalledOnce();
+  });
+
+  /** Has `scheduling` wait to answer the next message scheduled until what this answers is called with the answer. */
+  function answerLater(scheduling: ReturnType<typeof schedulingWith>) {
+    let answer: (refusal: string | null) => void = () => {};
+    scheduling.schedule.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    return (refusal: string | null) => act(async () => answer(refusal));
+  }
+
+  it("neither sends what's being scheduled nor schedules it again while the room's answer comes", async () => {
+    const scheduling = schedulingWith();
+    const answer = answerLater(scheduling);
+    const { input, onSend, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    expect(scheduleButton()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send Message" })).toBeDisabled();
+    await user.type(input, "{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+
+    await answer(null);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(scheduling.schedule).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Send Message" })).toBeEnabled();
+  });
+
+  it("forgets the draft of a reply scheduled as its thread closes, once the room has it", async () => {
+    const scheduling = schedulingWith();
+    const answer = answerLater(scheduling);
+    const { input, user, view } = await showComposer({ threadId: "m1", scheduling });
+    await user.type(input, "Later");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Monday at 9:00 AM" }));
+    view.unmount();
+    expect(localStorage.getItem("composer-draft-u1-r1/threads/m1")).toBe("<p>Later</p>");
+    await answer(null);
+    expect(localStorage.getItem("composer-draft-u1-r1/threads/m1")).toBeNull();
+    expect(scheduling.onScheduled).toHaveBeenCalledOnce();
+  });
+
+  it("schedules a thread's reply, sent to the room too while Also send is ticked, which it unticks", async () => {
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ threadId: "m1", scheduling });
+    await user.type(input, "Later");
+    await user.click(screen.getByRole("checkbox", { name: "Also send to #general" }));
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Monday at 9:00 AM" }));
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith("<p>Later</p>", new Date(2026, 10, 23, 9), { parentId: "m1", alsoSend: true });
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(screen.getByRole("checkbox", { name: "Also send to #general" })).not.toBeChecked();
+  });
+
+  it("keeps what's written where the room refuses it, saying why until it's changed", async () => {
+    const scheduling = schedulingWith({ answer: SCHEDULE_TIME_REFUSED });
+    const { input, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Later today at 1:00 PM" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(SCHEDULE_TIME_REFUSED);
+    expect(input).toHaveValue("Hello");
+    expect(scheduling.onScheduled).not.toHaveBeenCalled();
+    await user.type(input, "!");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("picks a custom time: a day, and a time that stays as the day changes", async () => {
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ scheduling });
+    await user.type(input, "Hello");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Custom time" }));
+    const dialog = await screen.findByRole("dialog", { name: "Schedule message" });
+    expect(dialog).toHaveTextContent(/Time zone: \S/);
+    const day = within(dialog).getByRole("combobox", { name: "Date" });
+    const time = within(dialog).getByRole("combobox", { name: "Time" });
+    expect([day, time].map((select) => (select as HTMLSelectElement).selectedOptions[0]!.textContent)).toEqual(["Today", "11:00 AM"]);
+
+    await user.selectOptions(day, "Tomorrow");
+    expect((time as HTMLSelectElement).selectedOptions[0]!.textContent).toBe("11:00 AM");
+    await user.click(within(dialog).getByRole("button", { name: "Schedule Message" }));
+    expect(scheduling.schedule).toHaveBeenCalledExactlyOnceWith("<p>Hello</p>", new Date(2026, 10, 18, 11), undefined);
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("schedules no files, which go as they're sent, nor commands", async () => {
+    const scheduling = schedulingWith();
+    const { input, user } = await showComposer({ scheduling, onCommand: vi.fn((_written: WrittenCommand) => Promise.resolve(true)) });
+    await user.type(input, "Hello");
+    await user.upload(fileField(), fileOf("notes.txt"));
+    expect(scheduleButton()).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+    await user.clear(input);
+    await user.type(input, "/shrug ok");
+    expect(scheduleButton()).toBeDisabled();
+    await user.clear(input);
+    await user.type(input, "/nope later");
+    await user.click(scheduleButton());
+    await user.click(screen.getByRole("menuitem", { name: "Tomorrow at 9:00 AM" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("/nope isn't a command.");
+    expect(scheduling.schedule).not.toHaveBeenCalled();
+  });
+
+  it("isn't there where the room doesn't schedule, as in a huddle's thread", async () => {
+    await showComposer({ threadId: "m1" });
+    expect(screen.queryByRole("button", { name: "Schedule for later" })).not.toBeInTheDocument();
+  });
+
+  it("counts what's scheduled where it writes over the card: in the room, a DM, or a thread", async () => {
+    const scheduled = [scheduledAs("s1"), scheduledAs("s2", { parentId: "m1" }), scheduledAs("s3", { parentId: "m1" }), scheduledAs("s4", { parentId: "m2" })];
+    for (const [shown, line] of [
+      [{}, "1 scheduled message in #general"],
+      [{ direct: true }, "1 scheduled message in this conversation"],
+      [{ threadId: "m1" }, "2 scheduled messages in this thread"],
+    ] as const) {
+      const { view } = await showComposer({ ...shown, scheduling: schedulingWith({ scheduled }) });
+      expect(screen.getByRole("button", { name: line })).toBeInTheDocument();
+      view.unmount();
+    }
+    await showComposer({ threadId: "m3", scheduling: schedulingWith({ scheduled }) });
+    expect(screen.queryByRole("button", { name: /scheduled message/ })).not.toBeInTheDocument();
+  });
+
+  it("lists them, soonest first, to edit, reschedule, send now or delete, saying why a change couldn't go", async () => {
+    const blocked = "This community doesn't allow one of these words.";
+    const scheduled = [scheduledAs("s1", { body: "<p>First</p>" }), scheduledAs("s2", { body: "<p>Second</p>", sendAt: new Date(2026, 10, 26, 9).toISOString(), failure: blocked })];
+    const scheduling = schedulingWith({ scheduled });
+    const { input, user } = await showComposer({ scheduling });
+    await user.click(screen.getByRole("button", { name: "2 scheduled messages in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    const [first, second] = within(dialog).getAllByRole("listitem");
+    expect(first).toHaveTextContent("Scheduled for tomorrow at 9:00 AMFirst");
+    expect(second).toHaveTextContent(`Scheduled for Thursday, November 26 at 9:00 AMSecond${blocked}`);
+
+    await user.click(within(first!).getByRole("button", { name: "Send now" }));
+    expect(scheduling.sendNow).toHaveBeenCalledExactlyOnceWith("s1");
+    await user.click(within(second!).getByRole("button", { name: "Reschedule" }));
+    await user.click(screen.getByRole("menuitem", { name: "Monday at 9:00 AM" }));
+    expect(scheduling.reschedule).toHaveBeenCalledExactlyOnceWith("s2", new Date(2026, 10, 23, 9));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    await user.click(within(second!).getByRole("button", { name: "Delete" }));
+    await user.click(within(second!).getByRole("button", { name: "Delete" }));
+    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this scheduled message?");
+    expect(scheduling.remove).toHaveBeenCalledExactlyOnceWith("s2");
+
+    await user.click(within(first!).getByRole("button", { name: "Edit" }));
+    const editor = await within(first!).findByRole("textbox", { name: "Edit message" });
+    await user.type(editor, " and more");
+    scheduling.edit.mockResolvedValueOnce(blocked);
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(blocked);
+    // Kept to try again.
+    expect(within(first!).getByRole("textbox", { name: "Edit message" })).toHaveValue("First and more");
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    expect(scheduling.edit).toHaveBeenLastCalledWith("s1", "<p>First and more</p>");
+    await waitFor(() => expect(within(first!).queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument());
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(first!).getByRole("button", { name: "Edit" })).toHaveFocus();
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it("lists the replies whose thread's message has been deleted with the room's, to edit or delete, as there's no thread to send them in", async () => {
+    const scheduled = [scheduledAs("s1", { body: "<p>Orphaned</p>", parentId: "m1", failure: THREAD_DELETED }), scheduledAs("s2", { parentId: "m2" })];
+    const { user } = await showComposer({ scheduling: schedulingWith({ scheduled }) });
+    await user.click(screen.getByRole("button", { name: "1 scheduled message in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    const item = within(dialog).getByRole("listitem");
+    expect(item).toHaveTextContent(`Orphaned${THREAD_DELETED}`);
+    expect(within(item).getAllByRole("button").map((button) => button.textContent)).toEqual(["Edit", "Delete"]);
+  });
+
+  it("waits for the room to have an edit, keeping what's written since, and closes no other editor as it comes", async () => {
+    const scheduled = [scheduledAs("s1", { body: "<p>First</p>" }), scheduledAs("s2", { body: "<p>Second</p>" })];
+    const scheduling = schedulingWith({ scheduled });
+    const answers: Array<(refusal: string | null) => void> = [];
+    scheduling.edit.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const answer = (refusal: string | null) => act(async () => answers.shift()!(refusal));
+    const { user } = await showComposer({ scheduling });
+    await user.click(screen.getByRole("button", { name: "2 scheduled messages in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    const [first, second] = within(dialog).getAllByRole("listitem");
+    const editorIn = (item: HTMLElement) => within(item).queryByRole("textbox", { name: "Edit message" });
+
+    await user.click(within(first!).getByRole("button", { name: "Edit" }));
+    await user.type((await within(first!).findByRole("textbox", { name: "Edit message" })), " and more");
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    // Saved once while the room's answer comes.
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    expect(scheduling.edit).toHaveBeenCalledExactlyOnceWith("s1", "<p>First and more</p>");
+    await user.type(editorIn(first!)!, " still");
+    await answer(null);
+    expect(editorIn(first!)).toHaveValue("First and more still");
+
+    await user.click(within(first!).getByRole("button", { name: "Save changes" }));
+    await user.keyboard("{Escape}");
+    await user.click(within(second!).getByRole("button", { name: "Edit" }));
+    await user.type((await within(second!).findByRole("textbox", { name: "Edit message" })), " too");
+    await answer(null);
+    expect(editorIn(second!)).toHaveValue("Second too");
+  });
+
+  it("names the people and rooms a scheduled message mentions as they are now, as the room keeps only their ids", async () => {
+    const grace = { id: "grace00000000001", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/grace00000000001/avatar" } as const;
+    const stored = (contentType: string, sgid: string) => `<action-text-attachment content-type="${contentType}" sgid="${sgid}"></action-text-attachment>`;
+    const body = `<p>Ask ${stored(MENTION_CONTENT_TYPE, grace.id)} in ${stored(ROOM_MENTION_CONTENT_TYPE, "design")}, not ${stored(ROOM_MENTION_CONTENT_TYPE, "left")}</p>`;
+    const scheduling = schedulingWith({ scheduled: [scheduledAs("s1", { body })] });
+    const rooms: Rooms = new Map([["design", { id: "design", kind: "closed", name: "design", icon: null }]]);
+    const { user } = await showComposer({ scheduling, rooms, people: new Map([[grace.id, grace]]) });
+    await user.click(screen.getByRole("button", { name: "1 scheduled message in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    expect(within(dialog).getByRole("listitem")).toHaveTextContent("Ask @Grace Hopper in #design, not #private room");
+  });
+
+  it("takes Escape in a message being edited to close its editor, and only then the list", async () => {
+    const scheduling = schedulingWith({ scheduled: [scheduledAs("s1", { body: "<p>First</p>" })] });
+    const { input, user } = await showComposer({ scheduling });
+    await user.click(screen.getByRole("button", { name: "1 scheduled message in #general" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    await user.click(within(dialog).getByRole("button", { name: "Edit" }));
+    await user.type(await within(dialog).findByRole("textbox", { name: "Edit message" }), " and more");
+    await user.keyboard("{Escape}");
+    expect(within(dialog).queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Scheduled messages" })).toBe(dialog);
+    expect(within(dialog).getByRole("button", { name: "Edit" })).toHaveFocus();
+    expect(scheduling.edit).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Scheduled messages" })).not.toBeInTheDocument());
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+});
+
 describe("Pasting into the composer", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -940,6 +1607,187 @@ describe("Keep drafts", () => {
     localStorage.setItem("composer-draft-u2-r1", "<p>Grace's own</p>");
     const { input } = await showComposer({ roomId: "r1" });
     expect(input).toHaveValue("");
+  });
+});
+
+describe("Manage drafts", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const manageDrafts = () => screen.queryByRole("button", { name: "Manage drafts" });
+  const listed = (place = "room") => within(screen.getByRole("group", { name: `Drafts in this ${place}` })).getAllByRole("menuitemradio");
+  const ticked = (place = "room") => listed(place).map((item) => [item.textContent, item.getAttribute("aria-checked")]);
+  /** The drafts put aside in room r1, or in one of its threads, as this browser keeps them, newest first. */
+  const putAside = (threadId?: string) =>
+    (JSON.parse(localStorage.getItem(`composer-draft-u1-r1${threadId ? `/threads/${threadId}` : ""}/saved`) ?? "[]") as { body: string }[]).map((draft) => draft.body);
+  const keepAside = (...bodies: string[]) =>
+    localStorage.setItem("composer-draft-u1-r1/saved", JSON.stringify(bodies.map((body, index) => ({ id: `d${index}`, body, savedAt: bodies.length - index }))));
+
+  it("shows before Send once something's written, as Slack's does, and goes once it's emptied with nothing put aside", async () => {
+    const { input, user, view } = await showComposer({ onCommand: vi.fn((_written: WrittenCommand) => Promise.resolve(true)) });
+    expect(manageDrafts()).not.toBeInTheDocument();
+    await user.type(input, "Hello");
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !button.closest("[role=toolbar]"));
+    expect(below.map((button) => button.getAttribute("aria-label") ?? button.textContent).slice(-3)).toEqual(["Run shortcut", "Manage drafts", "Send Message"]);
+
+    await user.clear(input);
+    expect(manageDrafts()).not.toBeInTheDocument();
+  });
+
+  it("puts what's written aside with Save as draft, emptying the composer for another, and lists it, unticked once it's no longer written", async () => {
+    const { input, onTyping, user } = await showComposer();
+    await user.type(input, "First idea{Shift>}{Enter}{/Shift}with a second line");
+    await user.click(manageDrafts()!);
+    expect(screen.getByText("Drafts in this room")).toBeInTheDocument();
+    // Each by its first line.
+    expect(ticked()).toEqual([["First idea", "true"]]);
+
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(input).toHaveValue("");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(sendButton()).toHaveAttribute("data-empty");
+    expect(onTyping).toHaveBeenLastCalledWith(false);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBeNull();
+    expect(putAside()).toEqual(["<p>First idea<br>with a second line</p>"]);
+
+    // It stays, for the draft put aside, which Save as draft can't put aside again.
+    await user.click(manageDrafts()!);
+    expect(ticked()).toEqual([["First idea", "false"]]);
+    expect(screen.getByRole("menuitem", { name: "Save as draft" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("opens a draft put aside in the composer, putting what's written aside in its place, newest first", async () => {
+    keepAside("<p>Newer</p>", "<p>Older</p>");
+    const { input, user } = await showComposer();
+    expect(manageDrafts()).toBeInTheDocument();
+    await user.type(input, "Now");
+    await user.click(manageDrafts()!);
+    expect(ticked()).toEqual([
+      ["Now", "true"],
+      ["Newer", "false"],
+      ["Older", "false"],
+    ]);
+
+    await user.click(screen.getByRole("menuitemradio", { name: "Older" }));
+    expect(input).toHaveValue("Older");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Older</p>");
+    expect(putAside()).toEqual(["<p>Now</p>", "<p>Newer</p>"]);
+
+    // With nothing written, nothing's put aside for the one opened.
+    await user.clear(input);
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitemradio", { name: "Newer" }));
+    expect(input).toHaveValue("Newer");
+    expect(putAside()).toEqual(["<p>Now</p>"]);
+  });
+
+  it("names where the drafts are: a room, a DM, or a thread", async () => {
+    keepAside("<p>Aside</p>");
+    localStorage.setItem("composer-draft-u1-r1/threads/m1/saved", localStorage.getItem("composer-draft-u1-r1/saved")!);
+    for (const [shown, place] of [[{}, "room"], [{ direct: true }, "conversation"], [{ threadId: "m1" }, "thread"]] as const) {
+      const { user, view } = await showComposer(shown);
+      await user.click(manageDrafts()!);
+      expect(ticked(place)).toEqual([["Aside", "false"]]);
+      await user.keyboard("{Escape}");
+      view.unmount();
+    }
+  });
+
+  it("keeps a thread's drafts apart from its room's", async () => {
+    keepAside("<p>For the room</p>");
+    const { input, user } = await showComposer({ threadId: "m1" });
+    expect(manageDrafts()).not.toBeInTheDocument();
+    await user.type(input, "For the thread");
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(putAside("m1")).toEqual(["<p>For the thread</p>"]);
+    expect(putAside()).toEqual(["<p>For the room</p>"]);
+  });
+
+  it("lists the drafts in + where the row has no room for Manage drafts", async () => {
+    keepAside("<p>Aside</p>");
+    const { input, user } = await showComposer();
+    await user.type(input, "Hello");
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(screen.queryByRole("group", { name: "Drafts in this room" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    // As the row's styles hide it, which jsdom has none of.
+    manageDrafts()!.style.display = "none";
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect(ticked()).toEqual([
+      ["Hello", "true"],
+      ["Aside", "false"],
+    ]);
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(input).toHaveValue("");
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(putAside()).toEqual(["<p>Hello</p>", "<p>Aside</p>"]);
+  });
+
+  it("says so, leaving what's written, where the drafts can't be kept, until it's changed", async () => {
+    const { input, user } = await showComposer();
+    await user.type(input, "Hello");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.endsWith("/saved")) throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      localStorage[key] = value;
+    });
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    expect(input).toHaveValue("Hello");
+    expect(screen.getByRole("alert")).toHaveTextContent("Your drafts couldn't be saved, as this browser has no room left for them.");
+
+    await user.type(input, "!");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("leaves a draft put aside, and what's written, as they were, saying so, where there's no room to keep the draft opened", async () => {
+    keepAside("<p>Aside</p>");
+    const { input, user } = await showComposer();
+    await user.type(input, "Now");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === "composer-draft-u1-r1") throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      localStorage[key] = value;
+    });
+    await user.click(manageDrafts()!);
+    await user.click(screen.getByRole("menuitemradio", { name: "Aside" }));
+    expect(input).toHaveValue("Now");
+    expect(screen.getByRole("alert")).toHaveTextContent("Your drafts couldn't be saved, as this browser has no room left for them.");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Now</p>");
+    expect(putAside()).toEqual(["<p>Aside</p>"]);
+  });
+
+  it("isn't there where this browser can't keep drafts", async () => {
+    const refuse = () => {
+      throw new DOMException("The operation is insecure.", "SecurityError");
+    };
+    vi.stubGlobal("localStorage", { getItem: refuse, setItem: refuse, removeItem: refuse });
+    const { input, user } = await showComposer();
+    await user.type(input, "Hello");
+    expect(manageDrafts()).not.toBeInTheDocument();
+  });
+
+  it("is there where storage is full, which still holds the drafts put aside", async () => {
+    keepAside("<p>Aside</p>");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    });
+    await showComposer();
+    expect(manageDrafts()).toBeInTheDocument();
+  });
+
+  it("lists beside the room what a thread's composer in the huddle over it put aside, once that's gone", async () => {
+    const beside = await showComposer({ threadId: "m1" });
+    const huddle = await showComposer({ threadId: "m1", autoFocus: false });
+    await huddle.user.type(huddle.input, "From the huddle");
+    await huddle.user.click(within(huddle.view.container).getByRole("button", { name: "Manage drafts" }));
+    await huddle.user.click(screen.getByRole("menuitem", { name: "Save as draft" }));
+    huddle.view.unmount();
+
+    expect(beside.input).toHaveValue("");
+    await beside.user.click(manageDrafts()!);
+    expect(ticked("thread")).toEqual([["From the huddle", "false"]]);
   });
 });
 
@@ -1319,6 +2167,41 @@ describe("Link previews while writing", () => {
       await user.type(input, "Mail ada@example.com, or see www.basecamp.com and https://example.com{Enter}");
       await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
       expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/unfurl", expect.objectContaining({ body: JSON.stringify({ url: "http://www.basecamp.com" }) }));
+    });
+
+    it("asks for the preview of a link typed in the message after a command that took a pasted link's preview, and puts nothing more in the command's place", async () => {
+      const { fetch, answer } = slowPreviews(basecamp);
+      const onCommand = vi.fn<CommandRunner>(async () => true);
+      const { onSend, addPreview, input, user, view } = await showComposer({ onCommand });
+      await user.type(input, "/search ");
+      await user.paste("https://basecamp.com");
+      await user.keyboard("{Enter}");
+      expect(onCommand).toHaveBeenCalledOnce();
+      await answer();
+      expect(shownPreviews(view)).toHaveLength(0);
+
+      await user.type(input, "See http://www.basecamp.com{Enter}");
+      expect(onSend).toHaveBeenLastCalledWith("<p>See http://www.basecamp.com</p>", false);
+      await answer();
+      await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
+      expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body as string).url)).toEqual(["https://basecamp.com", "http://www.basecamp.com"]);
+      expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(true);
+    });
+
+    it("asks for the preview of a link typed in a draft opened in place of what took a pasted link's preview, as it goes", async () => {
+      localStorage.setItem("composer-draft-u1-r1/saved", JSON.stringify([{ id: "d0", body: "<p>See http://www.basecamp.com</p>", savedAt: 1 }]));
+      const fetch = previews(() => Response.json(basecamp));
+      const { onSend, addPreview, input, user } = await showComposer();
+      await user.paste("https://basecamp.com");
+      await screen.findByRole("link", { name: "Basecamp" });
+      await user.click(screen.getByRole("button", { name: "Manage drafts" }));
+      await user.click(screen.getByRole("menuitemradio", { name: "See http://www.basecamp.com" }));
+      await waitFor(() => expect(input).toHaveFocus());
+
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>See http://www.basecamp.com</p>", false);
+      await vi.waitFor(() => expect(addPreview).toHaveBeenCalledExactlyOnceWith(basecamp));
+      expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body as string).url)).toEqual(["https://basecamp.com", "http://www.basecamp.com"]);
     });
 
     it("adds none to a message that took a preview as it was written, even one taken out of it", async () => {

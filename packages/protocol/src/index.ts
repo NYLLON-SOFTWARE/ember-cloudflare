@@ -102,13 +102,17 @@ export type {
 // And the rest of sso.ts, from "@ember/protocol/sso", which only the sign-in pages, the Single sign-on card and the Worker's single sign-on use.
 export type { SsoAccount, SsoConnection, SsoField, SsoForgotten, SsoSaved, SsoSettings, SsoSetup, SsoStatus } from "./sso.ts";
 export {
+  DURATION_REFUSED,
   FILE_NAME_NOT_KEPT,
   FILE_TOO_LARGE,
+  isDuration,
   isKeepableFileName,
   isPreviewableSize,
   isPreviewed,
   isVariable,
+  isWaveform,
   isWebImage,
+  MAX_DURATION,
   MAX_FILE_NAME_LENGTH,
   MAX_FILE_SIZE,
   MAX_FILE_TYPE_LENGTH,
@@ -120,6 +124,9 @@ export {
   uploadPartPath,
   uploadPreviewPath,
   uploadsPath,
+  WAVEFORM_LENGTH,
+  WAVEFORM_LOUDEST,
+  WAVEFORM_REFUSED,
   type NewUpload,
   type StoredFile,
   type Upload,
@@ -180,6 +187,7 @@ export {
 } from "./push.ts";
 export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
 export {
+  CJK_CHARACTER,
   hasFilters,
   hasWords,
   isSearchable,
@@ -552,6 +560,15 @@ export type RoomChanges = { name?: string; icon?: RoomIconChoice; huddles?: bool
   | { kind?: "open" }
   | { kind: "closed"; memberIds: UserId[] }
 );
+
+/**
+ * Whom `PATCH /api/rooms/<id>/members` puts in a private room, and takes out of it, as /invite and /remove
+ * do: only them, leaving everyone else as they are, whoever else has changed the room meanwhile.
+ */
+export interface MembersChange {
+  addedIds: UserId[];
+  removedIds: UserId[];
+}
 
 /**
  * What Rooms and permissions' Save order sends to `PUT /api/account/room_order`: the rooms in the
@@ -1111,7 +1128,8 @@ export interface ReleaseCheck {
   /**
    * Ember's newest beta while it's ahead of the newest release, named as "0.6 beta 1", with its version,
    * "0.6.0-beta.1", its notes and whether it's newer than this one, or null when it isn't ahead, or GitHub
-   * didn't say: what General offers a release to try, and a beta to update to (docs/self-hosting.md#betas).
+   * didn't say: what General offers to try, beside any release to update to, and as the update of a beta
+   * no release has passed (docs/self-hosting.md#betas).
    */
   newestBeta: { release: string; version: string; notes: string; newer: boolean } | null;
   /** The copy of Ember this is on GitHub, as its deploy said, or null where it said none. */
@@ -1878,6 +1896,40 @@ export interface ThreadSummary {
   people: User[];
 }
 
+/**
+ * A message someone has scheduled in a room, as Slack's Schedule for later does, which the room sends as
+ * theirs at `sendAt`, as long as they're in the room then. Only they hear of it, on their own sockets in
+ * the room (`scheduled`). `body` is its markup, as the room keeps a message's, `clientMessageId` the id the
+ * tab that scheduled it gave it, which the message is sent with, and with `parentId`, it's a reply in that
+ * message's thread, which `alsoSend` sends to the room too. `failure` says why the room couldn't send it
+ * when it was due, as when the thread's message had been deleted: it waits then, to be edited or deleted.
+ */
+export interface ScheduledMessage {
+  id: string;
+  clientMessageId: string;
+  body: string;
+  sendAt: string;
+  parentId?: string;
+  alsoSend?: boolean;
+  failure?: string;
+}
+
+/** The most messages someone can have scheduled in a room at once. */
+export const MAX_SCHEDULED_MESSAGES = 30;
+/** How far ahead a message can be scheduled: 120 days, as in Slack. */
+export const SCHEDULE_AHEAD_MS = 120 * 24 * 60 * 60_000;
+/** What the room says of a time that's past, or further ahead than it schedules. */
+export const SCHEDULE_TIME_REFUSED = "Pick a time between now and 120 days from now.";
+/** What the room says once someone has as many messages scheduled there as it keeps. */
+export const TOO_MANY_SCHEDULED = `You can have up to ${MAX_SCHEDULED_MESSAGES} messages scheduled here at once.`;
+/** What the room says of a scheduled message that has gone, sent or deleted meanwhile, as from another tab. */
+export const SCHEDULED_GONE = "That message isn't scheduled any more.";
+/**
+ * Why the room couldn't send a scheduled reply: its thread's message has been deleted since it was
+ * scheduled, leaving no thread to send it in, so its room's composer lists it, where it can be deleted.
+ */
+export const THREAD_DELETED = "Its thread's message has been deleted.";
+
 /** Whether a message shows in its room's timeline: every message but a reply that was sent only to its thread. */
 export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
 
@@ -1912,6 +1964,19 @@ export type ClientFrame =
    * With `parentId`, it's a reply in that message's thread, which `alsoSend` sends to the room too.
    */
   | { type: "message.create"; clientMessageId: string; body: string; parentId?: string; alsoSend?: boolean }
+  /**
+   * A message to send at `sendAt`, as `message.create` would send it now, which the room keeps for its
+   * writer, answering with `scheduled`, or with an `error` naming `clientMessageId`.
+   */
+  | { type: "message.schedule"; clientMessageId: string; body: string; sendAt: string; parentId?: string; alsoSend?: boolean }
+  /** One of your scheduled messages' new body, as for `message.update`, which keeps its time. */
+  | { type: "scheduled.edit"; scheduledId: string; body: string }
+  /** Moves one of your scheduled messages to `sendAt`, to be sent then, though it couldn't be before. */
+  | { type: "scheduled.reschedule"; scheduledId: string; sendAt: string }
+  /** Sends one of your scheduled messages now. */
+  | { type: "scheduled.send"; scheduledId: string }
+  /** Deletes one of your scheduled messages, unsent. */
+  | { type: "scheduled.delete"; scheduledId: string }
   /** A message's new body, as for `message.create`. */
   | { type: "message.update"; messageId: string; body: string }
   /**
@@ -1985,16 +2050,17 @@ export type ServerFrame =
    * Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. Its
    * page is the newest, or the one around the message the socket's address names, if the room has it.
    * `ephemeral` holds the messages only they see, the cards of the calls asked in the room's timeline that
-   * wait on them, if any do.
+   * wait on them, if any do, and `scheduled` the messages they have scheduled here, as `scheduled` lists
+   * them, if they have any.
    */
-  | ({ type: "welcome"; you: User; present: User[]; seq: number; ephemeral?: EphemeralMessage[] } & TimelinePage)
+  | ({ type: "welcome"; you: User; present: User[]; seq: number; ephemeral?: EphemeralMessage[]; scheduled?: ScheduledMessage[] } & TimelinePage)
   /**
    * Sent in place of a welcome to a tab that names the latest change it has seen, if the room still
    * keeps every change since: the messages changed after it, as they are now, oldest first, the ids of
    * those deleted, and who's here. A message both made and deleted since is among the deleted alone.
-   * `ephemeral` holds what a welcome's does.
+   * `ephemeral` and `scheduled` hold what a welcome's do.
    */
-  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number; ephemeral?: EphemeralMessage[] }
+  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number; ephemeral?: EphemeralMessage[]; scheduled?: ScheduledMessage[] }
   /** A new message. Its author has stopped typing, too. */
   | { type: "message.created"; message: Message; seq: number }
   | { type: "message.updated"; message: Message; seq: number }
@@ -2036,12 +2102,20 @@ export type ServerFrame =
    */
   | { type: "message.ephemeral"; message: EphemeralMessage }
   /**
-   * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about, or `clickId` the click. `rewrite` says the room won't
-   * take a message for what it says, as one with a word Blocked words keeps out, which is its writer's to
-   * change and send again.
+   * The messages you have scheduled in the room, every one, soonest first, sent to your sockets in the room
+   * whenever one is scheduled, moved, sent, deleted or can't be sent. A socket starts with them in its
+   * welcome, or with what it resumes. `edited`, sent only to the socket that asked to edit one, is the one it
+   * asked to edit, once the room has the edit. Where the room refuses a change, that socket hears them, then
+   * why not.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
+  | { type: "scheduled"; messages: ScheduledMessage[]; edited?: string }
+  /**
+   * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
+   * `clientMessageIds` the messages it was about, `scheduledId` the scheduled message, or `clickId` the
+   * click. `rewrite` says the room won't take a message for what it says, as one with a word Blocked words
+   * keeps out, which is its writer's to change and send again.
+   */
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; scheduledId?: string; clickId?: string; failed?: ClientFrame["type"]; rewrite?: true }
   | { type: "pong" };
 
 /**
@@ -2146,8 +2220,23 @@ export type WorkspaceServerFrame =
    * first may be a moment behind, as the frame that follows it brings it up to date.
    */
   | { type: "presence"; active: UserId[]; away: UserId[] }
+  /**
+   * What a push would show them, sent on the workspace sockets of an app that shows notifications itself,
+   * as the desktop app does, which can't be pushed to: a new message, an invitation into a huddle while
+   * they have Ember in view nowhere, and to an administrator a new report. Their browsers are pushed it
+   * as ever. `id` names what it's of, the same on every socket, so that an app with several of a site's
+   * windows open shows it once.
+   */
+  | ({ type: "notification"; id: string } & AppNotification)
   | { type: "error"; message: string }
   | { type: "pong" };
+
+/** What an app's notification shows, and the page opening it opens, as a push's would. */
+export interface AppNotification {
+  title: string;
+  body: string;
+  path: string;
+}
 
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
@@ -2217,10 +2306,12 @@ export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams & {
 export interface WorkspaceSocketParams {
   /** Whether the tab is shown, which `presence.visible` frames update. */
   visible: boolean;
+  /** Whether the tab is in an app that shows notifications itself, and so is sent them (`notification`). */
+  notifications?: true;
 }
 
 /** The query that carries `params` on a workspace socket's address. */
-export const workspaceSocketQuery = ({ visible }: WorkspaceSocketParams) => `?visible=${visible ? 1 : 0}`;
+export const workspaceSocketQuery = ({ visible, notifications }: WorkspaceSocketParams) => `?visible=${visible ? 1 : 0}${notifications ? "&notifications=1" : ""}`;
 
 /**
  * What a workspace socket's address says about its tab, as `workspaceSocketQuery` wrote it. A tab that
@@ -2228,7 +2319,10 @@ export const workspaceSocketQuery = ({ visible }: WorkspaceSocketParams) => `?vi
  * loaded, which once said nothing here, and counting it would keep an invitation's push from someone
  * who has such a tab open and isn't at it.
  */
-export const parseWorkspaceSocketParams = (query: SearchParams): WorkspaceSocketParams => ({ visible: query.get("visible") === "1" });
+export const parseWorkspaceSocketParams = (query: SearchParams): WorkspaceSocketParams => ({
+  visible: query.get("visible") === "1",
+  ...(query.get("notifications") === "1" && { notifications: true }),
+});
 
 /** The most characters a message's plain text can have: Slack's most, room for a long paste. */
 export const MAX_MESSAGE_LENGTH = 40_000;
@@ -2383,6 +2477,13 @@ function linkPreview(v: unknown): LinkPreview | null {
   return title.trim() !== "" && url.trim() !== "" ? { title, url, image, description } : null;
 }
 
+/** A time, as an ISO string no longer than one is, which it answers as `toISOString` writes it, or null. */
+const time = (v: unknown): string | null => {
+  if (typeof v !== "string" || v.length > 30) return null;
+  const at = Date.parse(v);
+  return Number.isFinite(at) ? new Date(at).toISOString() : null;
+};
+
 /** Trimmed, non-empty text no longer than `max`, or null. */
 const text = (v: unknown, max: number): string | null => {
   if (typeof v !== "string") return null;
@@ -2412,6 +2513,24 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       if (f.parentId === undefined) return { type: f.type, clientMessageId: f.clientMessageId, body };
       return id(f.parentId) ? { type: f.type, clientMessageId: f.clientMessageId, body, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
     }
+    case "message.schedule": {
+      const body = markup(f.body);
+      const sendAt = time(f.sendAt);
+      if (!id(f.clientMessageId) || body === null || sendAt === null) return null;
+      if (f.parentId === undefined) return { type: f.type, clientMessageId: f.clientMessageId, body, sendAt };
+      return id(f.parentId) ? { type: f.type, clientMessageId: f.clientMessageId, body, sendAt, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
+    }
+    case "scheduled.edit": {
+      const body = markup(f.body);
+      return id(f.scheduledId) && body !== null ? { type: f.type, scheduledId: f.scheduledId, body } : null;
+    }
+    case "scheduled.reschedule": {
+      const sendAt = time(f.sendAt);
+      return id(f.scheduledId) && sendAt !== null ? { type: f.type, scheduledId: f.scheduledId, sendAt } : null;
+    }
+    case "scheduled.send":
+    case "scheduled.delete":
+      return id(f.scheduledId) ? { type: f.type, scheduledId: f.scheduledId } : null;
     case "message.update": {
       const body = markup(f.body);
       return id(f.messageId) && body !== null ? { type: f.type, messageId: f.messageId, body } : null;
@@ -2567,6 +2686,18 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
 
 /** Whether `data` is a JSON object: an array is an object too, but not one that can name a change. */
 const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof data === "object" && data !== null && !Array.isArray(data);
+
+/**
+ * Parses an untrusted change to whom a private room has. Returns why it's refused instead of the change.
+ * Either list can be left out, for nobody.
+ */
+export function parseMembersChange(data: unknown): MembersChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { addedIds = [], removedIds = [] } = data;
+  if (!userIds(addedIds) || !userIds(removedIds)) return `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  const removing = new Set(removedIds);
+  return addedIds.some((id) => removing.has(id)) ? "Nobody can be put in a room and taken out of it at once" : { addedIds, removedIds };
+}
 
 /**
  * Parses an untrusted request to start a DM. Returns why it's refused instead of the DM. Naming nobody,

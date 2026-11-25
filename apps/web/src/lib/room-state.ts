@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, parentTextOf, type EphemeralMessage, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, parentTextOf, type EphemeralMessage, type Message, type ScheduledMessage, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 
 /** `gone` is a room that isn't there for this person any more, deleted or no longer theirs, which nothing reconnects to. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
@@ -112,6 +112,8 @@ export interface RoomState {
    * address. It doesn't say which reaction, so a deletion sent before the latest may not happen.
    */
   refusedUnboosts: number;
+  /** The messages you have scheduled in the room, soonest first, as it last listed them. */
+  scheduled: ScheduledMessage[];
   /**
    * Set for a timeline that keeps every message it's sent, as a thread's does: it has no way to page
    * forward, so it can't cut its newest, and then it can't cut its oldest either, which may be the ones
@@ -171,6 +173,7 @@ export const initialRoomState: RoomState = {
   paged: null,
   connections: 0,
   refusedUnboosts: 0,
+  scheduled: [],
 };
 
 export const isPending = (m: Message | PendingMessage): m is PendingMessage => "pending" in m;
@@ -451,9 +454,11 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
 function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomState {
   switch (frame.type) {
     case "welcome":
-      return welcomed(state, frame, frame.present, frame.ephemeral);
+      return { ...welcomed(state, frame, frame.present, frame.ephemeral), scheduled: frame.scheduled ?? [] };
     case "resumed":
-      return resumed(state, frame, frame.present, frame.ephemeral);
+      return { ...resumed(state, frame, frame.present, frame.ephemeral), scheduled: frame.scheduled ?? [] };
+    case "scheduled":
+      return { ...state, scheduled: frame.messages };
     case "message.created":
       return received(state, frame.message);
     case "message.updated":
@@ -516,10 +521,11 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       // for what it says, when the composer it came from takes it back if it can. An error about no
       // message keeps the same list: the timeline takes a new one for a change, and would ask again for a
       // page that just failed. One about a thread, or about messages the timeline isn't sending, as
-      // replies in a thread, is the thread's to show, and one about a link's preview, which the tab sent
-      // of its own accord, isn't shown.
+      // replies in a thread, is the thread's to show, one about a link's preview, which the tab sent of its
+      // own accord, isn't shown, and one about an edit to a scheduled message is their list's to show, as
+      // it keeps the edit.
       const notSent = frame.clientMessageIds ?? (frame.clientMessageId === undefined ? [] : [frame.clientMessageId]);
-      if (frame.failed === "thread.open" || frame.failed === "thread.before" || frame.failed === "message.preview") return state;
+      if (frame.failed === "thread.open" || frame.failed === "thread.before" || frame.failed === "message.preview" || frame.failed === "scheduled.edit") return state;
       if (notSent.length > 0 && !state.messages.some((m) => isPending(m) && notSent.includes(m.clientMessageId))) return state;
       const refused = frame.rewrite ? { failed: true, rewrite: frame.message } : { failed: true };
       const messages = notSent.length

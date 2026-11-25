@@ -1,11 +1,13 @@
 import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type Upload } from "@ember/protocol";
 import { previewOf } from "./previews";
+import { videoLengthOf } from "./video-length";
+import { waveformOf } from "./waveform";
 
 // Uploading a file as a message of its own, as Campfire's FileUploader does, but in parts that R2 puts
 // back together, since a Worker takes at most 100 MB a request: the app starts the upload, sends its
-// parts one after another, and the room posts the file as a message once it has the last. A picture's
-// thumbnail or a video's poster, which the browser makes meanwhile (previews.ts), goes just before the
-// last part.
+// parts one after another, and the room posts the file as a message once it has the last. A sound's
+// waveform, which the browser works out first (waveform.ts), goes as the upload starts, and a picture's
+// thumbnail or a video's poster, which it makes meanwhile (previews.ts), just before the last part.
 
 /** What a failed upload says, unless the file is too large. */
 export const UPLOAD_FAILED = "Upload failed. Please attach the file and try again.";
@@ -85,10 +87,11 @@ export interface UploadThread {
  */
 export async function uploadFile(roomId: RoomId, file: File, clientMessageId: string, onProgress: (percent: number) => void, thread?: UploadThread): Promise<Message> {
   if (file.size > MAX_FILE_SIZE) throw new UploadError(FILE_TOO_LARGE);
+  const [waveform, duration] = await Promise.all([waveformOf(file), videoLengthOf(file)]);
   const started = await fetch(uploadsPath(roomId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: file.name, type: file.type, size: file.size, clientMessageId, ...thread }),
+    body: JSON.stringify({ name: file.name, type: file.type, size: file.size, clientMessageId, ...thread, ...(waveform && { waveform }), ...(duration && { duration }) }),
   }).catch(() => {
     throw new UploadError(CONNECTION_LOST);
   });

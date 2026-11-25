@@ -11,7 +11,7 @@ import {
   type ReportSubject,
 } from "@ember/protocol/reports";
 import { statement, type Db } from "../db";
-import { ACTIVE, ADMINISTRATOR, deliveryOf, notPaused, type DeliveryRow, type PushDelivery } from "../workspace-store";
+import { ACTIVE, ADMINISTRATOR, badgeOf, deliveryOf, notPaused, type DeliveryRow, type PushDelivery } from "../workspace-store";
 
 // What the Workspace keeps of reports (migrations/0073_reports.sql): who reported whom, for which of
 // their messages or for themselves, why, and the message or the person as they were then, until an
@@ -34,10 +34,14 @@ export interface OpenReports {
   open: number;
 }
 
-/** What keeping a report did: each active administrator's open reports then, and where its pushes go. */
+/**
+ * What keeping a report did: each active administrator's open reports then, where its pushes go, and whose
+ * apps that show notifications themselves are sent it as one.
+ */
 export interface KeptReport {
   open: OpenReports[];
   deliveries: PushDelivery[];
+  notifiedIds: UserId[];
 }
 
 /** What handling a report did: the reports it closed, that one among them, and each active administrator's open reports then. */
@@ -100,17 +104,25 @@ export const OPEN_REPORTS_BY_ADMINISTRATOR = `SELECT id AS user_id, (SELECT coun
   FROM users WHERE role = ${ADMINISTRATOR} AND status = ${ACTIVE}`;
 
 /**
- * Where the push of a report made by ?1 of ?2 at ?3 goes: to the subscriptions of the active
- * administrators but the two of them, anyone who has blocked whoever made it and anyone whose
- * notifications are paused then, in the order they were saved, each with the count its push sets the
- * badge to, as a message's does.
+ * Whom a report made by ?1 of ?2 at ?3 reaches, for the rows `users` reads: the active administrators but
+ * the two of them, anyone who has blocked whoever made it and anyone whose notifications are paused then.
+ */
+const REACHED_BY_REPORT = `users.role = ${ADMINISTRATOR} AND users.status = ${ACTIVE} AND users.id <> ?1 AND users.id <> ?2
+    AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocks.user_id = users.id AND blocks.blocked_id = ?1) AND ${notPaused("?3")}`;
+
+/**
+ * Where the push of a report made by ?1 of ?2 at ?3 goes: to the subscriptions of those it reaches
+ * (`REACHED_BY_REPORT`), in the order they were saved, each with the count its push sets the badge to, as
+ * a message's does.
  */
 export const REPORT_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
-    (SELECT count(*) FROM memberships WHERE memberships.user_id = users.id AND memberships.unread_at IS NOT NULL) AS badge
+    ${badgeOf("users.id")} AS badge
   FROM users JOIN push_subscriptions ON push_subscriptions.user_id = users.id
-  WHERE users.role = ${ADMINISTRATOR} AND users.status = ${ACTIVE} AND users.id <> ?1 AND users.id <> ?2
-    AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocks.user_id = users.id AND blocks.blocked_id = ?1) AND ${notPaused("?3")}
+  WHERE ${REACHED_BY_REPORT}
   ORDER BY push_subscriptions.id`;
+
+/** Whose apps a report made by ?1 of ?2 at ?3 is sent to as a notification: those it reaches whom a JSON list ?4 names. */
+export const REPORT_NOTIFICATIONS = `SELECT users.id AS user_id FROM users WHERE ${REACHED_BY_REPORT} AND users.id IN (SELECT value FROM json_each(?4))`;
 
 /**
  * Whether subscription ?1 may still have the push of a report made by ?2 as its turn comes, at ?3: it's
@@ -155,20 +167,25 @@ export class ReportStore {
   /**
    * Keeps `report`, in one transaction, unless whoever made it has an open report of the same message, or
    * person, already, or whoever it's of has deleted their account: answers null then, or else each active
-   * administrator's open reports and where the report's pushes go.
+   * administrator's open reports, where the report's pushes go, and which of `apps`, whose apps show
+   * notifications themselves, it's sent to as one.
    */
-  async keep(report: ReportToKeep): Promise<KeptReport | null> {
+  async keep(report: ReportToKeep, apps: UserId[] = []): Promise<KeptReport | null> {
     const { id, reporterId, subjectId, subject, reason, note, createdAt } = report;
     const kept =
       subject.kind === "message"
         ? statement(KEEP_MESSAGE_REPORT, id, reporterId, subjectId, subject.roomId, subject.message.id, JSON.stringify(subject), reason, note, createdAt)
         : statement(KEEP_PERSON_REPORT, id, reporterId, subjectId, JSON.stringify(subject), reason, note, createdAt);
-    const [[saved], open, deliveries] = (await this.db.batch([kept, statement(OPEN_REPORTS_BY_ADMINISTRATOR), statement(REPORT_PUSHES, reporterId, subjectId, new Date().toISOString())])) as [
+    const now = new Date().toISOString();
+    const statements = [kept, statement(OPEN_REPORTS_BY_ADMINISTRATOR), statement(REPORT_PUSHES, reporterId, subjectId, now)];
+    if (apps.length > 0) statements.push(statement(REPORT_NOTIFICATIONS, reporterId, subjectId, now, JSON.stringify(apps)));
+    const [[saved], open, deliveries, notified = []] = (await this.db.batch(statements)) as [
       unknown[],
       Array<{ user_id: UserId; open: number }>,
       DeliveryRow[],
+      Array<{ user_id: UserId }>?,
     ];
-    return saved ? { open: open.map(openOf), deliveries: deliveries.map(deliveryOf) } : null;
+    return saved ? { open: open.map(openOf), deliveries: deliveries.map(deliveryOf), notifiedIds: notified.map(({ user_id }) => user_id) } : null;
   }
 
   /** Whether `userId` has deleted their account, whose reports keep nothing of them, as a new one can't be kept. */

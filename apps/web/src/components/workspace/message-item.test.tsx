@@ -8,7 +8,6 @@ import { FlashProvider } from "@/components/flash";
 import { BlockingContext } from "@/hooks/use-blocking";
 import { ReportingContext } from "@/hooks/use-reporting";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
-import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { RoomsContext, type Rooms } from "@/hooks/use-rooms";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
@@ -70,8 +69,7 @@ const roomsMessage = () => {
  * administrator if `administrator`, in a thread's panel if `thread` says where, and marked as the open
  * thread's if `open`, who has blocked the people `blocked` names. `sent` is what a reaction, edit or
  * deletion reports: false when there's no connection. `update` hands it a new copy of the message, as the
- * room does when the message changes, `reconnect` lets the page into the room again, `refuse` has the
- * room refuse to delete a reaction, `setBlocked` is what Block and Unblock call, `block` has the
+ * room does when the message changes, `setBlocked` is what Block and Unblock call, `block` has the
  * sidebar hear that the people it names are the ones blocked, and `openReport` is what Report message opens.
  * `me` is in `rooms`, as their sidebar lists them.
  */
@@ -93,45 +91,33 @@ function show(
   const openReport = vi.fn();
   let setEditing: (editing: boolean) => void = () => {};
   let setMessage: (message: Message | PendingMessage) => void = () => {};
-  let setConnections: (update: (connections: number) => number) => void = () => {};
-  let setRefusals: (update: (refusals: number) => number) => void = () => {};
   let setBlockedIds: (blocked: string[]) => void = () => {};
   const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
   function Room() {
     const [editing, set] = useState(false);
     const [shown, setShown] = useState(m);
-    const [connections, setConnected] = useState(1);
-    const [refusals, setRefused] = useState(0);
     const [blockedIds, setBlockedNow] = useState(blocked);
     const blocking = useMemo(() => ({ blocked: new Set(blockedIds), setBlocked }), [blockedIds]);
     setBlockedIds = setBlockedNow;
     setEditing = set;
     setMessage = setShown;
-    setConnections = setConnected;
-    setRefusals = setRefused;
     return (
       <FlashProvider workspace>
-        <RoomConnection value={connections}>
-          <RefusedUnboosts value={refusals}>
-            <BlockingContext value={blocking}>
-              <ReportingContext value={openReport}>
-                <RoomsContext value={rooms}>
-                  <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
-                </RoomsContext>
-              </ReportingContext>
-            </BlockingContext>
-          </RefusedUnboosts>
-        </RoomConnection>
+        <BlockingContext value={blocking}>
+          <ReportingContext value={openReport}>
+            <RoomsContext value={rooms}>
+              <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+            </RoomsContext>
+          </ReportingContext>
+        </BlockingContext>
       </FlashProvider>
     );
   }
   const { container } = render(<Room />);
   const update = (next: Message | PendingMessage) => act(() => setMessage(next));
-  const reconnect = () => act(() => setConnections((connections) => connections + 1));
-  const refuse = () => act(() => setRefusals((refusals) => refusals + 1));
   const block = (blockedNow: string[]) => act(() => setBlockedIds(blockedNow));
   // The message's article, which holds a bot's cards' own.
-  return { actions, editors, update, reconnect, refuse, setBlocked, block, openReport, user: userEvent.setup(), article: within(container).getAllByRole("article")[0]! };
+  return { actions, editors, update, setBlocked, block, openReport, user: userEvent.setup(), article: within(container).getAllByRole("article")[0]! };
 }
 
 /** The editor Edit opens, test-setup.ts's stand-in for Lexxy, which shows a message's text. */
@@ -1356,18 +1342,27 @@ describe("React to a message", () => {
     expect(optionsOn("Hello")).toHaveFocus();
   });
 
-  it("lists reactions oldest first, each with its booster's avatar, and emoji larger than words", () => {
+  it("shows one chip a reaction, in the order each was first added, with emoji larger than words", () => {
     show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉"), boost("b3", grace, "Nice one!"), boost("b4", ada, "👍")] }));
-    const pills = reactions().getAllByRole("listitem");
-    expect(pills.map((pill) => within(pill).getByRole("img").getAttribute("alt"))).toEqual([
-      "Grace boosted 👍",
-      "Ada boosted 🎉",
-      "Grace boosted Nice one!",
-      "Ada boosted 👍",
-    ]);
-    expect(pills.map((pill) => pill.textContent)).toEqual(["👍", "🎉", "Nice one!", "👍"]);
-    expect(within(pills[0]!).getByText("👍")).toHaveClass("text-base");
-    expect(within(pills[2]!).getByText("Nice one!")).toHaveClass("text-[0.8rem]");
+    const chips = reactions().getAllByRole("button");
+    expect(chips.map((chip) => chip.getAttribute("aria-label"))).toEqual(["👍, 2 reactions: Grace and you", "🎉, 1 reaction: you", "Nice one!, 1 reaction: Grace"]);
+    expect(chips.map((chip) => chip.textContent)).toEqual(["👍", "🎉", "Nice one!"]);
+    expect(within(chips[0]!).getByText("👍")).toHaveClass("text-base");
+    expect(within(chips[2]!).getByText("Nice one!")).toHaveClass("text-[0.8rem]");
+  });
+
+  it("stacks a blank disc behind the first face for each of the next two who reacted, and no more", () => {
+    const linus = { id: "u3", name: "Linus" };
+    const ken = { id: "u4", name: "Ken" };
+    const { update } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", linus, "👍")] }));
+    const chip = () => reactions().getByRole("button");
+    const discs = () => chip().querySelectorAll("span.rounded-full:not(:has(*))").length;
+    expect(chip().querySelectorAll("img")).toHaveLength(1);
+    expect(discs()).toBe(1);
+    update(message({ boosts: [boost("b1", grace, "👍"), boost("b2", linus, "👍"), boost("b3", ada, "👍"), boost("b4", ken, "👍")] }));
+    expect(chip().querySelectorAll("img")).toHaveLength(1);
+    expect(discs()).toBe(2);
+    expect(chip()).toHaveAccessibleName("👍, 4 reactions: Grace, Linus, you, and Ken");
   });
 
   it("opens the bar with More reactions from Add a boost, focusing the first, and Escape hands focus back", async () => {
@@ -1396,11 +1391,14 @@ describe("React to a message", () => {
     expect(screen.queryByRole("button", { name: "Add a boost" })).not.toBeInTheDocument();
   });
 
-  it("lists reactions, but offers nothing, where nothing can be done, as in a room that's gone", () => {
+  it("shows reactions, but offers nothing, where nothing can be done, as in a room that's gone", () => {
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(<MessageItem message={message({ boosts: [boost("b1", ada, "👍")] })} me={{ ...ada, administrator: true }} threaded={false} editing={false} actions={null} editors={editors} />);
-    expect(reactions().getByRole("img", { name: "Ada boosted 👍" })).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    const chip = reactions().getByRole("button", { name: "👍, 1 reaction: you" });
+    expect(chip).toHaveAttribute("aria-disabled", "true");
+    expect(chip).toHaveAttribute("title", "👍, 1 reaction: you");
+    expect(chip).not.toHaveAttribute("aria-pressed");
+    expect(screen.queryByRole("button", { name: "Add a boost" })).not.toBeInTheDocument();
   });
 });
 
@@ -1504,73 +1502,36 @@ describe("Custom reactions", () => {
   });
 });
 
-describe("Take back a reaction", () => {
-  it("reveals Delete this boost as you click your own reaction, or press Enter on it, focusing it", async () => {
-    const { user } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉")] }));
-    // Only your own reactions do anything.
-    expect(reactions().getAllByRole("button").map((b) => b.textContent)).toEqual(["🎉"]);
-    const mine = reactions().getByRole("button", { name: "🎉" });
-    expect(mine).toHaveAccessibleDescription("Press enter to delete this boost");
-    expect(mine).toHaveAttribute("aria-expanded", "false");
+describe("Join or take back a reaction", () => {
+  it("adds the reaction for you as you tap someone else's, keeping focus on it", async () => {
+    const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
+    const chip = reactions().getByRole("button", { name: "👍, 1 reaction: Grace" });
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+    await user.click(chip);
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
+    expect(actions.unboost).not.toHaveBeenCalled();
+    expect(chip).toHaveFocus();
+  });
 
-    await user.click(mine);
-    expect(mine).toHaveAttribute("aria-expanded", "true");
-    expect(reactions().getByRole("button", { name: "Delete this boost" })).toHaveFocus();
-    await user.click(mine);
-    expect(reactions().queryByRole("button", { name: "Delete this boost" })).not.toBeInTheDocument();
-
-    act(() => mine.focus());
+  it("takes yours back as you tap a reaction you've added, or press Enter on it", async () => {
+    const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "👍")] }));
+    const chip = reactions().getByRole("button", { name: "👍, 2 reactions: Grace and you" });
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+    await user.click(chip);
+    expect(actions.unboost).toHaveBeenCalledWith("b2");
+    expect(actions.boost).not.toHaveBeenCalled();
+    act(() => chip.focus());
     await user.keyboard("{Enter}");
-    expect(reactions().getByRole("button", { name: "Delete this boost" })).toHaveFocus();
+    expect(actions.unboost).toHaveBeenCalledTimes(2);
+    // Others' reactions keep the chip, so it keeps focus.
+    expect(chip).toHaveFocus();
   });
 
-  it("deletes your reaction, shrinking it away, and hands focus to Message options", async () => {
-    const { actions, user } = show(message({ boosts: [boost("b1", ada, "👍")] }));
-    await user.click(reactions().getByRole("button", { name: "👍" }));
-    await user.click(reactions().getByRole("button", { name: "Delete this boost" }));
-    expect(actions.unboost).toHaveBeenCalledWith("b1");
-    expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
+  it("hands focus to Message options as you take back a reaction only you had added, every copy of it", async () => {
+    const { actions, user } = show(message({ boosts: [boost("b1", ada, "👍"), boost("b2", ada, "👍")] }));
+    await user.click(reactions().getByRole("button", { name: "👍, 1 reaction: you" }));
+    expect(actions.unboost.mock.calls).toEqual([["b1"], ["b2"]]);
     expect(optionsOn("Hello")).toHaveFocus();
-  });
-
-  it("keeps your reaction when its deletion can't be sent, or brings it back when the page reconnects before it goes", async () => {
-    const mine = boost("b1", ada, "👍");
-    const { actions, update, reconnect, user } = show(message({ boosts: [mine] }), { sent: false });
-    await user.click(reactions().getByRole("button", { name: "👍" }));
-    const remove = reactions().getByRole("button", { name: "Delete this boost" });
-    await user.click(remove);
-    expect(actions.unboost).toHaveBeenCalledWith("b1");
-    expect(reactions().getByRole("listitem")).not.toHaveClass("animate-scale-fade-out");
-    expect(remove).toHaveFocus();
-
-    // Sent, but lost, as when the connection drops before the room hears of it.
-    actions.unboost.mockReturnValue(true);
-    await user.click(remove);
-    expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
-    // Someone editing the message doesn't bring it back, while the room may still delete it.
-    update(message({ plainText: "Hello, edited", boosts: [{ ...mine }] }));
-    expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
-    // A reconnect that doesn't delete it does, even when the room's copy of the message is the same object.
-    reconnect();
-    expect(reactions().getByRole("listitem")).not.toHaveClass("animate-scale-fade-out");
-    expect(reactions().getByRole("button", { name: "Delete this boost" })).toBeInTheDocument();
-  });
-
-  it("brings your reactions back when the room refuses to delete one, as it doesn't say which", async () => {
-    const { refuse, user } = show(message({ boosts: [boost("b1", ada, "👍"), boost("b2", ada, "🎉")] }));
-    const going = () => reactions().getAllByRole("listitem").map((pill) => pill.classList.contains("animate-scale-fade-out"));
-    for (const pill of reactions().getAllByRole("listitem")) {
-      await user.click(within(pill).getByRole("button", { name: pill.textContent! }));
-      await user.click(within(pill).getByRole("button", { name: "Delete this boost" }));
-    }
-    expect(going()).toEqual([true, true]);
-    // As a room does from a banned address.
-    refuse();
-    expect(going()).toEqual([false, false]);
-
-    // A deletion sent after it shows as going, as the room hasn't answered it yet.
-    await user.click(reactions().getAllByRole("button", { name: "Delete this boost" })[0]!);
-    expect(going()).toEqual([true, false]);
   });
 });
 
@@ -1653,16 +1614,6 @@ describe("Avatars open people's pages", () => {
     expect(location.pathname).toBe("/users/u1");
   });
 
-  it("links each reaction's avatar to whoever added it, named by their reaction, yours as well as others'", async () => {
-    const { user } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉")] }));
-    const theirs = reactions().getByRole("link", { name: "Grace boosted 👍" });
-    expect(theirs).toHaveAttribute("href", "/users/u2");
-    expect(theirs).toHaveAttribute("title", "Grace");
-    await user.click(reactions().getByRole("link", { name: "Ada boosted 🎉" }));
-    expect(location.pathname).toBe("/users/u1");
-    expect(reactions().getByRole("button", { name: "🎉" })).toHaveAttribute("aria-expanded", "false");
-  });
-
   it("has no avatar on a message grouped under the one before, whose only link is its time's", () => {
     const { article } = show(message(), { threaded: true });
     expect(within(article).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/rooms/general/@m1"]);
@@ -1683,7 +1634,7 @@ describe("Edit your profile", () => {
     expect(screen.getByText("Ada King")).toBeInTheDocument();
     expect(screen.queryByText("Ada")).not.toBeInTheDocument();
     // Someone the directory doesn't list keeps the name the boost was given.
-    expect(reactions().getAllByRole("img").map((avatar) => avatar.getAttribute("alt"))).toEqual(["Grace Hopper boosted 👍", "Linus boosted 👍"]);
+    expect(reactions().getByRole("button")).toHaveAccessibleName("👍, 2 reactions: Grace Hopper and Linus");
   });
 });
 

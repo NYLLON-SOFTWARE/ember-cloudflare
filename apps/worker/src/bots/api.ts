@@ -27,6 +27,8 @@ import { urlOf } from "../request-url";
 import type { PageCursor } from "../store";
 import { workspace, type BotKeyAccess } from "../workspace";
 import { botKeyParts } from "./keys";
+import { markdownHtml, MAX_MARKDOWN_LENGTH } from "./markdown";
+import { contentTypeOf } from "./mime";
 import { railsJson } from "./rails-json";
 import { payloadOf, slackMessage, slackPayloadOf, type SlackError, type SlackPayload } from "./slack";
 
@@ -151,7 +153,7 @@ async function createMessage(request: Request, env: Env, roomId: RoomId, key: st
   const threadId = present(urlOf(request).searchParams.get("thread"));
   const formAnswer = await withForm(request, (form) => createFileMessage(request, env, roomId, key, access, form, threadId));
   if (formAnswer) return formAnswer;
-  const markup = await bodyText(request);
+  const markup = await bodyMarkup(request);
   if (markup === null) return exception(413);
   // The key is checked again once the whole body is here, which arrives as slowly as its sender likes:
   // long enough for the bot to be deleted, given a new key or taken out of the room since the check
@@ -276,7 +278,7 @@ async function updateMessage(request: Request, env: Env, roomId: RoomId, key: st
   if (access instanceof Response) return access;
   const formAnswer = await withForm(request, (form) => updateFileMessage(request, env, roomId, key, access, form, messageId));
   if (formAnswer) return formAnswer;
-  const markup = await bodyText(request);
+  const markup = await bodyMarkup(request);
   if (markup === null) return exception(413);
   // Again now the body has arrived, as `createMessage` checks it.
   const arrived = await botIn(env, roomId, key);
@@ -442,6 +444,24 @@ async function removeFile(env: Env, roomId: RoomId, key: string, messageId: stri
 async function bodyText(request: Request): Promise<string | null> {
   const text = await bodyUpTo(request, MAX_BODY_BYTES);
   return text !== null && text.length <= MAX_MESSAGE_HTML_LENGTH ? text : null;
+}
+
+/**
+ * The markup a bot's text posts, as `bodyText` reads it: its body as it is, as Campfire reads it, or,
+ * where Campfire has no such type, a `text/markdown` body read as Markdown, as a Slack payload's
+ * markdown block is (markdown.ts), so a bot that writes Markdown needn't write HTML. Null when the body,
+ * or the markup its Markdown becomes, is longer than a message's markup can be: a reference link's
+ * address is written once and repeated wherever it's used, so a short body can become a long one. The
+ * markup is only measured once it's whole, so the Markdown is first held to what a Slack payload's
+ * markdown blocks can hold: a message's length of it, an address of 50,000 characters linked 7,000
+ * times, would become hundreds of megabytes, past the Worker's memory.
+ */
+async function bodyMarkup(request: Request): Promise<string | null> {
+  const text = await bodyText(request);
+  if (text === null || contentTypeOf(request.headers.get("Content-Type"))?.toLowerCase() !== "text/markdown") return text;
+  if (text.length > MAX_MARKDOWN_LENGTH) return null;
+  const markup = markdownHtml(text);
+  return markup.length <= MAX_MESSAGE_HTML_LENGTH ? markup : null;
 }
 
 /**

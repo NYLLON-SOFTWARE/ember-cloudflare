@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NotifiedCounts } from "@ember/protocol";
 import { mentionsIn, SPECIAL_MENTIONS, type SpecialMention } from "@ember/richtext/dom";
 import { AtSign, Xmark } from "@/components/icons/iconoir";
@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { useAccount } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";
 import { fetchNotified } from "@/lib/api";
+import type { AskToNotify } from "@/lib/slash-commands";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
 
 /** How many people a room holds, its writer too, from which a message notifying it asks first, as Slack asks in a channel of six or more. */
@@ -46,63 +47,83 @@ const peopleCount = (people: number) => (people === 1 ? "1 person" : `${people.t
  * whose messages notify nobody, as a thread's and a DM's. `confirm` sends what's written by `send` at
  * once when there's nothing to ask, as when the room's counts don't come, or once Send is pressed; Cancel
  * leaves it written. The composer can still be written in as the counts come, so it's what `written`
- * reads then that's asked about, and `send` sends what's picked by then. The composer shows `dialog`,
+ * reads then that's asked about, and `send` sends what's picked by then. A message being scheduled asks
+ * the same, with Schedule for Send, as it notifies them once it's sent. `askToNotify` asks the same of a
+ * message a command sends to a room, this one or another, from any composer. The composer shows `dialog`,
  * which gives focus back by `onClosed` as it closes.
  */
 export function useNotifyConfirm(roomId: string, roomName: string, asks: boolean, onClosed: () => void) {
   const { warnBeforeNotifying } = useAccount();
-  // What the dialog asks, kept as it closes so that it doesn't empty while it fades.
-  const [asking, setAsking] = useState<(Notifying & { send: () => void; open: boolean }) | null>(null);
-  // While the room's counts are on their way, sending again waits for them.
+  // What the dialog asks, of which room, kept as it closes so that it doesn't empty while it fades.
+  const [asking, setAsking] = useState<(Notifying & { roomName: string; action: Action; send: () => void; cancel: () => void; open: boolean }) | null>(null);
+  // While a room's counts are on their way, sending again waits for them.
   const checking = useRef(false);
   const mounted = useMounted();
+  // What's done if the composer goes while the dialog asks, as for a message that isn't to go.
+  const unanswered = useRef<() => void>(undefined);
+  useEffect(() => () => unanswered.current?.(), []);
 
-  const confirm = (written: () => string, send: () => void) => {
-    if (checking.current) return;
-    if (!asks || !warnBeforeNotifying || mentionsIn(written()).specialMentions.length === 0) return send();
+  // Sends what `written` reads to room `to` by `send`, asking first where it would notify six or more
+  // there, or doesn't, by `cancel`, where its writer says not to, or the composer's gone meanwhile.
+  const confirmFor = (to: { id: string; name: string }, written: () => string, send: () => void, cancel: () => void, action: Action = "Send") => {
+    if (!warnBeforeNotifying || mentionsIn(written()).specialMentions.length === 0) return send();
     checking.current = true;
-    void fetchNotified(roomId)
+    void fetchNotified(to.id)
       .catch(() => null)
       .then((counts) => {
         checking.current = false;
         // Leaving the room meanwhile keeps the message as its draft.
-        if (!mounted.current) return;
+        if (!mounted.current) return cancel();
         const notifying = counts && askingFor(written(), counts);
-        if (notifying) setAsking({ ...notifying, send, open: true });
-        else send();
+        if (!notifying) return send();
+        unanswered.current = cancel;
+        setAsking({ ...notifying, roomName: to.name, action, send, cancel, open: true });
       });
   };
 
-  const close = () => setAsking((asking) => asking && { ...asking, open: false });
-  const dialog = asking && (
-    <NotifyConfirmDialog
-      {...asking}
-      roomName={roomName}
-      onClosed={onClosed}
-      onSend={() => {
-        close();
-        asking.send();
-      }}
-      onCancel={close}
-    />
-  );
-  return { confirm, dialog };
+  const confirm = (written: () => string, send: () => void, action?: Action) => {
+    if (checking.current) return;
+    if (!asks) return send();
+    confirmFor({ id: roomId, name: roomName }, written, send, () => {}, action);
+  };
+
+  // While another message's counts are on their way, a command's doesn't go, and so is written again.
+  const askToNotify: AskToNotify = (to, body) =>
+    new Promise((resolve) => {
+      if (checking.current) return resolve(false);
+      confirmFor(to, () => body, () => resolve(true), () => resolve(false));
+    });
+
+  // Answered once, as the dialog can still be pressed as it fades.
+  const answer = (sending: boolean) => {
+    if (!asking?.open) return;
+    unanswered.current = undefined;
+    setAsking({ ...asking, open: false });
+    if (sending) asking.send();
+    else asking.cancel();
+  };
+  const dialog = asking && <NotifyConfirmDialog {...asking} onClosed={onClosed} onSend={() => answer(true)} onCancel={() => answer(false)} />;
+  return { confirm, askToNotify, dialog };
 }
+
+/** What the dialog's main button does: sends the message, or schedules it, to notify them once it's sent. */
+type Action = "Send" | "Schedule";
 
 interface DialogProps extends Notifying {
   open: boolean;
   roomName: string;
+  action: Action;
   onSend: () => void;
   onCancel: () => void;
   onClosed: () => void;
 }
 
 /**
- * "Notify 14 people?", with what the mention does, Cancel, and Send, which has focus, so that Enter sends
- * and Escape goes back to what's written, as the dialogs styled as Unsaved Changes look. Opened by no
- * button, it leaves focus to `onClosed` as it closes.
+ * "Notify 14 people?", with what the mention does, Cancel, and Send, or Schedule, which has focus, so that
+ * Enter sends and Escape goes back to what's written, as the dialogs styled as Unsaved Changes look. Opened
+ * by no button, it leaves focus to `onClosed` as it closes.
  */
-function NotifyConfirmDialog({ mention, people, open, roomName, onSend, onCancel, onClosed }: DialogProps) {
+function NotifyConfirmDialog({ mention, people, open, roomName, action, onSend, onCancel, onClosed }: DialogProps) {
   const sendButton = useRef<HTMLButtonElement>(null);
   return (
     <Dialog open={open} onOpenChange={(open) => open || onCancel()}>
@@ -132,7 +153,7 @@ function NotifyConfirmDialog({ mention, people, open, roomName, onSend, onCancel
             Cancel
           </button>
           <button ref={sendButton} type="button" onClick={onSend} className={MAIN_ACTION}>
-            Send
+            {action}
           </button>
         </div>
       </DialogContent>

@@ -1110,9 +1110,16 @@ describe("What a ban blocks", () => {
     readOnly.send({ type: "message.delete", messageId: hals.id });
     readOnly.send({ type: "boost.create", messageId: adas.id, content: "👍" });
     readOnly.send({ type: "boost.delete", boostId: boost.id });
+    readOnly.send({ type: "message.schedule", clientMessageId: "later", body: "Later?", sendAt: new Date(Date.now() + 60_000).toISOString() });
+    readOnly.send({ type: "scheduled.edit", scheduledId: "scheduled", body: "Edited" });
+    readOnly.send({ type: "scheduled.reschedule", scheduledId: "scheduled", sendAt: new Date(Date.now() + 60_000).toISOString() });
+    readOnly.send({ type: "scheduled.send", scheduledId: "scheduled" });
+    readOnly.send({ type: "scheduled.delete", scheduledId: "scheduled" });
     const refused = { type: "error", message: "Request failed (429)" };
     expect(await readOnly.next("error")).toEqual({ ...refused, clientMessageId: "refused", failed: "message.create" });
     for (const failed of ["message.update", "message.preview", "message.delete", "boost.create", "boost.delete"]) expect(await readOnly.next("error")).toEqual({ ...refused, failed });
+    expect(await readOnly.next("error")).toEqual({ ...refused, clientMessageId: "later", failed: "message.schedule" });
+    for (const failed of ["scheduled.edit", "scheduled.reschedule", "scheduled.send", "scheduled.delete"]) expect(await readOnly.next("error")).toEqual({ ...refused, scheduledId: "scheduled", failed });
 
     readOnly.send({ type: "typing.start" });
     expect(await adaInLobby.next("typing")).toEqual({ type: "typing", user: hal.user, typing: true });
@@ -1130,6 +1137,7 @@ describe("What a ban blocks", () => {
     expect(adaInLobby.pending("boost.deleted")).toEqual([]);
     expect(await roomSql(lobby, "SELECT id, body FROM messages WHERE room_id = ? AND creator_id = ?", lobby, hal.user.id)).toEqual([{ id: hals.id, body: hals.body }]);
     expect(await roomSql(lobby, "SELECT id FROM boosts WHERE room_id = ?", lobby)).toEqual([{ id: boost.id }]);
+    expect(await roomSql(lobby, "SELECT id FROM scheduled_messages WHERE room_id = ?", lobby)).toEqual([]);
   });
 
   it("takes a socket's address, and whether a ban blocks it, from the Worker, whatever the upgrade says", async () => {

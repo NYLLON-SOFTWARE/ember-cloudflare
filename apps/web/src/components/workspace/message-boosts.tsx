@@ -1,17 +1,41 @@
-import { useContext, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { useId, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
-import { ArrowUp, Emoji, Minus, Xmark } from "@/components/icons/iconoir";
+import { ArrowUp, Emoji, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
-import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { pressedAlone } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import type { MessageActions } from "./message-item";
-import { AvatarLink, UserAvatar } from "./user-avatar";
+import { UserAvatar } from "./user-avatar";
 
 /** A custom reaction starts with something other than a space. */
 const CUSTOM_REACTION = String.raw`\S+.*`;
+
+/** One reaction and everyone who added it, oldest first. */
+export interface BoostGroup {
+  content: string;
+  boosts: Boost[];
+}
+
+/**
+ * A message's boosts gathered by what they say, in the order each was first added, so everyone who added
+ * the same reaction shares one chip, as Slack shows them. A bot can add the same one more than once.
+ */
+export function groupBoosts(boosts: readonly Boost[]): BoostGroup[] {
+  const groups = new Map<string, BoostGroup>();
+  for (const boost of boosts) {
+    const group = groups.get(boost.content);
+    if (group) group.boosts.push(boost);
+    else groups.set(boost.content, { content: boost.content, boosts: [boost] });
+  }
+  return [...groups.values()];
+}
+
+/** How many of a reaction's boosters its chip stacks, so it's no wider for five than for three. */
+const STACKED = 3;
+
+const namesOf = new Intl.ListFormat("en-US", { type: "conjunction" });
 
 interface Props {
   message: Message;
@@ -27,19 +51,16 @@ interface Props {
   onAddBoost: (button: HTMLButtonElement) => void;
   /** Closes the Custom reaction form. */
   onCloseCustom: () => void;
-  /** Hands focus to the message's Message options, as a reaction sent or deleted here does. */
+  /** Hands focus to the message's Message options, as a reaction sent or taken back here does. */
   returnFocus: () => void;
 }
 
 /**
- * The reactions under a message (Campfire's boosts.css): a pill for each, oldest first, then Add a
+ * The reactions under a message: a chip for each reaction, in the order each was first added, then Add a
  * boost, which opens the message's bar with More reactions showing, or the Custom reaction form that New
  * boost opens in its place. Add a boost shows once the message has a reaction, as messages.css shows it.
  */
 export function MessageBoosts({ message, me, threaded, actions, customizing, customField, onAddBoost, onCloseCustom, returnFocus }: Props) {
-  const hint = useId();
-  const deletable = (boost: Boost) => actions !== null && boost.booster.id === me.id;
-
   // The form closes once its reaction is sent, and stays, keeping what's written, when it can't be.
   const add = (content: string) => {
     if (!actions?.boost(message.id, content)) return;
@@ -52,10 +73,13 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
     returnFocus();
   };
 
-  // Focus would go with the reaction, so it goes to Message options, as it does once you react from the bar.
-  const remove = (boost: Boost) => {
-    const sent = actions!.unboost(boost.id);
-    if (sent) returnFocus();
+  // A tap adds the reaction, or takes back yours, each copy a quick double tap may have stored. Where the chip
+  // goes with them, focus goes to Message options, as it would with the chip.
+  const toggle = ({ content, boosts }: BoostGroup) => {
+    const mine = boosts.filter((boost) => boost.booster.id === me.id);
+    if (mine.length === 0) return actions!.boost(message.id, content);
+    const sent = mine.map((boost) => actions!.unboost(boost.id)).every(Boolean);
+    if (sent && mine.length === boosts.length) returnFocus();
     return sent;
   };
 
@@ -71,15 +95,10 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
       )}
     >
       <ul aria-label="Reactions" className="flex flex-wrap gap-x-[0.4ch] empty:hidden">
-        {message.boosts.map((boost) => (
-          <BoostPill key={boost.id} boost={boost} hint={hint} onDelete={deletable(boost) ? () => remove(boost) : null} />
+        {groupBoosts(message.boosts).map((group) => (
+          <BoostChip key={group.content} group={group} me={me} onToggle={actions && (() => toggle(group))} />
         ))}
       </ul>
-      {message.boosts.some(deletable) && (
-        <span id={hint} hidden>
-          Press enter to delete this boost
-        </span>
-      )}
       {customizing ? (
         <CustomReaction me={me} fieldRef={customField} onAdd={add} onCancel={cancel} />
       ) : (
@@ -100,77 +119,46 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
 }
 
 /**
- * One reaction: its booster's avatar, named "<name> boosted <content>", then the content, larger when
- * it's all emoji. Clicking your own, or pressing Enter on it, reveals Delete this boost and focuses it,
- * as boost_delete_controller.js does, and Delete shrinks it away while it goes. Other people's do
- * nothing.
+ * One reaction: the face of whoever added it first, with a disc stacked behind it for each of the next two,
+ * then the reaction, larger when it's all emoji. The whole chip is one button, so a fingertip can't miss it: it adds
+ * the reaction for you, or takes yours back once you've added it, which the chip marks. Who added it is in
+ * its name, which a mouse shows too. Where nothing can be done to the message, the chip only shows.
  */
-function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDelete: (() => boolean) | null }) {
+function BoostChip({ group, me, onToggle }: { group: BoostGroup; me: Me; onToggle: (() => boolean) | null }) {
   const nameOf = useNameOf();
-  const [expanded, setExpanded] = useState(false);
-  // The connection the deletion went on, and the room's refusals to delete a reaction by then. The reaction
-  // comes back if the page reconnects before it goes, since the deletion may have been lost with the
-  // connection it went on, or if the room refuses to delete one, since it doesn't say which.
-  const connection = useContext(RoomConnection);
-  const refusals = useContext(RefusedUnboosts);
-  const [deletedAt, setDeletedAt] = useState<{ connection: number; refusals: number } | null>(null);
-  const deleting = deletedAt?.connection === connection && deletedAt.refusals === refusals;
-  const remove = useRef<HTMLButtonElement>(null);
-  const content = cn("min-w-0 leading-normal", isAllEmoji(boost.content) ? "text-base" : "text-[0.8rem]");
-
-  useLayoutEffect(() => {
-    if (expanded) remove.current?.focus();
-  }, [expanded]);
-
-  const reveal = onDelete && expanded;
+  const mine = group.boosts.some((boost) => boost.booster.id === me.id);
+  // Each booster once, though a bot may have added the reaction more than once.
+  const boosters = [...new Map(group.boosts.map((boost) => [boost.booster.id, boost.booster])).values()];
+  const names = boosters.map((booster) => (booster.id === me.id ? "you" : nameOf(booster)));
+  const label = `${group.content}, ${boosters.length === 1 ? "1 reaction" : `${boosters.length} reactions`}: ${namesOf.format(names)}`;
 
   return (
-    <li
-      className={cn(
-        "relative mt-1 flex max-w-full items-center gap-x-[0.4ch] rounded-[4rem] border bg-background pt-[0.1em] pb-[0.1em] pl-[0.1em] hover:not-active:border-muted-foreground",
-        // The pill keeps the gap before its Delete button while that's hidden.
-        reveal ? "pr-[0.2em]" : "pr-[calc(0.2em+0.4ch)]",
-        deleting && "pointer-events-none animate-scale-fade-out motion-reduce:animate-none motion-reduce:opacity-0",
-      )}
-    >
-      {/*
-       * 2.2ch of the medium weight of the avatar button, over the button that takes the rest of the
-       * pill's clicks. A pill has no room for two targets a fingertip can find, so on touch screens your own
-       * is all that button.
-       */}
-      <AvatarLink
-        user={boost.booster}
-        reach="dense"
-        label={`${nameOf(boost.booster)} boosted ${boost.content}`}
-        className={cn("z-[1] size-[2.2ch] font-medium", onDelete && "touch:pointer-events-none")}
-      />
-      {onDelete ? (
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-describedby={hint}
-          // The whole pill takes the click, so a fingertip can find it.
-          className={cn(content, "cursor-pointer after:absolute after:-inset-px after:rounded-[4rem]")}
-          onClick={() => setExpanded((shown) => !shown)}
-        >
-          {boost.content}
-        </button>
-      ) : (
-        <span className={content}>{boost.content}</span>
-      )}
-      {reveal && (
-        <button
-          ref={remove}
-          type="button"
-          className="relative ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.55rem] text-white touch:size-11 hover:not-active:brightness-70"
-          onClick={() => {
-            if (onDelete()) setDeletedAt({ connection, refusals });
-          }}
-        >
-          <Minus className="h-5 w-[1.3em]" />
-          <span className="sr-only">Delete this boost</span>
-        </button>
-      )}
+    <li className="mt-1 flex max-w-full">
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        aria-pressed={onToggle ? mine : undefined}
+        // Still focusable where nothing can be done, so who reacted can be read there too.
+        aria-disabled={!onToggle || undefined}
+        onClick={() => onToggle?.()}
+        className={cn(
+          "flex max-w-full cursor-pointer items-center gap-x-[0.4ch] rounded-[4rem] border bg-background py-[0.1em] pr-[calc(0.2em+0.4ch)] pl-[0.1em] aria-disabled:cursor-default",
+          "not-aria-disabled:hover:not-active:border-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground",
+          mine && "border-link not-aria-disabled:hover:not-active:border-link",
+        )}
+      >
+        <span aria-hidden="true" className="isolate flex shrink-0">
+          <UserAvatar user={boosters[0]!} className="relative z-[2] size-[2.2ch] font-medium" />
+          {/* Whoever else added it, as blank discs fanned behind the first face, each behind and paler than the one before. */}
+          {boosters.slice(1, STACKED).map((booster, index) => (
+            <span key={booster.id} className={cn("relative -ml-[1.7ch] size-[2.2ch] rounded-full", index === 0 ? "z-[1] bg-selected-dark" : "z-0 bg-message-border")} />
+          ))}
+        </span>
+        <span aria-hidden="true" className={cn("min-w-0 leading-normal", isAllEmoji(group.content) ? "text-base" : "text-[0.8rem]")}>
+          {group.content}
+        </span>
+      </button>
     </li>
   );
 }

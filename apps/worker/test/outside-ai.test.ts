@@ -916,6 +916,9 @@ describe("What a connected AI app sends", () => {
     expect(await refusal(token, "send_message", { room_id: general, text: "w".repeat(MAX_MARKDOWN_LENGTH + 1) })).toBe(TOO_MUCH_MARKDOWN);
     // Within the Markdown limit, yet reading as more markup than a message holds: one long address, named over and over.
     expect(await refusal(token, "send_message", { room_id: general, text: `[r]: https://example.com/${"a".repeat(2_000)}\n\n${"[x][r] ".repeat(60)}` })).toBe(MESSAGE_TOO_LONG);
+    // Or a table whose rows each write a cell of the header's 1,500.
+    const table = [`|${"h|".repeat(1_500)}`, `|${"-|".repeat(1_500)}`, ...Array<string>(2_990).fill("a")].join("\n");
+    expect(await refusal(token, "send_message", { room_id: general, text: table })).toBe(MESSAGE_TOO_LONG);
     expect(await refusal(token, "send_message", { room_id: secret.id, text: "Hello" })).toBe(NO_ROOM);
     expect(await refusal(token, "send_message", { room_id: general, text: "Hello", thread_id: "no-such-message" })).toBe("That message no longer exists");
     // A reply has no thread of its own.

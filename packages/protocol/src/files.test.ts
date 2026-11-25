@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  DURATION_REFUSED,
   FILE_TOO_LARGE,
   isPreviewableSize,
   isPreviewed,
   isWebImage,
+  MAX_DURATION,
   MAX_FILE_NAME_LENGTH,
   MAX_FILE_SIZE,
   MAX_ID_LENGTH,
@@ -11,6 +13,8 @@ import {
   uploadPartPath,
   uploadPreviewPath,
   uploadsPath,
+  WAVEFORM_LENGTH,
+  WAVEFORM_REFUSED,
   type RoomId,
 } from "./index";
 
@@ -40,6 +44,55 @@ describe("Attach files", () => {
     ["an id longer than any", "m".repeat(MAX_ID_LENGTH + 1)],
   ])("refuses %s for the file's message", (_, id) => {
     expect(parseNewUpload({ name: "notes.txt", type: "text/plain", size: 5, clientMessageId: id })).toBe("A file needs an id for its message");
+  });
+});
+
+describe("Waveforms", () => {
+  /** A waveform that rises from silence to its loudest. */
+  const rising = Array.from({ length: WAVEFORM_LENGTH }, (_, level) => level + 1).map((level) => Math.min(100, level));
+
+  it("takes the waveform the app works out for a sound, as 100 whole levels from 0 to 100, in a thread too", () => {
+    const upload = { name: "Audio clip 2026-11-23 at 9.42.10 AM.m4a", type: "audio/mp4", size: 182_034, clientMessageId, waveform: rising };
+    expect(parseNewUpload(upload)).toEqual(upload);
+    expect(parseNewUpload({ ...upload, waveform: Array(WAVEFORM_LENGTH).fill(0) })).toEqual({ ...upload, waveform: Array(WAVEFORM_LENGTH).fill(0) });
+    expect(parseNewUpload({ ...upload, parentId: "m1" })).toEqual({ ...upload, parentId: "m1", alsoSend: false });
+    const { waveform: _, ...without } = upload;
+    expect(parseNewUpload(without)).toEqual(without);
+  });
+
+  it.each([
+    ["a waveform that isn't a list", "0,1,2"],
+    ["too few levels", rising.slice(1)],
+    ["too many levels", [...rising, 100]],
+    ["a level past 100", [...rising.slice(1), 101]],
+    ["a level under 0", [-1, ...rising.slice(1)]],
+    ["a level that isn't whole", [0.5, ...rising.slice(1)]],
+    ["a level that isn't a number", ["0", ...rising.slice(1)]],
+    ["no waveform at all", null],
+  ])("refuses %s and says why", (_, waveform) => {
+    expect(parseNewUpload({ name: "theme.mp3", type: "audio/mpeg", size: 42, clientMessageId, waveform })).toBe(WAVEFORM_REFUSED);
+  });
+});
+
+describe("Video lengths", () => {
+  it("takes how long a video plays, as the app reads it, up to a day, in a thread too", () => {
+    const upload = { name: "Video clip 2026-11-23 at 10.43.12 AM.mp4", type: "video/mp4", size: 1_482_034, clientMessageId, duration: 15.023 };
+    expect(parseNewUpload(upload)).toEqual(upload);
+    expect(parseNewUpload({ ...upload, duration: MAX_DURATION })).toEqual({ ...upload, duration: MAX_DURATION });
+    expect(parseNewUpload({ ...upload, parentId: "m1" })).toEqual({ ...upload, parentId: "m1", alsoSend: false });
+    const { duration: _, ...without } = upload;
+    expect(parseNewUpload(without)).toEqual(without);
+  });
+
+  it.each([
+    ["a length of nothing", 0],
+    ["a length under 0", -3],
+    ["a length past a day", MAX_DURATION + 1],
+    ["a length that never ends", Infinity],
+    ["a length that isn't a number", "0:15"],
+    ["no length at all", null],
+  ])("refuses %s and says why", (_, duration) => {
+    expect(parseNewUpload({ name: "launch.mp4", type: "video/mp4", size: 42, clientMessageId, duration })).toBe(DURATION_REFUSED);
   });
 });
 

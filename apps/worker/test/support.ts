@@ -33,6 +33,7 @@ import worker from "../src/index";
 import { forgetNewestRelease } from "../src/releases";
 import { searchIndex } from "../src/search-index";
 import { workspace, type Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
 
 export const origin = "https://ember.test";
 
@@ -204,6 +205,31 @@ export async function cutOff(room: RoomId, calls: number[] = []): Promise<() => 
     runInDurableObject(roomStub(room), (instance: ChatRoom) => {
       (instance as unknown as { env: Env }).env = original!;
     });
+}
+
+/**
+ * Has the Workspace hold the next call room `room` makes to tell it what the room has logged until
+ * `release` is called, as a call can still be out while a busy room logs more, which waits for the call
+ * after it. `called` waits until the call has come.
+ */
+export async function holdNextCall(room: RoomId): Promise<{ called: () => Promise<void>; release: () => void }> {
+  let came = false;
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await runInDurableObject(workspaceStub(), (instance: Workspace) => {
+    const store = (instance as unknown as { store: WorkspaceStore }).store;
+    const apply = store.applyRoomEvents.bind(store);
+    store.applyRoomEvents = async (roomId, ...rest) => {
+      if (roomId === room) {
+        store.applyRoomEvents = apply;
+        came = true;
+        await released;
+      }
+      return apply(roomId, ...rest);
+    };
+  });
+  // Looked at again and again, since workerd can't wake a test from inside the Workspace.
+  return { called: () => vi.waitFor(() => expect(came).toBe(true), { interval: 2, timeout: 5000 }), release };
 }
 
 /** How `ws` closes, once it does. */

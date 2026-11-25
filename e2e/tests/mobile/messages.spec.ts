@@ -37,9 +37,9 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 
-test("Add a boost, New boost's form and Delete this boost fit the phone", async ({ page, room, participant, screenIsFine }) => {
+test("Add a boost and New boost's form fit the phone, and a tap joins or takes back a reaction", async ({ page, room, participant, screenIsFine }) => {
   const ada = await participant("Ada");
-  await ada.say("React to this in your own words");
+  const said = await ada.say("React to this in your own words");
   await openRoom(page, room);
 
   const message = page.getByRole("article").filter({ hasText: "React to this" });
@@ -61,13 +61,16 @@ test("Add a boost, New boost's form and Delete this boost fit the phone", async 
   await message.getByRole("button", { name: "Add reaction" }).tap();
   const mine = reactions.getByRole("button", { name: "Lovely!" });
   await expect(mine).toBeVisible();
-
   await mine.tap();
-  const remove = reactions.getByRole("button", { name: "Delete this boost" });
-  await expect(remove).toBeFocused();
-  await screenIsFine({ denseTargets: [REACTION_PILLS] });
-  await remove.tap();
   await expect(mine).toHaveCount(0);
+
+  // A tap anywhere on someone else's reaction, its avatar too, adds it for you, rather than opening their page.
+  await ada.boost(said.id, "🔥");
+  const theirs = reactions.getByRole("button", { name: /^🔥, 1 reaction: Ada/ });
+  await theirs.locator("img").tap();
+  await expect(reactions.getByRole("button", { name: "🔥, 2 reactions", pressed: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/rooms\//);
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 
 test("tapping Message options again closes the actions", async ({ page, room, participant }) => {

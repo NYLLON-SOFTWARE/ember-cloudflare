@@ -18,8 +18,8 @@ files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log, its log of messages for the search index, its recent deletions, its files and the
-calls of apps' tools that wait to be allowed, and
+room's change log, its log of messages for the search index, its recent deletions, its files, the
+calls of apps' tools that wait to be allowed and the messages people have scheduled there, and
 `workspace` for the workspace-wide tables (the account, people, sessions and the addresses their sockets come from, linked accounts, push
 subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
 purges and reindexes, the rooms deleted, the apps connected, the tools picked for each agent, and the AI apps people connect to Ember). On DO SQLite, an object applies only its own scope's
@@ -29,7 +29,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
+`message_deletions`, `blobs`, `waiting_calls` and `scheduled_messages`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`, `sections`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,
@@ -92,7 +92,10 @@ Objects, D1 or speed call for something else.
   skip Campfire's `connections` and `connected_at` columns: each room's object knows from its
   sockets who's viewing it, and sends that list with its messages. And ours writes only the rows it
   changes, so `unread_at` is the time of the first message since someone last read the room; nothing
-  reads it but to ask whether it's set. In a DM the same `UPDATE` writes every unread row, adding one
+  reads it but to ask whether it's set. A room tells the Workspace of a message a moment after it,
+  longer in a burst, when someone may have joined meanwhile, so the `UPDATE` leaves out each
+  membership whose `created_at` is after the message was written, as the mention counts and pushes
+  below do. In a DM the same `UPDATE` writes every unread row, adding one
   to `memberships.unread_count` (workspace migration 0065), so a DM's row counts its messages since,
   as Slack's do; a read sets it back to 0. A shared room's row counts the messages since that
   notify its member instead, in `memberships.mention_count` (workspace migration 0085), which the
@@ -166,6 +169,24 @@ Objects, D1 or speed call for something else.
   keeps to the same tenth. `search_rekeys` notes each room with messages left and one more than the
   number of its newest, so a run goes on where the last stopped, and the index's storage keeps when
   the next run is due. Until the walk reaches a message, a search finds it as before, plainly.
+- **The index keeps Chinese, Japanese and Korean as pairs of characters.** Their words have nothing
+  between them, so FTS5's tokenizer takes a run of their characters for one word, and a search for 会議
+  (meeting) found nothing in 明日の会議の予定を確認してください (please check the schedule of tomorrow's
+  meeting). The index keeps each run as a term for each of its characters with the next, and its last
+  character alone (`termsOf` in `search-words.ts`), plainly or under keys, and a search looks for a
+  word of them as the terms of it a longer run has too, in a row: its pairs but its last character's,
+  or, for one character, any term it starts. A letter or number beside a run is a word of its own, as
+  the 3 of 3月. Over 100,000 Japanese messages, pairs make the index 42 MB where it was 25, and a
+  search for two characters takes 0.1 ms of SQLite, for one 1.4 ms, and for の, in nearly every
+  message, 6.5 ms. The words a match matched are the search's own runs, as a pair can hold more than
+  it searched for. Search migration 0007 adds `search_messages.paired`, and `search_pairing`, a walk
+  through the messages the index held before, newest first, that the walk above takes further each
+  hour: a run reads up to 5,000 of them, about 10,000 rows, so a day's runs read a twentieth of the 5
+  million rows Workers Free lets a day read, and pairs those with runs in them as far as what's left
+  of its 125 goes, passing the rest, which the index keeps the same either way. Until it reaches a
+  message, a search finds it by its runs whole, as before, since it looks for each word as the index
+  kept it then too. A copy that goes back to the release before this one finds the messages this one
+  paired by their other words alone, and coming back, finds what that release took by its runs whole.
 - **Search filters are conditions on the index's own rows.** Slack narrows a search with modifiers
   such as `in:`, `from:` and `has:link`, which Campfire has none of. The index keeps what they narrow
   by beside each message (search migration 0003): who wrote it, the thread it's in, whether it has a
@@ -667,7 +688,9 @@ Objects, D1 or speed call for something else.
   deleted since has none, and isn't pushed. The Workspace finds a message's recipients and badges in
   one query, in the batch that applies the room's events, just after the message's unread marks,
   through the memberships' key, the subscriptions' index led by the person and, for the badge,
-  `index_memberships_on_user_id_and_room_id`. A message that notifies the room with @channel, or
+  `index_memberships_on_user_id_and_room_id`, with the rooms' key for whether a muted one is a DM,
+  as the badge counts what Activity does: no room hidden, and of those muted only a DM or a room
+  with a mention of its owner. A message that notifies the room with @channel, or
   with @everyone in an open room, where everyone is, is pushed by a second query of that shape,
   which reaches everyone who hears the room's @mentions or more, and one with @here by the same
   query as any message, with the people whose Ember is in use, as the Workspace's presence has them,
@@ -697,10 +720,14 @@ Objects, D1 or speed call for something else.
 - **A message's file is part of its row.** Campfire attaches a file to its message through Active
   Storage's `active_storage_attachments`, a table of its own, which on D1 would cost a page of
   messages another round trip. A message has at most one file, so ours keeps it as the message shows
-  it, as JSON in `messages.attachment` (room migration 0029): its key, name, type, size, and an
-  image's width and height. A page of messages reads no other table for it, and its addresses are
-  signed as the page is answered. An upload's row in `blobs` keeps the id the app gave its message
-  and, once the room posts it, the message's, so a part sent again answers with the same message.
+  it, as JSON in `messages.attachment` (room migration 0029): its key, name, type, size, an image's
+  width and height, a sound's waveform, the 100 levels its uploader's browser works out as the
+  upload starts, which the upload's row in `blobs` keeps in `waveform` until the room posts it (room
+  migration 0088), and a video's length, which that browser reads as the upload starts and the row
+  keeps in `duration` (room migration 0089), so its player shows it without loading the video. A
+  page of messages reads no other table for it, and its addresses are signed as the page is
+  answered. An upload's row in `blobs` keeps the id the app gave its message and, once the room
+  posts it, the message's, so a part sent again answers with the same message.
 - **Accounts elsewhere are linked by their issuer and subject.** Signing in with Memberful links
   someone here to a member of a Memberful site in `identities` (workspace migration 0037), keyed by
   the issuer, the site's origin, and the subject, the member's id there, so a member of another site

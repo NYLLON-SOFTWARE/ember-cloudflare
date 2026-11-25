@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Platform } from "@ember/protocol";
 import { movedFrom } from "@/lib/custom-domain";
+import { desktopApp } from "@/lib/desktop-app";
 import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 import { useAccount } from "./use-account";
 
@@ -50,15 +51,18 @@ interface Props {
  * turns them on for a moment each time a room opens, and when they're on, this browser's subscription is
  * saved again, so the server keeps it (`savePushAgain`), but at an address Ember has moved from to its
  * custom domain, where the one this browser saved there replaced it (`replaceOnSave`), and saving it
- * again would have everything pushed to both.
+ * again would have everything pushed to both. In the desktop app, which no push service reaches, they're
+ * on from the start, since it shows them itself, as the workspace socket brings them.
  */
 export function PushProvider({ vapidPublicKey, platform, children }: Props) {
-  const [on, setOn] = useState(false);
+  const [app] = useState(() => desktopApp() !== null);
+  const [on, setOn] = useState(app);
   const [turningOn, setTurningOn] = useState(false);
   const turning = useRef(false);
   const savesAgain = !movedFrom(useAccount().customDomain);
 
   useEffect(() => {
+    if (app) return;
     let stopped = false;
     void isPushOn(vapidPublicKey).then((on) => {
       if (!on || stopped) return;
@@ -66,13 +70,13 @@ export function PushProvider({ vapidPublicKey, platform, children }: Props) {
       if (savesAgain) void savePushAgain();
     });
     return () => void (stopped = true);
-  }, [vapidPublicKey, savesAgain]);
+  }, [app, vapidPublicKey, savesAgain]);
   // Logging out ends the subscription before it signs out, which may then fail and leave you here.
-  useEffect(() => subscribeToPushEnding(() => setOn(false)), []);
+  useEffect(() => (app ? undefined : subscribeToPushEnding(() => setOn(false))), [app]);
 
   const turnOn = useCallback(async () => {
     // One at a time: the bell ignores presses while it's turning them on.
-    if (turning.current) return null;
+    if (app || turning.current) return null;
     turning.current = true;
     setTurningOn(true);
     try {
@@ -83,7 +87,7 @@ export function PushProvider({ vapidPublicKey, platform, children }: Props) {
       turning.current = false;
       setTurningOn(false);
     }
-  }, [vapidPublicKey]);
+  }, [app, vapidPublicKey]);
 
   const push = useMemo(() => ({ on, turningOn, turnOn, platform }), [on, turningOn, turnOn, platform]);
   return <PushContext value={push}>{children}</PushContext>;

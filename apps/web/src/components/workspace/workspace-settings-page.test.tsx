@@ -697,18 +697,28 @@ describe("Version", () => {
       expect(linksIn(box)).toEqual({ "What's in it": BETA_NOTES, "How to try a beta": TRYING_BETAS });
     });
 
-    it("offers no beta while a newer release is out to update to, or the beta isn't newer", async () => {
-      release = { ...newerFor({ repository: "someone/my-ember", branch: "main", workflow: true, betaWorkflow: true }), newestBeta: { release: "0.3 beta 1", version: "0.3.0-beta.1", notes: BETA_NOTES, newer: true } };
+    it.each([
+      { on: "a release", name: "0.1", beta: false },
+      { on: "a beta the release has passed", name: "0.2 beta 1", beta: true },
+    ])("offers the beta beside a newer release to update to, to $on, so that it isn't missed", async ({ name, beta }) => {
+      const copy = { repository: "someone/my-ember", branch: "main", workflow: true, betaWorkflow: true };
+      release = { ...newerFor(copy), release: name, beta, newestBeta: { release: "0.3 beta 1", version: "0.3.0-beta.1", notes: BETA_NOTES, newer: true } };
       showPage();
-      let shown = await card();
+      const shown = await card();
       expect(within(shown).getByRole("heading", { level: 2 })).toHaveTextContent("Ember 0.2 is available");
-      expect(betaBox()).not.toBeInTheDocument();
+      expect(shown).toHaveTextContent(`This is Ember ${name}.`);
       expect(Object.keys(linksIn(shown))).toEqual(["What's new", "Open GitHub action to update"]);
-      cleanup();
+      const box = shownBetaBox();
+      expect(shown.nextElementSibling).toBe(box);
+      expect(within(box).getByRole("heading", { level: 2 })).toHaveTextContent(/^Ember 0\.3 beta 1 is out to try$/);
+      expect(box).toHaveTextContent(HOW_THIS_COPY_TRIES_BETAS);
+      expect(linksIn(box)).toEqual({ "What's in it": BETA_NOTES, "Open GitHub action to try it": "https://github.com/someone/my-ember/actions/workflows/update-ember-beta.yml" });
+    });
 
+    it("offers no beta that isn't newer", async () => {
       release = { ...betaOutFor(), release: "0.3 beta 1", beta: true, newestBeta: { release: "0.3 beta 1", version: "0.3.0-beta.1", notes: BETA_NOTES, newer: false } };
       showPage();
-      shown = await card();
+      const shown = await card();
       // The newest beta, as no newer one is out.
       expect(shown.textContent).toBe(`Ember 0.3 beta 1This is the newest beta, ahead of Ember 0.2, the newest release.Check for updates${LAST_CHECKED}`);
       expect(within(shown).queryByRole("link")).not.toBeInTheDocument();

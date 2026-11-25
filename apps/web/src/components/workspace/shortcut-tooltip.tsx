@@ -18,6 +18,9 @@ interface Props {
  */
 export function ShortcutTooltip({ label, shortcut, hidden = false, children }: Props) {
   const [open, setOpen] = useState(false);
+  // One the press opened, or would have, closes as it's hidden, rather than showing again as the menu
+  // closes, with the pointer gone.
+  if (hidden && open) setOpen(false);
   return (
     // Pressing the button closes it, but a quick press can come before its delay is up, when it would open over
     // the menu the press opened and take the Escape meant for the menu. While hidden, it stays closed.

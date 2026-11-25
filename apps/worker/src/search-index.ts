@@ -1,14 +1,15 @@
-import { SEARCH_LIMIT, type RoomId, type SearchSort, type UserId } from "@ember/protocol";
+import { CJK_CHARACTER, SEARCH_LIMIT, type RoomId, type SearchSort, type UserId } from "@ember/protocol";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import { migrate } from "./migrations";
-import { keyedText, matchOf, plainText, unkeyed, type Readers, type RoomReaders } from "./search-words";
+import { keyedText, matchOf, pairedKeyedText, plainText, runsOf, termsOf, unkeyed, wordsOf, type Readers, type RoomReaders } from "./search-words";
 import { workspace } from "./workspace";
 
 // The search index (search-migrations/): every message's plain text in one FTS5 table, an open room's as
-// it is and the rest's words under keys (search-words.ts), what search results show of it and what
-// search filters narrow a search by, which rooms keep up to date from their logs of the messages written,
-// edited and deleted, and of their boosts (room-log.ts).
+// it is and the rest's words under keys, with runs of Chinese, Japanese and Korean characters as pairs of
+// them (search-words.ts), what search results show of it and what search filters narrow a search by,
+// which rooms keep up to date from their logs of the messages written, edited and deleted, and of their
+// boosts (room-log.ts).
 
 /** What search filters narrow a search by, of a message (store.ts `searchFactsOf`). */
 export interface SearchFacts {
@@ -88,12 +89,21 @@ const MOST_REKEYED_AT_ONCE = 200;
 
 /**
  * How many messages taken before their rooms' words were kept under keys the index keeps under them a
- * run, and how long it waits between runs: 3,000 a day, each writing about three rows, half what taking
- * a new message writes, so about a tenth of the 100,000 rows Workers Free lets a day write, which running
- * out of stops Ember until midnight UTC.
+ * run, or pairs the characters of (`pair`), and how long it waits between runs: 3,000 a day, each writing
+ * about three rows, half what taking a new message writes, so about a tenth of the 100,000 rows Workers
+ * Free lets a day write, which running out of stops Ember until midnight UTC.
  */
 const REKEYED_PER_RUN = 125;
 const REKEY_RUNS_EVERY_MS = 60 * 60 * 1000;
+
+/**
+ * How many of the messages the index took before it paired runs of Chinese, Japanese and Korean
+ * characters (search migration 0007) the walk reads a run, to find the ones with such runs, which it
+ * pairs as far as the run's `REKEYED_PER_RUN` goes, passing the rest without a write. Each is a row read,
+ * and one more for what's kept of one it hasn't paired, so a day's runs read about a twentieth of the 5
+ * million rows Workers Free lets a day read.
+ */
+const PAIRING_READS_PER_RUN = 5_000;
 
 /**
  * How many of the rooms the index holds messages of but hasn't heard about, as those it held before this
@@ -273,14 +283,21 @@ function* betweenMarks(marked: string): Generator<string> {
   }
 }
 
-/** The words `marked` has between marks, as its text has them, once each however they're cased. */
-function wordsMarked(marked: string | null): string[] {
+/**
+ * The words a match matched, as its text has them: the words `marked` has between marks, but for its runs
+ * of Chinese, Japanese and Korean characters, which are `runs`, the search's own (`unkeyed`).
+ */
+function* wordsMatched(marked: string | null, runs: string[]): Generator<string> {
+  yield* runs;
+  for (const match of betweenMarks(marked ?? "")) yield* unkeyed(match);
+}
+
+/** The words a match matched (`wordsMatched`), once each however they're cased. */
+function wordsMarked(marked: string | null, runs: string[]): string[] {
   const words = new Map<string, string>();
-  for (const match of betweenMarks(marked ?? "")) {
-    for (const word of unkeyed(match)) {
-      if (words.size === MOST_WORDS) return [...words.values()];
-      if (!words.has(word.toLowerCase())) words.set(word.toLowerCase(), word);
-    }
+  for (const word of wordsMatched(marked, runs)) {
+    if (words.size === MOST_WORDS) break;
+    if (!words.has(word.toLowerCase())) words.set(word.toLowerCase(), word);
   }
   return [...words.values()];
 }
@@ -316,11 +333,18 @@ const LATEST_NUMBERS = `SELECT firsts.value AS first, (SELECT max(id) FROM searc
 
 /**
  * Up to ?4 of room ?1's messages numbered below ?2 and from ?3 whose words the index keeps plainly,
- * newest first, with what it keeps of them.
+ * newest first, with what it keeps of them, and whether it has paired their characters (`termsOf`).
  */
-const PLAIN_MESSAGES = `SELECT search_messages.id AS number, search_index.body FROM search_messages JOIN search_index ON search_index.rowid = search_messages.id
+const PLAIN_MESSAGES = `SELECT search_messages.id AS number, search_messages.paired, search_index.body FROM search_messages JOIN search_index ON search_index.rowid = search_messages.id
   WHERE search_messages.room_id = ?1 AND search_messages.id < ?2 AND search_messages.id >= ?3 AND search_messages.keyed = 0
   ORDER BY search_messages.id DESC LIMIT ?4`;
+
+/**
+ * Up to ?2 of the messages numbered below ?1, newest first, with whether the index keeps their words
+ * under keys and has paired their characters (`termsOf`): those it has paired since too, as an edit
+ * does, so a run reads no more of them than it takes, however many those are.
+ */
+const MESSAGES_BELOW = `SELECT id AS number, keyed, paired FROM search_messages WHERE id < ?1 ORDER BY id DESC LIMIT ?2`;
 
 /** The first number a message of the millisecond of `createdAt` can have. */
 const firstNumber = (createdAt: string) => Date.parse(createdAt) * PER_MILLISECOND;
@@ -347,9 +371,10 @@ export class SearchIndex extends DurableObject<Env> {
     super(ctx, env);
     migrate(ctx.storage, "search");
     this.sql = ctx.storage.sql;
-    // A copy that updates, or comes back to this release, holds rooms it hasn't heard about, which its walk asks about.
+    // A copy that updates, or comes back to this release, holds rooms it hasn't heard about, which its walk
+    // asks about, and messages whose characters it hasn't paired, which its walk pairs.
     void ctx.blockConcurrencyWhile(async () => {
-      if (this.unheard() && ctx.storage.kv.get(REKEY_DUE) === undefined) ctx.storage.kv.put(REKEY_DUE, Date.now());
+      if ((this.unheard() || this.pairing()) && ctx.storage.kv.get(REKEY_DUE) === undefined) ctx.storage.kv.put(REKEY_DUE, Date.now());
       await this.wakeForNext();
     });
   }
@@ -379,9 +404,9 @@ export class SearchIndex extends DurableObject<Env> {
         const number = known.get(id) ?? added.get(id);
         if (number === undefined) continue;
         const facts = [creatorId, threadId, hasLink ? 1 : 0, hasFile ? 1 : 0, keys.length > 0 ? 1 : 0];
-        if (known.has(id)) this.sql.exec(`UPDATE search_messages SET message = ?, creator_id = ?, thread_id = ?, has_link = ?, has_file = ?, keyed = ? WHERE id = ?`, message, ...facts, number);
-        else this.sql.exec(`INSERT INTO search_messages (id, message_id, room_id, message, creator_id, thread_id, has_link, has_file, keyed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, number, id, roomId, message, ...facts);
-        this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keys.length > 0 ? keyedText(text, keys) : plainText(text));
+        if (known.has(id)) this.sql.exec(`UPDATE search_messages SET message = ?, creator_id = ?, thread_id = ?, has_link = ?, has_file = ?, keyed = ?, paired = 1 WHERE id = ?`, message, ...facts, number);
+        else this.sql.exec(`INSERT INTO search_messages (id, message_id, room_id, message, creator_id, thread_id, has_link, has_file, keyed, paired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`, number, id, roomId, message, ...facts);
+        this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keys.length > 0 ? keyedText(termsOf(text), keys) : plainText(text));
         this.sql.exec(`INSERT OR IGNORE INTO search_mentions (id, user_id) SELECT ?, value FROM json_each(?)`, number, JSON.stringify(mentionIds));
       }
       this.sql.exec(`INSERT INTO search_rooms (room_id, seq) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq`, roomId, seq);
@@ -475,17 +500,18 @@ export class SearchIndex extends DurableObject<Env> {
 
   /**
    * Keeps up to `limit` of room `roomId`'s messages numbered below `before` and from `since` whose words
-   * the index keeps plainly under `keys` instead, newest first, and answers their numbers in that order.
+   * the index keeps plainly under `keys` instead, newest first, pairing their characters if it hasn't,
+   * and answers their numbers in that order.
    */
   private rekey(roomId: RoomId, keys: number[], before: number, since: number, limit: number): number[] {
-    const plain = this.sql.exec<{ number: number; body: string }>(PLAIN_MESSAGES, roomId, before, since, limit).toArray();
+    const plain = this.sql.exec<{ number: number; paired: number; body: string }>(PLAIN_MESSAGES, roomId, before, since, limit).toArray();
     if (plain.length === 0) return [];
-    for (const { number, body } of plain) {
+    for (const { number, paired, body } of plain) {
       this.sql.exec(`DELETE FROM search_index WHERE rowid = ?`, number);
-      this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keyedText(body, keys));
+      this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keyedText(paired ? wordsOf(body) : termsOf(body), keys));
     }
     const numbers = plain.map(({ number }) => number);
-    this.sql.exec(`UPDATE search_messages SET keyed = 1 WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(numbers));
+    this.sql.exec(`UPDATE search_messages SET keyed = 1, paired = 1 WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(numbers));
     return numbers;
   }
 
@@ -498,14 +524,14 @@ export class SearchIndex extends DurableObject<Env> {
   /**
    * Keeps up to `limit` of the messages taken before their rooms' words were kept under keys under them,
    * newest first, whatever their rooms: those of the room whose walk has the newest left, down to the
-   * newest another room's has left, then that room's, and so on. Answers whether any walk has further to
-   * go.
+   * newest another room's has left, then that room's, and so on. Answers how many of `limit` it leaves.
    */
-  private walk(limit: number): boolean {
+  private walk(limit: number): number {
     return this.ctx.storage.transactionSync(() => {
-      for (let left = limit; left > 0; ) {
+      let left = limit;
+      while (left > 0) {
         const [first, second] = this.sql.exec<{ room_id: RoomId; before: number }>(`SELECT room_id, before FROM search_rekeys ORDER BY before DESC LIMIT 2`).toArray();
-        if (!first) return false;
+        if (!first) break;
         const keys = this.keysOf(first.room_id);
         // An edit since may have kept the walk's newest under keys already, and so another room's go first.
         const newest = keys.length === 0 ? null : this.newestPlain(first.room_id, first.before);
@@ -523,8 +549,45 @@ export class SearchIndex extends DurableObject<Env> {
         if (next === null) this.sql.exec(`DELETE FROM search_rekeys WHERE room_id = ?`, first.room_id);
         else this.sql.exec(`UPDATE search_rekeys SET before = ? WHERE room_id = ?`, next + 1, first.room_id);
       }
-      return this.sql.exec(`SELECT 1 FROM search_rekeys LIMIT 1`).toArray().length > 0;
+      return left;
     });
+  }
+
+  /**
+   * Pairs the characters of up to `limit` of the messages the index took before it paired them, as it
+   * keeps their words (`plainText`, `pairedKeyedText`), newest first, reading up to
+   * `PAIRING_READS_PER_RUN` of them, and passes the rest it reads: those it has paired since, and those
+   * with no `CJK_CHARACTER`s, whose words it keeps the same either way. It reads what it keeps of each one
+   * alone, so a run holds one message's at a time, however long they are. The walk goes on below the last
+   * it passes, until it has read them all (search-migrations/0007_search_pairs.sql).
+   */
+  private pair(limit: number): void {
+    this.ctx.storage.transactionSync(() => {
+      const [walk] = this.sql.exec<{ before: number }>(`SELECT before FROM search_pairing`).toArray();
+      if (!walk) return;
+      const read = this.sql.exec<{ number: number; keyed: number; paired: number }>(MESSAGES_BELOW, walk.before, PAIRING_READS_PER_RUN).toArray();
+      const numbers: number[] = [];
+      let passed = 0;
+      for (const { number, keyed, paired } of read) {
+        const [kept] = paired === 0 ? this.sql.exec<{ body: string }>(`SELECT body FROM search_index WHERE rowid = ?`, number).toArray() : [];
+        if (kept && CJK_CHARACTER.test(kept.body)) {
+          if (numbers.length === limit) break;
+          this.sql.exec(`DELETE FROM search_index WHERE rowid = ?`, number);
+          this.sql.exec(`INSERT INTO search_index (rowid, body) VALUES (?, ?)`, number, keyed ? pairedKeyedText(kept.body) : plainText(kept.body));
+          numbers.push(number);
+        }
+        passed++;
+      }
+      this.sql.exec(`UPDATE search_messages SET paired = 1 WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(numbers));
+      // Short of a run's reads, with none left unread, it has read them all.
+      if (passed === read.length && passed < PAIRING_READS_PER_RUN) this.sql.exec(`DELETE FROM search_pairing`);
+      else if (passed > 0) this.sql.exec(`UPDATE search_pairing SET before = ?`, read[passed - 1]!.number);
+    });
+  }
+
+  /** Whether the index holds messages it took before it paired their characters, and hasn't read all of them since. */
+  private pairing(): boolean {
+    return this.sql.exec(`SELECT 1 FROM search_pairing`).toArray().length > 0;
   }
 
   /**
@@ -634,8 +697,8 @@ export class SearchIndex extends DurableObject<Env> {
 
   /**
    * Takes the walk a run further: asks about some of the rooms the index hasn't heard about, each taking
-   * `REKEYS_A_ROOM_HEARD` of the run's messages, keeps the rest of them under keys, and puts the next run
-   * off an hour while either has further to go.
+   * `REKEYS_A_ROOM_HEARD` of the run's messages, keeps more of them under keys, pairs the characters of
+   * the rest (`pair`), and puts the next run off an hour while any of them has further to go.
    */
   private async walkOn(): Promise<void> {
     let heard = 0;
@@ -644,7 +707,8 @@ export class SearchIndex extends DurableObject<Env> {
     } catch (error) {
       console.error("Could not ask the Workspace who can read rooms; trying again later", error);
     }
-    const further = this.walk(REKEYED_PER_RUN - heard * REKEYS_A_ROOM_HEARD);
+    this.pair(this.walk(REKEYED_PER_RUN - heard * REKEYS_A_ROOM_HEARD));
+    const further = this.sql.exec(`SELECT 1 FROM search_rekeys LIMIT 1`).toArray().length > 0 || this.pairing();
     if (further || this.unheard()) this.ctx.storage.kv.put(REKEY_DUE, Date.now() + REKEY_RUNS_EVERY_MS);
     else this.ctx.storage.kv.delete(REKEY_DUE);
   }
@@ -712,8 +776,9 @@ export class SearchIndex extends DurableObject<Env> {
     const numbers = JSON.stringify(page.map(({ number }) => number));
     const shown = match === null ? this.sql.exec<PageRow>(PAGE, numbers) : this.sql.exec<PageRow>(MARKED_PAGE, match, numbers);
     const rows = new Map(shown.toArray().map((row) => [row.number, row]));
+    const runs = runsOf(words);
     return {
-      hits: page.map((hit) => ({ ...hit, message: rows.get(hit.number)?.message ?? null, words: wordsMarked(rows.get(hit.number)?.marked ?? null) })),
+      hits: page.map((hit) => ({ ...hit, message: rows.get(hit.number)?.message ?? null, words: wordsMarked(rows.get(hit.number)?.marked ?? null, runs) })),
       next: hits.length > SEARCH_LIMIT ? page.at(-1)!.number : null,
     };
   }

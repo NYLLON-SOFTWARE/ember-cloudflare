@@ -192,11 +192,13 @@ Before a release with big changes, Ember may publish betas of it, such as `v0.5.
 [releases page](https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases), marked as
 pre-releases, for trying what's coming. Nobody gets one without asking: Update Ember brings a copy
 releases alone, and a copy whose update script predates betas, as Ember 0.4.2's and earlier do,
-doesn't see them at all. While a beta is out ahead of the newest release, General offers it to an
-Ember on the newest release, in a reddish box of its own under the Ember card, since a beta is
-experimental: **Ember 0.6 beta 1 is out to try**, with its notes and how to try it. Admin on the rail
-has no dot for it. To know, the Worker asks GitHub for Ember's tags as `git ls-remote` does, with its
-check for the latest release, telling it nothing but the version it is.
+doesn't see them at all. While a beta is out ahead of the newest release, General offers it to any
+Ember it's newer than, in a reddish box of its own under the Ember card, since a beta is
+experimental: **Ember 0.6 beta 1 is out to try**, with its notes and how to try it. The box is there
+beside a release to update to, so that a new beta isn't missed, but not on an earlier beta no release
+has passed, whose card says the new beta is available, as Update Ember brings it. Admin on the rail
+has no dot for the box. To know, the Worker asks GitHub for Ember's tags as `git ls-remote` does,
+with its check for the latest release, telling it nothing but the version it is.
 
 To try a beta:
 
@@ -207,13 +209,15 @@ To try a beta:
   `pnpm build`, which `pnpm dev` serves the app from, `pnpm dev`, and `pnpm seed` for a community
   to try it in, as [Development](development.md#getting-started) says.
 - On a copy you have: run its beta workflow, **Update Ember to its newest beta**, from the Actions
-  tab, and merge the pull request it opens. For a copy the deploy told the Worker about, General's
-  **Open GitHub action to try it** opens the workflow on GitHub, where **Run workflow** runs it, or,
-  while the copy hasn't the workflow, **Add GitHub action to try betas** opens GitHub's editor with
-  Ember's filled in, `apps/worker/scripts/update-ember-beta.yml`, for you to commit. It runs the update
-  script from Ember's newest release or beta rather than the copy's own, so it works however old the
-  copy is. Update Ember's **Take Ember's newest beta** box, in the workflow Ember has had since 0.5
-  beta 1, does the same with the copy's own script. Elsewhere, as on GitLab, run the beta's script in a
+  tab, and merge the pull request it opens. As it opens that, the run closes any update still open
+  for an earlier version, deleting its branch, which turns its release down, as closing it would.
+  For a copy the deploy told the Worker about, General's **Open GitHub action to try it** opens the
+  workflow on GitHub, where **Run workflow** runs it, or, while the copy hasn't the workflow,
+  **Add GitHub action to try betas** opens GitHub's editor with Ember's filled in,
+  `apps/worker/scripts/update-ember-beta.yml`, for you to commit. It runs the update script from
+  Ember's newest release or beta rather than the copy's own, so it works however old the copy is.
+  Update Ember's **Take Ember's newest beta** box, in the workflow Ember has had since 0.5 beta 1,
+  does the same with the copy's own script. Elsewhere, as on GitLab, run the beta's script in a
   clone of the copy, and push the branch it makes:
 
   ```sh
@@ -232,10 +236,11 @@ A copy that runs a beta is offered the betas after it, then the release, each as
 any update's, and from then on releases alone, until it asks for a beta again. A pull request for a
 beta it asked for stays open until a release passes it. Its General says it's a beta, ahead of the
 newest release, and the newest beta until a later one is out, which it says is available, then the
-release, as Admin's dot does. General learned of betas in 0.5 beta 2, so 0.5 beta 1's says nothing of
-the betas after it, though Update Ember and the beta workflow bring them. A beta's migrations count as
-released ones, so a copy goes from beta to beta to release as it does from release to release, and
-reverting a beta's update leaves tables the release before it still works with.
+release, as Admin's dot does, beside the box for any beta out ahead of it. General learned of betas
+in 0.5 beta 2, so 0.5 beta 1's says nothing of the betas after it, though Update Ember and the beta
+workflow bring them. A beta's migrations count as released ones, so a copy goes from beta to beta to
+release as it does from release to release, and reverting a beta's update leaves tables the release
+before it still works with.
 
 ### The build's token
 
@@ -845,8 +850,10 @@ question, @ember's note says they can pick another.
 
 Mention @ember in a room or a thread, or write to it in a DM, and it answers there: in the thread when
 it's asked in one, typing while its model answers. It reads the thread, its first message and latest 50
-replies, or else the room's latest 20 messages, each after its writer's name, at most about 40,000
-characters of them, and sends them through AI Gateway to the model, whose provider reads them. Its
+replies, after the room's 10 messages before it, which show what led to the thread, such as the
+question an answer it's under was asked, or else the room's latest 20 messages, each after its writer's
+name, at most about 40,000 characters of them, a thread's own first, and sends them through AI Gateway
+to the model, whose provider reads them. Its
 answer is a message of its own, in Markdown: links, bold, strikethrough, lists, quotes, code blocks and
 tables show as they do in people's messages, as do emoji, which it's told to write as themselves rather
 than by names such as :tada:, the pictures it links to show in a card under it, and its first web link
@@ -867,24 +874,35 @@ also turn on the gateway's
 dashboard, to check the questions, with the messages @ember reads, or the answers. When either blocks
 one, @ember's note says which, and that an administrator can change what it blocks there.
 
-For what was written before the messages it reads, @ember can search the room it's asked in, a tool
-Ember runs for it: its model answers with a call of the tool in place of an answer, Ember runs the
-search and asks the model again with what it found, and the model answers, or searches again. A search
-finds the room's messages that have every word the model gives, its threads' too, as Ember's search
-does for someone in the room, and never another room's, so an answer holds nothing its readers couldn't
-find themselves. It answers the newest 10 but those @ember was given with the question, which would
-only crowd out what's older, each with when it was written,
-who wrote it and at most 600 characters of what it says, which the model's provider reads as it does
-the conversation. An answer makes at most 5 such calls, then the model is told to answer with what it
-has, and they share the answer's limit of tokens, so a model that spends them all searching is cut
-short as any other answer is. Claude, GPT and Grok, the models the models file lists, are given the
-search, with nothing to turn on; Workers AI's models aren't, nor is a model kept from before Ember
-offered its own, or a test question, and a model that stops taking the tool is asked
-again without it: one refused only once it has searched answers without it, told what its searches
-found, in the tokens, and with the web searches and pages, the answer has left. Each call has the model read the conversation again, so an answer that searches costs
-that many more tokens read. A picture or a link that only a search found shows as a link, as the rule
-above has it, since the card and the preview are only of addresses in the messages @ember read with
-the question.
+For more of the room than the messages it reads, @ember has three tools Ember runs for it in the room
+it's asked in: its model answers with a call of one in place of an answer, Ember runs it and asks the
+model again with what it came to, and the model answers, or calls again. The search finds the room's
+messages, its threads' too, that have every word the model gives, or that someone it names wrote, or
+both, as Ember's search does for someone in the room. It knows someone by the name they have or by the
+one a message @ember was given or read gives them, which they may have changed since, and answers the
+newest 10 but those @ember was given with the question, which would only crowd out what's older, at most
+600 characters of each. Reading the room answers 40 of its messages at a time, oldest first: those
+before the question, or before the thread it's asked in, which take in what @ember was given, so that
+the model learns their ids, or those before or after a message the model names, at most 2,000 characters
+of each, with where to read on. Reading a thread answers the message it's under and its newest 40
+replies, or the 40 before a reply the model names, of the thread @ember is asked in or of a message the
+model names. Each message comes with when it was written, its id, which the tools take, the thread it's
+a reply in or how many replies its own has, who wrote it and what it says, which the model's provider
+reads as it does the conversation. None of them reads another room, and an id finds only the room's own
+messages, so an answer holds nothing its readers couldn't find themselves. An answer's calls of them
+read at most 80,000 characters of the room between them, about 20,000 tokens, twice what it's given with
+the question, counting what it read before it waited at a call of an app's tool, then the model is told
+it has read enough and to answer with what it has. An answer makes at most 20 calls, of these and [apps'
+tools](#apps) together, then the model is told to answer with what it has, and they share the answer's
+limit of tokens, so a model that spends them all reading is cut short as any other answer is. Claude,
+GPT and Grok, the models the models file lists, are given the tools, with nothing to turn on; Workers
+AI's models aren't, nor is a model kept from before Ember offered its own, or a test question, and a
+model that stops taking the tools is asked again without them: one refused only once it has called them
+answers without them, told what its calls found, in the tokens, and with the web searches and pages, the
+answer has left. Each call has the model read the conversation again, with all it has read since, so an
+answer that reads the room costs that many more tokens read. A picture or a link that only the tools
+found shows as a link, as the rule above has it, since the card and the preview are only of addresses in
+the messages @ember read with the question.
 
 @ember can also show cards under its answer, as a chat bot's [Slack-compatible
 webhook](slack-webhooks.md) does, for where something stands, a report, options to compare, a table or
@@ -1033,7 +1051,7 @@ when it's on again, in the open rooms there are then.
 
 What an agent, or @ember, reads stays in the conversation it's asked in, by Ember's code rather than
 its instructions. It's asked only in a room or DM it's in, and reads that one alone: the conversation
-it's given, and what the room's search finds, which searches no other room. So nothing said in a DM or
+it's given, and what the room's tools find, which read no other room. So nothing said in a DM or
 a private room reaches another room through it, or anyone who isn't there, even someone who is in both
 asking elsewhere. Agents join the rooms open to everyone; a private room or a DM has one only when its
 people add it, and a DM's people never change, so nobody can put an agent in someone else's. An agent
@@ -1160,7 +1178,8 @@ nothing said there goes to an app unless someone in it allows it.
   tool answers with, go to the room as ever. The answer goes on from there, and waits again at the
   next call, up to 20 calls an answer, all within the time and tokens its levels give it. While a
   call runs, the room's typing line names it after the agent's name, as in "Recap is using Linear:
-  list_issues", or "Recap is searching this room" while it searches the room; nothing of that is kept. A model whose
+  list_issues", or "Recap is searching this room", "is reading this room" or "is reading a thread" while it
+  reads the room; nothing of that is kept. A model whose
   provider then won't go on from a call is asked once more without the tools, told what each call came
   to, so that its answer still says what a call did. A call nobody
   answers in 15 minutes isn't run: its card says so in place of its buttons, and Ember forgets the
@@ -1400,6 +1419,16 @@ whose tiles grow as wide as 640px at HD and 800px at Full HD, where Standard's s
 and Firefox send a camera in one size, 640 by 360 at up to 500 kbps, which everyone is sent. Your
 browser is sent the others' cameras only while you have the huddle open, and a camera's picture
 isn't kept in step with its person's voice, which travels apart from it.
+
+Every couple of seconds your browser measures its connections to the SFU. Once much of what you
+receive or send is lost on the way, or round trips to the SFU take a second or more, the huddle says
+"Your connection is unstable" beside how many are in it, or on its bar, and the others see a wifi
+mark with a warning on your tile, until ten seconds go by without trouble. While what you receive
+struggles, your browser asks for the others' cameras a size smaller, and smaller again every six
+seconds, and ten seconds after it has steadied, a size larger, and so on back to the size your
+tiles show, waiting longer each time a larger size brings trouble back soon after. What your browser
+sends it adapts of itself. Much lost of one person's while the others' comes through is their
+trouble, which their own browser finds, and it isn't taken for yours.
 
 Share screen, beside the camera, has your browser ask which screen, window or tab to share, and
 shares it until you stop it there or in your browser. Two people can share at once, as in Slack's

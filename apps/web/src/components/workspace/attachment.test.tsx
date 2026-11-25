@@ -68,29 +68,60 @@ describe("Image, video and file previews", () => {
     expect(screen.getByRole("img", { name: "earth.webp" })).toHaveClass("max-h-[min(640px,70dvh)]", "max-w-full");
   });
 
-  it("plays a video in place, in a box half its size, loading nothing until it's played behind its poster, or its first frame without one", () => {
-    const { container } = render(<Attachment file={stored("launch.mp4", "video/mp4", { width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4" })} />);
-    const video = container.querySelector("video")!;
-    expect(video).toHaveAttribute("src", "/files/k1/s1/launch.mp4");
-    expect(video).toHaveAttribute("poster", "/previews/k1/s1/launch.mp4");
+  it("plays a GIF of up to 5 MiB in place as itself, lazily, showing its thumbnail, its first frame, under reduced motion, and shows a larger one by its thumbnail", () => {
+    const spin = stored("spin.gif", "image/gif", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE, previewUrl: "/previews/k1/s1/spin.webp" });
+    const { container } = render(<Attachment file={spin} />);
+    const picture = screen.getByRole("img", { name: "spin.gif" });
+    expect(picture).toHaveAttribute("src", spin.url);
+    expect(picture).toHaveAttribute("loading", "lazy");
+    const still = container.querySelector("source");
+    expect(still).toHaveAttribute("srcset", spin.previewUrl);
+    expect(still).toHaveAttribute("media", "(prefers-reduced-motion: reduce)");
+    expect(screen.getByRole("link", { name: "spin.gif" })).toHaveAttribute("href", spin.url);
+    cleanup();
+
+    const large = { ...spin, byteSize: MAX_PREVIEW_SIZE + 1 };
+    const { container: shown } = render(<Attachment file={large} />);
+    expect(screen.getByRole("img", { name: "spin.gif" })).toHaveAttribute("src", large.previewUrl);
+    expect(shown.querySelector("source")).not.toBeInTheDocument();
+  });
+
+  it("plays a video in place, in its own player (video-player.test.tsx), loading nothing until it's played behind its poster, or its first frame without one", () => {
+    const launch = stored("launch.mp4", "video/mp4", { width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4", duration: 15 });
+    render(<Attachment file={launch} />);
+    const player = screen.getByRole("group", { name: "launch.mp4" });
+    const video = player.querySelector("video")!;
+    expect(video).toHaveAttribute("src", launch.url);
+    expect(video).toHaveAttribute("poster", launch.previewUrl);
     expect(video).toHaveAttribute("preload", "none");
-    expect(video).toHaveAttribute("controls");
-    expect(video).toHaveAccessibleName("launch.mp4");
-    expect(video.parentElement).toHaveAttribute("style", "width: 600px; aspect-ratio: 1200 / 675;");
-    expect(card("launch.mp4")).not.toBeInTheDocument();
+    expect(video).not.toHaveAttribute("controls");
+    expect(within(player).getByRole("button", { name: "Play" })).toBeInTheDocument();
+    // Its card has Download, as a file's does.
+    expect(card("launch.mp4")).toHaveAttribute("href", launch.downloadUrl);
     cleanup();
 
     // As a bot's, or one its uploader's browser couldn't play.
-    const { container: unplayed } = render(<Attachment file={stored("launch.mov", "video/quicktime")} />);
-    const without = unplayed.querySelector("video")!;
+    render(<Attachment file={stored("launch.mov", "video/quicktime")} />);
+    const without = screen.getByRole("group", { name: "launch.mov" }).querySelector("video")!;
     expect(without).toHaveAttribute("src", "/files/k1/s1/launch.mov");
     expect(without).not.toHaveAttribute("poster");
     expect(without).toHaveAttribute("preload", "metadata");
-    expect(without.parentElement).not.toHaveAttribute("style");
+  });
+
+  it("plays a recording of sound in place, as an audio clip, in its own player (audio-player.test.tsx), loading only how long it is until it's played", () => {
+    for (const file of [stored("Audio clip 2026-11-17 at 9.41.07 AM.m4a", "audio/mp4"), stored("theme.mp3", "audio/mpeg")]) {
+      render(<Attachment file={file} />);
+      const player = screen.getByRole("group", { name: file.name });
+      expect(within(player).getByRole("button", { name: "Play" })).toBeInTheDocument();
+      expect(player.querySelector("audio")).toHaveAttribute("src", file.url);
+      expect(player.querySelector("audio")).toHaveAttribute("preload", "metadata");
+      expect(card(file.name)).not.toBeInTheDocument();
+      cleanup();
+    }
   });
 
   it("shows any other file as its card", () => {
-    for (const file of [stored("Q3 report.pdf", "application/pdf"), stored("theme.mp3", "audio/mpeg")]) {
+    for (const file of [stored("Q3 report.pdf", "application/pdf"), stored("notes.zip", "application/zip")]) {
       const { container } = render(<Attachment file={file} />);
       expect(card(file.name)).toBeInTheDocument();
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
@@ -149,6 +180,13 @@ describe("Image viewer", () => {
     await userEvent.click(screen.getByRole("link", { name: "panorama.jpg" }));
     expect(within(viewer()!).getByRole("img", { name: "panorama.jpg" })).toHaveAttribute("src", panorama.previewUrl);
     expect(within(viewer()!).getByRole("link", { name: "Download file" })).toHaveAttribute("href", panorama.downloadUrl);
+  });
+
+  it("opens a GIF over 5 MiB, which shows by its thumbnail, as itself, where it plays", async () => {
+    const spin = stored("spin.gif", "image/gif", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE + 1, previewUrl: "/previews/k1/s1/spin.webp" });
+    render(<Attachment file={spin} />);
+    await userEvent.click(screen.getByRole("link", { name: "spin.gif" }));
+    expect(within(viewer()!).getByRole("img", { name: "spin.gif" })).toHaveAttribute("src", spin.url);
   });
 
   it("opens a picture not every browser shows, such as a HEIC, as its thumbnail", async () => {

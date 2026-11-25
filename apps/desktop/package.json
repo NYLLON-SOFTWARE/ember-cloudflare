@@ -1,0 +1,38 @@
+{
+  "name": "ember-desktop",
+  "productName": "Ember",
+  "desktopName": "ember.desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ember's desktop app for Mac, Windows and Linux, which opens each Ember site's own web app",
+  "author": "NYLLON LLC",
+  "license": "MIT",
+  "homepage": "https://github.com/NYLLON-SOFTWARE/ember-cloudflare/tree/main/apps/desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NYLLON-SOFTWARE/ember-cloudflare.git",
+    "directory": "apps/desktop"
+  },
+  "type": "module",
+  "main": "dist/main.js",
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "start": "node scripts/build.ts && electron .",
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "test:app": "node scripts/build.ts && playwright test -c test/playwright.config.ts",
+    "package": "node scripts/build.ts && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "^24.19.2",
+    "electron": "45.3.4",
+    "electron-builder": "26.18.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

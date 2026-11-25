@@ -37,11 +37,19 @@ describe("The beta to try", () => {
     expect(betaToTryOf(checkOf("0.5", false, named("0.5", "0.5.0", false), beta))).toBe(beta);
   });
 
-  it("is none while a newer release is out to update to, for a beta, or while there's no newer beta", () => {
+  it("is the newest beta beside a newer release to update to, for a release or a beta the release has passed", () => {
+    const release = named("0.5", "0.5.0", true);
     const beta = named("0.6 beta 1", "0.6.0-beta.1", true);
-    expect(betaToTryOf(checkOf("0.4.2", false, named("0.5", "0.5.0", true), beta))).toBeNull();
+    expect(betaToTryOf(checkOf("0.4.2", false, release, beta))).toBe(beta);
+    const passed = checkOf("0.5 beta 15", true, release, beta);
+    expect(updateOf(passed)).toBe(release);
+    expect(betaToTryOf(passed)).toBe(beta);
+  });
+
+  it("is none for a beta the newest beta is the update of, or while there's no newer beta", () => {
+    const beta = named("0.6 beta 1", "0.6.0-beta.1", true);
     expect(betaToTryOf(checkOf("0.6 beta 1", true, named("0.5", "0.5.0", false), { ...beta, newer: false }))).toBeNull();
-    expect(betaToTryOf(checkOf("0.5 beta 3", true, named("0.4.2", "0.4.2", false), named("0.6 beta 1", "0.6.0-beta.1", true)))).toBeNull();
+    expect(betaToTryOf(checkOf("0.5 beta 3", true, named("0.4.2", "0.4.2", false), beta))).toBeNull();
     expect(betaToTryOf(checkOf("0.5", false, named("0.5", "0.5.0", false), null))).toBeNull();
   });
 });

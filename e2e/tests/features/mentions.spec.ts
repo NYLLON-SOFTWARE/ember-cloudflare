@@ -1,3 +1,4 @@
+import type { Sidebar } from "@ember/protocol";
 import type { Locator, Page } from "@playwright/test";
 import { cookieHeader } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
@@ -230,15 +231,53 @@ test.describe("Count mentions of you", () => {
     await ada.page.reload();
     await expect(general).toHaveAccessibleDescription(/^Unread 2 mentions /);
 
+    // Opening it reads it, once the room has let Ada's socket in.
     await general.click();
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await ada.connected();
     await expect(general).not.toHaveAccessibleDescription(/^Unread/);
     await expect(general.getByText("2", { exact: true })).toBeHidden();
 
-    // Reading it starts the count again.
+    // Reading it starts the count again, for what comes once Ada has left and her sidebar has heard of the read.
+    await expect(grace.presence()).toHaveText("2 here now");
     await row("random").click();
+    await expect(grace.presence()).toHaveText("1 here now");
+    await expect(general).not.toHaveAccessibleDescription(/^Unread/);
     await grace.send("Bye");
     await expect(general).toHaveAccessibleDescription(/^Unread/);
     await expect(general).not.toHaveAccessibleDescription(/mention/);
+  });
+
+  test("leaves a room you've muted dimmed, unmarked and out of Activity, as Slack does, until a message mentions you, which it counts", async ({ members, request, rooms }) => {
+    const tag = newTag();
+    const ada = await members.signIn(`Ada ${tag}`, { path: `/rooms/${rooms.random.id}` });
+    const grace = await members.signIn(`Grace ${tag}`);
+    const general = ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" });
+    const activity = ada.page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Activity" });
+    const headers = { Cookie: cookieHeader(ada.session) };
+    const muted = await request.put(`/api/rooms/${rooms.general.id}/involvement`, { data: { involvement: "nothing" }, headers });
+    expect(muted.status(), await muted.text()).toBe(200);
+    await expect(general).toHaveAccessibleDescription(/^Muted /);
+    // In the muted gray the DMs heading has.
+    const gray = await ada.page.getByRole("heading", { name: "DMs" }).evaluate((heading) => getComputedStyle(heading).color);
+    await expect(general).toHaveCSS("color", gray);
+
+    // The server marks it unread, which her row doesn't show, through a reload.
+    await grace.send("Lunch?");
+    const unread = async () => ((await (await request.get("/api/sidebar", { headers })).json()) as Sidebar).rooms.find(({ id }) => id === rooms.general.id)?.unread;
+    await expect.poll(unread).toBe(true);
+    await ada.page.reload();
+    await ada.connected();
+    await expect(general).toHaveAccessibleDescription(/^Muted /);
+    await expect(general).toHaveCSS("font-weight", "400");
+    await expect(activity).not.toHaveAttribute("aria-description");
+
+    await sendMention(grace, "Thanks ", tag, [`Ada ${tag}`, `Grace ${tag}`]);
+    await expect(general).toHaveAccessibleDescription(/^Unread 1 mention Muted /);
+    await expect(general.getByText("1", { exact: true })).toHaveCSS("height", "18px");
+    await expect(general).toHaveCSS("font-weight", "400");
+    await expect(general).toHaveCSS("color", gray);
+    await expect(activity).toHaveAccessibleDescription("1 unread");
   });
 });
 

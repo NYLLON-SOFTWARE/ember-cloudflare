@@ -53,6 +53,7 @@ import {
   type Invited,
   type Involvement,
   type Me,
+  type MembersChange,
   type NavigationIconChanges,
   type NavigationIcons,
   type NewBot,
@@ -193,6 +194,7 @@ import {
   WorkspaceStore,
   type AccountChange,
   type AgentSetup,
+  type AppNotifications,
   type AvatarOwner,
   type BotKey,
   type Client,
@@ -365,6 +367,12 @@ const READERS_PER_RUN = 100;
  * to a room that takes longer.
  */
 const CLOSING_SOCKETS_MS = 2_000;
+
+/**
+ * The tag on the workspace sockets of an app that shows notifications itself, as the desktop app does,
+ * which are sent them (`notify`), after the tags of their person and session.
+ */
+const NOTIFYING_TAG = "notifications";
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
 /**
@@ -1251,7 +1259,8 @@ export class Workspace extends DurableObject<Env> {
    * Lets in a tab's workspace socket, which the Worker sends on with the credentials of the request
    * for it, if they sign someone in. Like a room's, it's tagged with its person and its session, so
    * signing out can find it, and keeps whether its tab is shown, as its address says, and in use, as it
-   * counts until the tab says otherwise (`Presence`).
+   * counts until the tab says otherwise (`Presence`). One whose address says its tab is in an app that
+   * shows notifications itself is tagged so too, and sent them (`notify`).
    */
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket upgrade", { status: 426 });
@@ -1260,9 +1269,9 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.session(credentials);
     if (!session) return Response.json({ error: "Sign in first" }, { status: 401 });
 
-    const { visible } = parseWorkspaceSocketParams(urlOf(request).searchParams);
+    const { visible, notifications } = parseWorkspaceSocketParams(urlOf(request).searchParams);
     const { 0: client, 1: server } = new WebSocketPair();
-    this.ctx.acceptWebSocket(server, [session.user.id, sessionTag(session.id)]);
+    this.ctx.acceptWebSocket(server, [session.user.id, sessionTag(session.id), ...(notifications ? [NOTIFYING_TAG] : [])]);
     this.presence.connected(server, session.user.id, visible);
     // On D1, signing out can end the session while the check above reads it, and close the session's
     // sockets before this one is among them. Now that it is, checking again settles it: the session
@@ -2204,13 +2213,19 @@ export class Workspace extends DurableObject<Env> {
    * told on every tab they have open, where it rings. Nobody else is told, so nobody hears of a room they
    * aren't in, and nothing is kept of an invitation. Whoever of them has Ember in view nowhere, with no tab open or
    * none of them shown, is pushed it too, while Web Push is on: this answers their pushes, for the room
-   * to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in.
+   * to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in. Those
+   * of them with an app open that shows notifications itself are sent its notification there, whether or
+   * not Web Push is on.
    */
   async inviteToHuddle(roomId: RoomId, by: UserId, userIds: UserId[]): Promise<InvitationPush[]> {
     const invited = await this.store.huddleInvitees(roomId, by, userIds);
     this.tell(invited, { type: "huddle.invited", roomId, by });
     const away = invited.filter((userId) => !this.presence.inView(userId));
-    if (away.length === 0 || !(await webPush(this.env)).on) return [];
+    if (away.length === 0) return [];
+    const notifying = new Set(this.notifyingIds());
+    const notified = away.filter((userId) => notifying.has(userId));
+    if (notified.length > 0) this.notify(await this.store.invitationNotifications(roomId, by, notified, guestSignIn(this.env)));
+    if (!(await webPush(this.env)).on) return [];
     return this.store.invitationPushes(roomId, by, away, guestSignIn(this.env));
   }
 
@@ -3950,17 +3965,17 @@ export class Workspace extends DurableObject<Env> {
    * Keeps `report`, made by `reporter` of someone named `subjectName`, unless they have an open report of
    * the same message or person. Then every tab of every active administrator but whoever it's of hears
    * how many reports are open, and their pushes say who reported whom, but to whoever made it, and those
-   * who've blocked them. Nobody else hears of it. Answers false, keeping nothing, once whoever it's of
-   * has deleted their account, which they can have since what it keeps of them was read.
+   * who've blocked them, as do their apps that show notifications themselves. Nobody else hears of it.
+   * Answers false, keeping nothing, once whoever it's of has deleted their account, which they can have
+   * since what it keeps of them was read.
    */
   private async keepReport(reporter: User, report: ReportToKeep, subjectName: string): Promise<boolean> {
-    const kept = await this.reports.keep(report);
+    const kept = await this.reports.keep(report, this.notifyingIds());
     if (!kept) return !(await this.reports.isDeletedAccount(report.subjectId));
     this.tellOpenReports(kept.open.filter(({ userId }) => userId !== report.subjectId));
-    if (kept.deliveries.length > 0) {
-      const payload = reportPayload(reporter.name, subjectName, report.subject, report.reason);
-      this.ctx.waitUntil(this.pushReport([{ payload, deliveries: kept.deliveries }], reporter.id));
-    }
+    const payload = reportPayload(reporter.name, subjectName, report.subject, report.reason);
+    if (kept.deliveries.length > 0) this.ctx.waitUntil(this.pushReport([{ payload, deliveries: kept.deliveries }], reporter.id));
+    this.notify([{ id: `report:${report.id}`, notification: payload, userIds: kept.notifiedIds }]);
     return true;
   }
 
@@ -4059,6 +4074,31 @@ export class Workspace extends DurableObject<Env> {
           socket.send(data);
         } catch {
           // It has closed since, and its close handler has nothing to clean up.
+        }
+      }
+    }
+  }
+
+  /** Who has an app open that shows notifications itself, whose workspace sockets there are tagged so, after their person. */
+  private notifyingIds(): UserId[] {
+    return [...new Set(this.ctx.getWebSockets(NOTIFYING_TAG).map((socket) => this.ctx.getTags(socket)[0] as UserId))];
+  }
+
+  /**
+   * Sends each of `notifications` on the workspace sockets of its people's apps that show notifications
+   * themselves, and on no other socket: their browsers are pushed it, as Web Push has it.
+   */
+  private notify(notifications: AppNotifications[]): void {
+    for (const { id, notification, userIds } of notifications) {
+      const data = JSON.stringify({ type: "notification", id, ...notification } satisfies WorkspaceServerFrame);
+      for (const userId of userIds) {
+        for (const socket of this.ctx.getWebSockets(userId)) {
+          if (!this.ctx.getTags(socket).includes(NOTIFYING_TAG)) continue;
+          try {
+            socket.send(data);
+          } catch {
+            // It has closed since, and its close handler has nothing to clean up.
+          }
         }
       }
     }
@@ -5193,6 +5233,15 @@ export class Workspace extends DurableObject<Env> {
     return this.store.roomMember(roomId, clickerId);
   }
 
+  /**
+   * `writerId` as they're named now, while they're in room `roomId`, for a message they scheduled there,
+   * which the room sends as theirs only then: null once they've left it, been removed from it, or can't
+   * sign in to Ember.
+   */
+  async scheduledWriter(roomId: RoomId, writerId: UserId): Promise<User | null> {
+    return (await this.store.roomMember(roomId, writerId))?.member ?? null;
+  }
+
   /** Whether `agentId` is one tools are picked for: @ember, whether or not it has answered yet, or an agent. */
   private async usesTools(agentId: UserId): Promise<boolean> {
     return agentId === ASSISTANT_ID || (await this.store.isAgent(agentId));
@@ -5721,22 +5770,61 @@ export class Workspace extends DurableObject<Env> {
         // The database may have queued telling the search index who can read it, though its answer was lost.
         if (changes.kind) await this.wakeAt(now);
       }
-      this.tell(saved.removedIds, { type: "room.gone", roomId });
-      const section = saved.sectionChanged ? moved!.section : found.section;
-      this.tell(saved.roomChanged || saved.sectionChanged ? saved.memberIds : saved.addedIds, {
-        type: "room.saved",
-        room: changed,
-        ...((section || saved.sectionChanged) && { section }),
-      });
+      await this.tellOfChange(roomId, changed, saved, saved.sectionChanged ? moved!.section : found.section);
       await this.sectionMade(moved);
-      // Whoever it puts in has heard nothing of a huddle going on there.
-      const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
-      if (huddle) this.tell(saved.addedIds, { type: "room.huddle", roomId, huddle });
-      // The shared order their sidebars have leaves out the rooms they weren't in, so they load it
-      // again.
-      if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
       return changed;
     });
+  }
+
+  /**
+   * Puts the people `change` names in private room `roomId`, and takes those it names out, as the person
+   * `credentials` signs in, leaving everyone else as they are, and answers the room: "not found" as for
+   * its settings, "forbidden" unless they can change it, "open" for a room open to everyone, or null
+   * without a valid session. As with changing the room, whoever it takes out is told to reconnect, and
+   * finds it gone, and the people it puts in see it in their sidebars.
+   */
+  async changeMembers(credentials: Credentials, roomId: RoomId, change: MembersChange): Promise<SharedRoom | "not found" | "forbidden" | "open" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.closingSockets(async () => {
+      const found = await this.store.roomToChange(roomId, user.id);
+      if (!found) return "not found";
+      if (!found.canAdminister) return "forbidden";
+      if (found.room.kind !== "closed") return "open";
+      if (change.addedIds.length === 0 && change.removedIds.length === 0) return found.room;
+      const now = Date.now();
+      // As when signing out, until the database says it queued nothing.
+      let queued = change.removedIds.length > 0;
+      let saved: SavedRoomChange;
+      try {
+        saved = await this.store.changeMembers(roomId, change, CloseCode.Reconnect, now, new Date(now).toISOString());
+        queued = saved.removedIds.length > 0;
+      } finally {
+        if (queued) await this.revocationsQueued(now);
+      }
+      await this.tellOfChange(roomId, found.room, saved, found.section);
+      return found.room;
+    });
+  }
+
+  /**
+   * Tells whoever a change to room `roomId` took out that it's gone, and everyone in it, or only those it
+   * put in where only who's in it changed, that it's `room` now, in `section`: with any huddle going on
+   * there, which the people it put in have heard nothing of, and the shared order, which their sidebars
+   * have left it out of.
+   */
+  private async tellOfChange(roomId: RoomId, room: SharedRoom, saved: SavedRoomChange, section: Section | null): Promise<void> {
+    this.tell(saved.removedIds, { type: "room.gone", roomId });
+    this.tell(saved.roomChanged || saved.sectionChanged ? saved.memberIds : saved.addedIds, {
+      type: "room.saved",
+      room,
+      ...((section || saved.sectionChanged) && { section }),
+    });
+    // Whoever it puts in has heard nothing of a huddle going on there.
+    const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
+    if (huddle) this.tell(saved.addedIds, { type: "room.huddle", roomId, huddle });
+    // The shared order their sidebars have leaves out the rooms they weren't in, so they load it again.
+    if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
   }
 
   /**
@@ -5829,7 +5917,9 @@ export class Workspace extends DurableObject<Env> {
    * answers the bots' webhooks each new message is delivered to, the new messages @ember is to answer
    * and, while Web Push is on, their pushes, for the room to send, none of them to a guest while
    * `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in, and the version of the blocked words, which
-   * tells the room whether the list it keeps is still the latest.
+   * tells the room whether the list it keeps is still the latest. Whoever a new message would be pushed
+   * to who has an app open that shows notifications itself is sent its notification there, whether or not
+   * Web Push is on.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventAnswer> {
     const { version: blockedWords } = await this.blockedWordsNow();
@@ -5837,9 +5927,11 @@ export class Workspace extends DurableObject<Env> {
     const { on: pushing } = await webPush(this.env);
     // @here notifies those who are active, as presence has them now, which pushes and counts its mentions.
     const activeIds = events.some((event) => event.message?.notifies === "here") ? [...this.presence.active()] : [];
-    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env), activeIds);
+    const applied = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env), activeIds, this.notifyingIds());
+    const { marks, active, pushes, notifications, webhooks, asks } = applied;
     for (const [userId, mark] of marks) this.tell([userId], mark === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, ...mark });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
+    this.notify(notifications);
     return { pushes, webhooks, asks, blockedWords };
   }
 
@@ -6027,10 +6119,18 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Whether room `roomId` is private by now, a DM or a private room, or gone, as an answer asks once it
-   * has searched the room, which may have been made private since the answer began (`roomSearch`).
+   * has read the room, which may have been made private since the answer began (`roomTools`).
    */
   async isPrivateRoom(roomId: RoomId): Promise<boolean> {
     return isPrivate(await this.store.roomKind(roomId));
+  }
+
+  /**
+   * The ids of the first few people named `name`, ignoring the case of ASCII letters, whose messages an
+   * answer's search of a room finds for it (`roomTools`), as a person's name is all its model knows of them.
+   */
+  async peopleNamed(name: string): Promise<UserId[]> {
+    return this.store.peopleNamed(name);
   }
 
   /**

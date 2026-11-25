@@ -1,5 +1,7 @@
 packages:
   - apps/*
+  # The desktop app installs and builds on its own (apps/desktop/README.md).
+  - '!apps/desktop'
   - packages/*
   - e2e
   - perf

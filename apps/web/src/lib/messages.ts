@@ -67,6 +67,15 @@ export function huddleStartedLabel(date: Date, now = new Date()): string {
   return "on" in day ? day.on : `${day.near === "today" ? "Today" : "Yesterday"} at ${timeLabel(date)}`;
 }
 
+/**
+ * When a clip was recorded, as its card says it, as "Recorded Nov 23 at 10:43 AM", with the year where it was
+ * another, and without a time of day where `timed` says its name doesn't tell one.
+ */
+export function recordedLabel({ at, timed }: { at: Date; timed: boolean }, now = new Date()): string {
+  const day = (yearFormat.format(at) === yearFormat.format(now) ? monthDayFormat : shortDateFormat).format(at);
+  return timed ? `Recorded ${day} at ${timeLabel(at)}` : `Recorded ${day}`;
+}
+
 const minutesFormat = new Intl.NumberFormat(undefined, { style: "unit", unit: "minute", unitDisplay: "short" });
 const hoursFormat = new Intl.NumberFormat(undefined, { style: "unit", unit: "hour", unitDisplay: "short" });
 

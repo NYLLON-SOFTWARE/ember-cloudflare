@@ -16,6 +16,7 @@ import { ringForHuddle } from "@/lib/huddle-ring";
 import { endHuddle, heardSounds, joinedHuddle, showHuddle, tellOfHuddle, type HuddleControls } from "@/lib/huddle-store";
 import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
+import { inTheDesktopApp } from "@/test-desktop-app";
 import { PUSH_ON } from "@/test-push";
 import { startedWithout } from "./new-direct-dialog";
 import { Workspace, loadPageAhead } from "./workspace";
@@ -1590,6 +1591,22 @@ describe("Activity filter", () => {
     await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
   });
 
+  it("leaves out a room you've muted, but for one with a mention of you", async () => {
+    const muted: SidebarRoom[] = [
+      { ...rooms[0]!, unread: true, involvement: "nothing" },
+      { ...rooms[1]!, unread: true, involvement: "nothing" },
+      { id: "design", name: "Design", kind: "open", icon: null, unread: true, mentionCount: 1, involvement: "nothing" },
+    ];
+    serve({ "GET /api/sidebar": () => Response.json(roomList(muted)) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
+    await user.click(activity());
+    // By its room's id, since its count's words are part of its text.
+    const rows = within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" })).getAllByRole("link");
+    expect(rows.map((row) => row.dataset.roomId)).toEqual(["design"]);
+  });
+
   it("turns off when you follow a rail or sidebar link, and stays on through other navigation", async () => {
     serve({
       "GET /api/sidebar": () => Response.json(roomList(marked)),
@@ -2538,6 +2555,21 @@ describe("App icon badge", () => {
     expect(badges).toEqual(["cleared", 1, 2, 1, "cleared"]);
   });
 
+  it("hands the count to the desktop app, which shows notifications itself, and opens the page of one clicked there", async () => {
+    const app = inTheDesktopApp();
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ "GET /api/sidebar": () => Response.json(roomList(rooms)) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(app.badges).toEqual([0]));
+    await workspaceSends({ type: "room.unread", roomId: "random", at: NOON });
+    expect(app.badges).toEqual([0, 1]);
+
+    act(() => app.open("/rooms/random"));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
+  });
+
   it("leaves the badge as it is until the list has come, as a push may have set it", async () => {
     const badges = badgeTheApp();
     serve({ "GET /api/sidebar": () => new Promise<Response>(() => {}) });
@@ -2676,7 +2708,7 @@ describe("Huddles", () => {
     // Joining lets the tab into the huddle at once, alone, and shows it opened.
     vi.mocked(joinHuddle).mockImplementation(({ roomId, muted }) =>
       showHuddle(
-        { roomId, connected: true, you: ada, people: [{ user: ada, muted, audio: false, video: false, screen: false }], muted, sticker: null, microphone: true, microphoneId: "", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: true, thread: true },
+        { roomId, connected: true, you: ada, people: [{ user: ada, muted, audio: false, video: false, screen: false }], muted, sticker: null, unstable: false, microphone: true, microphoneId: "", speakerId: "", camera: null, watched: new Map(), screen: null, screens: new Map(), open: true, thread: true },
         controls,
       ),
     );

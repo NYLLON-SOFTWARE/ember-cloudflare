@@ -11,6 +11,7 @@ and how it's tested. The [self-hosting guide](self-hosting.md) covers deploying 
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
 | `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with Campfire's headers and error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `SearchIndex`, `PasswordHasher`, `Unfurler`, `AppConnector` and `OutsideAi` Durable Objects. |
+| `apps/desktop` | `ember-desktop` | The desktop app for Mac, Windows and Linux: Electron around each Ember site's own web app. It installs, builds and is tested on its own, outside the workspace, so installing Ember never downloads Electron ([`apps/desktop/README.md`](../apps/desktop/README.md)). |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both, and the addresses of the app's pages. |
 | `packages/richtext` | `@ember/richtext` | Message bodies as Campfire's Action Text reads them: sanitizing, plain text, mentions and emoji-only bodies, golden-tested against a corpus of Campfire's Rails outputs. |
 
@@ -157,6 +158,11 @@ Cloudflare button for it and list what's changed since the release or beta befor
 offered it unless it asks for one, or runs an earlier beta ([Betas](self-hosting.md#betas)). The
 tests that name the release expect it named "0.5 beta 1". The release itself then sets `0.5.0`, and
 its notes list what's changed since the release before, as the copies it's offered come from there.
+A release whose list is long can open its notes with what's new in it, in words: the pull request that
+raises the version adds them as `docs/releases/<version>.md`, as `docs/releases/0.5.0.md` does, and the
+Release workflow puts them ahead of the list. Write [at]ember there, as [at]channel and the rest, never
+@ and the name, which GitHub reads in a release's notes as one of its accounts, and lists among the
+release's contributors.
 Ember's version is a release's or a beta's, which the Release workflow checks, since copies tell
 them apart by their tags and know no other kind.
 

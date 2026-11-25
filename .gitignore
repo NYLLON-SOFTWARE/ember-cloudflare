@@ -9,5 +9,8 @@ test-results/
 perf/results/
 skills-lock.json
 
+# What the desktop app's `pnpm package` makes.
+apps/desktop/release/
+
 # What `pnpm run deploy` deploys a Worker on DO SQLite from, beside its wrangler config, while it deploys.
 *.deploy.json

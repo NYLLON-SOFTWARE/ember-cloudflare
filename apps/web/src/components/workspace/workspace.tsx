@@ -18,6 +18,7 @@ import { ReportingContext, type OpenReport, type ReportTarget } from "@/hooks/us
 import { useSidebar } from "@/hooks/use-sidebar";
 import { agentsToAsk, canAsk } from "@/lib/agents";
 import { answerHuddleInvitation, ApiError, changeBlock, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
+import { desktopApp } from "@/lib/desktop-app";
 import { invitationsReducer, NO_INVITATIONS } from "@/lib/huddle-invitations";
 import { hasHuddles } from "@/lib/huddle-people";
 import { hearHuddle, hearSounds, leaveHuddle, muteHuddle, OPEN_HUDDLE, openHuddle, sendVideoAt, shareHuddleScreen, showHuddleCamera } from "@/lib/huddle-store";
@@ -393,6 +394,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   const [huddlePreview, setHuddlePreview] = useState<RoomId | null>(null);
   // Whether the keyboard shortcuts dialog is open.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const closeHuddlePreview = useCallback(() => setHuddlePreview(null), []);
   const liveHuddles = list?.huddles ?? NO_HUDDLES;
   const huddles = useMemo<Huddles>(() => ({ live: liveHuddles, preview: setHuddlePreview }), [liveHuddles]);
@@ -779,6 +781,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
   // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
+  // The desktop app shows notifications itself, and a click on one opens its page here, as a push's does in a browser.
+  useEffect(() => desktopApp()?.onOpen((path) => navigate(path)), []);
   const rail = (
     <Rail
       me={me}
@@ -941,6 +945,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onDe
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
               newSince={opened.roomId === room.id ? opened.newSince : null}
               askForRoom={askForRoom}
+              rooms={rooms ?? NO_ROOMS}
+              onOpenDirects={openNewDirect}
+              onOpenShortcuts={openShortcuts}
               onSessionChanged={onSessionChanged}
               onFailed={failed}
               onGone={roomGone}

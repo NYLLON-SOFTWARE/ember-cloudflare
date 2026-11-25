@@ -61,8 +61,16 @@ describe("Marking what a search matched", () => {
   });
 
   it("marks words in any script, and what a pattern would read as its own syntax as itself", () => {
-    expect(marked(marksFor(["café", "日本"]), "Café cafés 日本 日本語")).toEqual(["Café", "日本"]);
+    expect(marked(marksFor(["café", "Привет"]), "Café cafés Привет Приветы")).toEqual(["Café", "Привет"]);
     expect(marked(marksFor(["a.b", "(x)"]), "a.b axb (x)")).toEqual(["a.b", "(x)"]);
+  });
+
+  it("marks a word of Chinese, Japanese or Korean characters inside a run of them, and other words beside them", () => {
+    expect(marked(marksFor(["会議"]), "明日の会議の予定を確認してください。大会議室です")).toEqual(["会議", "会議"]);
+    expect(marked(marksFor(["开会"]), "我们明天开会讨论预算")).toEqual(["开会"]);
+    expect(marked(marksFor(["회의"]), "회의를 시작합니다")).toEqual(["회의"]);
+    expect(marked(marksFor(["Ember", "使う"]), "Emberを使う。Embersで使う")).toEqual(["Ember", "使う", "使う"]);
+    expect(marked(marksFor(["3"]), "3月の会議、13月")).toEqual(["3"]);
   });
 
   it("marks nothing without words", () => {
