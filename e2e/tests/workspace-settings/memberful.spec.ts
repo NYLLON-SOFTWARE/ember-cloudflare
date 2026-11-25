@@ -354,6 +354,45 @@ test.describe("Sign in with a code Ember emails", () => {
     await expect(composer(page)).toBeVisible();
   });
 
+  test("someone with an account from before connects their Memberful account from their profile with a code Ember emails it, and signs in with it from then on", async ({
+    page,
+    request,
+  }) => {
+    await useOwnAddress(page);
+    const joiner = await joinWithPassword(page, request, nameFor("Katherine"));
+    // Their Memberful account has another address than the one they joined with.
+    const member = site.add(joiner.name);
+    await turnMemberful(request, true);
+    await sendEmail(request, true);
+
+    await page.goto("/users/me/profile");
+    const section = memberfulSection(page);
+    await expect(section).toContainText("Members sign in with Memberful. Connect your Memberful account to keep signing in.");
+    await expect(section.getByLabel("Memberful email address")).toHaveValue(joiner.emailAddress);
+    await expect(section.getByRole("button", { name: "Connect there" })).toBeVisible();
+    await section.getByLabel("Memberful email address").fill(member.email);
+    await section.getByLabel("Password").fill(joiner.password);
+    const sent = resend.sent.length;
+    await section.getByRole("button", { name: "Email me a code" }).click();
+    await expect(section).toContainText(`If a Memberful account has ${member.email}, Ember emailed it a code`);
+    await expect.poll(() => resend.sent.length).toBe(sent + 1);
+    const email = resend.sent.at(-1)!;
+    expect(email).toEqual(expect.objectContaining({ from: await sentFrom(page.request, FROM), to: [member.email], subject: expect.stringMatching(/^Connect Memberful to /) as unknown }));
+    await section.getByRole("textbox", { name: "Code" }).fill(/Your code: ([0-9]{8})/.exec(email.text)![1]!);
+    await section.getByRole("button", { name: "Connect Memberful" }).click();
+    await expect(page.getByRole("alert")).toHaveText("Your Memberful account is connected.");
+    await expect(section).toContainText(`Connected as ${member.fullName} (${member.email}). You sign in with Memberful.`);
+
+    // A code to the address their Memberful account has signs them in as themselves, with the account they had.
+    await logOut(page);
+    await expect(page.getByRole("button", { name: "Email me a code" })).toBeVisible();
+    await page.getByLabel("Email address").fill(member.email);
+    await signInWithCode(page, await askForCode(page, member.email));
+    await expect(composer(page)).toBeVisible();
+    await page.goto("/users/me/profile");
+    await expect(page.getByLabel("Email address")).toHaveValue(joiner.emailAddress);
+  });
+
   test("while Turnstile checks that people are people, the card waits for its check, which it draws in a frame, before Ember emails a code", async ({ page, request }) => {
     const member = site.add(nameFor("Edith"));
     await turnMemberful(request, true);

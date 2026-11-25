@@ -3,9 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CURRENT_PASSWORD_WRONG,
+  MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
+  MEMBERFUL_CONNECTION_CODES_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
+  MEMBERFUL_SIGN_IN_PROBLEMS,
+  PASSWORD_RESET_CODE_WRONG,
   type MemberfulAccount,
+  type MemberfulCodeSignIn,
+  type MemberfulConnectionCodeRequest,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
   type ProfileAnswer,
@@ -39,6 +45,8 @@ const DISCONNECTED: ProfileAnswer = {
   },
   transferId: "u2.mgk3x2b0.saved",
 };
+/** Your profile once your Memberful account is connected, as connecting with a code answers it. */
+const CONNECTED: ProfileAnswer = { ...DISCONNECTED, profile: { ...DISCONNECTED.profile, memberful: { membersOnly: true, connected: grace } } };
 /** Where this browser's push subscription takes its pushes, when it has one. */
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/desk";
 
@@ -48,27 +56,40 @@ const serve = (answer?: () => Response) =>
     .spyOn(globalThis, "fetch")
     .mockImplementation(async (_input, init) => answer?.() ?? (init?.method === "DELETE" ? Response.json(DISCONNECTED) : Response.json({ memberfulConnection: MEMBERFUL_OAUTH }, { status: 202 })));
 
-/** What each request to connect or disconnect sent, in order. */
-const sent = <T extends MemberfulConnectionStart | MemberfulDisconnection>(method: "POST" | "DELETE") =>
+/** What each request to `path` with `method` sent, in order. */
+const sentTo = <T,>(path: string, method: string) =>
   vi
     .mocked(fetch)
-    .mock.calls.filter(([input, init]) => String(input) === MEMBERFUL_CONNECTIONS_PATH && init?.method === method)
+    .mock.calls.filter(([input, init]) => String(input) === path && init?.method === method)
     .map(([, init]) => JSON.parse(String(init?.body)) as T);
 
-function showSection({ connected = null as MemberfulAccount | null, membersOnly = true, hasPassword = true, hasEmailAddress = true, membershipNeeded = true } = {}) {
-  const [onDisconnected, onFailed] = [vi.fn(), vi.fn()];
+/** What each request to connect or disconnect sent, in order. */
+const sent = <T extends MemberfulConnectionStart | MemberfulDisconnection>(method: "POST" | "DELETE") => sentTo<T>(MEMBERFUL_CONNECTIONS_PATH, method);
+
+function showSection({
+  connected = null as MemberfulAccount | null,
+  membersOnly = true,
+  codes = false,
+  hasPassword = true,
+  hasEmailAddress = true,
+  membershipNeeded = true,
+} = {}) {
+  const [onConnected, onDisconnected, onFailed] = [vi.fn(), vi.fn(), vi.fn()];
   render(
     <MemberfulConnection
       connected={connected}
       membersOnly={membersOnly}
+      codes={codes}
+      emailAddress="grace@example.com"
       hasPassword={hasPassword}
       hasEmailAddress={hasEmailAddress}
       membershipNeeded={membershipNeeded}
+      onConnected={onConnected}
       onDisconnected={onDisconnected}
       onFailed={onFailed}
     />,
   );
-  return { onDisconnected, onFailed, user: userEvent.setup() };
+  return { onConnected, onDisconnected, onFailed, user: userEvent.setup() };
 }
 
 const section = () => screen.getByRole("region", { name: "Memberful" });
@@ -132,6 +153,148 @@ describe("Connect Memberful", () => {
     expect(password).toHaveValue("");
     expect(connectButton()).toBeEnabled();
     expect(openPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("Connect Memberful with a code Ember emails", () => {
+  /** Answers asking for a code with 202, and connecting with one with your profile, or as `answer` says, and Connect Memberful as `serve` does. */
+  const serveCodes = (answer?: (method: string) => Response) =>
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input) !== MEMBERFUL_CONNECTION_CODES_PATH) return Response.json({ memberfulConnection: MEMBERFUL_OAUTH }, { status: 202 });
+      return answer?.(init?.method ?? "GET") ?? (init?.method === "PUT" ? Response.json(CONNECTED) : Response.json({}, { status: 202 }));
+    });
+
+  const emailAddressField = () => screen.getByLabelText("Memberful email address");
+  const askButton = () => screen.getByRole("button", { name: "Email me a code" });
+  const asked = () => sentTo<MemberfulConnectionCodeRequest>(MEMBERFUL_CONNECTION_CODES_PATH, "POST");
+  const tried = () => sentTo<MemberfulCodeSignIn>(MEMBERFUL_CONNECTION_CODES_PATH, "PUT");
+
+  beforeEach(() => serveCodes());
+
+  it("asks for the address your Memberful account has, offering yours, and your password, with Memberful's page the other way", () => {
+    showSection({ codes: true });
+    expect(section()).toHaveTextContent("Members sign in with Memberful. Connect your Memberful account to keep signing in.");
+    const emailAddress = emailAddressField();
+    expect(emailAddress).toHaveValue("grace@example.com");
+    expect(emailAddress).toHaveAttribute("type", "email");
+    expect(emailAddress).toHaveAttribute("maxlength", String(MAX_EMAIL_ADDRESS_LENGTH));
+    expect(emailAddress).toBeRequired();
+    // Nothing on the profile page takes the focus as it opens.
+    expect(emailAddress).not.toHaveFocus();
+    const password = screen.getByLabelText("Password");
+    expect(password).toHaveAttribute("autocomplete", "current-password");
+    expect(password).toBeRequired();
+    expect(password).toHaveAccessibleDescription("Members sign in with Memberful. Connect your Memberful account to keep signing in.");
+    expect(askButton()).toBeEnabled();
+    expect(section()).toHaveTextContent("Prefer Memberful's page? Connect there");
+    expect(screen.queryByRole("button", { name: "Connect Memberful" })).not.toBeInTheDocument();
+  });
+
+  it("emails a code once your password checks out, which connects the account, showing your profile as it answers", async () => {
+    const { user, onConnected, onFailed } = showSection({ codes: true });
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await user.click(askButton());
+    await screen.findByText("If a Memberful account has grace@example.com, Ember emailed it a code that works for 15 minutes. If it hasn't arrived soon, look in your spam folder.");
+    expect(asked()).toEqual([{ currentPassword: "correct horse", emailAddress: "grace@example.com" }]);
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    const code = screen.getByLabelText("Code");
+    expect(code).toHaveFocus();
+    expect(code).toHaveAttribute("autocomplete", "one-time-code");
+    expect(code).toHaveAttribute("inputmode", "numeric");
+    expect(code).toBeRequired();
+
+    await user.type(code, "12345678");
+    await user.click(screen.getByRole("button", { name: "Connect Memberful" }));
+    await waitFor(() => expect(onConnected).toHaveBeenCalledWith(CONNECTED));
+    expect(tried()).toEqual([{ emailAddress: "grace@example.com", code: "12345678" }]);
+    // The code stays out of the DOM's attributes, as a password does.
+    expect(code).not.toHaveAttribute("value");
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(openPage).not.toHaveBeenCalled();
+  });
+
+  it("emails the code to another address you give, and asks for no password while you have none", async () => {
+    const { user } = showSection({ codes: true, hasPassword: false });
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    await user.clear(emailAddressField());
+    await user.type(emailAddressField(), " grace@navy.example ");
+    await user.click(askButton());
+    await screen.findByLabelText("Code");
+    expect(asked()).toEqual([{ emailAddress: "grace@navy.example" }]);
+    expect(section()).toHaveTextContent("If a Memberful account has grace@navy.example, Ember emailed it a code");
+  });
+
+  it("says why no code was emailed, emptying your password for another try", async () => {
+    serveCodes(() => Response.json({ error: CURRENT_PASSWORD_WRONG }, { status: 422 }));
+    const { user, onFailed } = showSection({ codes: true });
+    const password = screen.getByLabelText("Password");
+    await user.type(password, "wrong horse");
+    await user.click(askButton());
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(onFailed.mock.calls[0]![0]).toEqual(new ApiError(422, CURRENT_PASSWORD_WRONG));
+    expect(password).toHaveValue("");
+    expect(emailAddressField()).toHaveValue("grace@example.com");
+    expect(askButton()).toBeEnabled();
+  });
+
+  it("says why a code doesn't work, leaving it selected to type again", async () => {
+    serveCodes((method) => (method === "PUT" ? Response.json({ error: PASSWORD_RESET_CODE_WRONG }, { status: 422 }) : Response.json({}, { status: 202 })));
+    const { user, onConnected, onFailed } = showSection({ codes: true });
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await user.click(askButton());
+    const code = await screen.findByLabelText<HTMLInputElement>("Code");
+    await user.type(code, "87654321");
+    await user.click(screen.getByRole("button", { name: "Connect Memberful" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(onFailed.mock.calls[0]![0]).toEqual(new ApiError(422, PASSWORD_RESET_CODE_WRONG));
+    expect(code).toHaveFocus();
+    expect([code.selectionStart, code.selectionEnd]).toEqual([0, 8]);
+    expect(screen.getByRole("button", { name: "Connect Memberful" })).toBeEnabled();
+    expect(onConnected).not.toHaveBeenCalled();
+  });
+
+  it("says why connecting refuses the account, as when it's someone else's here", async () => {
+    serveCodes((method) => (method === "PUT" ? Response.json({ error: MEMBERFUL_SIGN_IN_PROBLEMS.claimed }, { status: 403 }) : Response.json({}, { status: 202 })));
+    const { user, onFailed } = showSection({ codes: true });
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await user.click(askButton());
+    await user.type(await screen.findByLabelText("Code"), "12345678");
+    await user.click(screen.getByRole("button", { name: "Connect Memberful" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, MEMBERFUL_SIGN_IN_PROBLEMS.claimed)));
+  });
+
+  it("goes back to send another code, keeping the address", async () => {
+    const { user } = showSection({ codes: true });
+    await user.clear(emailAddressField());
+    await user.type(emailAddressField(), "grace@navy.example");
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await user.click(askButton());
+    await screen.findByLabelText("Code");
+    await user.click(screen.getByRole("button", { name: "Send another code" }));
+    expect(emailAddressField()).toHaveValue("grace@navy.example");
+    expect(emailAddressField()).toHaveFocus();
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+  });
+
+  it("connects on Memberful's page instead, with your password, which it asks for first", async () => {
+    const { user, onFailed } = showSection({ codes: true });
+    await user.click(screen.getByRole("button", { name: "Connect there" }));
+    expect(sent("POST")).toEqual([]);
+    expect(screen.getByLabelText("Password")).toBeInvalid();
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await user.click(screen.getByRole("button", { name: "Connect there" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(MEMBERFUL_OAUTH));
+    expect(sent("POST")).toEqual([{ currentPassword: "correct horse" }]);
+    expect(asked()).toEqual([]);
+    expect(askButton()).toBeDisabled();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("connects someone without a password on Memberful's page without asking for one", async () => {
+    const { user } = showSection({ codes: true, hasPassword: false });
+    await user.click(screen.getByRole("button", { name: "Connect there" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(MEMBERFUL_OAUTH));
+    expect(sent("POST")).toEqual([{}]);
   });
 });
 

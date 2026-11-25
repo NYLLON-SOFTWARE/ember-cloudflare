@@ -1,10 +1,15 @@
 import {
   CANT_EMAIL_CODES,
+  CURRENT_PASSWORD_WRONG,
   EMAIL_ADDRESS_NEEDED,
   EMAILS_PER_ADDRESS,
   MEMBERFUL_CODE_NO_MEMBER,
   MEMBERFUL_CODE_UNCHECKED,
   MEMBERFUL_CODES_OFF,
+  MEMBERFUL_CONNECTION_CODES_OFF,
+  MEMBERFUL_CONNECTION_CODES_PATH,
+  MEMBERFUL_CONNECTION_NO_MEMBER,
+  MEMBERFUL_PASSWORD_NEEDED,
   MEMBERFUL_SIGN_IN_PROBLEMS,
   PASSWORD_RESET_CODE_MINUTES,
   PASSWORD_RESET_CODE_NEEDED,
@@ -19,12 +24,13 @@ import {
   type Me,
   type MemberfulCodeSignedIn,
   type NewWorkspace,
+  type ProfileAnswer,
 } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import type { Workspace } from "../src/workspace";
-import { api, apiWith, cookieOf, freshDeploy, shown, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, apiWith, cookieOf, freshDeploy, shown, signIn, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
@@ -614,5 +620,281 @@ describe("Sign in with a code Ember emails a Memberful member", () => {
       expect(await shapeless.json()).toEqual({ error: PASSWORD_RESET_CODE_NEEDED, field: "code" });
       expect((await signInWith("katherine@example.com", code)).status).toBe(201);
     });
+  });
+});
+
+describe("Connect Memberful from your profile with a code Ember emails", () => {
+  /** Asks, as `session`, for a code to connect the Memberful account with the address `body` has, as the profile's first form does, to a Worker with `keys`. */
+  const askToConnect = (session: Session | null, body: unknown, { ip = nextAddress(), keys = KEYS }: { ip?: string; keys?: Partial<Env> } = {}) =>
+    apiWith(keys, MEMBERFUL_CONNECTION_CODES_PATH, { method: "POST", headers: { ...as(session), "CF-Connecting-IP": ip }, body: JSON.stringify(body) });
+
+  /** Connects, as `session`, the Memberful account with `emailAddress` with `code`, as the profile's second form does, to a Worker with `keys`. */
+  const connectWith = (session: Session | null, emailAddress: unknown, code: unknown, { ip = nextAddress(), keys = KEYS }: { ip?: string; keys?: Partial<Env> } = {}) =>
+    apiWith(keys, MEMBERFUL_CONNECTION_CODES_PATH, { method: "PUT", headers: { ...as(session), "CF-Connecting-IP": ip }, body: JSON.stringify({ emailAddress, code }) });
+
+  /** Asks as `session`, with `currentPassword`, Katherine's unless given, for a code to connect the Memberful account with `emailAddress`, answering the emails Ember sent. */
+  async function askedToConnect(session: Session, emailAddress: string = katherine.email!, currentPassword = PASSWORD): Promise<EmailMessageBuilder[]> {
+    return emailing(async () => {
+      const response = await askToConnect(session, { currentPassword, emailAddress });
+      expect(response.status, await response.clone().text()).toBe(202);
+      expect(await response.json()).toEqual({});
+    });
+  }
+
+  /** The code Ember emailed `emailAddress` for `session` to connect the Memberful account that has it. */
+  async function connectionCodeFor(session: Session, emailAddress: string = katherine.email!, currentPassword = PASSWORD): Promise<string> {
+    const [email, ...more] = await askedToConnect(session, emailAddress, currentPassword);
+    expect(more).toEqual([]);
+    return codeIn(email!);
+  }
+
+  /** Where `session`'s profile says they stand with Memberful, as a Worker with `keys` answers it. */
+  const memberfulOf = async (session: Session, keys: Partial<Env> = KEYS) =>
+    ((await (await apiWith(keys, "/api/users/me/profile", { headers: as(session) })).json()) as ProfileAnswer).profile.memberful;
+
+  /** Ada, the administrator, and Katherine, signed in with the account she joined with the join link before Memberful was made members only. */
+  async function fromBefore(): Promise<{ administrator: Session; member: Session }> {
+    const administrator = await setUp({ memberful: false });
+    const member = await joinWithLink();
+    await change(administrator, { settings: { memberfulJoin: true, memberfulSignIn: true } });
+    return { administrator, member };
+  }
+
+  /** The answer that refuses, with `error`. */
+  async function expectRefused(response: Response, error: string, status = 403): Promise<void> {
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({ error });
+  }
+
+  /** The answer to a code that doesn't work. */
+  const expectWrongCode = (response: Response) => expectRefused(response, PASSWORD_RESET_CODE_WRONG, 422);
+
+  it("is offered while Memberful is members only, Ember can send email, and it has the custom app's API key, until you've connected one", async () => {
+    const administrator = await setUp({ memberful: false });
+    const member = await joinWithLink();
+    const guest = await signIn("Visitor");
+    await change(administrator, { settings: { memberfulJoin: true, memberfulSignIn: true } });
+    expect(await memberfulOf(member)).toEqual({ membersOnly: true, connected: null, codes: true });
+    expect(await memberfulOf(administrator)).toEqual({ membersOnly: true, connected: null, codes: true });
+    // Signed in with just a name, they have nothing to connect.
+    expect(await memberfulOf(guest)).toBeNull();
+    // The deployment's keys may lack the API key, which finds a member by email address.
+    expect(await memberfulOf(member, SIGN_IN_KEYS)).toEqual({ membersOnly: true, connected: null });
+    await withWorkspaceEnv({ EMAIL: undefined }, async () => expect(await memberfulOf(member)).toEqual({ membersOnly: true, connected: null }));
+
+    fakeMemberful();
+    expect((await connectWith(member, "katherine@example.com", await connectionCodeFor(member))).status).toBe(200);
+    expect(await memberfulOf(member)).toEqual({ membersOnly: true, connected: { name: "Katherine Johnson", emailAddress: "katherine@example.com" } });
+    await change(administrator, { emailFrom: null });
+    expect(await memberfulOf(administrator)).toEqual({ membersOnly: true, connected: null });
+  });
+
+  it("emails the address a code once your password checks out and Memberful finds a member with it, which connects that account to yours, keeping you signed in", async () => {
+    const { member } = await fromBefore();
+    const site = fakeMemberful();
+    const [email, ...more] = await askedToConnect(member, "Katherine@Example.com ");
+    expect(more).toEqual([]);
+    const code = codeIn(email!);
+    expect(code).toMatch(/^[0-9]{8}$/);
+    expect(email).toEqual({
+      from: { name: "Ember", email: "ember@example.com" },
+      to: "Katherine@Example.com",
+      subject: "Connect Memberful to Ember",
+      text: `Someone signed in to Ember asked to connect the Memberful account that has this email address to their account there.\n\nYour code: ${code}\n\nEnter it within ${PASSWORD_RESET_CODE_MINUTES} minutes, where you asked for it. Don't give it to anyone.\n\nIf you didn't ask, you can ignore this email: nothing is connected without the code.\n`,
+      html: expect.stringContaining(`>${code}</strong>`) as unknown,
+    });
+    expect(askedAfter(site.requests)).toEqual(["schema", "Katherine@Example.com"]);
+    const [row] = (await workspaceSql("SELECT user_id, email_address, site, code_digest, created_at, expires_at, attempts FROM memberful_connection_codes")) as Array<
+      Record<string, string | number>
+    >;
+    expect(row).toMatchObject({ user_id: member.user.id, email_address: "katherine@example.com", site: SITE, attempts: 0 });
+    expect(row!.code_digest).not.toContain(code);
+    expect(Date.parse(row!.expires_at as string) - Date.parse(row!.created_at as string)).toBe(PASSWORD_RESET_CODE_MINUTES * 60 * 1000);
+    expect(await workspaceSql("SELECT email_address, count FROM email_link_requests")).toEqual([{ email_address: "katherine@example.com", count: 1 }]);
+    // It's no code to sign in with.
+    await expectWrong(await signInWith("katherine@example.com", code));
+
+    const connected = await connectWith(member, "KATHERINE@example.com", ` ${code.slice(0, 4)}-${code.slice(4)} `);
+    expect(connected.status, await connected.clone().text()).toBe(200);
+    expect(connected.headers.get("Set-Cookie")).toBeNull();
+    const { profile } = (await connected.json()) as ProfileAnswer;
+    expect(profile.memberful).toEqual({ membersOnly: true, connected: { name: "Katherine Johnson", emailAddress: "katherine@example.com" } });
+    expect(await workspaceSql("SELECT issuer, subject, user_id, via FROM identities")).toEqual([{ issuer: SITE, subject: "4242", user_id: member.user.id, via: "memberful" }]);
+    expect(await count("memberful_connection_codes")).toBe(0);
+    expect((await api("/api/me", { headers: as(member) })).status).toBe(200);
+
+    // From then on a code to sign in with signs her in as herself, and there's nothing more to connect.
+    expect((await signedInAs(await signInWith("katherine@example.com", await codeFor("katherine@example.com")))).id).toBe(member.user.id);
+    await expectRefused(await askToConnect(member, { currentPassword: PASSWORD, emailAddress: "katherine@example.com" }), "You've connected Memberful already", 409);
+    await expectWrongCode(await connectWith(member, "katherine@example.com", code));
+  });
+
+  it("connects an administrator's Memberful account without an active membership, since they need none, whatever its address", async () => {
+    const administrator = await setUp();
+    fakeMemberful([{ ...katherine, email: "ada@elsewhere.example", subscriptions: [] }]);
+    const code = await connectionCodeFor(administrator, "ada@elsewhere.example", ada.password);
+    const connected = await connectWith(administrator, "ada@elsewhere.example", code);
+    expect(connected.status, await connected.clone().text()).toBe(200);
+    expect(await workspaceSql("SELECT subject, user_id FROM identities")).toEqual([{ subject: "4242", user_id: administrator.user.id }]);
+  });
+
+  it("asks for your password, counting it against sign-in's limit, as connecting on Memberful's page does, and emails nothing until it checks out", async () => {
+    const { member } = await fromBefore();
+    const site = fakeMemberful();
+    await expectRefused(await askToConnect(member, { emailAddress: "katherine@example.com" }), MEMBERFUL_PASSWORD_NEEDED, 422);
+    await expectRefused(await askToConnect(member, { currentPassword: "wrong", emailAddress: "katherine@example.com" }, { ip: "203.0.113.70" }), CURRENT_PASSWORD_WRONG, 422);
+    for (let attempt = 1; attempt < SIGN_IN_ATTEMPTS; attempt++) {
+      expect((await askToConnect(member, { currentPassword: "wrong", emailAddress: "katherine@example.com" }, { ip: "203.0.113.70" })).status).toBe(422);
+    }
+    await expectRefused(await askToConnect(member, { currentPassword: PASSWORD, emailAddress: "katherine@example.com" }, { ip: "203.0.113.70" }), SIGN_IN_LIMITED, 429);
+    await expectRefused(await askToConnect(member, { currentPassword: PASSWORD }), EMAIL_ADDRESS_NEEDED, 422);
+    expect(site.requests).toEqual([]);
+    await connectionCodeFor(member);
+  });
+
+  it("connects someone without a password without asking for one, counting each ask against the network's limit", async () => {
+    const { member } = await fromBefore();
+    fakeMemberful();
+    // As people without a password keep it.
+    await workspaceSql("UPDATE users SET password_digest = '' WHERE id = ?", member.user.id);
+    await emailing(async () => {
+      for (let n = 1; n <= PASSWORD_RESETS_PER_NETWORK; n++) expect((await askToConnect(member, { emailAddress: `person${n}@example.com` }, { ip: "203.0.113.71" })).status).toBe(202);
+      await expectRefused(await askToConnect(member, { emailAddress: "katherine@example.com" }, { ip: "203.0.113.71" }), PASSWORD_RESETS_LIMITED, 429);
+    });
+    const [email] = await emailing(async () => void expect((await askToConnect(member, { emailAddress: "katherine@example.com" })).status).toBe(202));
+    expect((await connectWith(member, "katherine@example.com", codeIn(email!))).status).toBe(200);
+    expect(await workspaceSql("SELECT subject, user_id FROM identities")).toEqual([{ subject: "4242", user_id: member.user.id }]);
+  });
+
+  it("works only with the address it was emailed to, as the code emailed last, for the person who asked for it, saying the same of each code that doesn't work", async () => {
+    const { administrator, member } = await fromBefore();
+    const site = fakeMemberful([katherine, dorothy]);
+    const first = await connectionCodeFor(member);
+    const code = await connectionCodeFor(member, "dorothy@example.com");
+    const before = site.requests.length;
+    for (const [emailAddress, tried] of [
+      ["katherine@example.com", first],
+      ["katherine@example.com", code],
+      ["dorothy@example.com", first],
+      ["dorothy@example.com", otherThan(code)],
+    ]) {
+      await expectWrongCode(await connectWith(member, emailAddress, tried));
+    }
+    await expectWrongCode(await connectWith(administrator, "dorothy@example.com", code));
+    expect(site.requests).toHaveLength(before);
+    expect((await connectWith(member, "dorothy@example.com", code)).status).toBe(200);
+    expect(await workspaceSql("SELECT subject, user_id FROM identities")).toEqual([{ subject: "4243", user_id: member.user.id }]);
+  });
+
+  it(`takes ${PASSWORD_RESET_CODE_TRIES} tries, then stops working`, async () => {
+    const { member } = await fromBefore();
+    fakeMemberful();
+    const code = await connectionCodeFor(member);
+    for (let n = 0; n < PASSWORD_RESET_CODE_TRIES; n++) await expectWrongCode(await connectWith(member, "katherine@example.com", otherThan(code)));
+    await expectWrongCode(await connectWith(member, "katherine@example.com", code));
+    expect(await count("identities")).toBe(0);
+  });
+
+  it("counts each try against sign-in's limit", async () => {
+    const { member } = await fromBefore();
+    fakeMemberful();
+    const code = await connectionCodeFor(member);
+    for (let attempt = 0; attempt < SIGN_IN_ATTEMPTS; attempt++) expect((await connectWith(member, "nobody@example.com", code, { ip: "203.0.113.72" })).status).toBe(422);
+    await expectRefused(await connectWith(member, "katherine@example.com", code, { ip: "203.0.113.72" }), SIGN_IN_LIMITED, 429);
+    expect((await connectWith(member, "katherine@example.com", code)).status).toBe(200);
+  });
+
+  it("connects nothing once your password changes, as a new one forgets the code", async () => {
+    const { member } = await fromBefore();
+    fakeMemberful();
+    const forgotten = await connectionCodeFor(member);
+    const body = { name: katherine.fullName, emailAddress: katherine.email, bio: "", currentPassword: PASSWORD, password: "a whole new password" };
+    const changed = await api("/api/users/me/profile", { method: "PATCH", headers: as(member), body: JSON.stringify(body) });
+    expect(changed.status, await changed.clone().text()).toBe(200);
+    expect(await count("memberful_connection_codes")).toBe(0);
+    await expectWrongCode(await connectWith(member, "katherine@example.com", forgotten));
+
+    // However it changes, a code asked for with the password from before connects nothing.
+    const code = await connectionCodeFor(member, "katherine@example.com", "a whole new password");
+    await workspaceSql("UPDATE users SET password_digest = 'another digest' WHERE id = ?", member.user.id);
+    await expectRefused(await connectWith(member, "katherine@example.com", code), MEMBERFUL_SIGN_IN_PROBLEMS.refused);
+    expect(await count("identities")).toBe(0);
+  });
+
+  it("connects nothing when the Memberful account is someone else's here, has no active membership, or Memberful stopped being members only, spending the code", async () => {
+    const { administrator, member } = await fromBefore();
+    const site = fakeMemberful([dorothy]);
+    const dorothysId = (await signedInAs(await signInWith("dorothy@example.com", await codeFor("dorothy@example.com")))).id;
+    const claimed = await connectionCodeFor(member, "dorothy@example.com");
+    await expectRefused(await connectWith(member, "dorothy@example.com", claimed), MEMBERFUL_SIGN_IN_PROBLEMS.claimed);
+    await expectWrongCode(await connectWith(member, "dorothy@example.com", claimed));
+
+    site.members = [dorothy, { ...katherine, subscriptions: [{ active: false }] }];
+    await expectRefused(await connectWith(member, "katherine@example.com", await connectionCodeFor(member)), MEMBERFUL_SIGN_IN_PROBLEMS.membership);
+
+    site.members = [dorothy, katherine];
+    const unneeded = await connectionCodeFor(member);
+    await change(administrator, { settings: { memberfulSignIn: false } });
+    await expectRefused(await connectWith(member, "katherine@example.com", unneeded), MEMBERFUL_SIGN_IN_PROBLEMS.unneeded);
+    expect(await workspaceSql("SELECT subject, user_id FROM identities")).toEqual([{ subject: "4243", user_id: dorothysId }]);
+    expect(await count("memberful_connection_codes")).toBe(0);
+  });
+
+  it("keeps the code working while Memberful can't say who has the address, and spends it once Memberful has no member with it", async () => {
+    const { member } = await fromBefore();
+    const site = fakeMemberful();
+    const code = await connectionCodeFor(member);
+    site.down = true;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expectRefused(await connectWith(member, "katherine@example.com", code), MEMBERFUL_CODE_UNCHECKED, 503);
+    error.mockRestore();
+    site.down = false;
+    site.members = [];
+    await expectRefused(await connectWith(member, "katherine@example.com", code), MEMBERFUL_CONNECTION_NO_MEMBER, 422);
+    site.members = [katherine];
+    await expectWrongCode(await connectWith(member, "katherine@example.com", code));
+  });
+
+  it("emails nothing to an address nobody at Memberful has, answering the same", async () => {
+    const { member } = await fromBefore();
+    const site = fakeMemberful();
+    expect(await askedToConnect(member, "nobody@example.com")).toEqual([]);
+    expect(askedAfter(site.requests)).toEqual(["schema", "nobody@example.com"]);
+    expect(await count("memberful_connection_codes")).toBe(0);
+    expect(await count("email_link_requests")).toBe(0);
+  });
+
+  it("connects nothing with a code emailed for another Memberful site than the one Ember has the keys to now", async () => {
+    const { member } = await fromBefore();
+    fakeMemberful();
+    const code = await connectionCodeFor(member);
+    const elsewhere = await connectWith(member, "katherine@example.com", code, { keys: { ...KEYS, MEMBERFUL_URL: "https://another.memberful.com/" } });
+    await expectRefused(elsewhere, MEMBERFUL_SIGN_IN_PROBLEMS.failed);
+    expect(await count("identities")).toBe(0);
+  });
+
+  it("answers 401 without a session, 403 to a guest, while Memberful isn't members only, or without the API key, and 503 while Ember can't send email", async () => {
+    const administrator = await setUp({ memberful: false });
+    const member = await joinWithLink();
+    const guest = await signIn("Visitor");
+    await change(administrator, { settings: { memberfulJoin: true, memberfulSignIn: true } });
+    const site = fakeMemberful();
+    const asking = { currentPassword: PASSWORD, emailAddress: "katherine@example.com" };
+    expect((await askToConnect(null, asking)).status).toBe(401);
+    expect((await connectWith(null, "katherine@example.com", "12345678")).status).toBe(401);
+    await expectRefused(await askToConnect(guest, asking), "Guests can't connect Memberful");
+    await expectWrongCode(await connectWith(guest, "katherine@example.com", "12345678"));
+    for (const [keys, off] of [
+      [SIGN_IN_KEYS, MEMBERFUL_CONNECTION_CODES_OFF],
+      [{}, MEMBERFUL_SIGN_IN_PROBLEMS.unavailable],
+    ] as const) {
+      await expectRefused(await askToConnect(member, asking, { keys }), off);
+      await expectRefused(await connectWith(member, "katherine@example.com", "12345678", { keys }), off);
+    }
+    await withWorkspaceEnv({ EMAIL: undefined }, async () => expectRefused(await askToConnect(member, asking), CANT_EMAIL_CODES, 503));
+    await change(administrator, { settings: { memberfulSignIn: false } });
+    await expectRefused(await askToConnect(member, asking), MEMBERFUL_SIGN_IN_PROBLEMS.unneeded);
+    expect(site.requests).toEqual([]);
+    expect(await count("memberful_connection_codes")).toBe(0);
   });
 });

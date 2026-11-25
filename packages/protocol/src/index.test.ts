@@ -80,6 +80,7 @@ import {
   parsePasswordResetWithCode,
   parseMemberfulCodeRequest,
   parseMemberfulCodeSignIn,
+  parseMemberfulConnectionCodeRequest,
   parseMemberfulDisconnection,
   parseProfileChanges,
   usernameFrom,
@@ -1423,6 +1424,18 @@ describe("Sign in with a code Ember emails a Memberful member", () => {
       expect(parseMemberfulCodeSignIn(body), JSON.stringify(body)).toHaveProperty("error");
       expect(parseMemberfulCodeSignIn(body)).not.toHaveProperty("field");
     }
+  });
+
+  it("takes an ask for a code to connect a Memberful account with your password, while you have one, and the account's address", () => {
+    expect(parseMemberfulConnectionCodeRequest({ emailAddress: " Katherine@example.com" })).toEqual({ emailAddress: " Katherine@example.com" });
+    expect(parseMemberfulConnectionCodeRequest({ currentPassword: "hidden figures", emailAddress: "katherine@example.com" })).toEqual({
+      currentPassword: "hidden figures",
+      emailAddress: "katherine@example.com",
+    });
+    expect(parseMemberfulConnectionCodeRequest({ currentPassword: "hidden figures", emailAddress: "  " })).toBe(EMAIL_ADDRESS_NEEDED);
+    expect(parseMemberfulConnectionCodeRequest({ emailAddress: `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.org` })).toBe(EMAIL_ADDRESS_TOO_LONG);
+    expect(parseMemberfulConnectionCodeRequest({ currentPassword: 42, emailAddress: "katherine@example.com" })).toBe("Current password must be text");
+    for (const body of [null, [], "katherine@example.com", {}]) expect(typeof parseMemberfulConnectionCodeRequest(body), JSON.stringify(body)).toBe("string");
   });
 });
 

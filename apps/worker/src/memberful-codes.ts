@@ -45,8 +45,20 @@ async function newMemberfulCode(env: Env): Promise<NewResetCode> {
   return { code, digest: await memberfulCodeDigest(code, env) };
 }
 
+/**
+ * What the Workspace keeps in place of a code to connect a Memberful account from a profile: its HMAC
+ * under SESSION_SECRET, of the code named as one, so that no code to sign in with can stand for it.
+ */
+export const memberfulConnectionCodeDigest = (code: string, env: Env) => tokenDigest(`memberful connection code ${code}`, env.SESSION_SECRET);
+
+/** A new code for Ember to email to connect a Memberful account with, as a code to sign in with is made, and its digest. */
+export async function newMemberfulConnectionCode(env: Env): Promise<NewResetCode> {
+  const code = digits(PASSWORD_RESET_CODE_DIGITS);
+  return { code, digest: await memberfulConnectionCodeDigest(code, env) };
+}
+
 /** What asking the Memberful site's admin API takes, with the keys Ember has (`memberfulFor`), or null without its API key. */
-const memberfulApiFor = async (env: Env) => memberfulApiOf(await memberfulFor(env));
+export const memberfulApiFor = async (env: Env) => memberfulApiOf(await memberfulFor(env));
 
 /**
  * `POST /api/memberful_codes`, `{ emailAddress, turnstileToken? }`: emails a code to sign in with to the
