@@ -182,10 +182,11 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
   /**
-   * Whether you've disconnected your Memberful account here, with Disconnect or a new password, since when
-   * no answer shows it connected, until a code connects one here: connecting on Memberful's page reloads the page.
+   * Where you stand with Memberful as the last change made here answered it, connecting your account with a
+   * code, or disconnecting it with Disconnect or a new password, or null before one, which an answer arriving
+   * late, from before it, doesn't undo: connecting on Memberful's page reloads the page.
    */
-  const disconnectedMemberful = useRef(false);
+  const changedMemberful = useRef<{ memberful: MemberfulStatus | null } | null>(null);
   /** Likewise for your account at the single sign-on provider. */
   const disconnectedSso = useRef(false);
   const account = useAccount();
@@ -234,10 +235,11 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
     setPicture((shown) => (shown && avatarVersionOf(shown.avatarUrl) > avatarVersionOf(answered.avatarUrl) ? shown : answered));
     // Nothing takes a password away, so an answer arriving late doesn't hide the field.
     setHasPassword((had) => had || profile.password);
-    // Only a code connects a Memberful account without a reload, so once it's disconnected here, an answer
-    // arriving late doesn't show it connected again, and shows what the Worker does for one disconnected.
+    // Once your Memberful account is connected or disconnected here, an answer arriving late, as a photo's can,
+    // that doesn't have it so shows it as the change left it.
     const { memberful } = profile;
-    setMemberful(disconnectedMemberful.current && memberful?.connected ? (memberful.membersOnly ? { membersOnly: true, connected: null } : null) : memberful);
+    const changed = changedMemberful.current;
+    setMemberful(changed && Boolean(changed.memberful?.connected) !== Boolean(memberful?.connected) ? changed.memberful : memberful);
     const { sso } = profile;
     setSso(disconnectedSso.current && sso?.connected ? (sso.ssoOnly ? { ...sso, connected: null } : null) : sso);
     setMembershipNeeded(profile.membershipNeeded);
@@ -246,14 +248,14 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
 
   /** Shows your profile as connecting your Memberful account with a code answered it, with the notice. */
   function connectedMemberful(answer: ProfileAnswer) {
-    disconnectedMemberful.current = false;
+    changedMemberful.current = { memberful: answer.profile.memberful };
     showAnswer(answer);
     flash("notice", MEMBERFUL_CONNECTED_NOTICE);
   }
 
   /** Shows your profile as disconnecting your Memberful account answered it, with the notice. */
   function disconnected(answer: ProfileAnswer) {
-    disconnectedMemberful.current = true;
+    changedMemberful.current = { memberful: answer.profile.memberful };
     showAnswer(answer);
     flash("notice", MEMBERFUL_DISCONNECTED_NOTICE);
   }
@@ -317,7 +319,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         // A new password disconnects the accounts elsewhere, as Disconnect does, while your email address
         // lets it sign you in, so an answer arriving late, as a photo's can, doesn't show them connected again.
         if (password !== "") {
-          if (!answer.profile.memberful?.connected) disconnectedMemberful.current = true;
+          if (!answer.profile.memberful?.connected) changedMemberful.current = { memberful: answer.profile.memberful };
           if (!answer.profile.sso?.connected) disconnectedSso.current = true;
         }
         showAnswer(answer);

@@ -805,6 +805,36 @@ describe("Connect Memberful", () => {
     expect(within(memberful()!).getByRole("button", { name: "Disconnect Memberful" })).toBeEnabled();
   });
 
+  it("keeps showing it connected once a code connects it, when a photo or a save answers late without it", async () => {
+    // A photo picked, or a save sent, before the code can answer after it, as the profile was before.
+    const photos: Array<(response: Response) => void> = [];
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, memberful: CODES }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => Response.json({ profile: { ...profile, name: "Ada King", memberful: CODES }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+      uploaded: () => new Promise<Response>((resolve) => photos.push(resolve)),
+    });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:moon");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const { user } = showPage();
+    await loaded();
+    await user.upload(screen.getByLabelText("Upload avatar", { exact: false }), new File(["moon"], "moon.jpg", { type: "image/jpeg" }));
+    await waitFor(() => expect(photos).toHaveLength(1));
+    const section = within(memberful()!);
+    await user.type(section.getByLabelText("Password"), "analytical engine");
+    await user.click(section.getByRole("button", { name: "Email me a code" }));
+    await user.type(await section.findByLabelText("Code"), "12345678");
+    await user.click(section.getByRole("button", { name: "Connect Memberful" }));
+    await waitFor(() => expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful."));
+    await act(async () => photos[0]!(Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true, memberful: CODES }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(screen.getByRole("img", { name: "Your avatar" })).toHaveAttribute("src", UPLOADED));
+    expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful.");
+    await user.type(field("Name"), " King");
+    await user.click(saveButton());
+    await waitFor(() => expect(field("Name")).toHaveValue("Ada King"));
+    expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful.");
+    expect(within(memberful()!).getByRole("button", { name: "Disconnect Memberful" })).toBeEnabled();
+  });
+
   it("keeps showing it disconnected when a save answers late with the account still connected, since only a reload or a code connects one", async () => {
     // A save, or a photo, sent before Disconnect can answer after it, as the profile was before.
     serve({
