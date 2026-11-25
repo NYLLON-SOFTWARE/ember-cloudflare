@@ -1,15 +1,40 @@
-import { MEMBERFUL_CALLBACK_PATH, MEMBERFUL_SIGN_IN_PROBLEMS, MEMBERFUL_WEBHOOK_PATH, usernameFrom, type Account, type WorkspaceSettings } from "@ember/protocol";
+import {
+  MEMBERFUL_CALLBACK_PATH,
+  MEMBERFUL_SIGN_IN_PROBLEMS,
+  MEMBERFUL_WEBHOOK_PATH,
+  memberfulSignInPath,
+  PASSWORD_RESET_CODE_WRONG,
+  usernameFrom,
+  type Account,
+  type WorkspaceSettings,
+} from "@ember/protocol";
 import { MEMBERFUL_API_KEY_UNKNOWN, MEMBERFUL_CLIENT_UNKNOWN } from "@ember/protocol/memberful";
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { administratorSession, cookieHeader, drawnPicture, logOut, SAME_ORIGIN, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import {
+  administratorSession,
+  cookieHeader,
+  drawnPicture,
+  fakeTurnstile,
+  logOut,
+  SAME_ORIGIN,
+  sentFrom,
+  shownPicture,
+  signInAsAdministrator,
+  TURNSTILE_WIDGET,
+  turnstileTokenFor,
+  useOwnAddress,
+} from "../../fixtures";
 import { MEMBERFUL_KEYS, MEMBERFUL_SITE } from "../../projects/workspace-settings";
 import { sendWebhook, startFakeMemberful, type FakeMember, type FakeMemberful } from "./fake-memberful";
+import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend } from "./fake-resend";
+import { startFakeSiteverify, type FakeSiteverify } from "./fake-siteverify";
 
 // Signing in with Memberful, at a Memberful site of the specs' own (fake-memberful.ts), whose address and
 // keys the first spec gives Ember in Set up Memberful, and the others as it saves them. Each spec turns
 // Memberful on, members only unless it says, and off again after, since Members only turns the join link
-// off for the specs that follow.
+// off for the specs that follow. Those signing in with a code Ember emails have it send email with the
+// Resend API the email specs fake (fake-resend.ts), and take its key and the From address away after.
 
 let site: FakeMemberful;
 
@@ -27,6 +52,9 @@ async function memberfulOf(request: APIRequestContext): Promise<WorkspaceSetting
   const response = await request.get("/api/account", { headers: { Cookie: cookieHeader(administrator) } });
   return (await response.json()) as WorkspaceSettings;
 }
+
+/** The administrator's session's headers, for the API. */
+const asAdministrator = async (request: APIRequestContext) => ({ Cookie: cookieHeader(await administratorSession(request)), ...SAME_ORIGIN });
 
 /** Gives Ember the site's address and keys, as Set up Memberful saves them, as the administrator. Giving them again changes nothing. */
 async function giveKeys(request: APIRequestContext): Promise<void> {
@@ -68,6 +96,16 @@ async function joinWithPassword(page: Page, request: APIRequestContext, name: st
   await page.getByLabel("Password").fill(joiner.password);
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(composer(page)).toBeVisible();
+  return joiner;
+}
+
+/** Has someone new join through the join link with a password, in a browser of their own, so `request` keeps the administrator's cookie. */
+async function joinedWithPassword(browser: Browser, baseURL: string, request: APIRequestContext, name: string): Promise<Joiner> {
+  const joining = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
+  const page = await joining.newPage();
+  await useOwnAddress(page);
+  const joiner = await joinWithPassword(page, request, name);
+  await joining.close();
   return joiner;
 }
 
@@ -215,6 +253,129 @@ test.describe("Sign in with Memberful", () => {
   });
 });
 
+test.describe("Sign in with a code Ember emails", () => {
+  // Where Ember's email comes from, under the workspace's name.
+  const FROM = "chat@acme.example";
+  let resend: FakeResend;
+  let siteverify: FakeSiteverify;
+  test.beforeAll(async () => {
+    resend = await startFakeResend();
+    siteverify = await startFakeSiteverify();
+  });
+  test.afterAll(async () => {
+    await resend.close();
+    await siteverify.close();
+  });
+  test.afterEach(async ({ request }) => {
+    await sendEmail(request, false);
+    const forgotten = await request.delete("/api/account/turnstile_keys", { headers: await asAdministrator(request) });
+    expect(forgotten.status(), await forgotten.text()).toBe(200);
+  });
+
+  /** Has Ember send email, with the Resend API's key and a From address, as Set up email does, or stop, as a new workspace hasn't either. */
+  async function sendEmail(request: APIRequestContext, on: boolean): Promise<void> {
+    if (on) await giveResendKey(request);
+    const response = await request.patch("/api/account", { data: { emailFrom: on ? FROM : null }, headers: await asAdministrator(request) });
+    expect(response.status(), await response.text()).toBe(200);
+    if (!on) await forgetResendKey(request);
+  }
+
+  /** Asks for a code with the address the sign-in card's field holds, answering the code Ember emailed to `emailAddress`. */
+  async function askForCode(page: Page, emailAddress: string): Promise<string> {
+    const sent = resend.sent.length;
+    await page.getByRole("button", { name: "Email me a code" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Check your email");
+    await expect.poll(() => resend.sent.length).toBe(sent + 1);
+    const email = resend.sent.at(-1)!;
+    expect(email).toEqual(expect.objectContaining({ from: await sentFrom(page.request, FROM), to: [emailAddress], subject: expect.stringMatching(/^Sign in to /) as unknown }));
+    return /Your code: ([0-9]{8})/.exec(email.text)![1]!;
+  }
+
+  /** Signs in with `code` on the card's step that asks for it. */
+  async function signInWithCode(page: Page, code: string): Promise<void> {
+    await page.getByRole("textbox", { name: "Code" }).fill(code);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  }
+
+  test("a member of the Memberful site signs in on the sign-in page with a code Ember emails them, as someone new first, and as themselves from then on", async ({
+    page,
+    request,
+  }) => {
+    const member = site.add(nameFor("Ada"));
+    await turnMemberful(request, true);
+    await sendEmail(request, true);
+    await useOwnAddress(page);
+    await page.goto("/");
+    // Members only, the card asks for the address their Memberful account has, with Memberful's own page under it, which comes back here too.
+    await expect(page.getByRole("link", { name: "Continue with Memberful" })).toHaveAttribute("href", memberfulSignInPath("/"));
+    await page.getByLabel("Email address").fill(member.email);
+    const code = await askForCode(page, member.email);
+
+    // The step asks for the code still once the page loads again, as a phone's may after a trip to the email.
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Check your email");
+    await expect(page.getByText(`If a Memberful account has ${member.email}, Ember emailed it a code`)).toBeVisible();
+    await signInWithCode(page, code === "00000000" ? "11111111" : "00000000");
+    await expect(page.getByRole("alert")).toHaveText(PASSWORD_RESET_CODE_WRONG);
+    await signInWithCode(page, code);
+    // Welcomed first, with the name Memberful has for them, as signing in on Memberful's page does.
+    await expect(welcomeHeading(page)).toBeVisible();
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(member.fullName);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(composer(page)).toBeVisible();
+
+    await logOut(page);
+    // The profile has an email address field too, so the sign-in page is waited for.
+    await expect(page.getByRole("button", { name: "Email me a code" })).toBeVisible();
+    await page.getByLabel("Email address").fill(member.email);
+    await signInWithCode(page, await askForCode(page, member.email));
+    await expect(composer(page)).toBeVisible();
+  });
+
+  test("while Turnstile checks that people are people, the card waits for its check, which it draws in a frame, before Ember emails a code", async ({ page, request }) => {
+    const member = site.add(nameFor("Edith"));
+    await turnMemberful(request, true);
+    await sendEmail(request, true);
+    const saved = await request.put("/api/account/turnstile_keys", {
+      data: { ...TURNSTILE_WIDGET, turnstileToken: turnstileTokenFor(TURNSTILE_WIDGET.siteKey) },
+      headers: await asAdministrator(request),
+    });
+    expect(saved.status(), await saved.text()).toBe(200);
+    await useOwnAddress(page);
+    await fakeTurnstile(page);
+    await page.goto("/");
+    await page.getByLabel("Email address").fill(member.email);
+    await expect(page.getByRole("button", { name: "Email me a code" })).toBeDisabled();
+    await page.frameLocator("iframe[title=\"Turnstile's check\"]").getByRole("button", { name: "Verify you are human" }).click();
+    const code = await askForCode(page, member.email);
+    expect(siteverify.asked.at(-1)).toMatchObject({ secret: TURNSTILE_WIDGET.secretKey, response: turnstileTokenFor(TURNSTILE_WIDGET.siteKey) });
+    await signInWithCode(page, code);
+    await goOnFromWelcome(page);
+    await expect(composer(page)).toBeVisible();
+  });
+
+  test("a member whose Memberful email address is someone's here already is sent to sign in with that someone's password, which connects Memberful", async ({
+    page,
+    browser,
+    baseURL,
+    request,
+  }) => {
+    const joiner = await joinedWithPassword(browser, baseURL!, request, nameFor("Mary"));
+    site.add(joiner.name, joiner.emailAddress);
+    await turnMemberful(request, true);
+    await sendEmail(request, true);
+    await useOwnAddress(page);
+    await page.goto("/");
+    await page.getByLabel("Email address").fill(joiner.emailAddress);
+    await signInWithCode(page, await askForCode(page, joiner.emailAddress));
+    await expect(page.getByRole("alert")).toHaveText(MEMBERFUL_SIGN_IN_PROBLEMS.taken);
+    await expect(page.getByLabel("Email address")).toHaveValue(joiner.emailAddress);
+    await page.getByLabel("Password").fill(joiner.password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByText("This workspace now uses Memberful. Connect your Memberful account to keep signing in.")).toBeVisible();
+  });
+});
+
 test.describe("Ways to join", () => {
   test("the administrator turns Memberful on beside the join link, then makes it members only once they confirm, which turns the join link off", async ({ page, request }) => {
     await giveKeys(request);
@@ -299,11 +460,7 @@ test.describe("Connect Memberful", () => {
   });
 
   test("a member with an account from before connects Memberful as they sign in with their password", async ({ page, browser, baseURL, request }) => {
-    const joining = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
-    const joinPage = await joining.newPage();
-    await useOwnAddress(joinPage);
-    const joiner = await joinWithPassword(joinPage, request, nameFor("Mary"));
-    await joining.close();
+    const joiner = await joinedWithPassword(browser, baseURL!, request, nameFor("Mary"));
     // Memberful has their email address too, which never matches them to an account here.
     const member = site.add(joiner.name, joiner.emailAddress);
     await turnMemberful(request, true);

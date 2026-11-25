@@ -512,6 +512,18 @@ export interface SavedPasswordReset {
 }
 
 /**
+ * A code Ember emailed a member of the Memberful site to sign in with, as it's kept: its digest, the
+ * address it went to, the site whose member has it, and when it was made and stops working.
+ */
+export interface SavedMemberfulCode {
+  emailAddress: string;
+  codeDigest: string;
+  site: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/**
  * The sessions a new password ends, all of its person's but `kept`, the one saving it, whose sockets it
  * closes with `code` in every room they're in, due at `dueAt`, and the push subscriptions it forgets with
  * them, all of theirs but those at `pushEndpoint`, its browser's. `kept` stays signed in, but the sign-in
@@ -998,6 +1010,9 @@ const COUNT_EMAIL_LINK_REQUEST = `INSERT INTO email_link_requests (email_address
     count = CASE WHEN email_link_requests.counted_since > ?3 THEN email_link_requests.count + 1 ELSE 1 END
   RETURNING count, counted_since`;
 
+/** How many times the address ?1 has been counted in the hour its count is of, if that hour began after ?2. */
+const EMAIL_LINK_REQUESTS_OF = `SELECT count FROM email_link_requests WHERE email_address = lower(?1) AND counted_since > ?2`;
+
 /** Takes back a time the address ?1 was counted in the hour that began at ?2, while its count is of that hour still. */
 const UNCOUNT_EMAIL_LINK_REQUEST = `UPDATE email_link_requests SET count = count - 1 WHERE email_address = lower(?1) AND counted_since = ?2 AND count > 0`;
 
@@ -1038,6 +1053,23 @@ const TRY_PASSWORD_RESET = `UPDATE password_resets SET attempts = attempts + 1 W
 
 /** Whose that code is, if its digest is ?3. */
 const PASSWORD_RESET_HOLDER = `SELECT user_id FROM password_resets WHERE ${WORKING_PASSWORD_RESET} AND code_digest = ?3`;
+
+/**
+ * Keeps the code Ember emailed the address ?1 to sign in with Memberful, whose digest is ?2, for the
+ * member of the site ?3 who has it, made at ?4 and working until ?5, in place of any the address had, and
+ * not tried yet. The address is kept in lowercase, so that its case keeps no code of its own.
+ */
+const SAVE_MEMBERFUL_CODE = `INSERT INTO memberful_codes (email_address, code_digest, site, created_at, expires_at) VALUES (lower(?1), ?2, ?3, ?4, ?5)
+  ON CONFLICT (email_address) DO UPDATE SET code_digest = excluded.code_digest, site = excluded.site, created_at = excluded.created_at, expires_at = excluded.expires_at, attempts = 0`;
+
+/** Deletes the codes to sign in with Memberful that stopped working at ?1 or before, which nobody used. */
+const FORGET_EXPIRED_MEMBERFUL_CODES = `DELETE FROM memberful_codes WHERE expires_at <= ?1`;
+
+/** Counts a try of the code that works at ?2 for the address ?1, while it has been tried fewer than ?3 times, answering its digest and its site. */
+const TRY_MEMBERFUL_CODE = `UPDATE memberful_codes SET attempts = attempts + 1 WHERE email_address = lower(?1) AND expires_at > ?2 AND attempts < ?3 RETURNING code_digest, site`;
+
+/** Spends that code, if its digest is ?3, answering it if it did. */
+const SPEND_MEMBERFUL_CODE = `DELETE FROM memberful_codes WHERE email_address = lower(?1) AND expires_at > ?2 AND code_digest = ?3 RETURNING code_digest`;
 
 /** The active person whose email address is exactly ?, and their password's digest, unless they have no password. */
 const PASSWORD_FOR = `SELECT id, password_digest FROM users WHERE email_address = ? AND status = ${ACTIVE} AND password_digest <> ''`;
@@ -4557,14 +4589,20 @@ export class WorkspaceStore {
 
   /**
    * Counts a time someone asked Ember to email `emailAddress`, whatever its case, at `now`: a link to join
-   * with it at the email domains, or a code to reset its password. Answers how many times it's been asked
-   * for in the hour its count is of, and when that hour began, which starts again once `since` is past,
-   * when the counts whose hour is over are forgotten.
+   * with it at the email domains, or a code to reset its password or sign in with Memberful. Answers how
+   * many times it's been asked for in the hour its count is of, and when that hour began, which starts
+   * again once `since` is past, when the counts whose hour is over are forgotten.
    */
   async countEmailRequest(emailAddress: string, now: string, since: string): Promise<{ count: number; countedSince: string }> {
     const [, counted] = await this.db.batch([statement(FORGET_EMAIL_LINK_REQUESTS, since), statement(COUNT_EMAIL_LINK_REQUEST, emailAddress, now, since)]);
     const [row] = counted as Array<{ count: number; counted_since: string }>;
     return { count: row!.count, countedSince: row!.counted_since };
+  }
+
+  /** How many times `countEmailRequest` has counted `emailAddress` in the hour its count is of, if that hour began after `since`, and else 0. */
+  async emailRequestsOf(emailAddress: string, since: string): Promise<number> {
+    const [row] = await this.db.all<{ count: number }>(EMAIL_LINK_REQUESTS_OF, emailAddress, since);
+    return row?.count ?? 0;
   }
 
   /** Takes back a time `countEmailRequest` counted `emailAddress` in the hour that began at `countedSince`, unless its count has started again since. */
@@ -4614,6 +4652,32 @@ export class WorkspaceStore {
   async passwordResetHolder(emailAddress: string, codeDigest: string, now: string): Promise<UserId | null> {
     const [row] = await this.db.all<{ user_id: UserId }>(PASSWORD_RESET_HOLDER, emailAddress, now, codeDigest);
     return row?.user_id ?? null;
+  }
+
+  /**
+   * Keeps `code`, the code Ember emailed an address to sign in with Memberful, in place of any it had,
+   * deleting in the same batch the codes that stopped working by the time it was made, which nobody used,
+   * so that those don't pile up.
+   */
+  async saveMemberfulCode({ emailAddress, codeDigest, site, createdAt, expiresAt }: SavedMemberfulCode): Promise<void> {
+    await this.db.batch([statement(FORGET_EXPIRED_MEMBERFUL_CODES, createdAt), statement(SAVE_MEMBERFUL_CODE, emailAddress, codeDigest, site, createdAt, expiresAt)]);
+  }
+
+  /**
+   * Counts a try of the code to sign in with Memberful that works, at `now`, for `emailAddress`, whatever
+   * its case, while it has tries left, answering its digest, to check the code tried against, and the site
+   * it was emailed for, or null while no code works for the address. Either way it changes what's stored
+   * (`passingChange`), so that how soon it answers doesn't say which.
+   */
+  async tryMemberfulCode(emailAddress: string, now: string): Promise<{ codeDigest: string; site: string } | null> {
+    const results = await this.db.batch([...passingChange(), statement(TRY_MEMBERFUL_CODE, emailAddress, now, PASSWORD_RESET_CODE_TRIES)]);
+    const [row] = results.at(-1) as Array<{ code_digest: string; site: string }>;
+    return row ? { codeDigest: row.code_digest, site: row.site } : null;
+  }
+
+  /** Spends the code to sign in with Memberful whose digest is `codeDigest`, while it works for `emailAddress` at `now`, answering whether it did. */
+  async spendMemberfulCode(emailAddress: string, codeDigest: string, now: string): Promise<boolean> {
+    return (await this.db.all(SPEND_MEMBERFUL_CODE, emailAddress, now, codeDigest)).length > 0;
   }
 
   /** Whether `userId` may sign in with a password while Memberful is members only, as an active administrator, or someone who joined with an invitation, may. */

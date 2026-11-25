@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { TURNSTILE_CHECK_PATH, TURNSTILE_SECRET_KEY_REFUSED, TURNSTILE_SITE_KEY_REFUSED, turnstileKeyOf, type WorkspaceSettings } from "@ember/protocol";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { TURNSTILE_SECRET_KEY_REFUSED, TURNSTILE_SITE_KEY_REFUSED, turnstileKeyOf, type WorkspaceSettings } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { Xmark } from "@/components/icons/iconoir";
-import { FLEXIBLE_MIN_WIDTH } from "@/components/turnstile-check";
+import { CheckFrame, type CheckSaid } from "@/components/turnstile-frame";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
@@ -31,15 +31,6 @@ const TITLES: Record<Step, string> = { keys: "Set up Turnstile", check: "Pass th
 
 /** A key's field, which a refusal is about. */
 type KeyField = "siteKey" | "secretKey";
-
-/** What the check page tells the page that framed it of the check, as its script says (the Worker's turnstile.ts). */
-type CheckSaid = { token: string } | { expired: true } | { error: string } | { unavailable: true };
-
-function isCheckSaid(value: unknown): value is CheckSaid {
-  if (typeof value !== "object" || value === null) return false;
-  const said = value as Record<string, unknown>;
-  return typeof said.token === "string" || said.expired === true || typeof said.error === "string" || said.unavailable === true;
-}
 
 /** Turnstile's error codes for a site key it doesn't know, or a widget that's turned off. */
 const UNKNOWN_SITE_KEY_CODES = ["110100", "110110", "400020", "400070"];
@@ -112,8 +103,8 @@ export function TurnstileSetup({ turnstile, onSaved, onClose, onFailed }: Props)
     done: (
       <>
         <DialogDescription className="mb-4 leading-[1.65]">
-          Turnstile now checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person, in place of the
-          limits on each network.
+          Turnstile now checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person, in
+          place of the limits on each network.
         </DialogDescription>
         <Actions back={null} next={onClose} nextLabel="Done" />
       </>
@@ -373,49 +364,5 @@ function CheckStep({
         saving={saving}
       />
     </>
-  );
-}
-
-/**
- * The widget's check, which the check page draws with `siteKey` in a frame as wide as the step, in the
- * page's appearance, compact where the step is narrower than it draws, telling `onSaid` what came of it.
- */
-function CheckFrame({ siteKey, onSaid }: { siteKey: string; onSaid: (said: CheckSaid) => void }) {
-  const box = useRef<HTMLDivElement>(null);
-  const frame = useRef<HTMLIFrameElement>(null);
-  // Found before it's drawn, since the check keeps the size it's drawn at.
-  const [size, setSize] = useState<"flexible" | "compact" | null>(null);
-  // The callback as it is now, for what the frame says later.
-  const heard = useRef(onSaid);
-  useLayoutEffect(() => {
-    heard.current = onSaid;
-  });
-
-  useLayoutEffect(() => setSize((box.current?.clientWidth ?? 0) >= FLEXIBLE_MIN_WIDTH ? "flexible" : "compact"), []);
-
-  useEffect(() => {
-    const listen = (event: MessageEvent) => {
-      // Only the check page, in this frame, at Ember's own origin, says what came of the check.
-      if (event.origin !== location.origin || event.source !== frame.current?.contentWindow) return;
-      const said: unknown = (event.data as { turnstileCheck?: unknown } | null)?.turnstileCheck;
-      if (isCheckSaid(said)) heard.current(said);
-    };
-    addEventListener("message", listen);
-    return () => removeEventListener("message", listen);
-  }, []);
-
-  const theme = document.documentElement.classList.contains("dark") ? "dark" : "light";
-  // As tall as the check draws at its size, so that nothing moves as it appears.
-  return (
-    <div ref={box} className={size === "compact" ? "h-[140px]" : "h-[65px]"}>
-      {size && (
-        <iframe
-          ref={frame}
-          title="Turnstile's check"
-          src={`${TURNSTILE_CHECK_PATH}#${new URLSearchParams({ site_key: siteKey, theme, size })}`}
-          className="block size-full border-0"
-        />
-      )}
-    </div>
   );
 }

@@ -50,6 +50,9 @@ import {
   type LinkPreview,
   type LinkSignIn,
   type Me,
+  type MemberfulCodeRequest,
+  type MemberfulCodeSignedIn,
+  type MemberfulCodeSignIn,
   type MemberfulConnection,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
@@ -318,6 +321,26 @@ export async function askForPasswordResetCode(asked: PasswordResetRequest): Prom
  */
 export async function resetPasswordWithCode(reset: PasswordResetWithCode): Promise<Me | null> {
   return (await request<PasswordResetDone>("/api/password_resets", { method: "PUT", body: JSON.stringify(reset) })).user;
+}
+
+/**
+ * Asks Ember to email a code to sign in with to `asked.emailAddress`, once the Memberful site finds a
+ * member with it, with the token of Turnstile's check while the page shows one. It answers the same
+ * whether or not anyone there has the address. A check that didn't pass fails with an ApiError for the
+ * `turnstile` field, one while Ember can't send email with a 503, and one while it doesn't offer it with
+ * a 403.
+ */
+export async function askForMemberfulCode(asked: MemberfulCodeRequest): Promise<void> {
+  await request<unknown>("/api/memberful_codes", { method: "POST", body: JSON.stringify(asked) });
+}
+
+/**
+ * Signs this browser in as the Memberful member who has `given.emailAddress`, with the code Ember emailed
+ * them: who they are, or, for someone new, that they joined. A code that doesn't work fails with an
+ * ApiError for the `code` field, and a refusal with a 403 that says why.
+ */
+export async function signInWithMemberfulCode(given: MemberfulCodeSignIn): Promise<MemberfulCodeSignedIn> {
+  return request<MemberfulCodeSignedIn>("/api/memberful_codes", { method: "PUT", body: JSON.stringify(given) });
 }
 
 /**

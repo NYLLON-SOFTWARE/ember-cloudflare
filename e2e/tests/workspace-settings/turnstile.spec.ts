@@ -67,7 +67,7 @@ test.describe("Check that people are people with Cloudflare Turnstile", () => {
     expect(siteverify.asked.at(-1)).toEqual({ secret: TURNSTILE_WIDGET.secretKey, response: turnstileTokenFor(TURNSTILE_WIDGET.siteKey), remoteip: expect.any(String) as unknown });
     await setup.getByRole("button", { name: "Done" }).click();
     await expect(setup).toBeHidden();
-    await expect(turnstile).toContainText("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person.");
+    await expect(turnstile).toContainText("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person.");
     await expect(turnstile.getByRole("switch", { name: "Turnstile" })).toBeChecked();
     await expect(open).toContainText("Cloudflare Turnstile checks that whoever signs up is a person.");
 

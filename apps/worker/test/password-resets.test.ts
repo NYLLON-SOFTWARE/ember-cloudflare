@@ -117,8 +117,8 @@ function fakeBinding(refusal: () => unknown = () => undefined, held?: Promise<vo
 /** Waits for the codes, and the links to join with, that the Workspace is emailing, which it emails once it has answered. */
 const emailed = () =>
   runInDurableObject(workspaceStub(), async (instance: Workspace) => {
-    const { lastResetCode, emailingLinks } = instance as unknown as { lastResetCode: Promise<unknown>; emailingLinks: Map<string, { last: Promise<unknown> }> };
-    await Promise.all([lastResetCode, ...Array.from(emailingLinks.values(), ({ last }) => last)]);
+    const { lastResetCode, emailsOnTheirWay } = instance as unknown as { lastResetCode: Promise<unknown>; emailsOnTheirWay: Map<string, { last: Promise<unknown> }> };
+    await Promise.all([lastResetCode, ...Array.from(emailsOnTheirWay.values(), ({ last }) => last)]);
   });
 
 /** Runs `run` with the Workspace sending email through a fake binding, answering what it was asked to send once it has sent it. */

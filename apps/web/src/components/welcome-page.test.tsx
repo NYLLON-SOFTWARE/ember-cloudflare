@@ -17,6 +17,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
   signInWithMemberful: true,
+  memberfulCodes: false,
   signInWithSso: null,
   turnstileSiteKey: null,
   passwordResetCodes: false,

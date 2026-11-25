@@ -5,9 +5,9 @@ import { isLoopback } from "./loopback";
 import { workspace } from "./workspace";
 
 // Cloudflare Turnstile, on the open sign-up form and the forms that ask Ember to email a link to join or
-// a code to reset a password, while Ember has a widget's keys: the deployment's secrets, or else those
-// an administrator gave it in Set up Turnstile. The page shows Turnstile's check, which gives it a
-// token, and the Worker asks Cloudflare's siteverify whether the token is from a check that passed
+// a code to reset a password or sign in, while Ember has a widget's keys: the deployment's secrets, or
+// else those an administrator gave it in Set up Turnstile. The page shows Turnstile's check, which gives
+// it a token, and the Worker asks Cloudflare's siteverify whether the token is from a check that passed
 // before it does anything else with the form
 // (https://developers.cloudflare.com/turnstile/get-started/server-side-validation/). A token is good
 // once, for 5 minutes. Siteverify's answers are logged by their error codes alone.
@@ -166,9 +166,9 @@ const CHECK_PAGE = `<!doctype html>
 let checkScriptHashes: Promise<string[]> | undefined;
 
 /**
- * `GET /account/turnstile_check`: the page Set up Turnstile frames to draw a widget's check, whose policy,
- * unlike the app's pages but those that show the check, lets Turnstile's script and frame load. It holds
- * nothing of the workspace, so it's the same for anyone.
+ * `GET /account/turnstile_check`: the page Set up Turnstile and the sign-in page frame to draw a widget's
+ * check, whose policy, unlike the app's pages but those that show the check, lets Turnstile's script and
+ * frame load. It holds nothing of the workspace, so it's the same for anyone.
  */
 export async function turnstileCheckPage(request: Request): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });

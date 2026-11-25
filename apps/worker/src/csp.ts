@@ -11,7 +11,7 @@ import { urlOf } from "./request-url";
 // previews and photos being picked use; and sockets open to this host alone. Only the pages that show
 // Turnstile's check may load its script and frame: open sign-up's and those that ask Ember to email a
 // link to join or a code to reset a password, while Ember has a widget's keys, and the one Set up
-// Turnstile frames to check a widget's.
+// Turnstile and the sign-in page frame to draw a widget's check.
 
 /** Where browsers send what the policy blocked, which the Worker logs. */
 export const CSP_REPORT_PATH = "/csp-report";

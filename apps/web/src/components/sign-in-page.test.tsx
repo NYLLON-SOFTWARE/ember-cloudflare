@@ -1,21 +1,31 @@
 import {
+  CANT_EMAIL_CODES,
   JOINING_PROBLEMS,
   MAX_PASSWORD_LENGTH,
+  MEMBERFUL_CODE_NO_MEMBER,
+  MEMBERFUL_CODE_UNCHECKED,
   MEMBERFUL_SIGN_IN_NEEDED,
   MEMBERFUL_SIGN_IN_PROBLEMS,
+  PASSWORD_RESET_CODE_WRONG,
   SIGN_IN_LIMITED,
   SIGN_IN_REJECTED,
   signInSaying,
+  TURNSTILE_CHECK_PATH,
+  TURNSTILE_FAILED,
   type Bootstrap,
 } from "@ember/protocol";
 import { SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_PROBLEMS } from "@ember/protocol/sso";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadPage } from "@/lib/page";
 import { returnPath } from "@/lib/return-path";
 import { CHROME_MAC } from "@/test-platforms";
 import { FlashProvider } from "./flash";
+import { TURNSTILE_UNAVAILABLE } from "./join-page";
 import { SignInPage } from "./sign-in-page";
+
+vi.mock("@/lib/page", async (original) => ({ ...(await original<typeof import("@/lib/page")>()), loadPage: vi.fn() }));
 
 const ada = { id: "u1", name: "Ada" };
 const workspace: Omit<Bootstrap, "user"> = {
@@ -24,6 +34,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
   signInWithMemberful: false,
+  memberfulCodes: false,
   signInWithSso: null,
   turnstileSiteKey: null,
   passwordResetCodes: false,
@@ -46,6 +57,7 @@ const card = () => screen.getByRole("heading", { name: "Sign in to Ember" }).clo
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.mocked(loadPage).mockClear();
   history.replaceState(null, "", "/");
   sessionStorage.clear();
 });
@@ -558,6 +570,303 @@ describe("Sign in with single sign-on", () => {
       expect(screen.getByRole("link", { name: "Connect Memberful" })).toHaveAttribute("href", MEMBERFUL_AUTHORIZE);
       expect(screen.getByRole("link", { name: "Connect Acme" })).toHaveAttribute("href", SSO_AUTHORIZE);
     });
+  });
+});
+
+describe("Sign in with a code Ember emails a Memberful member", () => {
+  const codes = { ...workspace, signInWithMemberful: true, memberfulCodes: true, account: { ...workspace.account, memberfulJoin: true, memberfulSignIn: true } };
+  const SITE_KEY = "1x00000000000000000000AA";
+
+  /** Answers the card's requests with `answers`, one each, in order. */
+  function serve(...answers: Array<() => Response>) {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    for (const answer of answers) fetch.mockImplementationOnce(async () => answer());
+    return fetch;
+  }
+  const asked = () => Response.json({}, { status: 202 });
+  const answered = (body: unknown) => () => Response.json(body, { status: 201 });
+  const refused = (error: string, field?: string, status = 422) => () => Response.json({ error, field }, { status });
+  /** What the card asked of the server, in order, with what it sent. */
+  const sent = (fetch: ReturnType<typeof serve>) => fetch.mock.calls.map(([input, init]) => [`${init?.method} ${String(input)}`, JSON.parse(String(init?.body))]);
+
+  const emailField = () => screen.getByRole("textbox", { name: "Email address" });
+  const emailMe = () => screen.getByRole("button", { name: "Email me a code" });
+  const codeField = () => screen.getByRole<HTMLInputElement>("textbox", { name: "Code" });
+  const codeCard = () => screen.getByRole("heading", { name: "Check your email" }).closest("section")!;
+  const frame = () => screen.getByTitle<HTMLIFrameElement>("Turnstile's check");
+
+  /** Has the check page in the frame say `said` of the check, as its script tells the page that framed it. */
+  const checkSays = (said: unknown) =>
+    act(() => void window.dispatchEvent(new MessageEvent("message", { data: { turnstileCheck: said }, origin: location.origin, source: frame().contentWindow })));
+
+  /** Asks for a code for `emailAddress`, then waits for the step that takes it. */
+  async function ask(user: ReturnType<typeof userEvent.setup>, emailAddress = "ada@example.com") {
+    await user.type(emailField(), emailAddress);
+    await user.click(emailMe());
+    await screen.findByRole("heading", { level: 1, name: "Check your email" });
+  }
+
+  it("asks for the address a Memberful account has on the card itself while Memberful is members only, linking to Memberful's page under it", () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/abc?tab=pins");
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("heading", { name: "Sign in to Ember" })).toBeInTheDocument();
+    expect(emailField()).toHaveFocus();
+    expect(emailField()).toHaveAttribute("placeholder", "Enter your Memberful email address");
+    expect(emailField()).toHaveAttribute("autocomplete", "username");
+    expect(emailMe()).toBeEnabled();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Turnstile's check")).not.toBeInTheDocument();
+
+    const memberful = screen.getByRole("link", { name: "Continue with Memberful" });
+    expect(memberful).toHaveAttribute("href", "/auth/memberful?return_to=%2Frooms%2Fabc%3Ftab%3Dpins");
+    expect(memberful.parentElement).toHaveTextContent("Prefer Memberful's page? Continue with Memberful");
+    expect(emailMe().compareDocumentPosition(memberful)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByRole("link", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in with a password" })).toBeInTheDocument();
+  });
+
+  it("emails a code to the address given, then signs in as its member with the code", async () => {
+    const fetch = serve(asked, answered({ user: ada }));
+    const onSignedIn = vi.fn();
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={onSignedIn} />, { wrapper: FlashProvider });
+    await ask(user);
+    expect(
+      screen.getByText("If a Memberful account has ada@example.com, Ember emailed it a code that works for 15 minutes. If it hasn't arrived soon, look in your spam folder."),
+    ).toBeInTheDocument();
+    expect(codeField()).toHaveFocus();
+    expect(codeField()).toHaveAttribute("autocomplete", "one-time-code");
+    expect(codeField()).toHaveAttribute("inputmode", "numeric");
+    expect(codeField()).toHaveAttribute("placeholder", "8-digit code");
+    expect(screen.getByRole("link", { name: "Continue with Memberful" })).toHaveAttribute("href", "/auth/memberful");
+    expect(screen.queryByRole("button", { name: "Sign in with a password" })).not.toBeInTheDocument();
+
+    await user.type(codeField(), "1234 5678{Enter}");
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalledExactlyOnceWith(ada));
+    expect(sent(fetch)).toEqual([
+      ["POST /api/memberful_codes", { emailAddress: "ada@example.com" }],
+      ["PUT /api/memberful_codes", { emailAddress: "ada@example.com", code: "1234 5678" }],
+    ]);
+    // Uncontrolled, as the password's field is, so custom CSS can't read it.
+    expect(codeField()).not.toHaveAttribute("value");
+    expect(loadPage).not.toHaveBeenCalled();
+  });
+
+  it("sends someone new on to the welcome page, to come back to the page this tab was sent from", async () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/abc?tab=pins");
+    serve(asked, answered({ joined: true }));
+    const onSignedIn = vi.fn();
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={onSignedIn} />, { wrapper: FlashProvider });
+    await ask(user);
+    await user.type(codeField(), "12345678{Enter}");
+    await waitFor(() => expect(loadPage).toHaveBeenCalledExactlyOnceWith("/welcome?return_to=%2Frooms%2Fabc%3Ftab%3Dpins"));
+    expect(onSignedIn).not.toHaveBeenCalled();
+    expect(returnPath()).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  });
+
+  it("says at the top of the form why a code doesn't work, shaking the card, with the code selected to type again", async () => {
+    serve(asked, refused(PASSWORD_RESET_CODE_WRONG, "code"), refused(MEMBERFUL_CODE_NO_MEMBER, "emailAddress"), refused(SIGN_IN_LIMITED, undefined, 429));
+    const onSignedIn = vi.fn();
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={onSignedIn} />, { wrapper: FlashProvider });
+    await ask(user);
+    await user.type(codeField(), "12345678{Enter}");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(PASSWORD_RESET_CODE_WRONG);
+    expect(alert.closest("form")!.firstElementChild).toBe(alert);
+    expect(codeCard()).toHaveClass("motion-safe:animate-shake");
+    expect(codeField()).toHaveFocus();
+    expect(codeField()).toHaveValue("12345678");
+    expect([codeField().selectionStart, codeField().selectionEnd]).toEqual([0, 8]);
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+
+    fireEvent.animationEnd(codeCard());
+    await user.type(codeField(), "87654321{Enter}");
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(MEMBERFUL_CODE_NO_MEMBER));
+    await user.type(codeField(), "87654321{Enter}");
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(SIGN_IN_LIMITED));
+    expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
+  it("goes back for another code with the address kept, and asks for the code still when the page loads again", async () => {
+    serve(asked);
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await ask(user);
+    expect(history.state).toMatchObject({ memberfulCodeAsked: "ada@example.com" });
+
+    // As a phone may load it again once someone has been to their email.
+    cleanup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("heading", { name: "Check your email" })).toBeInTheDocument();
+    expect(screen.getByText(/ada@example\.com/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Send another code" }));
+    expect(screen.getByRole("heading", { name: "Sign in to Ember" })).toBeInTheDocument();
+    expect(emailField()).toHaveValue("ada@example.com");
+    expect(history.state).toMatchObject({ memberfulCodeAsked: null });
+
+    // But not once Ember stops emailing codes.
+    cleanup();
+    history.replaceState({ ...history.state, memberfulCodeAsked: "ada@example.com" }, "");
+    render(<SignInPage workspace={{ ...codes, memberfulCodes: false }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("link", { name: "Sign in with Memberful" })).toHaveAttribute("href", "/auth/memberful");
+  });
+
+  it("asks someone here with the address already for their password, which connects their Memberful account", async () => {
+    serve(asked, refused(MEMBERFUL_SIGN_IN_PROBLEMS.taken, "password", 403));
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await ask(user);
+    await user.type(codeField(), "12345678{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(MEMBERFUL_SIGN_IN_PROBLEMS.taken);
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(emailField()).toHaveValue("ada@example.com");
+    expect(history.state).toMatchObject({ memberfulCodeAsked: null });
+  });
+
+  it("says over the card when Ember can't email a code or reach Memberful, keeping the form", async () => {
+    serve(refused(CANT_EMAIL_CODES, undefined, 503), asked, refused(MEMBERFUL_CODE_UNCHECKED, undefined, 503), () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await user.type(emailField(), "ada@example.com");
+    await user.click(emailMe());
+    expect(await screen.findByRole("alert")).toHaveTextContent(CANT_EMAIL_CODES);
+    expect(card()).not.toContainElement(screen.getByRole("alert"));
+    expect(card()).not.toHaveClass("motion-safe:animate-shake");
+
+    await user.click(emailMe());
+    await screen.findByRole("heading", { level: 1, name: "Check your email" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.type(codeField(), "12345678{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(MEMBERFUL_CODE_UNCHECKED);
+    expect(codeCard()).not.toContainElement(screen.getByRole("alert"));
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again."));
+    expect(codeField()).toHaveValue("12345678");
+  });
+
+  it("waits for Turnstile's check, drawn in a frame, while Ember has a widget's keys, drawing it afresh for each ask", async () => {
+    const fetch = serve(refused(TURNSTILE_FAILED, "turnstile"), asked);
+    const user = userEvent.setup();
+    render(<SignInPage workspace={{ ...codes, turnstileSiteKey: SITE_KEY }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    // jsdom lays nothing out, so the form is narrower than the check draws at its flexible size.
+    expect(frame()).toHaveAttribute("src", `${TURNSTILE_CHECK_PATH}#site_key=${SITE_KEY}&theme=light&size=compact`);
+    await user.type(emailField(), "ada@example.com");
+    expect(emailMe()).toBeDisabled();
+    checkSays({ token: "passed-token" });
+    expect(emailMe()).toBeEnabled();
+    // A token that expires is no longer good, until Turnstile checks again by itself.
+    checkSays({ expired: true });
+    expect(emailMe()).toBeDisabled();
+    checkSays({ token: "passed-token" });
+
+    await user.click(emailMe());
+    expect(await screen.findByRole("alert")).toHaveTextContent(TURNSTILE_FAILED);
+    expect(emailMe()).toBeDisabled();
+    checkSays({ token: "another-token" });
+    await user.click(emailMe());
+    await screen.findByRole("heading", { level: 1, name: "Check your email" });
+    expect(sent(fetch)).toEqual([
+      ["POST /api/memberful_codes", { emailAddress: "ada@example.com", turnstileToken: "passed-token" }],
+      ["POST /api/memberful_codes", { emailAddress: "ada@example.com", turnstileToken: "another-token" }],
+    ]);
+  });
+
+  it("hears nothing from frames but its check's, and says when Turnstile's script doesn't load", async () => {
+    render(<SignInPage workspace={{ ...codes, turnstileSiteKey: SITE_KEY }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await userEvent.type(emailField(), "ada@example.com");
+    act(() => void window.dispatchEvent(new MessageEvent("message", { data: { turnstileCheck: { token: "forged" } }, origin: location.origin, source: window })));
+    act(() => void window.dispatchEvent(new MessageEvent("message", { data: { turnstileCheck: { token: "forged" } }, origin: "https://elsewhere.example", source: frame().contentWindow })));
+    expect(emailMe()).toBeDisabled();
+    checkSays({ unavailable: true });
+    expect(screen.getByRole("alert")).toHaveTextContent(TURNSTILE_UNAVAILABLE);
+  });
+
+  it("offers it under the password form while Memberful lets its members in beside everyone else, and back", async () => {
+    const alongside = { ...codes, passwordResetCodes: true, account: { ...codes.account, memberfulSignIn: false } };
+    const user = userEvent.setup();
+    render(<SignInPage workspace={alongside} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reset it" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Sign in with Memberful" }));
+    expect(emailField()).toHaveFocus();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reset it" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continue with Memberful" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Sign in with a password" }));
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in with Memberful" })).toBeInTheDocument();
+  });
+
+  it("goes from the password form back to it while Memberful is members only, forgetting why the password was refused", async () => {
+    respond(401, { error: SIGN_IN_REJECTED });
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await user.click(screen.getByRole("button", { name: "Sign in with a password" }));
+    await signIn("wrong horse");
+    expect(await screen.findByRole("alert")).toHaveTextContent(SIGN_IN_REJECTED);
+
+    await user.click(screen.getByRole("button", { name: "Sign in with Memberful" }));
+    expect(emailMe()).toBeInTheDocument();
+    expect(emailField()).toHaveValue("ada@example.com");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("offers it under single sign-on's button while both are the only ways in, with single sign-on's link under its form", async () => {
+    const eitherOnly = { ...codes, signInWithSso: "Acme", account: { ...codes.account, ssoJoin: true, ssoSignIn: true } };
+    const user = userEvent.setup();
+    render(<SignInPage workspace={eitherOnly} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("link", { name: "Sign in with Acme" })).toHaveAttribute("href", "/auth/sso");
+    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Sign in with Memberful" }));
+    expect(emailField()).toHaveFocus();
+    const sso = screen.getByRole("link", { name: "Sign in with Acme" });
+    expect(sso.parentElement).toHaveTextContent("Use single sign-on? Sign in with Acme");
+    expect(screen.getByRole("link", { name: "Continue with Memberful" }).compareDocumentPosition(sso)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByRole("button", { name: "Sign in with a password" })).toBeInTheDocument();
+  });
+
+  it("keeps the card from switching while a code is on its way, so only one sign-in is, then keeps to the address it asked for", async () => {
+    let answer = (_: Response) => {};
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await user.type(emailField(), "ada@example.com");
+    await user.click(emailMe());
+    expect(emailMe()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Sign in with a password" })).toBeDisabled();
+    await user.type(emailField(), ".uk");
+    await act(async () => answer(asked()));
+    await screen.findByRole("heading", { level: 1, name: "Check your email" });
+    expect(screen.getByText(/If a Memberful account has ada@example\.com,/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send another code" }));
+    expect(emailField()).toHaveValue("ada@example.com");
+  });
+
+  it("asks for the password of the address it asked for a code for, whatever the field said meanwhile", async () => {
+    let answer = (_: Response) => {};
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)))
+      .mockImplementationOnce(async () => refused(MEMBERFUL_SIGN_IN_PROBLEMS.taken, "password", 403)());
+    const user = userEvent.setup();
+    render(<SignInPage workspace={codes} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await user.type(emailField(), "ada@example.com");
+    await user.click(emailMe());
+    await user.type(emailField(), ".uk");
+    await act(async () => answer(asked()));
+    await user.type(await screen.findByRole("textbox", { name: "Code" }), "12345678{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(MEMBERFUL_SIGN_IN_PROBLEMS.taken);
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(emailField()).toHaveValue("ada@example.com");
   });
 });
 

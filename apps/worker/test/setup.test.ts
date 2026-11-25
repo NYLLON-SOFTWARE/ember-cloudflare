@@ -49,6 +49,7 @@ describe("Set up the workspace", () => {
       setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
       guestSignIn: true,
       signInWithMemberful: false,
+      memberfulCodes: false,
       signInWithSso: null,
       turnstileSiteKey: null,
       passwordResetCodes: false,
