@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSite, signInSitesOf, type Fetch, type RedirectOf } from "./site-check.ts";
+import { checkSite, signsInAt, type Fetch, type RedirectOf } from "./site-check.ts";
 
 /** What an Ember site's `/api/bootstrap` answers, with the account's name and custom domain given. */
 const bootstrap = (name: string, customDomain: string | null = null) => ({
@@ -72,7 +72,7 @@ describe("checkSite", () => {
   });
 });
 
-describe("signInSitesOf", () => {
+describe("signsInAt", () => {
   /** Where each address in `redirects` redirects; any other doesn't, and one at an origin that's down can't be reached. */
   const redirecting =
     (redirects: Record<string, string>, down = "https://down.example.com"): RedirectOf =>
@@ -81,18 +81,21 @@ describe("signInSitesOf", () => {
       return redirects[url] ?? null;
     };
 
-  it("finds the Memberful site and single sign-on provider where the site sends Sign in with Memberful and SSO", async () => {
+  it("says whether the site sends Sign in with Memberful or SSO to an origin, as its Memberful site or single sign-on provider", async () => {
     const redirectOf = redirecting({
       "https://chat.example.com/auth/memberful": "https://fernwood.memberful.com/oauth?response_type=code&client_id=1&state=2",
       "https://chat.example.com/auth/sso": "https://sso.example.org/oauth2/authorize?response_type=code&client_id=1&state=3",
       "https://members.example.com/auth/memberful": "https://fernwood.memberful.com/oauth?response_type=code&client_id=1&state=2",
       "https://members.example.com/auth/sso": "https://members.example.com/session/new?sso=off",
     });
-    expect(await signInSitesOf("https://chat.example.com", redirectOf)).toEqual(["https://fernwood.memberful.com", "https://sso.example.org"]);
-    expect(await signInSitesOf("https://members.example.com", redirectOf)).toEqual(["https://fernwood.memberful.com"]);
+    expect(await signsInAt("https://chat.example.com", "https://fernwood.memberful.com", redirectOf)).toBe(true);
+    expect(await signsInAt("https://chat.example.com", "https://sso.example.org", redirectOf)).toBe(true);
+    expect(await signsInAt("https://chat.example.com", "https://elsewhere.example.org", redirectOf)).toBe(false);
+    expect(await signsInAt("https://members.example.com", "https://fernwood.memberful.com", redirectOf)).toBe(true);
+    expect(await signsInAt("https://members.example.com", "https://sso.example.org", redirectOf)).toBe(false);
   });
 
-  it("finds none where Sign in with Memberful and SSO go back to sign in, or nowhere, or somewhere insecure, or where the site can't be reached", async () => {
+  it("says no where Sign in with Memberful and SSO go back to sign in, or nowhere, or somewhere insecure, or where the site can't be reached", async () => {
     const redirectOf = redirecting({
       "https://off.example.com/auth/memberful": "https://off.example.com/session/new?memberful=off",
       "https://off.example.com/auth/sso": "https://off.example.com/session/new?sso=off",
@@ -100,7 +103,20 @@ describe("signInSitesOf", () => {
       "https://insecure.example.com/auth/sso": "http://sso.example.org/oauth2/authorize?state=3",
     });
     for (const address of ["https://off.example.com", "https://old.example.com", "https://insecure.example.com", "https://down.example.com"]) {
-      expect(await signInSitesOf(address, redirectOf)).toEqual([]);
+      expect(await signsInAt(address, "https://fernwood.memberful.com", redirectOf)).toBe(false);
+      expect(await signsInAt(address, "https://sso.example.org", redirectOf)).toBe(false);
     }
+  });
+
+  it("says so as soon as one says so, rather than waiting on the other, which it stops asking", async () => {
+    let waiting: AbortSignal | undefined;
+    const redirectOf: RedirectOf = async (url, signal) => {
+      if (url.endsWith("/auth/memberful")) return "https://fernwood.memberful.com/oauth?response_type=code&client_id=1&state=2";
+      // The site waits on its single sign-on provider, which is down, longer than the test runs.
+      waiting = signal;
+      return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
+    };
+    expect(await signsInAt("https://chat.example.com", "https://fernwood.memberful.com", redirectOf)).toBe(true);
+    expect(waiting?.aborted).toBe(true);
   });
 });

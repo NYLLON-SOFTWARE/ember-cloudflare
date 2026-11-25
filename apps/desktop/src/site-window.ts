@@ -2,7 +2,7 @@ import { BrowserWindow, dialog, nativeTheme, screen, shell, type WebContents } f
 import { pageAddress } from "./app-pages.ts";
 import { contextMenuOf } from "./context-menu.ts";
 import { destinationOf, mayBeMoving, mayBeSigningIn, onwardPassageOf, passageOf } from "./navigation.ts";
-import { checkSite, signInSitesOf } from "./site-check.ts";
+import { checkSite, signsInAt } from "./site-check.ts";
 import { fetchFollowing, redirectOf } from "./site-fetch.ts";
 import { sessionOf } from "./site-session.ts";
 import type { Bounds, Site, SiteChanges, Sites } from "./sites.ts";
@@ -239,9 +239,9 @@ export class SiteWindows {
       }
     }
     if (mayBeSigningIn(url)) {
-      const signIns = await signInSitesOf(this.#addressOf(id), redirectOf);
+      const signsInThere = await signsInAt(this.#addressOf(id), origin, redirectOf);
       if (!leaving.stillWanted()) return;
-      if (signIns.includes(origin)) {
+      if (signsInThere) {
         leaving.passThrough(origin);
         void contents.loadURL(url);
         return;

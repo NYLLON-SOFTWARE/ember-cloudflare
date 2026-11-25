@@ -80,17 +80,27 @@ function isBootstrap(body: unknown): body is { account: { name: string; customDo
 }
 
 /**
- * The origins of the Memberful site and single sign-on provider that the site at `address` sends Sign in
- * with Memberful and SSO to, which it says by redirecting there: none for either it sends nowhere else,
- * as without Memberful or single sign-on, or while it can't be reached.
+ * Whether the site at `address` sends Sign in with Memberful or SSO to `origin`, as its Memberful site or
+ * single sign-on provider, which it says by redirecting there, as soon as either says so, rather than
+ * waiting on the other, which can be slow to answer, as a site is while its provider is down. Neither says
+ * so where the site sends them nowhere else, as without Memberful or single sign-on, or while it can't be
+ * reached.
  */
-export async function signInSitesOf(address: string, redirectOf: RedirectOf): Promise<string[]> {
-  const sites = await Promise.all(
-    SIGN_IN_PATHS.map(async (path) => {
-      const signIn = new URL(path, address).href;
-      const location = await redirectOf(signIn, AbortSignal.timeout(PATIENCE_MS)).catch(() => null);
-      return location === null ? null : passageOf(signIn, location, address);
-    }),
-  );
-  return sites.filter((site) => site !== null);
+export async function signsInAt(address: string, origin: string, redirectOf: RedirectOf): Promise<boolean> {
+  const answered = new AbortController();
+  const signal = AbortSignal.any([answered.signal, AbortSignal.timeout(PATIENCE_MS)]);
+  const sentThere = SIGN_IN_PATHS.map(async (path) => {
+    const signIn = new URL(path, address).href;
+    const location = await redirectOf(signIn, signal);
+    if (location === null || passageOf(signIn, location, address) !== origin) throw new Error(`${signIn} doesn't sign in at ${origin}`);
+  });
+  try {
+    await Promise.any(sentThere);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    // The other's answer, should it still be coming, no longer matters.
+    answered.abort();
+  }
 }
