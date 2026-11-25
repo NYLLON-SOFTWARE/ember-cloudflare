@@ -21,9 +21,10 @@ removes the one in front, which forgets its address and your sign-in there.
   open, naming the site once you've added another, and clicking one opens its page in the site's window.
   The app's icon counts what every site has unread: on the Dock, on a Linux dock that shows counts, and
   drawn over the taskbar's icon on Windows.
-- Clicking the app's icon in the Dock brings its windows back on a Mac. On Windows and Linux, the app
-  keeps an icon in the notification area or tray while it runs: clicking it brings the app back, and
-  its menu opens each site's window, adds a site, or quits Ember.
+- Opening Ember again brings its windows back, as does clicking its icon in the Dock on a Mac. On
+  Windows and Linux, the app keeps an icon in the notification area or tray while it runs, where the
+  desktop has one: clicking it brings the app back, and its menu opens each site's window, adds a site,
+  or quits Ember.
 - As it quits, the app remembers which sites' windows were showing, and where, and shows them again as
   it next starts, the rest out of sight, running.
 - A site's window stays on the site. Links elsewhere open in your browser, email addresses in your
