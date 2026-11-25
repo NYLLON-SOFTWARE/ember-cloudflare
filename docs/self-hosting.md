@@ -505,6 +505,16 @@ as anyone's. A connection is good for one try within ten minutes, and a new pass
 reset, forgets the ones the old one started. Administrators, and the people they invite, can connect
 one too, and sign in either way.
 
+While Ember emails codes to sign in with, above, the profile's Memberful section asks for one too:
+with their password, Email me a code emails the address their Memberful account has, their own to
+begin with, a code that connects that account to theirs on the profile itself, keeping them signed
+in, and Prefer Memberful's page? Connect there connects on Memberful's page instead. It works as the
+sign-in page's code does, for 15 minutes and 5 tries, emailed only once Memberful finds a member with
+the address, and the section says the same whether or not it does. Each network can ask for 10 an
+hour, whether or not Ember has Turnstile's keys, since nothing checks the profile's asks. A code works
+only for the person who asked for it, with the address it went to, and while their password is the
+one they gave: a new one, theirs or a reset, forgets it.
+
 The Memberful section of a profile names the account that's connected, as Memberful describes it,
 and Disconnect Memberful, with their password, unlinks it and ends their other sessions, as a new
 password does. A new password that replaces one they had disconnects it too, so a reset ends every

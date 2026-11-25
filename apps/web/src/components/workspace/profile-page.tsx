@@ -6,6 +6,7 @@ import {
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_USER_NAME_LENGTH,
+  MEMBERFUL_CONNECTED_NOTICE,
   MEMBERFUL_DISCONNECTED_NOTICE,
   MIN_PASSWORD_LENGTH,
   type AccountDeletion,
@@ -132,7 +133,8 @@ function disconnectsWithNewPassword(memberful: MemberfulStatus | null, sso: SsoS
  * unless Memberful or single sign-on signs you in without one, your current password while you have
  * one, which changing your email address or password takes, and your
  * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
- * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
+ * Memberful, connecting your Memberful account, with a code Ember emails while it can, which shows the
+ * notice "Your Memberful account is connected.", or the one you've connected, which Disconnect Memberful
  * unlinks with the notice "Your Memberful account is disconnected.", then, likewise, while members sign
  * in with single sign-on, connecting your account at the provider, then, while Ember AI is on, how much
  * @ember thinks and how long it answers you, then, while huddles are on, which of a huddle's sounds you
@@ -159,11 +161,12 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
    */
   const [savedName, setSavedName] = useState(me.name);
   /**
-   * Whether you have an email address saved, which signing in with your password takes, so disconnecting
-   * Memberful needs it: from loading and saving the profile alone, which change it, so a photo's answer
-   * arriving late doesn't take it away.
+   * Your email address as the profile last loaded or saved it, which signing in with your password takes,
+   * so disconnecting Memberful needs it, and which asking for a code to connect Memberful offers: from
+   * loading and saving the profile alone, which change it, so a photo's answer arriving late doesn't take it away.
    */
-  const [hasEmailAddress, setHasEmailAddress] = useState(false);
+  const [savedEmailAddress, setSavedEmailAddress] = useState<string | null>(null);
+  const hasEmailAddress = savedEmailAddress !== null;
   /** The Memberful account you've connected, or none to connect yet, or null while there's nothing to show. */
   const [memberful, setMemberful] = useState<MemberfulStatus | null>(null);
   /** The account at the single sign-on provider you've connected, or none to connect yet, or null while there's nothing to show. */
@@ -178,8 +181,12 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
-  /** Whether you've disconnected your Memberful account here, with Disconnect or a new password, since when no answer shows it connected: connecting one reloads the page. */
-  const disconnectedMemberful = useRef(false);
+  /**
+   * Where you stand with Memberful as the last change made here answered it, connecting your account with a
+   * code, or disconnecting it with Disconnect or a new password, or null before one, which an answer arriving
+   * late, from before it, doesn't undo: connecting on Memberful's page reloads the page.
+   */
+  const changedMemberful = useRef<{ memberful: MemberfulStatus | null } | null>(null);
   /** Likewise for your account at the single sign-on provider. */
   const disconnectedSso = useRef(false);
   const account = useAccount();
@@ -198,7 +205,7 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         saved.current = fieldsOf(answer.profile);
         setFields(saved.current);
         setSavedName(answer.profile.name);
-        setHasEmailAddress(answer.profile.emailAddress !== null);
+        setSavedEmailAddress(answer.profile.emailAddress);
         showAnswer(answer);
         // Only from here and the Ember AI section's own saves, as a save of the profile or a photo can
         // answer after a change there, with your model and levels from before it.
@@ -228,19 +235,27 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
     setPicture((shown) => (shown && avatarVersionOf(shown.avatarUrl) > avatarVersionOf(answered.avatarUrl) ? shown : answered));
     // Nothing takes a password away, so an answer arriving late doesn't hide the field.
     setHasPassword((had) => had || profile.password);
-    // Nothing connects a Memberful account without a reload, so once it's disconnected here, an answer
-    // arriving late doesn't show it connected again, and shows what the Worker does for one disconnected.
+    // Once your Memberful account is connected or disconnected here, an answer arriving late, as a photo's can,
+    // that doesn't have it so shows it as the change left it.
     const { memberful } = profile;
-    setMemberful(disconnectedMemberful.current && memberful?.connected ? (memberful.membersOnly ? { membersOnly: true, connected: null } : null) : memberful);
+    const changed = changedMemberful.current;
+    setMemberful(changed && Boolean(changed.memberful?.connected) !== Boolean(memberful?.connected) ? changed.memberful : memberful);
     const { sso } = profile;
     setSso(disconnectedSso.current && sso?.connected ? (sso.ssoOnly ? { ...sso, connected: null } : null) : sso);
     setMembershipNeeded(profile.membershipNeeded);
     setTransferId(transferId);
   }
 
+  /** Shows your profile as connecting your Memberful account with a code answered it, with the notice. */
+  function connectedMemberful(answer: ProfileAnswer) {
+    changedMemberful.current = { memberful: answer.profile.memberful };
+    showAnswer(answer);
+    flash("notice", MEMBERFUL_CONNECTED_NOTICE);
+  }
+
   /** Shows your profile as disconnecting your Memberful account answered it, with the notice. */
   function disconnected(answer: ProfileAnswer) {
-    disconnectedMemberful.current = true;
+    changedMemberful.current = { memberful: answer.profile.memberful };
     showAnswer(answer);
     flash("notice", MEMBERFUL_DISCONNECTED_NOTICE);
   }
@@ -297,14 +312,14 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
         saved.current = now;
         setSavedName(answer.profile.name);
         setFields((fields) => fields && settled(fields, sent, now));
-        setHasEmailAddress(answer.profile.emailAddress !== null);
+        setSavedEmailAddress(answer.profile.emailAddress);
         // The passwords leave their fields, unless others were typed meanwhile.
         if (passwordInput.current?.value === password) passwordInput.current.value = "";
         if (currentPasswordInput.current?.value === currentPassword) currentPasswordInput.current.value = "";
         // A new password disconnects the accounts elsewhere, as Disconnect does, while your email address
         // lets it sign you in, so an answer arriving late, as a photo's can, doesn't show them connected again.
         if (password !== "") {
-          if (!answer.profile.memberful?.connected) disconnectedMemberful.current = true;
+          if (!answer.profile.memberful?.connected) changedMemberful.current = { memberful: answer.profile.memberful };
           if (!answer.profile.sso?.connected) disconnectedSso.current = true;
         }
         showAnswer(answer);
@@ -441,11 +456,14 @@ export function ProfilePage({ me, rooms, askForRoom, huddleSounds, askForHuddleS
           <MemberfulConnection
             connected={memberful.connected}
             membersOnly={memberful.membersOnly}
+            codes={memberful.codes === true}
+            emailAddress={savedEmailAddress ?? ""}
             hasPassword={hasPassword}
             hasEmailAddress={hasEmailAddress}
             membershipNeeded={membershipNeeded}
             signsInOtherwise={!hasPassword && sso?.connected ? MEMBERFUL_WITH_SSO : undefined}
             closed={memberfulClosed}
+            onConnected={connectedMemberful}
             onDisconnected={disconnected}
             onFailed={onFailed}
           />

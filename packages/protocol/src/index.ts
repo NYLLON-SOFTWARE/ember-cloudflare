@@ -1640,6 +1640,30 @@ export interface MemberfulAccount {
 export interface MemberfulStatus {
   membersOnly: boolean;
   connected: MemberfulAccount | null;
+  /**
+   * Present while Connect Memberful asks for a code Ember emails the address your Memberful account has,
+   * which connects it here without leaving Ember (`MEMBERFUL_CONNECTION_CODES_PATH`), with Memberful's
+   * page offered instead: while you haven't connected one, Ember can send email, and it has the custom
+   * app's API key, as the sign-in page's code does (`Bootstrap.memberfulCodes`).
+   */
+  codes?: true;
+}
+
+/**
+ * Where your profile asks Ember to email a code to the address your Memberful account has (`POST`), and
+ * connects that account to yours with it (`PUT`, `MemberfulCodeSignIn`), while your profile offers it
+ * (`MemberfulStatus.codes`).
+ */
+export const MEMBERFUL_CONNECTION_CODES_PATH = "/api/users/me/memberful_codes";
+
+/**
+ * What asking for a code to connect your Memberful account takes: your password, while you have one, as
+ * connecting on Memberful's page takes it (`MemberfulConnectionStart`), and the address your Memberful
+ * account has, taken as given, as signing in with a code takes it.
+ */
+export interface MemberfulConnectionCodeRequest {
+  currentPassword?: string;
+  emailAddress: string;
 }
 
 /**
@@ -1723,6 +1747,12 @@ export const memberfulProblemOf = (value: string | null): MemberfulSignInProblem
 
 /** Why connecting Memberful from your profile is refused without your password, while you have one. */
 export const MEMBERFUL_PASSWORD_NEEDED = "Enter your password to connect Memberful.";
+
+/** Why your profile's code form is refused while Ember lacks the custom app's API key, which finds the member an address belongs to. */
+export const MEMBERFUL_CONNECTION_CODES_OFF = "Ember can't email you a code to connect Memberful with right now. Connect on Memberful's page instead.";
+
+/** Why a right code from your profile's code form connects nothing once Memberful has no member with the address it went to. */
+export const MEMBERFUL_CONNECTION_NO_MEMBER = "No Memberful account has this email address now. Send a code to the one yours has.";
 
 /** Why disconnecting it is refused without your password. */
 export const MEMBERFUL_DISCONNECT_PASSWORD_NEEDED = "Enter your password to disconnect Memberful.";
@@ -3364,8 +3394,22 @@ export function parsePasswordResetWithCode(data: unknown): PasswordResetWithCode
 export const parseMemberfulCodeRequest = (data: unknown): MemberfulCodeRequest | string => parsePasswordResetRequest(data);
 
 /**
- * Parses an untrusted `PUT /api/memberful_codes`, answering the address and the code, as
- * `passwordResetCodeOf` reads it, or why it's refused instead, with the field it's about.
+ * Parses an untrusted `POST /api/users/me/memberful_codes`, answering your password, if it's given, and
+ * the address, or why it's refused instead.
+ */
+export function parseMemberfulConnectionCodeRequest(data: unknown): MemberfulConnectionCodeRequest | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { currentPassword, emailAddress } = data;
+  if (currentPassword !== undefined && typeof currentPassword !== "string") return "Current password must be text";
+  if (typeof emailAddress !== "string" || !emailAddress.trim()) return EMAIL_ADDRESS_NEEDED;
+  if (emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
+  return currentPassword === undefined ? { emailAddress } : { currentPassword, emailAddress };
+}
+
+/**
+ * Parses an untrusted `PUT /api/memberful_codes`, or `PUT /api/users/me/memberful_codes`, answering the
+ * address and the code, as `passwordResetCodeOf` reads it, or why it's refused instead, with the field
+ * it's about.
  */
 export function parseMemberfulCodeSignIn(data: unknown): MemberfulCodeSignIn | { error: string; field?: "emailAddress" | "code" } {
   if (!isJsonObject(data)) return { error: "Expected a JSON object" };

@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { MAX_PASSWORD_LENGTH, type MemberfulAccount, type MemberfulDisconnection, type ProfileAnswer } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
@@ -15,7 +15,9 @@ import { pushEndpoint } from "@/lib/push";
 // unlinks it and ends their other sessions, as a new password does, while they have a password and an
 // email address to sign in with instead. Someone who joined with it has no password, and is given none
 // while it signs them in, so theirs stays connected, nor can they connect the other, since holding their
-// session would be all there was to check. Boxed as workspace settings' Memberful section is.
+// session would be all there was to check. Memberful's section connects with a code Ember emails, while
+// it can, in place of Connect's form (`MemberfulCodeConnection`). Boxed as workspace settings' Memberful
+// section is.
 
 export interface ConnectionProps {
   /** The account elsewhere you've connected, as it describes itself, or null while you haven't. */
@@ -51,6 +53,34 @@ interface Props extends ConnectionProps {
   /** Starts connecting, with your password while you have one, answering where to sign in elsewhere. */
   connect: (currentPassword?: string) => Promise<string>;
   disconnect: (disconnection: MemberfulDisconnection) => Promise<ProfileAnswer>;
+  /** What the section connects with in place of Connect's form, as Memberful's does with a code while it can. */
+  connectForm?: ReactNode;
+}
+
+/** What a section's form to connect says first, by whether you need the account elsewhere to sign in, for the place it calls `name`. */
+export const connectionHelp = (name: string, membershipNeeded: boolean) =>
+  membershipNeeded ? `Members sign in with ${name}. Connect your ${name} account to keep signing in.` : `Connect your ${name} account to sign in with it.`;
+
+/**
+ * The password field a section's forms have, for the section `id`, described by the form's help,
+ * `helpId`: uncontrolled, as the profile's password fields are.
+ */
+export function ConnectionPassword({ id, helpId, ref }: { id: string; helpId: string; ref: Ref<HTMLInputElement> }) {
+  return (
+    <Field id={`${id}_password`} label="Password" translation="password">
+      <Input
+        ref={ref}
+        id={`${id}_password`}
+        type="password"
+        required
+        autoComplete="current-password"
+        placeholder="Enter your password"
+        maxLength={MAX_PASSWORD_LENGTH}
+        aria-describedby={helpId}
+        className={FIELD_INPUT}
+      />
+    </Field>
+  );
 }
 
 /** Who `account` is, as it describes itself: "Grace Hopper (grace@example.com)", or whichever of the two it said, or null when it said neither. */
@@ -70,6 +100,7 @@ export function ExternalConnection({
   only,
   connect,
   disconnect,
+  connectForm,
   connected,
   hasPassword,
   hasEmailAddress,
@@ -128,22 +159,8 @@ export function ExternalConnection({
       );
   };
 
-  /** The password field, as both forms have it, described by the form's help, `helpId`: uncontrolled, as the profile's password fields are. */
-  const passwordField = (helpId: string) => (
-    <Field id={`${id}_password`} label="Password" translation="password">
-      <Input
-        ref={passwordInput}
-        id={`${id}_password`}
-        type="password"
-        required
-        autoComplete="current-password"
-        placeholder="Enter your password"
-        maxLength={MAX_PASSWORD_LENGTH}
-        aria-describedby={helpId}
-        className={FIELD_INPUT}
-      />
-    </Field>
-  );
+  /** The password field, as both forms have it, described by the form's help, `helpId`. */
+  const passwordField = (helpId: string) => <ConnectionPassword ref={passwordInput} id={id} helpId={helpId} />;
 
   // Whether your password signs you in, which takes an email address to sign in by, so that the account can be disconnected.
   const signsInWithPassword = hasPassword && hasEmailAddress;
@@ -180,13 +197,13 @@ export function ExternalConnection({
       ) : signsInOtherwise ? (
         <p>{signsInOtherwise}</p>
       ) : (
-        <form onSubmit={startConnecting} className={AUTH_FORM}>
-          <p id={`${id}-connection-help`}>
-            {membershipNeeded ? `Members sign in with ${name}. Connect your ${name} account to keep signing in.` : `Connect your ${name} account to sign in with it.`}
-          </p>
-          {hasPassword && passwordField(`${id}-connection-help`)}
-          <SubmitButton disabled={busy}>Connect {name}</SubmitButton>
-        </form>
+        (connectForm ?? (
+          <form onSubmit={startConnecting} className={AUTH_FORM}>
+            <p id={`${id}-connection-help`}>{connectionHelp(name, membershipNeeded)}</p>
+            {hasPassword && passwordField(`${id}-connection-help`)}
+            <SubmitButton disabled={busy}>Connect {name}</SubmitButton>
+          </form>
+        ))
       )}
     </section>
   );

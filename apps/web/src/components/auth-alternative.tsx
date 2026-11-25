@@ -1,3 +1,6 @@
+/** An alternative's action: underlined in ink, its tap area grown to 44px on touch screens. */
+export const ALTERNATIVE_ACTION = "relative cursor-pointer text-foreground underline underline-offset-3 touch:after:absolute touch:after:-inset-x-1 touch:after:-inset-y-3.5";
+
 /** A button that switches the card in place, or a link to another page. */
 type Action = { onClick: () => void; disabled?: boolean; href?: never } | { href: string; onClick?: never; disabled?: never };
 
@@ -7,7 +10,7 @@ type Action = { onClick: () => void; disabled?: boolean; href?: never } | { href
  * sign-in is ever on its way. Either way its tap area grows to 44px on touch screens.
  */
 export function AuthAlternative({ question, action, ...props }: { question: string; action: string } & Action) {
-  const className = "relative cursor-pointer text-foreground underline underline-offset-3 touch:after:absolute touch:after:-inset-x-1 touch:after:-inset-y-3.5";
+  const className = ALTERNATIVE_ACTION;
   return (
     <p className="mt-[22px] text-center text-[13px] text-muted-foreground">
       {question}{" "}

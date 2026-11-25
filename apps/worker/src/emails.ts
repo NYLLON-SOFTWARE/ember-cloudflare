@@ -92,6 +92,23 @@ export function memberfulCodeEmail(to: string, workspace: string, code: string):
 }
 
 /**
+ * The email with the code that connects the Memberful account that has the address `to` to someone's
+ * account in the workspace named `workspace`, who asked for it from their profile there.
+ */
+export function memberfulConnectionCodeEmail(to: string, workspace: string, code: string): Email {
+  const name = oneLine(workspace) || "Ember";
+  const asked = (workspaceName: string) => `Someone signed in to ${workspaceName} asked to connect the Memberful account that has this email address to their account there.`;
+  const use = `Enter it within ${PASSWORD_RESET_CODE_MINUTES} minutes, where you asked for it. Don't give it to anyone.`;
+  const ignore = "If you didn't ask, you can ignore this email: nothing is connected without the code.";
+  return {
+    to,
+    subject: `Connect Memberful to ${name}`,
+    text: `${asked(name)}\n\nYour code: ${code}\n\n${use}\n\n${ignore}\n`,
+    html: htmlOf([asked(escapeHtml(name)), `Your code: <strong style="font-size: 24px; letter-spacing: 0.08em;">${code}</strong>`, use, ignore]),
+  };
+}
+
+/**
  * The email someone asking to join the workspace named `workspace` with `to` gets in place of a link,
  * since the address has an account there already: `signIn`, where it signs in, so that `/join/email`
  * says the same whoever has an account.

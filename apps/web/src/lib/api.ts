@@ -1,6 +1,7 @@
 import {
   AVATAR_PATH,
   LOGO_PATH,
+  MEMBERFUL_CONNECTION_CODES_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
   roomSocketQuery,
   searchQuery,
@@ -54,6 +55,7 @@ import {
   type MemberfulCodeSignedIn,
   type MemberfulCodeSignIn,
   type MemberfulConnection,
+  type MemberfulConnectionCodeRequest,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
   type MembersChange,
@@ -436,6 +438,26 @@ export async function fetchProfile(): Promise<ProfileAnswer> {
 export async function connectMemberful(currentPassword?: string): Promise<MemberfulConnection> {
   const start: MemberfulConnectionStart = currentPassword === undefined ? {} : { currentPassword };
   return request<MemberfulConnection>(MEMBERFUL_CONNECTIONS_PATH, { method: "POST", body: JSON.stringify(start) });
+}
+
+/**
+ * Asks Ember to email a code to `asked.emailAddress`, the address your Memberful account has, to connect
+ * that account to yours with, with your password while you have one, once the Memberful site finds a
+ * member with it, answering the same whether or not it does. Fails with a 422 ApiError without your
+ * password, or with one that isn't yours, a 429 once your network has asked for too many, and a 503 while
+ * Ember can't send email.
+ */
+export async function askForMemberfulConnectionCode(asked: MemberfulConnectionCodeRequest): Promise<void> {
+  await request<unknown>(MEMBERFUL_CONNECTION_CODES_PATH, { method: "POST", body: JSON.stringify(asked) });
+}
+
+/**
+ * Connects your account to the Memberful account that has `given.emailAddress`, with the code Ember
+ * emailed it for you, keeping you signed in, and answers your profile then. A code that doesn't work fails
+ * with a 422 ApiError, and a refusal with a 403 that says why.
+ */
+export async function connectMemberfulWithCode(given: MemberfulCodeSignIn): Promise<ProfileAnswer> {
+  return request<ProfileAnswer>(MEMBERFUL_CONNECTION_CODES_PATH, { method: "PUT", body: JSON.stringify(given) });
 }
 
 /**
