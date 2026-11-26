@@ -127,7 +127,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
 
     checkSays({ token: TOKEN });
     expect(await dialog("Turnstile is set up")).toHaveAccessibleDescription(
-      "Turnstile now checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person, in place of the limits on each network.",
+      "Turnstile now checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person, in place of the limits on each network.",
     );
     expect(onSaved).toHaveBeenCalledExactlyOnceWith("saved");
     expect(asked()).toEqual([["PUT /api/account/turnstile_keys", { ...KEYS, turnstileToken: TOKEN }]]);

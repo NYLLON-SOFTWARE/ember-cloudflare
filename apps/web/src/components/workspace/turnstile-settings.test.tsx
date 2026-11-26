@@ -37,7 +37,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     serve();
     const { user, onSetUp } = showCard(null);
     const description =
-      "Cloudflare Turnstile can check that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person. Until it does, limits on each network stand in for its check.";
+      "Cloudflare Turnstile can check that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person. Until it does, limits on each network stand in for its check.";
     expect(card()).toHaveTextContent(description);
     expect(turnstileSwitch()).not.toBeChecked();
     expect(turnstileSwitch()).toHaveAccessibleDescription(description);
@@ -51,7 +51,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
   it("says Turnstile checks people with the keys given, its switch on, with Change keys", async () => {
     serve();
     const { user, onSetUp } = showCard("saved");
-    expect(card()).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person.");
+    expect(card()).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person.");
     expect(turnstileSwitch()).toBeChecked();
     expect(turnstileSwitch()).toBeEnabled();
     expect(within(card()).getAllByRole("button").map((button) => button.textContent)).toEqual(["Change keys"]);
@@ -63,7 +63,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     serve();
     showCard("secret");
     expect(card()).toHaveTextContent(
-      "Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person, with the widget whose keys are in TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.",
+      "Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person, with the widget whose keys are in TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.",
     );
     expect(turnstileSwitch()).toBeChecked();
     expect(turnstileSwitch()).toBeDisabled();

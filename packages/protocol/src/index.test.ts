@@ -78,6 +78,9 @@ import {
   parsePasswordReset,
   parsePasswordResetRequest,
   parsePasswordResetWithCode,
+  parseMemberfulCodeRequest,
+  parseMemberfulCodeSignIn,
+  parseMemberfulConnectionCodeRequest,
   parseMemberfulDisconnection,
   parseProfileChanges,
   usernameFrom,
@@ -1396,6 +1399,43 @@ describe("Reset a forgotten password with an emailed code", () => {
   it("links to its page, and back to sign in, with the email address typed", () => {
     expect(withEmailAddress(PASSWORD_RESET_PATH, "ada+ember@example.com")).toBe("/passwords/new?email_address=ada%2Bember%40example.com");
     expect(withEmailAddress("/session/new", "")).toBe("/session/new");
+  });
+});
+
+describe("Sign in with a code Ember emails a Memberful member", () => {
+  it("takes an ask for a code as an ask for a code to reset a password is taken", () => {
+    expect(parseMemberfulCodeRequest({ emailAddress: " Katherine@example.com" })).toEqual({ emailAddress: " Katherine@example.com" });
+    expect(parseMemberfulCodeRequest({ emailAddress: "katherine@example.com", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })).toEqual({
+      emailAddress: "katherine@example.com",
+      turnstileToken: "XXXX.DUMMY.TOKEN.XXXX",
+    });
+    expect(parseMemberfulCodeRequest({ emailAddress: "  " })).toBe(EMAIL_ADDRESS_NEEDED);
+    expect(parseMemberfulCodeRequest({ emailAddress: `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.org` })).toBe(EMAIL_ADDRESS_TOO_LONG);
+  });
+
+  it("takes the code with its address, read as typed, and refuses one that can't be a code on the code's field", () => {
+    expect(parseMemberfulCodeSignIn({ emailAddress: "katherine@example.com", code: "1234-5678" })).toEqual({ emailAddress: "katherine@example.com", code: "12345678" });
+    expect(parseMemberfulCodeSignIn({ emailAddress: "katherine@example.com", code: "1234" })).toEqual({ error: PASSWORD_RESET_CODE_NEEDED, field: "code" });
+    expect(parseMemberfulCodeSignIn({ emailAddress: `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.org`, code: "12345678" })).toEqual({
+      error: EMAIL_ADDRESS_TOO_LONG,
+      field: "emailAddress",
+    });
+    for (const body of [null, [], { emailAddress: "katherine@example.com" }, { emailAddress: "", code: "12345678" }, { emailAddress: "katherine@example.com", code: 12345678 }]) {
+      expect(parseMemberfulCodeSignIn(body), JSON.stringify(body)).toHaveProperty("error");
+      expect(parseMemberfulCodeSignIn(body)).not.toHaveProperty("field");
+    }
+  });
+
+  it("takes an ask for a code to connect a Memberful account with your password, while you have one, and the account's address", () => {
+    expect(parseMemberfulConnectionCodeRequest({ emailAddress: " Katherine@example.com" })).toEqual({ emailAddress: " Katherine@example.com" });
+    expect(parseMemberfulConnectionCodeRequest({ currentPassword: "hidden figures", emailAddress: "katherine@example.com" })).toEqual({
+      currentPassword: "hidden figures",
+      emailAddress: "katherine@example.com",
+    });
+    expect(parseMemberfulConnectionCodeRequest({ currentPassword: "hidden figures", emailAddress: "  " })).toBe(EMAIL_ADDRESS_NEEDED);
+    expect(parseMemberfulConnectionCodeRequest({ emailAddress: `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.org` })).toBe(EMAIL_ADDRESS_TOO_LONG);
+    expect(parseMemberfulConnectionCodeRequest({ currentPassword: 42, emailAddress: "katherine@example.com" })).toBe("Current password must be text");
+    for (const body of [null, [], "katherine@example.com", {}]) expect(typeof parseMemberfulConnectionCodeRequest(body), JSON.stringify(body)).toBe("string");
   });
 });
 

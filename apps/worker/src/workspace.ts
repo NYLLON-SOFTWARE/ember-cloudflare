@@ -142,18 +142,20 @@ import { banProblem, type BanProblem } from "./bans";
 import { blockedWordsVersion, type BlockedWords } from "./blocked-words";
 import { botKeyOf, isBotToken, newBotToken, webhookTokenOf } from "./bots/keys";
 import { openDb, type Db } from "./db";
-import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordResetCodeEmail, testEmail } from "./emails";
+import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, memberfulCodeEmail, memberfulConnectionCodeEmail, passwordResetCodeEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import type { RelayKey } from "./huddles/relay";
 import type { HuddleApp, RoomHuddles, SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
-import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
+import { sendEmail, sendEmails, senderOf, type Email, type Sender } from "./mail";
 import {
   deployedMemberfulOf,
+  memberByEmailQuery,
   memberfulApiOf,
   memberfulWebhooksOf,
   membershipsOf,
+  memberWithEmail,
   namelessMember,
   openMemberfulSecrets,
   sealMemberfulSecrets,
@@ -191,6 +193,7 @@ import {
   allowingChannelMentions,
   allowingHuddles,
   NEW_ACCOUNT_LOOKS,
+  NOTHING_KEPT,
   WorkspaceStore,
   type AccountChange,
   type AgentSetup,
@@ -220,6 +223,7 @@ import {
   type PushDelivery,
   type RoomEventDeliveries,
   type SavedAssistant,
+  type SavedMemberfulCode,
   type SavedModel,
   type SavedRoomChange,
   type SavedSso,
@@ -342,6 +346,8 @@ const asStored = (emailAddress: string) => emailAddress.replace(/[A-Z]+/g, (lett
 const EMAIL_DOMAIN_LINK_MS = 60 * 60 * 1000;
 /** How long a code someone asks for to reset their password works, as its email and page say. */
 const PASSWORD_RESET_CODE_MS = PASSWORD_RESET_CODE_MINUTES * 60 * 1000;
+/** How long a code Ember emails a Memberful member to sign in with works: as long as one to reset a password. */
+const MEMBERFUL_CODE_MS = PASSWORD_RESET_CODE_MS;
 /**
  * Link previews someone may ask for in a minute, since a preview fetches any page someone names, which
  * would otherwise make the Worker anyone's fetcher.
@@ -727,9 +733,10 @@ export interface YourProfile {
    * Whether Memberful is members only, whether single sign-on is the only way in, and the accounts
    * elsewhere you've connected, from which the Worker, which knows the Memberful site and the provider,
    * tells your profile where you stand with each (`Profile.memberful`, `Profile.sso`), or null for a
-   * guest, who has nothing to connect.
+   * guest, who has nothing to connect, with whether Ember can email you a code to connect Memberful
+   * with, while it's members only, which the Worker offers while it has the API key (`MemberfulStatus.codes`).
    */
-  elsewhere: { membersOnly: boolean; ssoOnly: boolean; accounts: LinkedAccount[] } | null;
+  elsewhere: { membersOnly: boolean; ssoOnly: boolean; accounts: LinkedAccount[]; memberfulCodes: boolean } | null;
 }
 
 /** Someone as their page shows them to the person asking. */
@@ -909,6 +916,34 @@ export interface NewResetCode {
   code: string;
   digest: string;
 }
+
+/**
+ * What asking for a code to sign in with Memberful came to: "asked", whatever Ember goes on to email, if
+ * anything, "off" while Ember doesn't offer Sign in with Memberful, or lacks its site's API key, "limited"
+ * past the network's limit, and "unsendable" while Ember can't send email.
+ */
+export type MemberfulCodeAsk = "asked" | "off" | "limited" | "unsendable";
+
+/**
+ * What signing in with a code Ember emailed a Memberful member came to, but for whom it signed in and why
+ * signing in with Memberful refused them (`signInElsewhere`): "limited" past sign-in's limit, "wrong" for
+ * a code that doesn't work, whatever the reason, "nobody" once Memberful has no member with its address,
+ * and "unchecked" while Memberful can't be asked, which leaves the code working.
+ */
+export type MemberfulCodeOutcome = Me | "joined" | MemberfulRefusal | "limited" | "wrong" | "nobody" | "unchecked";
+
+/**
+ * What asking for a code to connect a Memberful account from your profile came to: what asking for one
+ * to sign in with does, but "unneeded" in place of "off" once Memberful isn't members only, as connecting
+ * on Memberful's page says it.
+ */
+export type MemberfulConnectionCodeAsk = Exclude<MemberfulCodeAsk, "off"> | "unneeded";
+
+/**
+ * What connecting a Memberful account from your profile with a code came to: your profile once it's
+ * connected, or why connecting refused it (`connectElsewhere`), or as signing in with a code says why not.
+ */
+export type MemberfulConnectionCodeOutcome = YourProfile | MemberfulRefusal | "limited" | "wrong" | "nobody" | "unchecked";
 
 /**
  * What Send me a test email came to: the address it went to, or why it wasn't sent, with the status that
@@ -1192,6 +1227,7 @@ export class Workspace extends DurableObject<Env> {
   private readonly signUps = new AddressLimit(SIGN_UPS_PER_ADDRESS, SIGN_UP_WINDOW_MS);
   private readonly emailLinkAsks = new AddressLimit(EMAIL_LINKS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
   private readonly passwordResetAsks = new AddressLimit(PASSWORD_RESETS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
+  private readonly memberfulCodeAsks = new AddressLimit(PASSWORD_RESETS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   private readonly outsideRegistrations = new AddressLimit(OUTSIDE_REGISTRATIONS_PER_ADDRESS, OUTSIDE_REGISTRATION_WINDOW_MS);
   private readonly outsideSends = new FixedWindowLimit(OUTSIDE_SENDS_PER_MINUTE, 60_000);
@@ -1217,12 +1253,15 @@ export class Workspace extends DurableObject<Env> {
    */
   private lastResetCode: Promise<unknown> = Promise.resolve();
   /**
-   * The links to join with on their way to each address, by the address as storage compares it
-   * (`asStored`): how many, and the last of them, which the next one for that address waits for, so that
-   * an address's links are emailed, and kept, in the order the Workspace was asked for them, while another
-   * address's never wait for them (see `emailJoinLink`). An address is forgotten once its last link has gone.
+   * The emails on their way to each address, links to join with and codes to sign in with Memberful, by
+   * the address as storage compares it (`asStored`): how many, and the last of them, which the next one
+   * for that address waits for, so that an address's emails are sent, and what they hold kept, in the
+   * order the Workspace was asked for them, while another address's never wait for them (see
+   * `emailInTurn`). An address is forgotten once its last email has gone.
    */
-  private readonly emailingLinks = new Map<string, { asked: number; last: Promise<unknown> }>();
+  private readonly emailsOnTheirWay = new Map<string, { asked: number; last: Promise<unknown> }>();
+  /** The query that finds a member by email address at the Memberful site, with the site and API key it was found with (`memberfulMemberWith`). */
+  private memberByEmail: (MemberfulApi & { query: string }) | null = null;
   /** The last report being handled, which the next one waits for (see `handleReport`). */
   private lastReportHandling: Promise<unknown> = Promise.resolve();
   /** How many changes have queued revocations, which `afterQueuing` compares to see whether its change did. */
@@ -2825,17 +2864,28 @@ export class Workspace extends DurableObject<Env> {
    * is dropped, so that asks for an address the provider is slow with, or refuses, can't pile up.
    */
   emailJoinLink(emailAddress: string, domain: string, link: NewEmailLink, origin: string): void {
+    this.emailInTurn(emailAddress, () => this.sendJoinLink(emailAddress, domain, link, origin), "Could not email a link to join");
+  }
+
+  /**
+   * Has `send` email `emailAddress`, in turn with the other emails on their way to the address, and
+   * without waiting for another address's, as none did when each ask waited for its own, logging
+   * `failure` with whatever goes wrong. No more are on their way to an address at once than it's emailed
+   * in an hour, since no more of them could be sent: one past that is dropped, so that asks for an
+   * address the provider is slow with, or refuses, can't pile up.
+   */
+  private emailInTurn(emailAddress: string, send: () => Promise<void>, failure: string): void {
     const address = asStored(emailAddress);
-    const line = this.emailingLinks.get(address) ?? { asked: 0, last: Promise.resolve() };
+    const line = this.emailsOnTheirWay.get(address) ?? { asked: 0, last: Promise.resolve() };
     if (line.asked >= EMAILS_PER_ADDRESS) return;
     line.asked++;
     line.last = line.last
-      .then(() => this.sendJoinLink(emailAddress, domain, link, origin))
-      .catch((error: unknown) => console.error("Could not email a link to join", error))
+      .then(send)
+      .catch((error: unknown) => console.error(failure, error))
       .finally(() => {
-        if (--line.asked === 0) this.emailingLinks.delete(address);
+        if (--line.asked === 0) this.emailsOnTheirWay.delete(address);
       });
-    this.emailingLinks.set(address, line);
+    this.emailsOnTheirWay.set(address, line);
     this.ctx.waitUntil(line.last);
   }
 
@@ -3075,7 +3125,8 @@ export class Workspace extends DurableObject<Env> {
    * a username made from it (`firstFreeUsername`), which answers "joined".
    * Accounts are linked by the issuer and the member's id there, never matched by email address, but for
    * one the single sign-on provider says it verified, while the Single sign-on card says to go by those,
-   * which links whoever here has it, once, if only one person does (`linkVerifiedEmail`).
+   * or one a code Ember emailed proved the Memberful member's, which links whoever here has it, once, if
+   * only one person does, who proved it theirs here too (`linkVerifiedEmail`).
    * What it said of their membership, as of `readAt`, is gone by as a check's is (`settleMembership`),
    * unless the Workspace has gone by a newer read: a member whose membership has lapsed, or who is in no
    * group the card lets in, is suspended, their sessions elsewhere ending, and one whose membership is
@@ -3170,14 +3221,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Links `member`'s account at the single sign-on provider `issuer` to whoever here has the email address
-   * the provider says it verified, while the Single sign-on card says to go by those, as signing in for
-   * the first time does (`signInElsewhere`), answering whom it linked, as signing in finds them.
+   * Links `member`'s account at `issuer`, which `via` signs in with, to whoever here has the email address
+   * verified as theirs, as signing in for the first time does (`signInElsewhere`): one the single sign-on
+   * provider says it verified, while the Single sign-on card says to go by those, or one a code Ember
+   * emailed proved the Memberful member's (`signInWithMemberfulCode`). Answers whom it linked, as signing
+   * in finds them.
    */
   private async linkVerifiedEmail(via: SignInElsewhere, issuer: string, member: MemberElsewhere, readAt: number, otherWays: OtherWays): Promise<LinkedPerson | null> {
-    if (via !== "sso" || !member.emailVerified || member.emailAddress === null) return null;
-    if (!(await this.ssoProvider())?.linksVerifiedEmails) return null;
-    const userId = await this.store.linkVerifiedEmail(linkedAccountOf(issuer, member), member.emailAddress, readAt, new Date().toISOString());
+    if (!member.emailVerified || member.emailAddress === null) return null;
+    if (via === "sso" && !(await this.ssoProvider())?.linksVerifiedEmails) return null;
+    const userId = await this.store.linkVerifiedEmail(linkedAccountOf(issuer, member), via, member.emailAddress, readAt, new Date().toISOString());
     return userId === null ? null : this.store.linkedPerson(issuer, member.id, otherWays);
   }
 
@@ -3657,6 +3710,151 @@ export class Workspace extends DurableObject<Env> {
     if (userId === null) return "wrong";
     const session = await this.startSession(userId, passwordDigest, null, tokenDigest, client);
     return typeof session === "string" ? null : session;
+  }
+
+  /**
+   * Emails a code to sign in with, the one `code` holds, to `emailAddress`, while the Memberful site that
+   * `api` asks has a member with it, from the workspace's From address, while Ember offers Sign in with
+   * Memberful there. Asks from `ip` count against the network's limit while they're `limited`, as they
+   * are while Ember lacks Turnstile's keys. It answers "asked" before Memberful is asked anything, and
+   * whether or not it has a member with the address, so that neither the answer nor how soon it comes
+   * says who's a member: only the email does, which only the address's owner reads (`emailMemberfulCode`).
+   */
+  async askForMemberfulCode(ip: string, emailAddress: string, code: NewResetCode, api: MemberfulApi | null, limited: boolean): Promise<MemberfulCodeAsk> {
+    const account = await this.joinableAccount();
+    const sending = account && (await this.emailSender(account));
+    if (!account || !sending) return "unsendable";
+    if (api === null || !(await this.offersMemberfulSignIn(api.site))) return "off";
+    if (limited && !this.memberfulCodeAsks.attempt(ip)) return "limited";
+    const email = memberfulCodeEmail(emailAddress, account.name, code.code);
+    const keep = (kept: SavedMemberfulCode) => this.store.saveMemberfulCode(kept);
+    this.emailInTurn(emailAddress, () => this.emailMemberfulCode(emailAddress, email, code.digest, api, sending, keep), "Could not email a code to sign in with Memberful");
+    return "asked";
+  }
+
+  /**
+   * Emails `email`, which holds the code whose digest is `codeDigest`, to `emailAddress`, with `sending`,
+   * once the Memberful site that `api` asks finds a member with the address, unless it's been emailed as
+   * often as it is in an hour, whoever asked, when Memberful isn't asked either, and `keep`s the code once
+   * the provider has taken the email, in place of any sent before, for that site. An email the provider
+   * refuses reaches nobody, so it isn't counted, and changes no code.
+   */
+  private async emailMemberfulCode(
+    emailAddress: string,
+    email: Email,
+    codeDigest: string,
+    api: MemberfulApi,
+    sending: { sender: Sender; from: Mailbox },
+    keep: (code: SavedMemberfulCode) => Promise<void>,
+  ): Promise<void> {
+    // Counting is left until Memberful finds a member, so an address nobody there has writes nothing.
+    if ((await this.store.emailRequestsOf(emailAddress, new Date(Date.now() - EMAIL_ASK_WINDOW_MS).toISOString())) >= EMAILS_PER_ADDRESS) return;
+    const member = await this.memberfulMemberWith(api, emailAddress);
+    if (member === null || member === "nobody") return;
+    const now = Date.now();
+    const { count, countedSince } = await this.store.countEmailRequest(emailAddress, new Date(now).toISOString(), new Date(now - EMAIL_ASK_WINDOW_MS).toISOString());
+    // The count is of the emails sent, or being sent, so that one the provider refuses frees a place.
+    if (count > EMAILS_PER_ADDRESS) return this.store.uncountEmailRequest(emailAddress, countedSince);
+    if ((await sendEmail(sending.sender, sending.from, email)) !== null) return this.store.uncountEmailRequest(emailAddress, countedSince);
+    const [createdAt, expiresAt] = [new Date(now).toISOString(), new Date(now + MEMBERFUL_CODE_MS).toISOString()];
+    await keep({ emailAddress, codeDigest, site: api.site, createdAt, expiresAt });
+  }
+
+  /**
+   * Signs in the member of the Memberful site that `api` asks who has `emailAddress`, with the code Ember
+   * emailed them, whose digest is `codeDigest`, as signing in on Memberful's page does
+   * (`signInElsewhere`), with the session `tokenDigest` names. The try counts against sign-in's limit
+   * from `ip`, then against the code, and Memberful is asked who has the address only once the code is
+   * right, which spends it, unless Memberful can't be asked. A code emailed for another site than `api`'s,
+   * as before an administrator gave Ember another site's keys, answers "failed". The code proves the
+   * address is the member's, so it links them to whoever here proved it theirs too, by joining with a
+   * link emailed to it, where signing in on Memberful's page asks them for their password
+   * (`linkVerifiedEmail`).
+   */
+  async signInWithMemberfulCode(ip: string, emailAddress: string, codeDigest: string, api: MemberfulApi, tokenDigest: string, client: Client): Promise<MemberfulCodeOutcome> {
+    if (!this.signInAttempts.attempt(ip)) return "limited";
+    const kept = await this.store.tryMemberfulCode(emailAddress, new Date().toISOString());
+    if (kept === null || !(await isToken(codeDigest, kept.codeDigest))) return "wrong";
+    if (kept.site !== api.site) return "failed";
+    // What Memberful says of the member is as of now, as signing in on its page reads it once it began.
+    const readAt = Date.now();
+    const member = await this.memberfulMemberWith(api, emailAddress);
+    if (member === null) return "unchecked";
+    if (!(await this.store.spendMemberfulCode(emailAddress, codeDigest, new Date().toISOString()))) return "wrong";
+    if (member === "nobody") return "nobody";
+    // The code proves the address is theirs, which Memberful's word alone doesn't.
+    return this.signInElsewhere("memberful", api.site, { ...member, emailVerified: true }, readAt, tokenDigest, client, NOTHING_KEPT);
+  }
+
+  /**
+   * Emails a code to connect a Memberful account with, the one `code` holds, to `emailAddress`, for the
+   * person `connecting` is for, whose password the Worker checked (`connectionCheck`), once the Memberful
+   * site that `api` asks finds a member with the address, from the workspace's From address, while
+   * Memberful is members only. Every ask from `ip` counts against the network's limit, as asking on the
+   * sign-in page does while Ember lacks Turnstile's keys, since no check of the sort guards the profile. It
+   * answers "asked" before Memberful is asked anything, as the sign-in page's ask does (`emailMemberfulCode`).
+   */
+  async askForMemberfulConnectionCode(connecting: Connecting, ip: string, emailAddress: string, code: NewResetCode, api: MemberfulApi): Promise<MemberfulConnectionCodeAsk> {
+    const account = await this.joinableAccount();
+    const sending = account && (await this.emailSender(account));
+    if (!account || !sending) return "unsendable";
+    if (!rulesOf(account, "memberful").only) return "unneeded";
+    if (!this.memberfulCodeAsks.attempt(ip)) return "limited";
+    const email = memberfulConnectionCodeEmail(emailAddress, account.name, code.code);
+    // Kept for them only while their password is the one that checked out, as a connection started on Memberful's page is.
+    const keep = (kept: SavedMemberfulCode) => this.store.saveMemberfulConnectionCode({ ...kept, ...connecting });
+    this.emailInTurn(emailAddress, () => this.emailMemberfulCode(emailAddress, email, code.digest, api, sending, keep), "Could not email a code to connect Memberful");
+    return "asked";
+  }
+
+  /**
+   * Connects the account of the person `credentials` signs in to the member of the Memberful site that
+   * `api` asks who has `emailAddress`, with the code Ember emailed the address for them, whose digest is
+   * `codeDigest`, as connecting on Memberful's page does once Memberful sends the browser back
+   * (`connectElsewhere`), keeping them signed in, and answers their profile then. The try counts against
+   * sign-in's limit from `ip`, then against the code, which works only for the address it was emailed to,
+   * and Memberful is asked who has the address only once the code is right, which spends it, unless
+   * Memberful can't be asked. The code connects nothing once their password isn't the one that checked out
+   * as they asked for it, as a reset leaves it. Null without a valid session.
+   */
+  async connectMemberfulWithCode(
+    credentials: Credentials,
+    ip: string,
+    emailAddress: string,
+    codeDigest: string,
+    api: MemberfulApi,
+    client: Client,
+  ): Promise<MemberfulConnectionCodeOutcome | null> {
+    if (!this.signInAttempts.attempt(ip)) return "limited";
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const userId = session.user.id;
+    const kept = await this.store.tryMemberfulConnectionCode(userId, emailAddress, new Date().toISOString());
+    if (kept === null || !(await isToken(codeDigest, kept.codeDigest))) return "wrong";
+    if (kept.site !== api.site) return "failed";
+    // What Memberful says of the member is as of now, as connecting on its page reads it once it began.
+    const readAt = Date.now();
+    const member = await this.memberfulMemberWith(api, emailAddress);
+    if (member === null) return "unchecked";
+    if (!(await this.store.spendMemberfulConnectionCode(userId, codeDigest, new Date().toISOString()))) return "wrong";
+    if (member === "nobody") return "nobody";
+    const connected = await this.connectElsewhere("memberful", api.site, member, readAt, { userId, passwordDigest: kept.passwordDigest }, null, client, NOTHING_KEPT);
+    // Without a session to start, it answers "connected" once it has connected them.
+    if (typeof connected === "string" && connected !== "connected") return connected;
+    return this.profile(credentials);
+  }
+
+  /**
+   * Who has `emailAddress` at the Memberful site that `api` asks, as its admin API finds them
+   * (`memberWithEmail`), with the query its schema has for that, which is read once for the site and its
+   * API key (`memberByEmailQuery`): the member, "nobody", or null while Memberful can't say.
+   */
+  private async memberfulMemberWith(api: MemberfulApi, emailAddress: string): Promise<MemberfulMember | "nobody" | null> {
+    const known = this.memberByEmail;
+    const query = known?.site === api.site && known.apiKey === api.apiKey ? known.query : await memberByEmailQuery(api);
+    if (query === null) return null;
+    this.memberByEmail = { ...api, query };
+    return memberWithEmail(api, query, emailAddress);
   }
 
   /**
@@ -5518,7 +5716,10 @@ export class Workspace extends DurableObject<Env> {
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
     const { name, username, emailAddress, bio, avatar, password, membershipNeeded } = person;
     const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
-    const elsewhere = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, ssoOnly: account?.ssoSignIn ?? false, accounts: person.accounts };
+    const membersOnly = account?.memberfulSignIn ?? false;
+    // As the sign-in page's code is offered (`Bootstrap.memberfulCodes`): while Ember can send email, and the Worker has the API key.
+    const memberfulCodes = account !== null && membersOnly && this.sendsEmail(account);
+    const elsewhere = session.guest ? null : { membersOnly, ssoOnly: account?.ssoSignIn ?? false, accounts: person.accounts, memberfulCodes };
     const [apps, outsideAi] = await Promise.all([this.yourApps(person.id, session.guest, account), this.yourOutsideAi(person.id, session.guest, account)]);
     return {
       transfer: { userId: person.id, sessionId: session.id, shownAt: Date.now() },

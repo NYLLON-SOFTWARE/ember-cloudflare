@@ -1,5 +1,6 @@
 import {
   AVATAR_PATH,
+  CANT_EMAIL_CODES,
   CloseCode,
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
@@ -12,6 +13,10 @@ import {
   LOGO_TOO_LARGE,
   MAX_EMAIL_ADDRESS_LENGTH,
   MEMBERFUL_CALLBACK_PATH,
+  MEMBERFUL_CODE_UNCHECKED,
+  MEMBERFUL_CONNECTION_CODES_OFF,
+  MEMBERFUL_CONNECTION_CODES_PATH,
+  MEMBERFUL_CONNECTION_NO_MEMBER,
   MEMBERFUL_CONNECTIONS_PATH,
   MEMBERFUL_DISCONNECT_PASSWORD_NEEDED,
   MEMBERFUL_DISCONNECT_WITHOUT_EMAIL,
@@ -25,6 +30,8 @@ import {
   NO_EMAIL_DOMAINS,
   ONLY_ADMINISTRATOR,
   PASSWORD_RESET_PATH,
+  PASSWORD_RESET_CODE_WRONG,
+  PASSWORD_RESETS_LIMITED,
   PASSWORD_WITH_MEMBERFUL,
   isPasswordTooLong,
   isReservedName,
@@ -40,6 +47,8 @@ import {
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
+  parseMemberfulCodeSignIn,
+  parseMemberfulConnectionCodeRequest,
   parseMembersChange,
   parseRoomLayout,
   parseNewDirect,
@@ -203,6 +212,7 @@ import {
   withDeployedMemberful,
 } from "./memberful";
 import { deployedMemberfulOf } from "./memberful-api";
+import { askForMemberfulCode, memberfulApiFor, memberfulConnectionCodeDigest, newMemberfulConnectionCode, signInWithMemberfulCode } from "./memberful-codes";
 import { anyOtherPage, formAnswer } from "./pages";
 import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
@@ -329,8 +339,9 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
+  const deployedMemberful = deployedMemberfulOf(env);
   const [{ account, user, signInWithMemberful, signInWithSso, passwordResetCodes, turnstileSiteKey }, push] = await Promise.all([
-    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, deployedMemberfulOf(env)?.site ?? null, deployedAddressOf(request)),
+    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, deployedMemberful?.site ?? null, deployedAddressOf(request)),
     webPush(env),
   ]);
   const body: Bootstrap = {
@@ -339,6 +350,8 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env) && !(account && signsInElsewhereOnly(account)),
     signInWithMemberful,
+    // The keys an administrator gives always have the API key, and the deployment's may lack it.
+    memberfulCodes: signInWithMemberful && passwordResetCodes && (deployedMemberful === null || deployedMemberful.apiKey !== null),
     signInWithSso,
     // The deployment's keys take the place of any an administrator gave.
     turnstileSiteKey: turnstileKeysOf(env)?.siteKey ?? turnstileSiteKey,
@@ -764,7 +777,10 @@ async function unbanPerson(request: Request, env: Env, userId: UserId): Promise<
  */
 async function profileAnswer({ transfer, profile, elsewhere }: YourProfile, env: Env, site: string | null): Promise<Response> {
   const [transferId, provider] = await Promise.all([newTransferId(transfer, env.SESSION_SECRET), elsewhere && workspace(env).ssoProvider()]);
-  const answer = { ...profile, memberful: memberfulStatusOf(elsewhere, site), sso: ssoStatusOf(elsewhere, provider ?? null) };
+  // The keys an administrator gives always have the API key, and the deployment's may lack it, as for the sign-in page's code.
+  const deployedMemberful = deployedMemberfulOf(env);
+  const memberful = memberfulStatusOf(elsewhere, site, deployedMemberful === null || deployedMemberful.apiKey !== null);
+  const answer = { ...profile, memberful, sso: ssoStatusOf(elsewhere, provider ?? null) };
   return json({ profile: answer, transferId } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -777,14 +793,16 @@ function connectedAt(elsewhere: NonNullable<YourProfile["elsewhere"]>, issuer: s
 /**
  * Where you stand with Memberful, for your profile: the account you've connected at `site`, named as
  * Memberful described it, or none yet while Memberful is members only, which your profile offers to
- * connect. Null when there's nothing to show: without the site, for a guest, or while Memberful isn't
- * members only and you haven't connected one.
+ * connect, with a code Ember emails while it can and has the site's API key, as `apiKey` says. Null
+ * when there's nothing to show: without the site, for a guest, or while Memberful isn't members only
+ * and you haven't connected one.
  */
-function memberfulStatusOf(elsewhere: YourProfile["elsewhere"], site: string | null): MemberfulStatus | null {
+function memberfulStatusOf(elsewhere: YourProfile["elsewhere"], site: string | null, apiKey: boolean): MemberfulStatus | null {
   if (!elsewhere || site === null) return null;
-  const { membersOnly } = elsewhere;
+  const { membersOnly, memberfulCodes } = elsewhere;
   const connected = connectedAt(elsewhere, site);
-  return connected || membersOnly ? { membersOnly, connected } : null;
+  if (!connected && !membersOnly) return null;
+  return connected || !memberfulCodes || !apiKey ? { membersOnly, connected } : { membersOnly, connected, codes: true };
 }
 
 /**
@@ -950,6 +968,20 @@ async function connectElsewhere(request: Request, env: Env, elsewhere: Connectin
   if (!issuer) return problem(403, elsewhere.unavailable);
   const body: unknown = await jsonBodyOf(request);
   const { currentPassword } = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const check = await connectorOf(request, env, elsewhere, credentials, issuer, currentPassword);
+  if (check instanceof Response) return check;
+  const connecting = await elsewhere.connectionFor(request, env, check.userId, check.passwordDigest, PROFILE_PATH);
+  // Something changed meanwhile: their password, the setting, or what they've connected.
+  return connecting ? connectionAnswer({ connection: connecting.connection, cookies: connecting.cookie === null ? [] : [connecting.cookie] }) : problem(409, `Connecting ${elsewhere.name} didn't start. Try again.`);
+}
+
+/**
+ * Who `credentials` signs in, connecting an account at `issuer` from their profile, as connecting one
+ * checks first (`Workspace.connectionCheck`), once `currentPassword` checks out against their password,
+ * while they have one: whose account it is, and their password's digest, or "" without one. Or the answer
+ * that says why not.
+ */
+async function connectorOf(request: Request, env: Env, elsewhere: ConnectingElsewhere, credentials: Credentials, issuer: string, currentPassword: unknown) {
   const check = await workspace(env).connectionCheck(elsewhere.via, credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", issuer, await memberfulSiteFor(env));
   if (!check) return problem(401, "Not signed in");
   if (check === "limited") return problem(429, SIGN_IN_LIMITED);
@@ -962,9 +994,63 @@ async function connectElsewhere(request: Request, env: Env, elsewhere: Connectin
     // One longer than the form takes is nobody's, as at sign-in.
     if (isPasswordTooLong(currentPassword) || !(await passwordHasher(env).verify(currentPassword, check.passwordDigest)).matches) return problem(422, CURRENT_PASSWORD_WRONG);
   }
-  const connecting = await elsewhere.connectionFor(request, env, check.userId, check.passwordDigest, PROFILE_PATH);
-  // Something changed meanwhile: their password, the setting, or what they've connected.
-  return connecting ? connectionAnswer({ connection: connecting.connection, cookies: connecting.cookie === null ? [] : [connecting.cookie] }) : problem(409, `Connecting ${elsewhere.name} didn't start. Try again.`);
+  return check;
+}
+
+/**
+ * Connect Memberful on your profile with a code, while it offers one (`MemberfulStatus.codes`): once your
+ * password checks out, while you have one, as connecting on Memberful's page takes it, emails a code to
+ * the address your Memberful account has, once the Memberful site finds a member with it, which connects
+ * that account to yours (`connectMemberfulWithCode`), answering 202 before Memberful is asked, whether or
+ * not it has one. It answers as Connect Memberful does to anyone who can't connect one, 403 while Ember
+ * lacks the custom app's API key, 422 without an address, 503 while Ember can't send email, and 429 once
+ * the network has asked for as many codes as it may in an hour.
+ */
+async function askForMemberfulConnectionCode(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const api = await memberfulApiFor(env);
+  if (!api) return problem(403, (await memberfulSiteFor(env)) ? MEMBERFUL_CONNECTION_CODES_OFF : MEMBERFUL_SIGN_IN_PROBLEMS.unavailable);
+  const asked = parseMemberfulConnectionCodeRequest(await jsonBodyOf(request));
+  if (typeof asked === "string") return problem(422, asked);
+  const check = await connectorOf(request, env, CONNECTING_MEMBERFUL, credentials, api.site, asked.currentPassword);
+  if (check instanceof Response) return check;
+  const connecting = { userId: check.userId, passwordDigest: check.passwordDigest };
+  const code = await newMemberfulConnectionCode(env);
+  const outcome = await workspace(env).askForMemberfulConnectionCode(connecting, clientOf(request).ip ?? "unknown", asked.emailAddress.trim(), code, api);
+  if (outcome === "unsendable") return problem(503, CANT_EMAIL_CODES);
+  if (outcome === "unneeded") return problem(403, MEMBERFUL_SIGN_IN_PROBLEMS.unneeded);
+  if (outcome === "limited") return problem(429, PASSWORD_RESETS_LIMITED);
+  return json({}, { status: 202 });
+}
+
+/**
+ * Connects your account on your profile to the member of the Memberful site who has the address
+ * `emailAddress`, with the code Ember emailed it for you (`askForMemberfulConnectionCode`), spending it,
+ * and answers your profile then, keeping you signed in, as connecting on Memberful's page does once
+ * Memberful sends the browser back. A code that doesn't work answers 422, as does a right one once
+ * Memberful has no member with the address, 503 while Memberful can't be asked, which leaves the code
+ * working, 429 past sign-in's limit, which each try counts against, and 403 with why connecting refuses
+ * it: the Memberful account is someone else's here, you've connected another, it has no active
+ * membership, or Memberful stopped being members only.
+ */
+async function connectMemberfulWithCode(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const given = parseMemberfulCodeSignIn(await jsonBodyOf(request));
+  if ("error" in given) return problem(given.field ? 422 : 400, given.error);
+  const api = await memberfulApiFor(env);
+  if (!api) return problem(403, (await memberfulSiteFor(env)) ? MEMBERFUL_CONNECTION_CODES_OFF : MEMBERFUL_SIGN_IN_PROBLEMS.unavailable);
+  const client = clientOf(request);
+  const codeDigest = await memberfulConnectionCodeDigest(given.code, env);
+  const outcome = await workspace(env).connectMemberfulWithCode(credentials, client.ip ?? "unknown", given.emailAddress.trim(), codeDigest, api, client);
+  if (!outcome) return problem(401, "Not signed in");
+  if (outcome === "limited") return problem(429, SIGN_IN_LIMITED);
+  if (outcome === "wrong") return problem(422, PASSWORD_RESET_CODE_WRONG);
+  if (outcome === "nobody") return problem(422, MEMBERFUL_CONNECTION_NO_MEMBER);
+  if (outcome === "unchecked") return problem(503, MEMBERFUL_CODE_UNCHECKED);
+  if (typeof outcome === "string") return problem(403, MEMBERFUL_SIGN_IN_PROBLEMS[outcome]);
+  return profileAnswer(outcome, env, api.site);
 }
 
 /**
@@ -1643,6 +1729,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/outside/answers" && request.method === "POST") return () => answerOutsideAsk(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "POST") return () => connectMemberful(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "DELETE") return () => disconnectMemberful(request, env);
+  if (pathname === MEMBERFUL_CONNECTION_CODES_PATH && request.method === "POST") return () => askForMemberfulConnectionCode(request, env);
+  if (pathname === MEMBERFUL_CONNECTION_CODES_PATH && request.method === "PUT") return () => connectMemberfulWithCode(request, env);
   if (pathname === SSO_CONNECTIONS_PATH && request.method === "POST") return () => connectSso(request, env);
   if (pathname === SSO_CONNECTIONS_PATH && request.method === "DELETE") return () => disconnectSso(request, env);
   if (pathname === AVATAR_PATH && request.method === "PUT") return () => changeAvatar(request, env);
@@ -1671,6 +1759,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/email_links/lookup" && request.method === "POST") return () => lookUpEmailLink(request, env);
   if (pathname === "/api/password_resets" && request.method === "POST") return () => askForPasswordReset(request, env);
   if (pathname === "/api/password_resets" && request.method === "PUT") return () => resetPasswordWithCode(request, env);
+  if (pathname === "/api/memberful_codes" && request.method === "POST") return () => askForMemberfulCode(request, env);
+  if (pathname === "/api/memberful_codes" && request.method === "PUT") return () => signInWithMemberfulCode(request, env);
   if (pathname === "/api/invitations" && request.method === "POST") return () => invite(request, env);
   // Invitations' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
   const invitation = pathname.match(/^\/api\/invitations\/([^/]+)$/);

@@ -20,6 +20,7 @@ import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
 import { GuestSignIn } from "@/components/guest-sign-in";
+import { keepMemberfulCodeAsked, MemberfulCodeEntry, memberfulCodeAskedOnArrival, MemberfulCodeRequest } from "@/components/memberful-code-sign-in";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTitle } from "@/hooks/use-title";
@@ -35,10 +36,12 @@ import { forgetSsoOutcome, ssoOutcomeOnArrival } from "@/lib/sso";
 // offers signing in with Memberful instead, and the email and password form to those who ask for it:
 // administrators, and members with an account from before, whose password then asks them to connect
 // their Memberful account. Otherwise, while Memberful's members sign in with it, the card links to that
-// under the form. Single sign-on works the same way, named as the provider is: while it's the only way
-// in, the card offers Sign in with it instead of the form, and otherwise links to it under the form. While anyone may sign up, it links to the page for that, and it says why a way to join
-// that's off sent someone here. While Ember can send email, the form links to resetting a forgotten
-// password with a code Ember emails.
+// under the form. While Ember can email Memberful's members a code to sign in with, the card asks for
+// that itself, in place of sending them to Memberful's page, which it links to under its form. Single
+// sign-on works the same way, named as the provider is: while it's the only way in, the card offers Sign
+// in with it instead of the form, and otherwise links to it under the form. While anyone may sign up, it
+// links to the page for that, and it says why a way to join that's off sent someone here. While Ember
+// can send email, the form links to resetting a forgotten password with a code Ember emails.
 
 /** What a Memberful or single sign-on sign-in that came back here says went wrong, as this page's address names it, if it does. */
 function problemOnArrival(): { text: string; taken: boolean } | null {
@@ -74,22 +77,33 @@ const connectionsOf = (answer: ElsewhereConnection, ssoName: string): Connection
 ];
 
 /**
+ * What the card asks for: an email address and password, the address a Memberful account has for a code
+ * Ember emails it, or nothing, offering Sign in with single sign-on or Memberful instead.
+ */
+type Way = "password" | "code" | "elsewhere";
+
+/**
  * Signs in with an email address and password, or with Memberful while its members sign in with it, or
  * with single sign-on while it's offered, or with just a name when the workspace allows it, or, while
  * Memberful is members only, or single sign-on the only way in, with that, or with either while both
  * are, or a password for administrators, which asks anyone else to connect their account there until
- * they have.
+ * they have. Memberful's members sign in on the card with a code Ember emails them while it can.
  */
 export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
   const { memberfulSignIn: membersOnly, ssoSignIn: ssoOnly } = workspace.account;
   const ssoName = workspace.signInWithSso ?? DEFAULT_SSO_NAME;
   // While both are the only ways in, Memberful's link goes beside single sign-on's, unless it signs nobody in, as without its site's keys.
   const eitherOnly = membersOnly && ssoOnly && workspace.signInWithMemberful;
+  const codes = workspace.memberfulCodes;
+  // What the card asks for in place of a password while Memberful or single sign-on is the only way in: a code, while Memberful alone is and Ember emails them.
+  const away: Way = membersOnly && !ssoOnly && codes ? "code" : "elsewhere";
   const [arrival] = useState(problemOnArrival);
   const [asGuest, setAsGuest] = useState(false);
-  // Someone whose email address elsewhere is someone's here is asked for that someone's password.
-  const [withPassword, setWithPassword] = useState(!(membersOnly || ssoOnly) || arrival?.taken === true);
-  const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
+  /** The address Ember was asked to email a code to, which the card then asks for, or null to ask for an address. */
+  const [codeAsked, setCodeAsked] = useState(() => (codes ? memberfulCodeAskedOnArrival() : null));
+  // The card asks for a code Ember was asked to email still, and someone whose email address elsewhere is someone's here for that someone's password.
+  const [way, setWay] = useState<Way>(() => (codeAsked !== null ? "code" : !(membersOnly || ssoOnly) || arrival?.taken === true ? "password" : away));
+  const [emailAddress, setEmailAddress] = useState(() => codeAsked ?? new URLSearchParams(location.search).get("email_address") ?? "");
   const [busy, setBusy] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [problem, setProblem] = useState<string | null>(() => arrival?.text ?? joiningProblemOnArrival());
@@ -108,6 +122,20 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   function connect(asked: Connection[]) {
     setBusy(false);
     setConnections(asked);
+  }
+
+  /** Asks for the code Ember was asked to email to `address`, or for an address again with null. */
+  function changeCodeAsked(address: string | null) {
+    keepMemberfulCodeAsked(address);
+    setCodeAsked(address);
+    // The field may have changed while the ask was on its way; asking again and the password form go on from the address asked for.
+    if (address !== null) setEmailAddress(address);
+  }
+
+  /** Asks for `next` in place of what the card asks for now, forgetting why the last try was refused. */
+  function switchTo(next: Way) {
+    setRefusal(null);
+    setWay(next);
   }
 
   async function submit() {
@@ -131,6 +159,18 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     }
   }
 
+  // The links to the other ways in. Memberful's goes to the card's own form while Ember emails codes, and
+  // else to Memberful's page, which, as single sign-on's does, opens the page this tab was sent here from
+  // once it's signed in.
+  const memberfulLink = codes ? (
+    <AuthAlternative question="Member?" action="Sign in with Memberful" onClick={() => switchTo("code")} disabled={busy} />
+  ) : (
+    <AuthAlternative question="Member?" action="Sign in with Memberful" href={memberfulSignInPath(returnPath())} />
+  );
+  const ssoLink = <AuthAlternative question={SSO_QUESTION} action={`Sign in with ${ssoName}`} href={ssoSignInPath(returnPath())} />;
+  const passwordLink = <AuthAlternative question="Have a password?" action="Sign in with a password" onClick={() => switchTo("password")} disabled={busy} />;
+  const refused = () => setShaking(true);
+
   return (
     <AuthPage workspace={workspace}>
       {problem && <Problem>{problem}</Problem>}
@@ -151,10 +191,25 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
           </>
         ) : asGuest ? (
           <GuestSignIn logo={workspace.account.logo} onSignedIn={onSignedIn} onUsePassword={() => setAsGuest(false)} />
+        ) : way === "code" && codeAsked !== null ? (
+          <MemberfulCodeEntry
+            logo={workspace.account.logo}
+            emailAddress={codeAsked}
+            onSignedIn={onSignedIn}
+            onAskAgain={() => changeCodeAsked(null)}
+            onTaken={(why) => {
+              changeCodeAsked(null);
+              switchTo("password");
+              setRefusal(why);
+            }}
+            onBusy={setBusy}
+            onProblem={setProblem}
+            onRefused={refused}
+          />
         ) : (
           <>
             <AuthHeading title={`Sign in to ${workspace.account.name}`} logo={workspace.account.logo}>Welcome back. Pick up the conversation.</AuthHeading>
-            {withPassword ? (
+            {way === "password" ? (
               <form
                 className={AUTH_FORM}
                 onSubmit={(event) => {
@@ -195,6 +250,16 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                 </Field>
                 <SubmitButton disabled={busy}>Sign in</SubmitButton>
               </form>
+            ) : way === "code" ? (
+              <MemberfulCodeRequest
+                siteKey={workspace.turnstileSiteKey}
+                emailAddress={emailAddress}
+                onChange={setEmailAddress}
+                onAsked={changeCodeAsked}
+                onBusy={setBusy}
+                onProblem={setProblem}
+                onRefused={refused}
+              />
             ) : (
               <Button asChild className={PRIMARY_BUTTON}>
                 {/* The Worker opens the page this tab was sent here from once it's signed in. The tab keeps it too, for a try that fails. */}
@@ -205,30 +270,31 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                 )}
               </Button>
             )}
-            {withPassword && workspace.passwordResetCodes && (
+            {way === "password" && workspace.passwordResetCodes && (
               <AuthAlternative question="Forgot your password?" action="Reset it" href={withEmailAddress(PASSWORD_RESET_PATH, emailAddress)} />
             )}
+            {way === "code" && <AuthAlternative question="Prefer Memberful's page?" action="Continue with Memberful" href={memberfulSignInPath(returnPath())} />}
             {membersOnly || ssoOnly ? (
-              withPassword ? (
+              way === "password" ? (
                 <AuthAlternative
                   question={eitherOnly ? "No password?" : ssoOnly ? SSO_QUESTION : "Member?"}
                   action={eitherOnly ? `Sign in with ${ssoName} or Memberful` : `Sign in with ${ssoOnly ? ssoName : "Memberful"}`}
-                  onClick={() => setWithPassword(false)}
+                  onClick={() => switchTo(away)}
                   disabled={busy}
                 />
               ) : (
                 <>
-                  {/* Single sign-on's button comes first, and Memberful's here, while either signs people in. */}
-                  {eitherOnly && <AuthAlternative question="Member?" action="Sign in with Memberful" href={memberfulSignInPath(returnPath())} />}
-                  <AuthAlternative question="Have a password?" action="Sign in with a password" onClick={() => setWithPassword(true)} />
+                  {/* While either signs people in, single sign-on's button comes first and Memberful's link here, and Memberful's form first and single sign-on's link here. */}
+                  {way === "elsewhere" && eitherOnly && memberfulLink}
+                  {way === "code" && ssoOnly && ssoLink}
+                  {passwordLink}
                 </>
               )
             ) : (
               <>
-                {workspace.signInWithMemberful && <AuthAlternative question="Member?" action="Sign in with Memberful" href={memberfulSignInPath(returnPath())} />}
-                {workspace.signInWithSso !== null && (
-                  <AuthAlternative question={SSO_QUESTION} action={`Sign in with ${workspace.signInWithSso}`} href={ssoSignInPath(returnPath())} />
-                )}
+                {way === "password" && workspace.signInWithMemberful && memberfulLink}
+                {workspace.signInWithSso !== null && ssoLink}
+                {way === "code" && passwordLink}
               </>
             )}
             {signsUpOpenly(workspace.account) ? (

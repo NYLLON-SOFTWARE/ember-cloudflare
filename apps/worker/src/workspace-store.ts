@@ -512,6 +512,32 @@ export interface SavedPasswordReset {
 }
 
 /**
+ * A code Ember emailed a member of the Memberful site to sign in with, as it's kept: its digest, the
+ * address it went to, the site whose member has it, and when it was made and stops working.
+ */
+export interface SavedMemberfulCode {
+  emailAddress: string;
+  codeDigest: string;
+  site: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/**
+ * A code Ember emailed the address a Memberful account has, for someone here to connect that account to
+ * theirs from their profile, as it's kept: what a code to sign in with is kept with, and whose account
+ * it connects, with the digest of the password that checked out as they asked for it.
+ */
+export type SavedMemberfulConnectionCode = SavedMemberfulCode & Connecting;
+
+/** What trying a code to connect a Memberful account answers: its digest, the site it was emailed for, and the password it goes with. */
+export interface TriedMemberfulConnectionCode {
+  codeDigest: string;
+  site: string;
+  passwordDigest: string;
+}
+
+/**
  * The sessions a new password ends, all of its person's but `kept`, the one saving it, whose sockets it
  * closes with `code` in every room they're in, due at `dueAt`, and the push subscriptions it forgets with
  * them, all of theirs but those at `pushEndpoint`, its browser's. `kept` stays signed in, but the sign-in
@@ -998,6 +1024,9 @@ const COUNT_EMAIL_LINK_REQUEST = `INSERT INTO email_link_requests (email_address
     count = CASE WHEN email_link_requests.counted_since > ?3 THEN email_link_requests.count + 1 ELSE 1 END
   RETURNING count, counted_since`;
 
+/** How many times the address ?1 has been counted in the hour its count is of, if that hour began after ?2. */
+const EMAIL_LINK_REQUESTS_OF = `SELECT count FROM email_link_requests WHERE email_address = lower(?1) AND counted_since > ?2`;
+
 /** Takes back a time the address ?1 was counted in the hour that began at ?2, while its count is of that hour still. */
 const UNCOUNT_EMAIL_LINK_REQUEST = `UPDATE email_link_requests SET count = count - 1 WHERE email_address = lower(?1) AND counted_since = ?2 AND count > 0`;
 
@@ -1038,6 +1067,23 @@ const TRY_PASSWORD_RESET = `UPDATE password_resets SET attempts = attempts + 1 W
 
 /** Whose that code is, if its digest is ?3. */
 const PASSWORD_RESET_HOLDER = `SELECT user_id FROM password_resets WHERE ${WORKING_PASSWORD_RESET} AND code_digest = ?3`;
+
+/**
+ * Keeps the code Ember emailed the address ?1 to sign in with Memberful, whose digest is ?2, for the
+ * member of the site ?3 who has it, made at ?4 and working until ?5, in place of any the address had, and
+ * not tried yet. The address is kept in lowercase, so that its case keeps no code of its own.
+ */
+const SAVE_MEMBERFUL_CODE = `INSERT INTO memberful_codes (email_address, code_digest, site, created_at, expires_at) VALUES (lower(?1), ?2, ?3, ?4, ?5)
+  ON CONFLICT (email_address) DO UPDATE SET code_digest = excluded.code_digest, site = excluded.site, created_at = excluded.created_at, expires_at = excluded.expires_at, attempts = 0`;
+
+/** Deletes the codes to sign in with Memberful that stopped working at ?1 or before, which nobody used. */
+const FORGET_EXPIRED_MEMBERFUL_CODES = `DELETE FROM memberful_codes WHERE expires_at <= ?1`;
+
+/** Counts a try of the code that works at ?2 for the address ?1, while it has been tried fewer than ?3 times, answering its digest and its site. */
+const TRY_MEMBERFUL_CODE = `UPDATE memberful_codes SET attempts = attempts + 1 WHERE email_address = lower(?1) AND expires_at > ?2 AND attempts < ?3 RETURNING code_digest, site`;
+
+/** Spends that code, if its digest is ?3, answering it if it did. */
+const SPEND_MEMBERFUL_CODE = `DELETE FROM memberful_codes WHERE email_address = lower(?1) AND expires_at > ?2 AND code_digest = ?3 RETURNING code_digest`;
 
 /** The active person whose email address is exactly ?, and their password's digest, unless they have no password. */
 const PASSWORD_FOR = `SELECT id, password_digest FROM users WHERE email_address = ? AND status = ${ACTIVE} AND password_digest <> ''`;
@@ -1137,16 +1183,42 @@ const CONNECT_IDENTITY = `INSERT INTO identities (issuer, subject, user_id, chec
   RETURNING user_id`;
 
 /**
- * Links the account at issuer ?1 with subject ?2, its membership read at ?3, named ?5 with the email
- * address ?6, at ?4, to whoever here has the address ?7, whatever its case, if only one person does, and
- * they can have one connected and aren't connected to another account there: what signing in for the
- * first time does with an address the single sign-on provider verified, while it's set to. Only someone
- * who proved the address is theirs here too, by joining with a link emailed to it, and hasn't changed it
- * since, is linked by it, so that nobody can claim a colleague's address ahead of them, and never an
+ * Keeps the code Ember emailed the address ?3 for the person ?1 to connect the Memberful account that has
+ * it, at the site ?5, whose digest is ?4, made at ?6 and working until ?7, in place of any they had, and
+ * not tried yet, if they can connect one and their password's digest is still ?2, or "" without one, as it
+ * was checked. The address is kept in lowercase, as a code to sign in with's is.
+ */
+const SAVE_MEMBERFUL_CONNECTION_CODE = `INSERT INTO memberful_connection_codes (user_id, password_digest, email_address, code_digest, site, created_at, expires_at)
+  SELECT id, ?2, lower(?3), ?4, ?5, ?6, ?7 FROM users WHERE id = ?1 AND ${CONNECTABLE} AND coalesce(password_digest, '') = ?2
+  ON CONFLICT (user_id) DO UPDATE SET password_digest = excluded.password_digest, email_address = excluded.email_address, code_digest = excluded.code_digest,
+    site = excluded.site, created_at = excluded.created_at, expires_at = excluded.expires_at, attempts = 0`;
+
+/** Deletes the codes to connect a Memberful account that stopped working at ?1 or before, which nobody used. */
+const FORGET_EXPIRED_MEMBERFUL_CONNECTION_CODES = `DELETE FROM memberful_connection_codes WHERE expires_at <= ?1`;
+
+/**
+ * Counts a try of the code that works at ?3 for the person ?1 to connect the Memberful account with the
+ * address ?2, while it has been tried fewer than ?4 times, answering its digest, its site, and the
+ * password it goes with.
+ */
+const TRY_MEMBERFUL_CONNECTION_CODE = `UPDATE memberful_connection_codes SET attempts = attempts + 1
+  WHERE user_id = ?1 AND email_address = lower(?2) AND expires_at > ?3 AND attempts < ?4 RETURNING code_digest, site, password_digest`;
+
+/** Spends the person ?1's code to connect a Memberful account, while it works at ?2, if its digest is ?3, answering it if it did. */
+const SPEND_MEMBERFUL_CONNECTION_CODE = `DELETE FROM memberful_connection_codes WHERE user_id = ?1 AND expires_at > ?2 AND code_digest = ?3 RETURNING code_digest`;
+
+/**
+ * Links the account at issuer ?1 with subject ?2, signed in with by way of ?8, its membership read at ?3,
+ * named ?5 with the email address ?6, at ?4, to whoever here has the address ?7, whatever its case, if
+ * only one person does, and they can have one connected and aren't connected to another account there:
+ * what signing in for the first time does with an address the single sign-on provider verified, while
+ * it's set to, or one a code Ember emailed proved the Memberful member's. Only someone who proved the
+ * address is theirs here too, by joining with a link emailed to it, and hasn't changed it since, is
+ * linked by it, so that nobody can claim a colleague's address ahead of them, and never an
  * administrator, who connects one from their profile, with their password.
  */
 const LINK_VERIFIED_EMAIL = `INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at, name, email_address, via)
-  SELECT ?1, ?2, users.id, ?3, ?4, ?4, ?5, ?6, 'sso' FROM users WHERE lower(users.email_address) = lower(?7) AND ${CONNECTABLE}
+  SELECT ?1, ?2, users.id, ?3, ?4, ?4, ?5, ?6, ?8 FROM users WHERE lower(users.email_address) = lower(?7) AND ${CONNECTABLE}
     AND users.email_verified_at IS NOT NULL AND users.role <> ${ADMINISTRATOR}
     AND (SELECT count(*) FROM users AS same WHERE lower(same.email_address) = lower(?7)) = 1
     AND NOT EXISTS (SELECT 1 FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?1)
@@ -4295,13 +4367,14 @@ export class WorkspaceStore {
   }
 
   /**
-   * Links `account`, at a single sign-on provider, to whoever here has `emailAddress`, which the provider
-   * says it verified, whatever its case, its membership read at `checkedAt`: only if one person does, who
-   * can have an account connected and isn't connected to another there. Answers whom it linked it to.
+   * Links `account`, at the single sign-on provider or the Memberful site, as `via` says, to whoever here
+   * has `emailAddress`, which the provider says it verified, or a code Ember emailed proved the member's,
+   * whatever its case, its membership read at `checkedAt`: only if one person does, who can have an
+   * account connected and isn't connected to another there. Answers whom it linked it to.
    */
-  async linkVerifiedEmail(account: LinkedAccount, emailAddress: string, checkedAt: number, now: string): Promise<UserId | null> {
+  async linkVerifiedEmail(account: LinkedAccount, via: "memberful" | "sso", emailAddress: string, checkedAt: number, now: string): Promise<UserId | null> {
     const { issuer, subject, name, emailAddress: shown } = account;
-    const [row] = await this.db.all<{ user_id: UserId }>(LINK_VERIFIED_EMAIL, issuer, subject, checkedAt, now, name, shown, emailAddress);
+    const [row] = await this.db.all<{ user_id: UserId }>(LINK_VERIFIED_EMAIL, issuer, subject, checkedAt, now, name, shown, emailAddress, via);
     return row?.user_id ?? null;
   }
 
@@ -4468,13 +4541,14 @@ export class WorkspaceStore {
    * whether it queued any.
    */
   async disconnectIdentity(userId: UserId, issuer: string, passwordDigest: string, ended: EndedByPassword): Promise<Disconnection> {
-    const [queued, , , , , unlinked] = await this.db.batch([
+    const [queued, , , , , , unlinked] = await this.db.batch([
       // Before their sessions go, which it finds their sockets by, and before the link, which each checks.
       statement(QUEUE_DISCONNECTED_SESSION_REVOCATIONS, userId, issuer, passwordDigest, SESSION_TAG_PREFIX, ended.code, ended.dueAt, ended.kept),
       statement(`DELETE FROM sessions WHERE user_id = ?1 AND id <> ?4 AND ${DISCONNECTING}`, userId, issuer, passwordDigest, ended.kept),
       statement(`UPDATE sessions SET transfers_since = ?5 WHERE id = ?4 AND ${DISCONNECTING}`, userId, issuer, passwordDigest, ended.kept, ended.dueAt),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?1 AND endpoint IS NOT ?4 AND ${DISCONNECTING}`, userId, issuer, passwordDigest, ended.pushEndpoint),
       statement(`DELETE FROM pending_identities WHERE user_id = ?1 AND ${DISCONNECTING}`, userId, issuer, passwordDigest),
+      statement(`DELETE FROM memberful_connection_codes WHERE user_id = ?1 AND ${DISCONNECTING}`, userId, issuer, passwordDigest),
       statement(DISCONNECT_IDENTITY, userId, issuer, passwordDigest),
     ]);
     return { disconnected: unlinked!.length > 0, queued: queued!.length > 0 };
@@ -4557,14 +4631,20 @@ export class WorkspaceStore {
 
   /**
    * Counts a time someone asked Ember to email `emailAddress`, whatever its case, at `now`: a link to join
-   * with it at the email domains, or a code to reset its password. Answers how many times it's been asked
-   * for in the hour its count is of, and when that hour began, which starts again once `since` is past,
-   * when the counts whose hour is over are forgotten.
+   * with it at the email domains, or a code to reset its password or sign in with Memberful. Answers how
+   * many times it's been asked for in the hour its count is of, and when that hour began, which starts
+   * again once `since` is past, when the counts whose hour is over are forgotten.
    */
   async countEmailRequest(emailAddress: string, now: string, since: string): Promise<{ count: number; countedSince: string }> {
     const [, counted] = await this.db.batch([statement(FORGET_EMAIL_LINK_REQUESTS, since), statement(COUNT_EMAIL_LINK_REQUEST, emailAddress, now, since)]);
     const [row] = counted as Array<{ count: number; counted_since: string }>;
     return { count: row!.count, countedSince: row!.counted_since };
+  }
+
+  /** How many times `countEmailRequest` has counted `emailAddress` in the hour its count is of, if that hour began after `since`, and else 0. */
+  async emailRequestsOf(emailAddress: string, since: string): Promise<number> {
+    const [row] = await this.db.all<{ count: number }>(EMAIL_LINK_REQUESTS_OF, emailAddress, since);
+    return row?.count ?? 0;
   }
 
   /** Takes back a time `countEmailRequest` counted `emailAddress` in the hour that began at `countedSince`, unless its count has started again since. */
@@ -4614,6 +4694,63 @@ export class WorkspaceStore {
   async passwordResetHolder(emailAddress: string, codeDigest: string, now: string): Promise<UserId | null> {
     const [row] = await this.db.all<{ user_id: UserId }>(PASSWORD_RESET_HOLDER, emailAddress, now, codeDigest);
     return row?.user_id ?? null;
+  }
+
+  /**
+   * Keeps `code`, the code Ember emailed an address to sign in with Memberful, in place of any it had,
+   * deleting in the same batch the codes that stopped working by the time it was made, which nobody used,
+   * so that those don't pile up.
+   */
+  async saveMemberfulCode({ emailAddress, codeDigest, site, createdAt, expiresAt }: SavedMemberfulCode): Promise<void> {
+    await this.db.batch([statement(FORGET_EXPIRED_MEMBERFUL_CODES, createdAt), statement(SAVE_MEMBERFUL_CODE, emailAddress, codeDigest, site, createdAt, expiresAt)]);
+  }
+
+  /**
+   * Counts a try of the code to sign in with Memberful that works, at `now`, for `emailAddress`, whatever
+   * its case, while it has tries left, answering its digest, to check the code tried against, and the site
+   * it was emailed for, or null while no code works for the address. Either way it changes what's stored
+   * (`passingChange`), so that how soon it answers doesn't say which.
+   */
+  async tryMemberfulCode(emailAddress: string, now: string): Promise<{ codeDigest: string; site: string } | null> {
+    const results = await this.db.batch([...passingChange(), statement(TRY_MEMBERFUL_CODE, emailAddress, now, PASSWORD_RESET_CODE_TRIES)]);
+    const [row] = results.at(-1) as Array<{ code_digest: string; site: string }>;
+    return row ? { codeDigest: row.code_digest, site: row.site } : null;
+  }
+
+  /** Spends the code to sign in with Memberful whose digest is `codeDigest`, while it works for `emailAddress` at `now`, answering whether it did. */
+  async spendMemberfulCode(emailAddress: string, codeDigest: string, now: string): Promise<boolean> {
+    return (await this.db.all(SPEND_MEMBERFUL_CODE, emailAddress, now, codeDigest)).length > 0;
+  }
+
+  /**
+   * Keeps `code`, a code Ember emailed the address a Memberful account has for someone here to connect
+   * that account to theirs, in place of any they had, unless they can't connect one anymore or their
+   * password has changed since it checked out, deleting in the same batch the codes that stopped working
+   * by the time it was made, which nobody used.
+   */
+  async saveMemberfulConnectionCode({ userId, passwordDigest, emailAddress, codeDigest, site, createdAt, expiresAt }: SavedMemberfulConnectionCode): Promise<void> {
+    await this.db.batch([
+      statement(FORGET_EXPIRED_MEMBERFUL_CONNECTION_CODES, createdAt),
+      statement(SAVE_MEMBERFUL_CONNECTION_CODE, userId, passwordDigest, emailAddress, codeDigest, site, createdAt, expiresAt),
+    ]);
+  }
+
+  /**
+   * Counts a try of the code that works, at `now`, for `userId` to connect the Memberful account with
+   * `emailAddress`, whatever its case, while it has tries left, answering its digest, to check the code
+   * tried against, the site it was emailed for and the password it goes with, or null while none works.
+   * It writes whether or not there's one, since one is kept only for an address a member has, which how
+   * soon it answers mustn't say to someone who asked for codes for others' addresses (`passingChange`).
+   */
+  async tryMemberfulConnectionCode(userId: UserId, emailAddress: string, now: string): Promise<TriedMemberfulConnectionCode | null> {
+    const results = await this.db.batch([...passingChange(), statement(TRY_MEMBERFUL_CONNECTION_CODE, userId, emailAddress, now, PASSWORD_RESET_CODE_TRIES)]);
+    const [row] = results.at(-1) as Array<{ code_digest: string; site: string; password_digest: string }>;
+    return row ? { codeDigest: row.code_digest, site: row.site, passwordDigest: row.password_digest } : null;
+  }
+
+  /** Spends `userId`'s code to connect a Memberful account whose digest is `codeDigest`, while it works at `now`, answering whether it did. */
+  async spendMemberfulConnectionCode(userId: UserId, codeDigest: string, now: string): Promise<boolean> {
+    return (await this.db.all(SPEND_MEMBERFUL_CONNECTION_CODE, userId, now, codeDigest)).length > 0;
   }
 
   /** Whether `userId` may sign in with a password while Memberful is members only, as an active administrator, or someone who joined with an invitation, may. */
@@ -4759,6 +4896,7 @@ export class WorkspaceStore {
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
+      statement(`DELETE FROM memberful_connection_codes WHERE user_id = ?`, userId),
       statement(`DELETE FROM password_resets WHERE user_id = ?`, userId),
     ]);
     return queued!.length > 0;
@@ -4817,6 +4955,7 @@ export class WorkspaceStore {
       statement(`DELETE FROM blocks WHERE user_id = ?1 OR blocked_id = ?1`, userId),
       statement(`DELETE FROM identities WHERE user_id = ?`, userId),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
+      statement(`DELETE FROM memberful_connection_codes WHERE user_id = ?`, userId),
       statement(`DELETE FROM password_resets WHERE user_id = ?`, userId),
       statement(`DELETE FROM app_sign_ins WHERE user_id = ?`, userId),
       statement(`DELETE FROM own_app_sign_ins WHERE user_id = ?`, userId),
@@ -6262,6 +6401,7 @@ export class WorkspaceStore {
       statement(`UPDATE sessions SET transfers_since = ? WHERE id = ?`, ended.dueAt, ended.kept),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint IS NOT ?`, userId, ended.pushEndpoint),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
+      statement(`DELETE FROM memberful_connection_codes WHERE user_id = ?`, userId),
       statement(UNLINK_ON_NEW_PASSWORD, userId, emailAddress),
       change,
     ]);

@@ -1,6 +1,7 @@
 import {
   AVATAR_PATH,
   LOGO_PATH,
+  MEMBERFUL_CONNECTION_CODES_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
   roomSocketQuery,
   searchQuery,
@@ -50,7 +51,11 @@ import {
   type LinkPreview,
   type LinkSignIn,
   type Me,
+  type MemberfulCodeRequest,
+  type MemberfulCodeSignedIn,
+  type MemberfulCodeSignIn,
   type MemberfulConnection,
+  type MemberfulConnectionCodeRequest,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
   type MembersChange,
@@ -321,6 +326,26 @@ export async function resetPasswordWithCode(reset: PasswordResetWithCode): Promi
 }
 
 /**
+ * Asks Ember to email a code to sign in with to `asked.emailAddress`, once the Memberful site finds a
+ * member with it, with the token of Turnstile's check while the page shows one. It answers the same
+ * whether or not anyone there has the address. A check that didn't pass fails with an ApiError for the
+ * `turnstile` field, one while Ember can't send email with a 503, and one while it doesn't offer it with
+ * a 403.
+ */
+export async function askForMemberfulCode(asked: MemberfulCodeRequest): Promise<void> {
+  await request<unknown>("/api/memberful_codes", { method: "POST", body: JSON.stringify(asked) });
+}
+
+/**
+ * Signs this browser in as the Memberful member who has `given.emailAddress`, with the code Ember emailed
+ * them: who they are, or, for someone new, that they joined. A code that doesn't work fails with an
+ * ApiError for the `code` field, and a refusal with a 403 that says why.
+ */
+export async function signInWithMemberfulCode(given: MemberfulCodeSignIn): Promise<MemberfulCodeSignedIn> {
+  return request<MemberfulCodeSignedIn>("/api/memberful_codes", { method: "PUT", body: JSON.stringify(given) });
+}
+
+/**
  * Signs in with an email address and password: who signed in, or, for a member whose password checks out
  * while Memberful is members only, or single sign-on the only way in, until they've connected their
  * account there, where to connect it, at either while both are, which signs them in and opens the page `credentials.returnTo` names.
@@ -413,6 +438,26 @@ export async function fetchProfile(): Promise<ProfileAnswer> {
 export async function connectMemberful(currentPassword?: string): Promise<MemberfulConnection> {
   const start: MemberfulConnectionStart = currentPassword === undefined ? {} : { currentPassword };
   return request<MemberfulConnection>(MEMBERFUL_CONNECTIONS_PATH, { method: "POST", body: JSON.stringify(start) });
+}
+
+/**
+ * Asks Ember to email a code to `asked.emailAddress`, the address your Memberful account has, to connect
+ * that account to yours with, with your password while you have one, once the Memberful site finds a
+ * member with it, answering the same whether or not it does. Fails with a 422 ApiError without your
+ * password, or with one that isn't yours, a 429 once your network has asked for too many, and a 503 while
+ * Ember can't send email.
+ */
+export async function askForMemberfulConnectionCode(asked: MemberfulConnectionCodeRequest): Promise<void> {
+  await request<unknown>(MEMBERFUL_CONNECTION_CODES_PATH, { method: "POST", body: JSON.stringify(asked) });
+}
+
+/**
+ * Connects your account to the Memberful account that has `given.emailAddress`, with the code Ember
+ * emailed it for you, keeping you signed in, and answers your profile then. A code that doesn't work fails
+ * with a 422 ApiError, and a refusal with a 403 that says why.
+ */
+export async function connectMemberfulWithCode(given: MemberfulCodeSignIn): Promise<ProfileAnswer> {
+  return request<ProfileAnswer>(MEMBERFUL_CONNECTION_CODES_PATH, { method: "PUT", body: JSON.stringify(given) });
 }
 
 /**

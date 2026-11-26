@@ -31,7 +31,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
 `message_deletions`, `blobs`, `waiting_calls` and `scheduled_messages`, the Workspace keeps `accounts`, `users`, `sessions`, `session_addresses`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
-`bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`, `sections`,
+`bans`, `email_links`, `email_link_requests`, `password_resets`, `memberful_codes`, `memberful_connection_codes`, `searches`, `recent_searches`, `rooms`, `sections`,
 `memberships`, `favorites`, `blocks`, `reports`, `pending_revocations`, `pending_purges`, `pending_reindexes`, `pending_readers`,
 `deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms`, `search_keys`, `search_readers`, `search_rekeys` and the
 FTS5 table `search_index`. A room's id also
@@ -825,7 +825,22 @@ Objects, D1 or speed call for something else.
   the account, and trying one counts the try, in a batch that first counts a time nobody was asked
   for in `email_link_requests`, under a name no address is counted under, and deletes it: a Durable
   Object keeps an answer back until what it wrote is stored for good, so writing only for an
-  address with an account, or a code, would answer later for it.
+  address with an account, or a code, would answer later for it. The codes Ember emails Memberful's
+  members to sign in with on its own sign-in page count there too, and each is a row in
+  `memberful_codes` (workspace migration 0090), one an address, by its lowercase, with the HMAC of
+  the code and the Memberful site whose member has the address, which Ember emails only once that
+  site's admin API finds them, so that another site's keys end it. Trying one is the same
+  `UPDATE … RETURNING`, in the same batch with a change nobody asked for, and signing in spends it
+  with a `DELETE … RETURNING` that matches its digest, so two at once spend it once; saving one
+  deletes those that have expired, through the index on `expires_at`. The codes Ember emails to
+  connect a Memberful account from a profile are rows in `memberful_connection_codes` (workspace
+  migration 0091), one a person, by their id, with the address it went to, in lowercase, the site,
+  and the digest of the password that checked out as they asked for it, which saving the code and
+  connecting with it need `users.password_digest` to be still, so that a new password ends it, as it
+  ends a connection started on Memberful's page; a new password, a reset, deleting the account and
+  disconnecting delete the person's. Trying one is the same `UPDATE … RETURNING` in a batch with a
+  change nobody asked for, since one is kept only for an address a member has, and connecting spends
+  it with a `DELETE … RETURNING` that matches its digest.
 - **A bot's cards are part of its message's row.** Cards, what a Slack-compatible webhook's legacy
   attachments show, are kept as JSON in `messages.cards` (room migration 0034), as a file is, rather
   than in the body as Action Text attachments, which the rich text pipeline would sanitize as

@@ -2,10 +2,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { TURNSTILE_WIDGET, turnstileTokenFor } from "../../fixtures";
 import { SITEVERIFY_PORT } from "../../projects/workspace-settings";
 
-// Turnstile's siteverify for the Turnstile spec, at the address the second test server's
-// TURNSTILE_SITEVERIFY_URL names, as Ember asks it (apps/worker/src/turnstile.ts): it knows one widget,
-// `TURNSTILE_WIDGET`, whose check the fake Turnstile passes, and refuses as Cloudflare does a secret key
-// it doesn't know, or a token that isn't from that widget's check.
+// Turnstile's siteverify for the Turnstile spec and the Memberful spec's codes, at the address the second
+// test server's TURNSTILE_SITEVERIFY_URL names, as Ember asks it (apps/worker/src/turnstile.ts): it knows
+// one widget, `TURNSTILE_WIDGET`, whose check the fake Turnstile passes, and refuses as Cloudflare does a
+// secret key it doesn't know, or a token that isn't from that widget's check.
 
 /** What Ember asks siteverify about a check. */
 export interface Siteverified {

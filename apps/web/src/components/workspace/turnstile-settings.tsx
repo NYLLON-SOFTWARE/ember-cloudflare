@@ -21,7 +21,7 @@ export const CONFIRM_STOP_TURNSTILE =
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
 /** Whom Turnstile's check is for. */
-const CHECKED = "whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person";
+const CHECKED = "whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person";
 
 interface Props {
   turnstile: WorkspaceSettings["turnstile"];

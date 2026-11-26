@@ -1246,8 +1246,8 @@ describe("Sign in with Memberful", () => {
     apiKey: "K3w9mZsQp7vLx2Nc8RfT4yHb",
     webhookSecret: "a91c6e7f0b2d4e58b3f6a1c9d0e7b2f4",
   };
-  /** What the card says of Memberful while it has the site's keys. */
-  const LETS_MEMBERS_IN = `Members of ${SITE} join and sign in with their Memberful account. Turned off, it lets nobody new join, but those who did keep signing in with it. A member whose membership lapses is signed out until it's renewed.`;
+  /** What the card says of Memberful while it has the site's keys, and Ember can't send email. */
+  const LETS_MEMBERS_IN = `Members of ${SITE} join and sign in with their Memberful account. Once Ember can send email, they can sign in on its own sign-in page with a code it emails them. Turned off, it lets nobody new join, but those who did keep signing in with it. A member whose membership lapses is signed out until it's renewed.`;
   /** And while it hasn't, and is off. */
   const SETS_UP_FIRST = "Members of a Memberful site join and sign in with their Memberful account. Turning this on sets up Memberful first.";
   const memberfulSwitch = () => screen.findByRole("switch", { name: "Memberful" });
@@ -1501,10 +1501,20 @@ describe("Sign in with Memberful", () => {
     expect(await joinLink()).toBeInTheDocument();
   });
 
+  it("says members sign in on Ember's own sign-in page with a code it emails them while it can send email", async () => {
+    serve(withMemberful({ ...withKeys, email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" } }));
+    showPage();
+    expect(await memberfulSwitch()).toHaveAccessibleDescription(
+      `Members of ${SITE} join and sign in with their Memberful account. They sign in on Ember's own sign-in page with a code it emails them, or on Memberful's. Turned off, it lets nobody new join, but those who did keep signing in with it. A member whose membership lapses is signed out until it's renewed.`,
+    );
+  });
+
   it("says the deployment's secrets give the keys, with nothing to set up, and how to hear Memberful's webhooks while they lack what that takes", async () => {
     serve(withMemberful({ ...withKeys, memberfulKeys: "secret", memberfulWebhooks: false }));
     showPage();
     expect(await memberfulSwitch()).toBeChecked();
+    // Nor whether members sign in with a code Ember emails them, since the secrets may lack the API key that takes.
+    expect(await memberfulSwitch()).toHaveAccessibleDescription(expect.not.stringContaining("code"));
     const card = memberfulCard();
     expect(card).toHaveTextContent("The site and its keys are this Worker's secrets, MEMBERFUL_URL and the rest.");
     const steps = within(card).getByRole("list", { name: "Steps to sign out members whose membership lapses" });
@@ -2209,7 +2219,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     const check = await screen.findByTitle<HTMLIFrameElement>("Turnstile's check");
     act(() => void window.dispatchEvent(new MessageEvent("message", { data: { turnstileCheck: { token: "XXXX.DUMMY.TOKEN.XXXX" } }, origin: location.origin, source: check.contentWindow })));
     await user.click(await screen.findByRole("button", { name: "Done" }));
-    expect(turnstile).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person.");
+    expect(turnstile).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password or sign in, is a person.");
     expect(turnstileSwitch).toBeChecked();
     expect(openCard).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up is a person.");
     expect(openCard).not.toHaveTextContent("in an hour");

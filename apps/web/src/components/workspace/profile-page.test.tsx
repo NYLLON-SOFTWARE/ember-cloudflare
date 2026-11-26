@@ -6,6 +6,8 @@ import {
   AVATAR_TOO_LARGE,
   CURRENT_PASSWORD_WRONG,
   MAX_AVATAR_SIZE,
+  MEMBERFUL_CONNECTED_NOTICE,
+  MEMBERFUL_CONNECTION_CODES_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
   MEMBERFUL_DISCONNECTED_NOTICE,
   type Account,
@@ -64,6 +66,8 @@ interface Answers {
   leveled?: (changes: YourAssistantChanges) => Response | Promise<Response>;
   /** What disconnecting your Memberful account answers, rather than the profile with none connected. */
   disconnected?: () => Response | Promise<Response>;
+  /** What connecting your Memberful account with a code answers, rather than the profile with Ada's connected. */
+  connectedWithCode?: () => Response | Promise<Response>;
   /** What disconnecting your account at the single sign-on provider answers, rather than the profile with none connected. */
   ssoDisconnected?: () => Response | Promise<Response>;
 }
@@ -73,6 +77,8 @@ const ADAS_ACCOUNT = { name: "Ada Lovelace", emailAddress: "ada@example.com" };
 /** Where Ada stands with Memberful while it's members only: not connected, or connected to her account there. */
 const NOT_CONNECTED: MemberfulStatus = { membersOnly: true, connected: null };
 const CONNECTED: MemberfulStatus = { membersOnly: true, connected: ADAS_ACCOUNT };
+/** Not connected, while Ember can email a code to connect with. */
+const CODES: MemberfulStatus = { ...NOT_CONNECTED, codes: true };
 /** Where Ada stands with single sign-on while it's the only way in, likewise. */
 const SSO_NOT_CONNECTED: SsoStatus = { name: "Acme", ssoOnly: true, connected: null };
 const SSO_CONNECTED: SsoStatus = { name: "Acme", ssoOnly: true, connected: ADAS_ACCOUNT };
@@ -87,6 +93,7 @@ function serve({
   uploaded = () => Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true }, transferId: SAVED_LINK } satisfies ProfileAnswer),
   leveled,
   disconnected = () => Response.json({ profile: { ...profile, memberful: NOT_CONNECTED }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+  connectedWithCode = () => Response.json({ profile: { ...profile, memberful: CONNECTED }, transferId: SAVED_LINK } satisfies ProfileAnswer),
   ssoDisconnected = () => Response.json({ profile: { ...profile, sso: SSO_NOT_CONNECTED }, transferId: SAVED_LINK } satisfies ProfileAnswer),
 }: Answers = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -108,6 +115,10 @@ function serve({
         return Response.json({ profile: { ...profile, avatarUrl: "/users/t0k3n/avatar?v=3" }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       case `DELETE ${MEMBERFUL_CONNECTIONS_PATH}`:
         return disconnected();
+      case `POST ${MEMBERFUL_CONNECTION_CODES_PATH}`:
+        return Response.json({}, { status: 202 });
+      case `PUT ${MEMBERFUL_CONNECTION_CODES_PATH}`:
+        return connectedWithCode();
       case `DELETE ${SSO_CONNECTIONS_PATH}`:
         return ssoDisconnected();
       default:
@@ -757,7 +768,74 @@ describe("Connect Memberful", () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
-  it("keeps showing it disconnected when a save answers late with the account still connected, since only a reload connects one", async () => {
+  it("connects it with a code Ember emails to the address you saved, unless you give another, with the notice", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, memberful: CODES }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { user, onFailed } = showPage();
+    await loaded();
+    // The profile's own field changing doesn't change the address the section offers.
+    await user.type(screen.getByLabelText("Email address"), "x");
+    const section = within(memberful()!);
+    expect(section.getByLabelText("Memberful email address")).toHaveValue("ada@example.com");
+    await user.type(section.getByLabelText("Password"), "analytical engine");
+    await user.click(section.getByRole("button", { name: "Email me a code" }));
+    await user.type(await section.findByLabelText("Code"), "12345678");
+    await user.click(section.getByRole("button", { name: "Connect Memberful" }));
+    await waitFor(() => expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful."));
+    expect(await screen.findByRole("alert")).toHaveTextContent(MEMBERFUL_CONNECTED_NOTICE);
+    expect(passwordHelp()).toHaveTextContent("Changing it disconnects Memberful.");
+    expect(screen.getByRole("textbox", { name: "Use this link to login automatically on another device" })).toHaveValue(`http://localhost:3000/session/transfers#token=${SAVED_LINK}`);
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("shows it connected once a code connects it again after disconnecting it here", async () => {
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, memberful: CONNECTED }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      disconnected: () => Response.json({ profile: { ...profile, memberful: CODES }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.type(within(memberful()!).getByLabelText("Password"), "analytical engine");
+    await user.click(within(memberful()!).getByRole("button", { name: "Disconnect Memberful" }));
+    const section = within(memberful()!);
+    await user.type(await section.findByLabelText("Password"), "analytical engine");
+    await user.click(section.getByRole("button", { name: "Email me a code" }));
+    await user.type(await section.findByLabelText("Code"), "12345678");
+    await user.click(section.getByRole("button", { name: "Connect Memberful" }));
+    await waitFor(() => expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful."));
+    expect(within(memberful()!).getByRole("button", { name: "Disconnect Memberful" })).toBeEnabled();
+  });
+
+  it("keeps showing it connected once a code connects it, when a photo or a save answers late without it", async () => {
+    // A photo picked, or a save sent, before the code can answer after it, as the profile was before.
+    const photos: Array<(response: Response) => void> = [];
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, memberful: CODES }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => Response.json({ profile: { ...profile, name: "Ada King", memberful: CODES }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+      uploaded: () => new Promise<Response>((resolve) => photos.push(resolve)),
+    });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:moon");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const { user } = showPage();
+    await loaded();
+    await user.upload(screen.getByLabelText("Upload avatar", { exact: false }), new File(["moon"], "moon.jpg", { type: "image/jpeg" }));
+    await waitFor(() => expect(photos).toHaveLength(1));
+    const section = within(memberful()!);
+    await user.type(section.getByLabelText("Password"), "analytical engine");
+    await user.click(section.getByRole("button", { name: "Email me a code" }));
+    await user.type(await section.findByLabelText("Code"), "12345678");
+    await user.click(section.getByRole("button", { name: "Connect Memberful" }));
+    await waitFor(() => expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful."));
+    await act(async () => photos[0]!(Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true, memberful: CODES }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(screen.getByRole("img", { name: "Your avatar" })).toHaveAttribute("src", UPLOADED));
+    expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful.");
+    await user.type(field("Name"), " King");
+    await user.click(saveButton());
+    await waitFor(() => expect(field("Name")).toHaveValue("Ada King"));
+    expect(memberful()).toHaveTextContent("Connected as Ada Lovelace (ada@example.com). You sign in with Memberful.");
+    expect(within(memberful()!).getByRole("button", { name: "Disconnect Memberful" })).toBeEnabled();
+  });
+
+  it("keeps showing it disconnected when a save answers late with the account still connected, since only a reload or a code connects one", async () => {
     // A save, or a photo, sent before Disconnect can answer after it, as the profile was before.
     serve({
       loaded: () => Response.json({ profile: { ...profile, memberful: CONNECTED }, transferId: LOADED_LINK } satisfies ProfileAnswer),

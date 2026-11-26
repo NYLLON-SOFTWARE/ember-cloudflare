@@ -457,19 +457,45 @@ While it's on, the sign-in page offers Member? Sign in with Memberful under its 
 active subscription, or the all access pass, signs in as the person their Memberful account is
 linked to, or else joins as a new member, in every open room, and goes on from a welcome page where
 they choose their photo, name and username, which starts as their name in lowercase letters and
-numbers. Everyone else joins and signs in as before. Accounts are linked by the Memberful site and the member's id there, never by email
-address, since Memberful lets anyone register an address without proving it's theirs: someone new
-whose Memberful email address someone here has already is turned away, and asked to sign in with
-their password. At another address, even the same site's, every member would be someone new, so
-once anyone has signed in with Memberful, Set up Memberful keeps the site, asking only for its keys,
-and a `MEMBERFUL_URL` should keep it too. Turning Memberful off stops anyone new joining with it, but
+numbers. Everyone else joins and signs in as before. Accounts are linked by the Memberful site and
+the member's id there, not by email address, since Memberful lets anyone register an address without
+proving it's theirs: someone new whose Memberful email address someone here has already is turned
+away, and asked to sign in with their password, unless a code Ember emailed proved the address theirs,
+below. At another address, even the same site's, every member would be someone new, so once anyone
+has signed in with Memberful, Set up Memberful keeps the site, asking only for its keys, and a
+`MEMBERFUL_URL` should keep it too. Turning Memberful off stops anyone new joining with it, but
 whoever signed in with it has no password, so they keep signing in with it, and the sign-in page
 keeps offering it, while Ember has the keys.
 
+While Ember can send email, below, and has the custom app's API key, which Set up Memberful always
+has, and the deployment's secrets have as `MEMBERFUL_API_KEY`, Sign in with Memberful asks for the
+member's email address on the sign-in page itself, rather than sending them to Memberful's page. Email
+me a code emails that address an 8-digit code once Memberful's admin API finds a member with it, and
+the code signs them in as Memberful's page does. It works as a password reset's does: for 15 minutes,
+5 tries and only until a newer one is sent, each try counting against sign-in's limit, and Ember emails
+an address at most 3 times an hour, counting the other emails it sends it. Turnstile checks each ask
+while Ember has its keys, and until then each network can ask for 10 codes an hour. The page says the
+same whether or not Memberful has a member with the address, and Ember asks Memberful who has it again
+only once the code is right. Under the form, Prefer Memberful's page? Continue with Memberful signs in
+there instead. Memberful's documentation doesn't name the admin API's query for a member by email
+address, so Ember finds it in the API's schema, and emails no codes, saying why in the Worker's logs,
+should the schema stop having exactly one.
+
+Since the code proves the address is the member's, it also signs in someone here who proved the
+address theirs too, by joining with an invitation or Email domain's link, which Ember emailed to it,
+and hasn't changed it since: their Memberful account is connected to theirs, as connecting it from
+their profile does, below, so their membership counts as anyone's from then on, and they keep their
+password. Anyone else here with the address is asked for their password instead, as on Memberful's
+page: an administrator, who connects Memberful from their profile, and someone whose address nothing
+proved, such as one who joined with the join link, where anyone can type a colleague's address. Only a
+member with an active membership is connected this way, and never to an account connected to another
+member of the site already.
+
 Members only, under Memberful, keeps Ember to the site's members: the sign-in page offers Sign in
-with Memberful in place of its form, Open, the join link and signing in with just a name are off,
-and only administrators and the people they invite sign in with a password, who need no membership.
-Sessions people have go on, and turning it off brings the other ways and passwords back.
+with Memberful in place of its form, asking for a code itself while Ember emails them, Open, the join
+link and signing in with just a name are off, and only administrators and the people they invite sign
+in with a password, who need no membership. Sessions people have go on, and turning it off brings the
+other ways and passwords back.
 
 While Memberful is members only, someone with an account from before connects their Memberful
 account to it with their password: from the Memberful section of their profile, or as they sign in
@@ -478,6 +504,16 @@ signed in as themselves, and from then on they sign in with Memberful, and their
 as anyone's. A connection is good for one try within ten minutes, and a new password, theirs or a
 reset, forgets the ones the old one started. Administrators, and the people they invite, can connect
 one too, and sign in either way.
+
+While Ember emails codes to sign in with, above, the profile's Memberful section asks for one too:
+with their password, Email me a code emails the address their Memberful account has, their own to
+begin with, a code that connects that account to theirs on the profile itself, keeping them signed
+in, and Prefer Memberful's page? Connect there connects on Memberful's page instead. It works as the
+sign-in page's code does, for 15 minutes and 5 tries, emailed only once Memberful finds a member with
+the address, and the section says the same whether or not it does. Each network can ask for 10 an
+hour, whether or not Ember has Turnstile's keys, since nothing checks the profile's asks. A code works
+only for the person who asked for it, with the address it went to, and while their password is the
+one they gave: a new one, theirs or a reset, forgets it.
 
 The Memberful section of a profile names the account that's connected, as Memberful describes it,
 and Disconnect Memberful, with their password, unlinks it and ends their other sessions, as a new
