@@ -1507,6 +1507,34 @@ describe("Sign in with Memberful", () => {
     expect(await memberfulSwitch()).toHaveAccessibleDescription(
       `Members of ${SITE} join and sign in with their Memberful account. They sign in on Ember's own sign-in page with a code it emails them, or on Memberful's. Turned off, it lets nobody new join, but those who did keep signing in with it. A member whose membership lapses is signed out until it's renewed.`,
     );
+    expect(within(memberfulCard()).queryByRole("button", { name: "Set up email" })).not.toBeInTheDocument();
+  });
+
+  it("offers Set up email beside Change keys until Ember can send email, after which members sign in with a code it emails them", async () => {
+    serve(withMemberful(withKeys));
+    const { user } = showPage();
+    const on = await memberfulSwitch();
+    expect(on).toHaveAccessibleDescription(LETS_MEMBERS_IN);
+    expect(within(memberfulCard()).getAllByRole("button").map((button) => button.textContent)).toEqual(["Change keys", "Set up email"]);
+
+    await user.click(within(memberfulCard()).getByRole("button", { name: "Set up email" }));
+    await user.click(await screen.findByRole("radio", { name: "Cloudflare Email Service" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByRole("textbox", { name: "From" }), "Ember <ember@example.com>{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Done" }));
+    expect(saved()).toEqual([{ emailFrom: "Ember <ember@example.com>" }]);
+    expect(on).toHaveAccessibleDescription(
+      `Members of ${SITE} join and sign in with their Memberful account. They sign in on Ember's own sign-in page with a code it emails them, or on Memberful's. Turned off, it lets nobody new join, but those who did keep signing in with it. A member whose membership lapses is signed out until it's renewed.`,
+    );
+    expect(within(memberfulCard()).getAllByRole("button").map((button) => button.textContent)).toEqual(["Change keys"]);
+  });
+
+  it("offers Set up email alone while the deployment's secrets give the keys and take webhooks, and Ember can't send email", async () => {
+    serve(withMemberful({ ...withKeys, memberfulKeys: "secret" }));
+    showPage();
+    expect(await memberfulSwitch()).toHaveAccessibleDescription(LETS_MEMBERS_IN);
+    expect(within(memberfulCard()).getAllByRole("button").map((button) => button.textContent)).toEqual(["Set up email"]);
   });
 
   it("says the deployment's secrets give the keys, with nothing to set up, and how to hear Memberful's webhooks while they lack what that takes", async () => {
@@ -2149,7 +2177,7 @@ describe("Sending email", () => {
     const email = await screen.findByRole("region", { name: "Email" });
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(screen.getByRole("region", { name: "Who can join" }), email)).toBe(true);
-    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
+    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password or sign in.");
 
     await user.click(within(email).getByRole("button", { name: "Set up email" }));
     await user.click(await screen.findByRole("radio", { name: "Cloudflare Email Service" }));
@@ -2180,7 +2208,7 @@ describe("Sending email", () => {
     await user.click(within(email).getByRole("button", { name: "Stop sending email" }));
     expect(await within(email).findByRole("button", { name: "Set up email" })).toBeInTheDocument();
     expect(saved()).toEqual([{ emailFrom: null }]);
-    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
+    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password or sign in.");
     expect(within(screen.getByRole("region", { name: "Invite by email" })).getByRole("button", { name: "Create invite links" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Email domain" })).toHaveAccessibleDescription(
       "It's on, but Ember can't send email, so nobody gets a link to join with until email is set up.",

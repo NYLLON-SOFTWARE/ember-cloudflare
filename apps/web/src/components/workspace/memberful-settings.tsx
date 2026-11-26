@@ -11,8 +11,9 @@ import { MemberfulLink, memberfulNewWebhook, useMemberfulAddresses } from "./mem
 // line and its switch, as the project's owner asked (2026-10-26): turning it on before Ember has the keys
 // opens Set up Memberful, which turns it on once they're kept, and once it's on, it has Members only,
 // which keeps everyone else out, where Memberful sends members back to and its webhook, and Change keys,
-// which opens Set up Memberful again. Laid out as the other ways to join are, with Members only's switch
-// inside it.
+// which opens Set up Memberful again, beside Set up email while members could sign in with a code once
+// Ember can send email, as Email domain's card has it. Laid out as the other ways to join are, with
+// Members only's switch inside it.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -25,6 +26,8 @@ interface Props {
   keys: WorkspaceSettings["memberfulKeys"];
   /** Opens Set up Memberful, calling `then`, if given, once it has kept the keys. */
   onSetUp: (then?: () => void) => void;
+  /** Opens Set up email, which the card offers while members could sign in with a code once Ember can send email. */
+  onSetUpEmail: () => void;
   /** Where Memberful's switch is: where it was moved to while that's saved, or else where the workspace has it. */
   checked: boolean;
   onCheckedChange: (on: boolean) => void;
@@ -52,14 +55,16 @@ interface Props {
 /**
  * Memberful, for administrators: its switch, and while it's on, Members only's, where Memberful sends
  * people back to, and Change keys, or the steps to hear Memberful's webhooks while the deployment's
- * secrets lack what they take. Turned on before Ember has the keys, it opens Set up Memberful instead,
- * and while it's on without them, it says nobody can sign in with Memberful until it's set up again.
+ * secrets lack what they take, and Set up email while its codes wait for it. Turned on before Ember has
+ * the keys, it opens Set up Memberful instead, and while it's on without them, it says nobody can sign in
+ * with Memberful until it's set up again.
  */
 export function MemberfulSettings({
   site,
   webhooks,
   keys,
   onSetUp,
+  onSetUpEmail,
   checked,
   onCheckedChange,
   membersOnly,
@@ -136,7 +141,9 @@ export function MemberfulSettings({
         </div>
       )}
       {!shown ? null : site === null ? (
-        <SetUpButton onSetUp={onSetUp} label="Set up Memberful" />
+        <div>
+          <SetUpButton onSetUp={onSetUp} label="Set up Memberful" />
+        </div>
       ) : (
         <>
           {keys === "secret" && !webhooks && <WebhookSteps site={site} webhookUrl={webhookUrl} />}
@@ -154,21 +161,24 @@ export function MemberfulSettings({
             )}
             {keys === "secret" && " The site and its keys are this Worker's secrets, MEMBERFUL_URL and the rest."}
           </p>
-          {keys === "saved" && <SetUpButton onSetUp={onSetUp} label="Change keys" />}
+          {(keys === "saved" || codes === "unsendable") && (
+            <div className="flex flex-wrap gap-3">
+              {keys === "saved" && <SetUpButton onSetUp={onSetUp} label="Change keys" />}
+              {codes === "unsendable" && <SetUpButton onSetUp={onSetUpEmail} label="Set up email" />}
+            </div>
+          )}
         </>
       )}
     </section>
   );
 }
 
-/** A button that opens Set up Memberful. */
+/** A button that opens a setup dialog, Set up Memberful's or Set up email's. */
 function SetUpButton({ onSetUp, label }: { onSetUp: () => void; label: string }) {
   return (
-    <div>
-      <button type="button" onClick={() => onSetUp()} className={BUTTON}>
-        {label}
-      </button>
-    </div>
+    <button type="button" onClick={() => onSetUp()} className={BUTTON}>
+      {label}
+    </button>
   );
 }
 

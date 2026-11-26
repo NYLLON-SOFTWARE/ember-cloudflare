@@ -229,6 +229,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         keys={settings.memberfulKeys}
         codes={memberfulCodes}
         onSetUp={onSetUpMemberful}
+        onSetUpEmail={() => onSetUpEmail()}
         checked={ssoOnly ? membersOnly : memberful}
         onCheckedChange={ssoOnly ? switchBeside("memberfulJoin", "memberfulSignIn", "ssoSignIn") : switchTo("memberfulJoin")}
         membersOnly={membersOnly}
