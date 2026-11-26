@@ -687,7 +687,8 @@ with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/
 binds as `EMAIL`. Under Email, in Workspace settings' Membership, Set up email walks an administrator
 through either, then the From address Ember's email comes from, under the community's name unless it
 names another, and sends them a test email as it finishes, so that it checks itself. Turning
-on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email. Stop
+on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email, as
+does Memberful's card while its members would sign in with a code Ember emails them. Stop
 sending email, beside it, takes the From address away, after which Ember emails nothing until email is
 set up again.
 

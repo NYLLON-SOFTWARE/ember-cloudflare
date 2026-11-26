@@ -50,7 +50,7 @@ describe("Sending email", () => {
   it("says Ember can't send email yet, and what that keeps it from, with Set up email", async () => {
     serve();
     const { user, onSetUp } = showCard(NEW_EMAIL);
-    expect(card()).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
+    expect(card()).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password or sign in.");
     expect(testButton()).not.toBeInTheDocument();
     expect(stopButton()).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Set up email" }));
