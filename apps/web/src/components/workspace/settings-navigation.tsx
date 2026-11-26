@@ -106,7 +106,7 @@ const ADMINISTRATOR_LINKS: SectionLink[] = [
  */
 const LINK = cn(
   "mb-2 flex min-h-11 items-center gap-2.5 rounded-lg px-3 py-[11px] text-[13px] leading-[1.4] text-muted-foreground",
-  "hover:bg-surface hover:text-foreground aria-[current=page]:bg-hover aria-[current=page]:font-semibold aria-[current=page]:text-foreground",
+  "hover:bg-surface hover:text-foreground aria-[current=page]:bg-selected aria-[current=page]:font-semibold aria-[current=page]:text-selected-foreground",
   "max-md:m-0 max-md:flex-[1_0_auto] max-md:justify-center max-md:px-2 max-md:py-2.5 max-md:text-center",
   "upto-500px:relative upto-500px:flex-col upto-500px:gap-[5px] upto-500px:text-[11px]",
 );

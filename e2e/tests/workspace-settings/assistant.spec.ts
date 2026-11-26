@@ -348,7 +348,7 @@ test.describe("Ember AI", () => {
   test("the administrator adds to @ember's instructions on its page, seeing what Ember adds around them, and @ember follows them", async ({ page, request }) => {
     await setUpAssistant(request);
     const card = await openEmber(page);
-    await expect(page).toHaveTitle("Edit agent");
+    await expect(page).toHaveTitle("Edit agent · Team Lopez");
     const instructions = card.getByRole("textbox", { name: "Instructions" });
     const save = card.getByRole("button", { name: "Save instructions" });
     await expect(instructions).toHaveValue("");

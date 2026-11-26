@@ -1,11 +1,10 @@
-// Campfire's generated avatars (Users::AvatarsHelper): someone's initials in white on one of 18 colors,
-// picked by the CRC32 of their id, drawn by users/avatars/show.svg. The Worker serves it as their
-// avatar, and the app shows it while a served one loads.
+// Campfire's generated avatars (Users::AvatarsHelper): someone's initials in white on a dark
+// campaign color, picked by the CRC32 of their id, drawn by users/avatars/show.svg. The Worker
+// serves it as their avatar, and the app shows it while a served one loads.
 
-const AVATAR_COLORS = [
-  "#AF2E1B", "#CC6324", "#3B4B59", "#BFA07A", "#ED8008", "#ED3F1C", "#BF1B1B", "#736B1E", "#D07B53",
-  "#736356", "#AD1D1D", "#BF7C2A", "#C09C6F", "#698F9C", "#7C956B", "#5D618F", "#3B3633", "#67695E",
-];
+// Black, charcoal, and deep gold only, so a generated portrait stays in the campaign palette.
+// Initials stay white: every one of these is dark enough for that (at least 5.3:1).
+const AVATAR_COLORS = ["#000000", "#1A1A1A", "#262626", "#333333", "#3A3424", "#4A4030", "#5C5C5C", "#6B5E32"];
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;

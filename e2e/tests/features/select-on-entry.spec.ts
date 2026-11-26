@@ -10,7 +10,7 @@ test.describe("Select a field's text on entry", () => {
     const ada = await members.signIn("Ada");
     await ada.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();
     // Community settings shows its links while it loads, then draws them again once it has, losing a click that comes as it does.
-    await expect(ada.page).toHaveTitle("Community settings");
+    await expect(ada.page).toHaveTitle("Community settings · Team Lopez");
     await ada.page.getByRole("link", { name: "Rooms and permissions" }).click();
     await ada.page.getByRole("link", { name: "New room" }).click();
     const name = ada.page.getByRole("textbox", { name: "Room name" });

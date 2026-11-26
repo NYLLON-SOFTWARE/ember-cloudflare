@@ -314,7 +314,7 @@ describe("Supported browsers", () => {
       expect(response.status, path).toBe(200);
       expect(response.headers.get("Content-Type"), path).toBe("text/html; charset=utf-8");
       const html = await response.text();
-      expect(html, path).toContain("<title>Unsupported browser</title>");
+      expect(html, path).toContain("<title>Unsupported browser · Team Lopez</title>");
       expect(html, path).toContain("<h1>Upgrade to a supported web browser</h1>");
       expectRailsDefaults(response);
       expect(response.headers.get("X-Version")).toBe("0.6 beta 1");
@@ -335,7 +335,7 @@ describe("Supported browsers", () => {
 
   it('titles the page "Ember" for Apple Messages\' link previews', async () => {
     const html = await (await page("/join/AAAA-BBBB-CCCC", as(APPLE_MESSAGES))).text();
-    expect(html).toContain("<title>Ember</title>");
+    expect(html).toContain("<title>Team Lopez</title>");
     expect(html).toContain("Upgrade to a supported web browser");
   });
 

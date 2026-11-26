@@ -61,12 +61,12 @@ describe("Light, dark or system appearance", () => {
     const themeColors = () => [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map((meta) => meta.content);
 
     chooseAppearance("dark");
-    expect(themeColors()).toEqual(["#171717", "#171717"]);
+    expect(themeColors()).toEqual(["#1a1a1a", "#1a1a1a"]);
     chooseAppearance("light");
-    expect(themeColors()).toEqual(["#ffffff", "#ffffff"]);
+    expect(themeColors()).toEqual(["#f2eee2", "#f2eee2"]);
     setPrefersDark(true);
     applyAppearance("system");
-    expect(themeColors()).toEqual(["#171717", "#171717"]);
+    expect(themeColors()).toEqual(["#1a1a1a", "#1a1a1a"]);
     document.head.innerHTML = "";
   });
 

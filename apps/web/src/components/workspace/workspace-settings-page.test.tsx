@@ -453,7 +453,7 @@ describe("Community settings page", () => {
 
   it("reads Basic community settings, titled Community settings, with Go Back to the last room visited", () => {
     showPage();
-    expect(document.title).toBe("Community settings");
+    expect(document.title).toBe("Community settings · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Basic community settings" })).toBeInTheDocument();
     expect(screen.getByText("Manage your community name, icon, and preferences.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");

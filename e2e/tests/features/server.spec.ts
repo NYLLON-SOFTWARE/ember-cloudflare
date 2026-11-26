@@ -27,7 +27,7 @@ test.describe("Supported browsers", () => {
 
     test("asks to upgrade instead of opening the app, naming the browsers that work", async ({ page }) => {
       await page.goto("/");
-      await expect(page).toHaveTitle("Unsupported browser");
+      await expect(page).toHaveTitle("Unsupported browser · Team Lopez");
       await expect(upgradeHeading(page)).toBeVisible();
       await expect(page.getByText("Ember requires a modern web browser.")).toBeVisible();
       await expect(page.locator(".browser")).toHaveText(["Safari 17.2+", "Chrome 120+", "Firefox 121+", "Opera 104+"]);
@@ -46,16 +46,16 @@ test.describe("Supported browsers", () => {
     test("is dark when the app was left dark, or the device is", async ({ page }) => {
       await page.emulateMedia({ colorScheme: "dark" });
       await page.goto("/");
-      await expect(page.locator("html")).toHaveCSS("background-color", "rgb(28, 28, 28)");
+      await expect(page.locator("html")).toHaveCSS("background-color", "rgb(26, 26, 26)");
 
       await page.evaluate(() => localStorage.setItem("ember:appearance", "light"));
       await page.reload();
-      await expect(page.locator("html")).toHaveCSS("background-color", "rgb(250, 250, 250)");
+      await expect(page.locator("html")).toHaveCSS("background-color", "rgb(242, 238, 226)");
 
       await page.emulateMedia({ colorScheme: "light" });
       await page.evaluate(() => localStorage.setItem("ember:appearance", "dark"));
       await page.reload();
-      await expect(page.locator("html")).toHaveCSS("background-color", "rgb(28, 28, 28)");
+      await expect(page.locator("html")).toHaveCSS("background-color", "rgb(26, 26, 26)");
     });
   });
 
@@ -64,7 +64,7 @@ test.describe("Supported browsers", () => {
 
     test("previews a link as Ember rather than as a warning", async ({ page }) => {
       await page.goto("/rooms/general");
-      await expect(page).toHaveTitle("Ember");
+      await expect(page).toHaveTitle("Team Lopez");
       await expect(upgradeHeading(page)).toBeVisible();
     });
   });
@@ -143,7 +143,7 @@ test.describe("Error pages", () => {
     const response = await page.goto("/no-such-page");
     expect(response!.status()).toBe(404);
     expect(await response!.text()).toBe(publicFile("404.html"));
-    await expect(page).toHaveTitle("We can’t find that (404)");
+    await expect(page).toHaveTitle("We can’t find that (404) · Team Lopez");
     await expect(page.getByLabel("Not found")).toBeVisible();
     const back = page.getByRole("link", { name: "Go back" });
     await expect(back).toBeFocused();
@@ -179,12 +179,12 @@ test.describe("Error pages", () => {
 
   test("Campfire's 500 page is there for failures, and its 422 page has Try again too", async ({ page }) => {
     await page.goto("/500");
-    await expect(page).toHaveTitle("Something went wrong (500)");
+    await expect(page).toHaveTitle("Something went wrong (500) · Team Lopez");
     await expect(page.getByLabel("Server error")).toBeVisible();
     await expect(page.getByRole("link", { name: "Go back" })).toHaveAttribute("href", "/");
 
     await page.goto("/422");
-    await expect(page).toHaveTitle("That didn’t work (422)");
+    await expect(page).toHaveTitle("That didn’t work (422) · Team Lopez");
     await expect(page.getByLabel("That didn’t work")).toBeVisible();
     const reloaded = page.waitForRequest((request) => new URL(request.url()).pathname === "/422");
     await page.getByRole("link", { name: "Try again" }).click();

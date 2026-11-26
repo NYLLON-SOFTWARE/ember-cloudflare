@@ -10,14 +10,21 @@
     <!-- What lets browsers install Ember as an app. The script below matches the theme color to the
          page's appearance at once. mobile-web-app-capable is there beside Apple's, since Chrome warns
          on every page that has only Apple's. -->
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f2eee2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Team Lopez" />
+    <meta name="description" content="Team Lopez — internal chat for the Victor Lopez for Hammond City Council campaign." />
+    <meta property="og:title" content="Team Lopez" />
+    <meta property="og:site_name" content="Team Lopez" />
+    <meta property="og:description" content="Internal chat for the Victor Lopez for Hammond City Council campaign." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/logos/app-icon.png" />
     <link rel="manifest" href="/webmanifest.json" />
     <link rel="icon" type="image/png" sizes="48x48" href="/logos/app-icon-48.png" />
     <link rel="apple-touch-icon" href="/logos/app-icon.png" />
-    <title>Ember</title>
+    <title>Team Lopez</title>
     <script>
       // Apply the saved appearance before first paint, and color the browser around the page to match.
       // src/lib/appearance.ts does the same for each change from then on.
@@ -30,7 +37,7 @@
         html.classList.toggle("dark", dark);
         html.setAttribute("data-appearance", mode);
         html.style.colorScheme = dark ? "dark" : "light";
-        document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) { meta.content = dark ? "#171717" : "#ffffff"; });
+        document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) { meta.content = dark ? "#1a1a1a" : "#f2eee2"; });
       })();
     </script>
   </head>

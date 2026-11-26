@@ -149,7 +149,7 @@ afterEach(() => {
 describe("The Huddles page", () => {
   it("is the Huddles page, with the headphones before its heading, busy until your rooms and its huddles have both come, which it asks for once your rooms have", async () => {
     const { show } = showPage({ rooms: null });
-    expect(document.title).toBe("Huddles");
+    expect(document.title).toBe("Huddles · Team Lopez");
     const heading = within(screen.getByRole("navigation", { name: "Page" })).getByRole("heading", { level: 1, name: "Huddles" });
     expect(heading.previousElementSibling?.tagName).toBe("svg");
     expect(main()).toHaveAttribute("aria-busy", "true");

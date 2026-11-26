@@ -20,7 +20,7 @@ export function GuestSignIn({ logo, onSignedIn, onUsePassword }: { logo: string 
     <>
       <div className="mb-7 text-center">
         <AuthLogo logo={logo} />
-        <h1 className="mb-2 text-2xl leading-tight font-[650]">Welcome to Ember</h1>
+        <h1 className="mb-2 text-2xl leading-tight font-[650]">Welcome to Team Lopez</h1>
         <p className="text-muted-foreground">Pick the name people will see next to your messages.</p>
       </div>
       <form

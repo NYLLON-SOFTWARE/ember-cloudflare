@@ -21,7 +21,7 @@ test.describe("Edit your profile", () => {
 
     const { page } = ada;
     await openYourProfile(page);
-    await expect(page).toHaveTitle(ada.name);
+    await expect(page).toHaveTitle(`${ada.name} · Team Lopez`);
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue(ada.name);
     // Someone who joined with just a name has no email address or bio yet.
     await expect(page.getByLabel("Email address")).toHaveValue("");
@@ -37,7 +37,7 @@ test.describe("Edit your profile", () => {
     // The flash's check, read as "Changes saved".
     await expect(page.getByRole("alert")).toHaveText("Changes saved");
     await expect(page.getByLabel("New password")).toHaveValue("");
-    await expect(page).toHaveTitle(newName);
+    await expect(page).toHaveTitle(`${newName} · Team Lopez`);
     await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", newName);
     await expect(grace.message("Hello from Ada")).toContainText(newName);
 

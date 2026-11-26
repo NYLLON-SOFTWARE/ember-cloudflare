@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { BrandDisclaimer, BrandMark } from "@/components/auth-page";
 import { MainContent, SkipLink } from "@/components/main-content";
 
 // First run's card, which the steps of setting Ember up share: the form that makes its administrator and
@@ -32,8 +33,9 @@ export function SetupCard({ title = SETUP_TITLE, subtitle, problem = null, start
       <SkipLink className={SKIP_LINK} />
       <MainContent
         data-ember-preserve-selection
-        className="grid min-h-svh grid-cols-[minmax(0,28rem)] place-content-center justify-items-center gap-4 bg-surface pt-[calc(2.5rem+env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(2.5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] upto-380px:pt-[calc(1.25rem+env(safe-area-inset-top))] upto-380px:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        className="brand-public grid min-h-svh grid-cols-[minmax(0,28rem)] place-content-center justify-items-center gap-4 bg-surface pt-[calc(2.5rem+env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(2.5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] upto-380px:pt-[calc(1.25rem+env(safe-area-inset-top))] upto-380px:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
       >
+        <BrandMark />
         {problem && (
           <div role="alert" aria-atomic="true" className="w-full rounded-lg border bg-card px-4 py-3.5">
             {problem}
@@ -41,7 +43,6 @@ export function SetupCard({ title = SETUP_TITLE, subtitle, problem = null, start
         )}
         <section aria-label={title} className="w-full min-w-0 overflow-hidden rounded-2xl border bg-card text-card-foreground">
           <header className="flex flex-col items-center px-5 pt-5 text-center">
-            <img src="/ember-icon.png" alt="Ember" width={48} height={48} className="mb-4 block size-12 object-contain" />
             <h1
               ref={heading}
               tabIndex={startsAtTitle ? -1 : undefined}
@@ -53,6 +54,7 @@ export function SetupCard({ title = SETUP_TITLE, subtitle, problem = null, start
           </header>
           {children}
         </section>
+        <BrandDisclaimer />
       </MainContent>
     </>
   );

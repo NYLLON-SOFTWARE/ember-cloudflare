@@ -66,7 +66,7 @@ describe("Create an open room", () => {
   it("reads New room, prefilled, with Go Back to community settings' rooms", async () => {
     serve();
     showPage();
-    expect(document.title).toBe("New chat room");
+    expect(document.title).toBe("New chat room · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "New room" })).toBeInTheDocument();
     expect(screen.getByText("Create a place for a team, topic, or project.")).toBeInTheDocument();
     expect(await roomName()).toHaveValue("New room");

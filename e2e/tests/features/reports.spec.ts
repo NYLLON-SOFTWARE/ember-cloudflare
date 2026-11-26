@@ -18,7 +18,7 @@ async function openPage(member: Member, other: Member): Promise<void> {
 async function openReports(page: Page): Promise<Locator> {
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Admin" }).click();
   // Community settings shows its links while it loads, then draws them again once it has, losing a click that comes as it does.
-  await expect(page).toHaveTitle("Community settings");
+  await expect(page).toHaveTitle("Community settings · Team Lopez");
   await page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Membership" }).click();
   const reports = page.getByRole("region", { name: /^Reports/ });
   await expect(reports).toBeVisible();

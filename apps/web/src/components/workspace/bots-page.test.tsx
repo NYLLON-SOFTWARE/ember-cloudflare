@@ -88,7 +88,7 @@ afterEach(() => {
 describe("Chat bots page", () => {
   it("is the Chat bots page, saying what bots do, with Add a chat bot, and Go Back to workspace settings", () => {
     showPage();
-    expect(document.title).toBe("Chat bots");
+    expect(document.title).toBe("Chat bots · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Chat bots" })).toBeInTheDocument();
     expect(
       screen.getByText(

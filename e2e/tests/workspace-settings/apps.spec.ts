@@ -72,7 +72,7 @@ test.describe("Apps", () => {
     await expect(card).toContainText("No apps are connected yet.");
     await card.getByRole("link", { name: "Connect an app" }).click();
     await expect(page).toHaveURL(/\/account\/apps\/new$/);
-    await expect(page).toHaveTitle("Connect an app");
+    await expect(page).toHaveTitle("Connect an app · Team Lopez");
 
     // Without its token, the server asks for a sign-in, which the token's field says.
     const host = new URL(mcp.url).host;
@@ -93,7 +93,7 @@ test.describe("Apps", () => {
     await page.getByRole("button", { name: "Connect" }).click();
     await expect(page).toHaveURL(/\/account\/apps\/[^/]+\/edit$/);
     await expect(page.getByRole("alert")).toHaveText("Tracker is connected. Ember read 2 tools from it.");
-    await expect(page).toHaveTitle("Edit app");
+    await expect(page).toHaveTitle("Edit app · Team Lopez");
     const tools = page.getByRole("region", { name: /^Tools/ });
     await expect(tools.getByRole("heading", { name: "Tools (2)" })).toBeVisible();
     await expect(tools).toContainText(`Its server calls itself ${SERVER_NAME}`);

@@ -547,7 +547,7 @@ describe("Huddles, over the rooms", () => {
   it("is marked as the page that's open while the Huddles page is", () => {
     const { rerender } = renderSidebar({ onHuddles: true }, WITH_HUDDLES);
     expect(huddlesRow()).toHaveAttribute("aria-current", "page");
-    expect(huddlesRow()).toHaveClass("aria-[current=page]:bg-hover", "aria-[current=page]:font-semibold");
+    expect(huddlesRow()).toHaveClass("aria-[current=page]:bg-selected", "aria-[current=page]:font-semibold");
     rerender({ onHuddles: false });
     expect(huddlesRow()).not.toHaveAttribute("aria-current");
   });

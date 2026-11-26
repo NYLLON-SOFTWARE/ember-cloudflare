@@ -18,7 +18,7 @@ test.describe("Sign in with email and password", () => {
   test("signs in with an email address and password, and opens the page asked for", async ({ page, rooms }) => {
     await page.goto(`/rooms/${rooms.general.id}`);
     await expect(page).toHaveURL(/\/session\/new$/);
-    await expect(page).toHaveTitle("Sign in");
+    await expect(page).toHaveTitle("Sign in · Team Lopez");
     await expect(signInHeading(page)).toBeVisible();
     await expect(page.getByLabel("Email address")).toBeFocused();
 
@@ -65,7 +65,7 @@ test.describe("Sign up with the join link", () => {
     await administrator.context().close();
 
     await page.goto(link);
-    await expect(page).toHaveTitle("Sign up");
+    await expect(page).toHaveTitle("Sign up · Team Lopez");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Join Ember");
     await expect(page.getByLabel("Name")).toBeFocused();
     const emailAddress = `grace-${crypto.randomUUID()}@example.com`;
@@ -145,7 +145,7 @@ test.describe("Version", () => {
   test("shows the version under the sign-in and join cards, and nobody's email address", async ({ page, request, session }) => {
     for (const path of ["/session/new", `/join/${(await invitation(request, session)).joinCode}`]) {
       await page.goto(path);
-      await expect(page.getByText(/^Ember version/)).toHaveText(/^Ember version \d+\.\d+/);
+      await expect(page.getByText(/^Team Lopez/)).toHaveText(/^Team Lopez \d+\.\d+/);
       await expect(page.getByText(ADMINISTRATOR.emailAddress)).toHaveCount(0);
     }
   });
@@ -155,7 +155,7 @@ test.describe("Sign in with a display name", () => {
   test("signs in with a display name and opens the first room", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Join with just a name" }).click();
-    await expect(page.getByRole("heading", { name: "Welcome to Ember" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Welcome to Team Lopez" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Join" })).toBeDisabled();
 
     await page.getByLabel("Your name").fill("  Ada Lovelace  ");

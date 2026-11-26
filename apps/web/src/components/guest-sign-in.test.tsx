@@ -15,7 +15,7 @@ describe("Sign in with a display name", () => {
     const user = userEvent.setup();
     render(<GuestSignIn logo={null} onSignedIn={onSignedIn} onUsePassword={vi.fn()} />);
 
-    expect(screen.getByRole("heading", { name: "Welcome to Ember" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome to Team Lopez" })).toBeInTheDocument();
     const name = screen.getByLabelText("Your name");
     expect(name).toHaveFocus();
     expect(screen.getByRole("button", { name: "Join" })).toBeDisabled();

@@ -23,7 +23,7 @@ describe("Rail", () => {
     render(railAt("home"));
     const rail = screen.getByRole("navigation", { name: "Workspace" });
     expect([...rail.querySelectorAll("a, button")].map((item) => item.getAttribute("aria-label") ?? item.textContent)).toEqual([
-      "Ember home",
+      "Team Lopez home",
       "Home",
       "DMs",
       "Activity",
@@ -33,7 +33,7 @@ describe("Rail", () => {
       "Appearance: System",
       "Your profile",
     ]);
-    expect(within(rail).getByRole("link", { name: "Ember home" })).toHaveAttribute("href", "/");
+    expect(within(rail).getByRole("link", { name: "Team Lopez home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/rooms/directs/new");
     expect(within(rail).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/searches");
@@ -100,13 +100,13 @@ describe("Rail", () => {
 
   it("titles the logo with the workspace's name", () => {
     render(railAt("home"));
-    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+    expect(screen.getByRole("link", { name: "Team Lopez home" })).toHaveAttribute("title", "Analytical Engines");
   });
 
   it("marks the logo and Home at home, Home for a room, Workspace for its settings, your avatar for your profile, and nothing for a room's forms", () => {
     const { rerender } = render(railAt("home"));
     const current = () => screen.queryAllByRole("link", { current: "page" }).map((link) => link.getAttribute("aria-label") ?? link.textContent);
-    expect(current()).toEqual(["Ember home", "Home"]);
+    expect(current()).toEqual(["Team Lopez home", "Home"]);
     rerender(railAt("room"));
     expect(current()).toEqual(["Home"]);
     rerender(railAt("workspace"));
@@ -137,7 +137,7 @@ describe("Rail", () => {
       [...rail.querySelectorAll("a, button")].map((item) => [item.getAttribute("aria-label") ?? item.textContent, item.querySelector("svg")?.classList[0]]),
     );
     expect(icons).toEqual({
-      "Ember home": undefined,
+      "Team Lopez home": undefined,
       Home: "iconoir-home",
       DMs: "iconoir-multi-bubble",
       Activity: "iconoir-bell",
@@ -244,7 +244,7 @@ describe("Workspace logo", () => {
   it("shows Ember's flame, or the workspace's logo, filling a 56px square with rounded corners", () => {
     const account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, restrictChannelMentions: false, restrictEveryoneMention: false, warnBeforeNotifying: true, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, ssoJoin: false, ssoSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false, huddleCameras: true, huddleScreens: true, huddleVideo: "hd" as const };
     const { rerender } = render(<AccountContext value={account}>{railAt("home")}</AccountContext>);
-    const brand = screen.getByRole("link", { name: "Ember home" });
+    const brand = screen.getByRole("link", { name: "Team Lopez home" });
     expect(brand.querySelector("img")).toHaveAttribute("src", "/ember-icon.png");
     expect(brand).toHaveClass("size-14", "rounded-[10px]");
     expect(brand.querySelector("img")).toHaveClass("size-14", "rounded-[inherit]", "object-contain");

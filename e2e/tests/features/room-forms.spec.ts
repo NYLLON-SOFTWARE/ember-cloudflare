@@ -27,13 +27,13 @@ test.describe("Create an open room", () => {
     await expect(rail.getByRole("link", { name: "Home", exact: true })).toHaveAttribute("aria-current", "page");
     await rail.getByRole("link", { name: "Workspace" }).click();
     await expect(ada.page).toHaveURL(/\/account\/edit$/);
-    await expect(ada.page).toHaveTitle("Community settings");
+    await expect(ada.page).toHaveTitle("Community settings · Team Lopez");
     await expect(rail.getByRole("link", { name: "Workspace" })).toHaveAttribute("aria-current", "page");
 
     await ada.page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Rooms and permissions" }).click();
     await ada.page.getByRole("link", { name: "New room" }).click();
     await expect(ada.page).toHaveURL(/\/rooms\/opens\/new$/);
-    await expect(ada.page).toHaveTitle("New chat room");
+    await expect(ada.page).toHaveTitle("New chat room · Team Lopez");
     const roomName = ada.page.getByRole("textbox", { name: "Room name" });
     await expect(roomName).toHaveValue("New room");
     await expect(roomName).toBeFocused();
@@ -88,7 +88,7 @@ test.describe("Room settings page", () => {
     await expect(settings).toHaveAttribute("title", "Conversation settings");
     await settings.click();
     await expect(page).toHaveURL(new RegExp(`/rooms/opens/${rooms.general.id}/edit$`));
-    await expect(page).toHaveTitle("Edit settings for general");
+    await expect(page).toHaveTitle("Edit settings for general · Team Lopez");
     await expect(page.getByRole("heading", { level: 1, name: "Room settings" })).toBeVisible();
     // A room's settings are part of community settings.
     await expect(page.getByRole("navigation", { name: "Workspace" }).locator("[aria-current=page]")).toHaveAccessibleName("Workspace");

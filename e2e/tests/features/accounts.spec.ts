@@ -11,7 +11,7 @@ test.describe("Community settings page", () => {
   test("a member sees the community's name in Community settings, with nothing to change", async ({ members }) => {
     const grace = await members.signIn("Grace Hopper");
     await grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();
-    await expect(grace.page).toHaveTitle("Community settings");
+    await expect(grace.page).toHaveTitle("Community settings · Team Lopez");
     await expect(grace.page.getByRole("heading", { level: 1, name: "Basic community settings" })).toBeVisible();
     await expect(grace.page.getByRole("main").getByRole("heading", { level: 2, name: "Ember", exact: true })).toBeVisible();
     await expect(grace.page.getByRole("textbox", { name: "Community name" })).toHaveCount(0);
@@ -42,7 +42,7 @@ test.describe("Join link", () => {
   async function openMembership(page: Page) {
     await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();
     // Community settings shows its links while it loads, then draws them again once it has, losing a click that comes as it does.
-    await expect(page).toHaveTitle("Community settings");
+    await expect(page).toHaveTitle("Community settings · Team Lopez");
     await page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Membership" }).click();
   }
 

@@ -126,7 +126,7 @@ afterEach(() => {
 describe("Add and edit a bot", () => {
   it("adds a bot with the bot form, titled New chat bot, with Go Back to the bots page", () => {
     showNewBot();
-    expect(document.title).toBe("New chat bot");
+    expect(document.title).toBe("New chat bot · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Chat bot setup" })).toBeInTheDocument();
     expect(screen.getByText("Connect another app or service to your workspace as a bot.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/bots");
@@ -248,7 +248,7 @@ describe("Add and edit a bot", () => {
 
   it("shows a bot's name and webhook URL to change, titled Edit bot, with Go Back to the bots page", async () => {
     showSettings();
-    expect(document.title).toBe("Edit bot");
+    expect(document.title).toBe("Edit bot · Team Lopez");
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/bots");
     expect(await loaded()).toHaveFocus();
     expect(urlField()).toHaveValue(BOT.webhookUrl);

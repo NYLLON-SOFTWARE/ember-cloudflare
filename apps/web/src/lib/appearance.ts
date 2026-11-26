@@ -40,7 +40,7 @@ export function applyAppearance(appearance: Appearance): void {
   html.dataset.appearance = appearance;
   html.style.colorScheme = dark ? "dark" : "light";
   // The page's background, in place of index.html's colors for the system's scheme.
-  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) meta.content = dark ? "#171717" : "#ffffff";
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) meta.content = dark ? "#1a1a1a" : "#f2eee2";
   listeners.forEach((listener) => listener());
 }
 

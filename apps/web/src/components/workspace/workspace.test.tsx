@@ -218,7 +218,7 @@ describe("Open a room", () => {
   it("opens the room in the address, named in the tab", async () => {
     showWorkspace("/rooms/random");
     expect(await roomHeading()).toHaveTextContent("random");
-    await waitFor(() => expect(document.title).toBe("random"));
+    await waitFor(() => expect(document.title).toBe("random · Team Lopez"));
   });
 
   it("goes home with an alert from a room you can't see, once the list, asked again, hasn't got it either", async () => {
@@ -314,11 +314,11 @@ describe("Go back to the last room", () => {
   it("says there are no rooms yet, with your name for screen readers, under Home", async () => {
     serve({ "GET /api/sidebar": () => Response.json(roomList([])) });
     showWorkspace("/");
-    await waitFor(() => expect(document.title).toBe("No rooms yet"));
+    await waitFor(() => expect(document.title).toBe("No rooms yet · Team Lopez"));
     expect(screen.getByRole("main")).toHaveTextContent("Ada");
     expect(screen.getByRole("main").querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(location.pathname).toBe("/");
-    expect(railCurrent()).toEqual(["Ember home", "Home"]);
+    expect(railCurrent()).toEqual(["Team Lopez home", "Home"]);
   });
 
   it("goes back from workspace settings to the room visited last, by way of a room's settings", async () => {
@@ -361,7 +361,7 @@ describe("Room addresses", () => {
     serve({ "GET /api/sidebar": () => Response.json(roomList([])) });
     showWorkspace("/rooms");
     await waitFor(() => expect(location.pathname).toBe("/"));
-    expect(document.title).toBe("No rooms yet");
+    expect(document.title).toBe("No rooms yet · Team Lopez");
   });
 
   it("goes from a room's address for its kind to the room's own, and remembers it", async () => {
@@ -648,7 +648,7 @@ describe("Group DMs and DM names", () => {
     serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
     showWorkspace("/rooms/d1");
     expect(await roomHeading()).toHaveTextContent(/^Direct message with Grace$/);
-    await waitFor(() => expect(document.title).toBe("Grace"));
+    await waitFor(() => expect(document.title).toBe("Grace · Team Lopez"));
     expect(screen.getByRole("log", { name: "Messages with Grace" })).toBeInTheDocument();
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message Grace");
   });
@@ -1030,7 +1030,7 @@ describe("Rail", () => {
   it("titles the logo with the workspace's name", async () => {
     showWorkspace("/rooms/general");
     await roomHeading();
-    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+    expect(screen.getByRole("link", { name: "Team Lopez home" })).toHaveAttribute("title", "Analytical Engines");
   });
 
   it("marks Home on a room's page, and Workspace on community settings' pages, a room's settings among them", async () => {
@@ -1320,7 +1320,7 @@ describe("Search box", () => {
     expect(searchBox()).not.toBeInTheDocument();
     // The rail's Search, on a phone in landscape.
     expect(railCurrent()).toEqual(["Search"]);
-    expect(document.title).toBe("Search");
+    expect(document.title).toBe("Search · Team Lopez");
     expect(within(screen.getByRole("group", { name: "Search filters" })).getByRole("button", { name: "Remove in:random" })).toBeInTheDocument();
 
     // The top bar's search opens the box with it, to change it.
@@ -1921,7 +1921,7 @@ describe("Keyboard shortcuts", () => {
 
 describe("Welcome card for administrators, until they dismiss it", () => {
   const invited = { ...roomList(rooms), invitation: { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" } };
-  const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });
+  const card = () => screen.queryByRole("heading", { name: "Welcome to Team Lopez" });
   /** Shows general with the welcome card, its dismissal answered by `answer`. */
   async function showCard(answer: () => Response) {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
@@ -2342,7 +2342,7 @@ describe("Push subscriptions page", () => {
       act(() => navigate(path));
       expect(await screen.findByRole("heading", { level: 1, name: "Push Notification Subscriptions" })).toBeInTheDocument();
       expect(await screen.findByText("Safari 18.0 on iPhone")).toBeInTheDocument();
-      expect(document.title).toBe("Push notification subscriptions");
+      expect(document.title).toBe("Push notification subscriptions · Team Lopez");
       expect(railCurrent()).toEqual([]);
     }
     await user.click(screen.getByRole("link", { name: "Go Back" }));
@@ -2364,7 +2364,7 @@ describe("Chat bots page", () => {
 
     await user.click(await screen.findByRole("link", { name: "Edit Build Bot" }));
     expect(await screen.findByRole("textbox", { name: "Bot name" })).toHaveValue("Build Bot");
-    expect(document.title).toBe("Edit bot");
+    expect(document.title).toBe("Edit bot · Team Lopez");
     expect(railCurrent()).toEqual(["Workspace"]);
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Chat bots" })).toBeInTheDocument();
@@ -2457,7 +2457,7 @@ describe("Agent pages", () => {
     const { user } = showWorkspace("/account/edit#assistant-settings", asAdministrator);
     await user.click(await screen.findByRole("link", { name: "Edit Recap" }));
     expect(await screen.findByRole("textbox", { name: "Name" })).toHaveValue("Recap");
-    expect(document.title).toBe("Edit agent");
+    expect(document.title).toBe("Edit agent · Team Lopez");
     expect(railCurrent()).toEqual(["Admin"]);
     expect(sectionMarked()).toHaveTextContent("AI assistant");
 
@@ -2470,7 +2470,7 @@ describe("Agent pages", () => {
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     await user.click(await screen.findByRole("link", { name: "New agent" }));
     expect(await screen.findByRole("heading", { level: 1, name: "New agent" })).toBeInTheDocument();
-    expect(document.title).toBe("New agent");
+    expect(document.title).toBe("New agent · Team Lopez");
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await screen.findByRole("region", { name: "Agents" })).toBeInTheDocument();
   });
@@ -2481,7 +2481,7 @@ describe("Agent pages", () => {
     await user.click(await screen.findByRole("link", { name: "Edit Linear" }));
     expect(await screen.findByRole("textbox", { name: "Name" })).toHaveValue("Linear");
     expect(location.pathname).toBe("/account/apps/p1/edit");
-    expect(document.title).toBe("Edit app");
+    expect(document.title).toBe("Edit app · Team Lopez");
     expect(railCurrent()).toEqual(["Admin"]);
     expect(sectionMarked()).toHaveTextContent("AI assistant");
 
@@ -2489,7 +2489,7 @@ describe("Agent pages", () => {
     await user.click(await screen.findByRole("link", { name: "Connect an app" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Connect an app" })).toBeInTheDocument();
     expect(location.pathname).toBe("/account/apps/new");
-    expect(document.title).toBe("Connect an app");
+    expect(document.title).toBe("Connect an app · Team Lopez");
     expect(sectionMarked()).toHaveTextContent("AI assistant");
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await screen.findByRole("region", { name: "Apps" })).toBeInTheDocument();
@@ -2616,7 +2616,7 @@ describe("Community settings page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Membership" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 1, name: "Basic community settings" })).not.toBeInTheDocument();
     expect(settingsRequests()).toBe(1);
-    expect(document.title).toBe("Community settings");
+    expect(document.title).toBe("Community settings · Team Lopez");
   });
 
   it("starts a section at its top", async () => {
@@ -2657,7 +2657,7 @@ describe("Conversations drawer on phones", () => {
     const drawer = screen.getByRole("dialog", { name: "Navigation" });
     expect(within(drawer).getByRole("navigation", { name: "Workspace" })).toBeInTheDocument();
     expect(within(drawer).queryByRole("complementary")).not.toBeInTheDocument();
-    expect(within(drawer).getByRole("link", { name: "Ember home" })).toHaveFocus();
+    expect(within(drawer).getByRole("link", { name: "Team Lopez home" })).toHaveFocus();
     expect(drawer).not.toContainElement(screen.getByRole("button", { name: "Close navigation", expanded: true, hidden: true }));
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -3619,7 +3619,7 @@ describe("Huddles", () => {
       await user.click(huddlesRow()!);
       expect(await pageHeading()).toBeInTheDocument();
       expect(location.pathname).toBe("/huddles");
-      expect(document.title).toBe("Huddles");
+      expect(document.title).toBe("Huddles · Team Lopez");
       expect(huddlesRow()).toHaveAttribute("aria-current", "page");
       expect(within(screen.getByRole("region", { name: "Rooms" })).queryAllByRole("link", { current: "page" })).toEqual([]);
       expect(railCurrent()).toEqual(["Home"]);

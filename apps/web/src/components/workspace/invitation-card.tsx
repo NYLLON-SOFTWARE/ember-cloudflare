@@ -30,10 +30,10 @@ export function InvitationCard({ joinCode, onDismiss }: Props) {
         {logo ? (
           <AccountLogo src={logo} className="size-11 flex-none rounded-[11px] bg-background" />
         ) : (
-          <img src="/ember-icon.png" alt="Ember" width={44} height={44} className="size-11 flex-none object-contain" />
+          <img src="/ember-icon.png" alt="Team Lopez" width={44} height={44} className="size-11 flex-none object-contain" />
         )}
         <div>
-          <h2 className="mb-[3px] text-[17px] font-[650] max-md:text-[15px]">Welcome to Ember</h2>
+          <h2 className="mb-[3px] text-[17px] font-[650] max-md:text-[15px]">Welcome to Team Lopez</h2>
           <p className="text-muted-foreground max-md:text-[13px]">To invite people to chat, share the join link below.</p>
         </div>
         <TranslationButton translations="invite_message" />

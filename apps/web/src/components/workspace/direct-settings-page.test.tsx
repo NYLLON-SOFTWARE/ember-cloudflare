@@ -41,7 +41,7 @@ describe("Group DMs and DM names", () => {
   it("shows a card for each of the others in the DM, titled for them, with Go Back to the last room visited", () => {
     showPage(withGraceAndLinus);
     expect(cards()).toEqual(["Grace Hopper", "Linus Torvalds"]);
-    expect(document.title).toBe("Edit settings for Grace Hopper and Linus Torvalds");
+    expect(document.title).toBe("Edit settings for Grace Hopper and Linus Torvalds · Team Lopez");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Edit settings for Grace Hopper and Linus Torvalds");
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");
   });
@@ -49,14 +49,14 @@ describe("Group DMs and DM names", () => {
   it("shows you alone in your DM with yourself", () => {
     showPage(alone);
     expect(cards()).toEqual(["Ada Lovelace"]);
-    expect(document.title).toBe("Edit settings for Ada Lovelace");
+    expect(document.title).toBe("Edit settings for Ada Lovelace · Team Lopez");
   });
 
   it("names people as the people directory lists them now", () => {
     const renamed: DirectoryUser = { ...grace, name: "Grace Brewster Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
     showPage(withGraceAndLinus, new Map([[grace.id, renamed]]));
     expect(cards()).toEqual(["Grace Brewster Hopper", "Linus Torvalds"]);
-    expect(document.title).toBe("Edit settings for Grace Brewster Hopper and Linus Torvalds");
+    expect(document.title).toBe("Edit settings for Grace Brewster Hopper and Linus Torvalds · Team Lopez");
   });
 });
 

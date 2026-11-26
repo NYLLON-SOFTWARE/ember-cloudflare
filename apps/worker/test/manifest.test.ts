@@ -11,13 +11,13 @@ describe("Web app manifest", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
     expect(response.headers.get("Cache-Control")).toBe("no-cache");
-    expect(await response.json()).toMatchObject({ name: "Ember" });
+    expect(await response.json()).toMatchObject({ name: "Team Lopez", short_name: "Team Lopez" });
   });
 
   it("names the app after the workspace", async () => {
     const setUp = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "12345678" }) });
     expect(setUp.status).toBe(201);
-    expect(await manifest()).toMatchObject({ name: "Ember" });
+    expect(await manifest()).toMatchObject({ name: "Team Lopez" });
 
     const rename = await api("/api/account", { method: "PATCH", headers: { Cookie: cookieOf(setUp) }, body: JSON.stringify({ name: "Analytical Engines" }) });
     expect(rename.status).toBe(200);
@@ -26,7 +26,8 @@ describe("Web app manifest", () => {
 
   it("lists Ember's icons and screenshots and Campfire's shortcuts, colors and categories, with this project's description", async () => {
     expect(await manifest()).toEqual({
-      name: "Ember",
+      name: "Team Lopez",
+      short_name: "Team Lopez",
       icons: [
         { src: "/logos/app-icon-192.png", type: "image/png", sizes: "192x192" },
         { src: "/logos/app-icon.png", type: "image/png", sizes: "512x512" },
@@ -35,18 +36,18 @@ describe("Web app manifest", () => {
       start_url: "/",
       display: "standalone",
       scope: "/",
-      description: "A real-time chat app that runs entirely on Cloudflare.",
+      description: "Team Lopez — internal chat for the Victor Lopez for Hammond City Council campaign.",
       categories: ["social", "business", "productivity"],
-      theme_color: "#ffffff",
-      background_color: "#ffffff",
+      theme_color: "#000000",
+      background_color: "#f2eee2",
       shortcuts: [
-        { name: "New chat room", description: "Open Ember and start a new chat room", url: "rooms/opens/new", icons: [{ src: "/shortcuts/plus.svg", sizes: "any" }] },
-        { name: "My profile", description: "Open Ember and view your profile", url: "/users/me/profile", icons: [{ src: "/shortcuts/user.svg", sizes: "any" }] },
+        { name: "New chat room", description: "Open Team Lopez and start a new chat room", url: "rooms/opens/new", icons: [{ src: "/shortcuts/plus.svg", sizes: "any" }] },
+        { name: "My profile", description: "Open Team Lopez and view your profile", url: "/users/me/profile", icons: [{ src: "/shortcuts/user.svg", sizes: "any" }] },
       ],
       screenshots: [
-        { src: "/screenshots/chat.png", sizes: "1080x2400", form_factor: "narrow", label: "Ember is an installable, self-hosted group chat system." },
-        { src: "/screenshots/sidebar.png", sizes: "1080x2400", form_factor: "narrow", label: "Easily invite people. Make rooms. @mentions, DMs, and mobile support." },
-        { src: "/screenshots/dark-mode.png", sizes: "1080x2400", form_factor: "narrow", label: "Full support for dark mode, customizable to your brand." },
+        { src: "/screenshots/chat.png", sizes: "1080x2400", form_factor: "narrow", label: "Team Lopez is the campaign's installable team chat." },
+        { src: "/screenshots/sidebar.png", sizes: "1080x2400", form_factor: "narrow", label: "Invite people. Make rooms. @mentions, DMs, and mobile support." },
+        { src: "/screenshots/dark-mode.png", sizes: "1080x2400", form_factor: "narrow", label: "Light and dark, in the campaign's black, white, and gold." },
       ],
     });
   });

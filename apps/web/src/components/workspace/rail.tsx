@@ -16,7 +16,7 @@ import { UserAvatar } from "./user-avatar";
 
 const RAIL_LINK = cn(
   "relative flex size-14 shrink-0 flex-col items-center justify-center gap-[5px] rounded-[10px] px-[3px] py-1.5 text-[11px] text-muted-foreground",
-  "hover:bg-hover hover:text-foreground aria-[current=page]:bg-hover aria-[current=page]:text-foreground",
+  "hover:bg-hover hover:text-foreground aria-[current=page]:bg-selected aria-[current=page]:text-selected-foreground",
 );
 
 interface RailLinkProps {
@@ -128,7 +128,7 @@ export function Rail({ me, workspaceName, current, activity, newRelease, openRep
     >
       <PageLink
         href="/"
-        aria-label="Ember home"
+        aria-label="Team Lopez home"
         title={workspaceName}
         aria-current={marked === "home" ? "page" : undefined}
         className="mb-1 flex size-14 shrink-0 items-center justify-center rounded-[10px]"

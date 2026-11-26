@@ -50,7 +50,7 @@ test.describe("Search messages", () => {
 
     await searchUntil(ada.page, word, cards(ada.page).nth(1));
     await expect(ada.page).toHaveURL(searchAddress(word, `&in=${rooms.general.id}`));
-    await expect(ada.page).toHaveTitle("Search");
+    await expect(ada.page).toHaveTitle("Search · Team Lopez");
     await expect(cards(ada.page)).toHaveText([new RegExp(`Second ${word}`), new RegExp(`First ${word}`)]);
     await expect(results(ada.page).getByRole("heading", { level: 2 })).toHaveText("2 results");
     await expect(cards(ada.page).first().locator("mark[data-search-match]")).toHaveText(word);

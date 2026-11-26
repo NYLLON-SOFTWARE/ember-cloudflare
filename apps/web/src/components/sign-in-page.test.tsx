@@ -53,8 +53,8 @@ afterEach(() => {
 describe("Sign in with email and password", () => {
   it("asks for an email address and password", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
-    expect(document.title).toBe("Sign in");
-    expect(screen.getByRole("img", { name: "Ember" })).toBeInTheDocument();
+    expect(document.title).toBe("Sign in · Team Lopez");
+    expect(screen.getByRole("img", { name: "Victor Lopez for Hammond City Council" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign in to Ember" })).toBeInTheDocument();
     expect(screen.getByText("Welcome back. Pick up the conversation.")).toBeInTheDocument();
 
@@ -180,7 +180,7 @@ describe("Sign-in attempt limit", () => {
 describe("Version", () => {
   it("shows Ember's version under the card", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
-    expect(card().nextElementSibling).toHaveTextContent(/^Ember version 0\.1$/);
+    expect(card().nextElementSibling).toHaveTextContent(/^Team Lopez 0\.1$/);
     expect(screen.queryByRole("link", { name: /@/ })).not.toBeInTheDocument();
   });
 });
@@ -190,7 +190,7 @@ describe("Sign in with a display name", () => {
     const user = userEvent.setup();
     render(<SignInPage workspace={{ ...workspace, guestSignIn: true }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     await user.click(screen.getByRole("button", { name: "Join with just a name" }));
-    expect(screen.getByRole("heading", { name: "Welcome to Ember" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome to Team Lopez" })).toBeInTheDocument();
     expect(screen.getByLabelText("Your name")).toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: "Sign in" }));
@@ -230,7 +230,7 @@ describe("Workspace logo", () => {
   it("shows it over joining with just a name too", async () => {
     render(<SignInPage workspace={withLogo} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     await userEvent.click(screen.getByRole("button", { name: "Join with just a name" }));
-    expect(screen.getByRole("heading", { name: "Welcome to Ember" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome to Team Lopez" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
   });
 });

@@ -123,7 +123,7 @@ describe("Join with an email domain", () => {
   it("asks for an address at the workspace's email domains, then says to look for the link in that inbox", async () => {
     const fetch = serve(emailed);
     open();
-    expect(document.title).toBe("Sign up");
+    expect(document.title).toBe("Sign up · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Join Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByText("Enter your email address, and Ember will email you a link to join with it.")).toBeInTheDocument();
     expect(emailField()).toHaveAccessibleDescription("Addresses at example.org or example.com can join.");

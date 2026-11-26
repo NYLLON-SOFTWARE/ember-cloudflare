@@ -1,128 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Something went wrong (500)</title>
+    <title>Something went wrong (500) · Team Lopez</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-      *,
-      *::before,
-      *::after {
-        box-sizing: border-box;
-      }
+    @import url("/fonts/team-lopez.css");
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      --color-border: #d9d9d9;
+      --color-bg: #f2eee2;
+      --color-text: #000;
+      --btn-size: 2.65em;
+      background-color: var(--color-bg);
+      block-size: 100dvh;
+      color: var(--color-text);
+      display: grid;
+      align-content: center;
+      margin: 0;
+      padding: 0;
+      place-items: center;
+      font-family: "Nunito Sans", Avenir, system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { --color-border: #333; --color-bg: #1a1a1a; --color-text: #fff; }
+    }
+    .rise {
+      position: absolute;
+      top: 28px;
+      left: -8%;
+      right: -8%;
+      height: 3px;
+      background: #b5a169;
+      transform: rotate(-5deg);
+      transform-origin: left center;
+    }
+    .lockup { display: block; width: min(320px, calc(100% - 48px)); height: auto; margin: 0 auto 1.5rem; }
+    svg { color: var(--color-text); }
+    .error {
+      align-items: center;
+      display: flex;
+      flex-direction: column;
+      gap: 2em;
+      justify-content: start;
+      margin-block-end: 15dvh;
+    }
+    .error__img {
+      aspect-ratio: 1;
+      background-color: #000;
+      block-size: auto;
+      display: grid;
+      place-items: center;
+      inline-size: min(30dvh, 220px);
+    }
+    .error__img svg { color: #c6b684; grid-area: 1/1; max-inline-size: 66%; }
+    .buttons { display: flex; flex-direction: row; gap: 1em; justify-content: center; }
+    .btn {
+      align-items: center;
+      aspect-ratio: 1;
+      background-color: #b5a169;
+      block-size: var(--btn-size);
+      border: 0;
+      color: #000;
+      cursor: pointer;
+      display: grid;
+      font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+      font-weight: 600;
+      font-size: 1.4rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      gap: 0.5em;
+      inline-size: var(--btn-size);
+      justify-content: center;
+      padding: 0;
+      place-items: center;
+      text-align: center;
+      text-decoration: none;
+    }
+    .btn svg { color: #000; grid-area: 1/1; inline-size: 1.3em; max-inline-size: unset; }
+    .for-screen-reader {
+      clip-path: inset(50%);
+      height: 1px;
+      width: 1px;
+      overflow: hidden;
+      position: absolute;
+      white-space: nowrap;
+    }
 
-      body {
-        --lch-black: 0% 0 0;
-        --lch-gray: 75% 0.005 96;
-        --lch-white: 100% 0 0;
-
-        --color-border: oklch(var(--lch-gray));
-        --color-bg: oklch(var(--lch-white));
-        --color-text: oklch(var(--lch-black));
-
-        --btn-size: 2.65em;
-
-        background-color: var(--color-bg);
-        block-size: 100dvh;
-        color: var(--color-text);
-        display: grid;
-        margin: 0;
-        padding: 0;
-        place-items: center;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-
-        @media (prefers-color-scheme: dark) {
-          --lch-black: 100% 0 0;
-          --lch-gray: 44.95% 0 0;
-          --lch-white: 0% 0 0;
-        }
-      }
-
-      svg {
-        color: var(--color-text);
-
-        @media (prefers-color-scheme: dark) {
-          color: var(--color-text);
-        }
-      }
-
-      .error {
-        align-items: center;
-        display: flex;
-        flex-direction: column;
-        gap: 2em;
-        justify-content: start;
-        margin-block-end: 15dvh;
-      }
-
-      .error__img {
-        aspect-ratio: 1;
-        background-color: var(--color-text);
-        block-size: auto;
-        border-radius: 50%;
-        display: grid;
-        place-items: center;
-        inline-size: 30dvh;
-
-        svg {
-          color: var(--color-bg);
-          grid-area: 1/1;
-          max-inline-size: 66%;
-
-          @media (prefers-color-scheme: dark) {
-            color: var(--color-bg);
-          }
-        }
-      }
-
-      .buttons {
-        display: flex;
-        flex-direction: row;
-        gap: 1em;
-        justify-content: center;
-      }
-
-      .btn {
-        align-items: center;
-        aspect-ratio: 1;
-        background-color: var(--color-bg);
-        block-size: var(--btn-size);
-        border-radius: 50%;
-        border: 1px solid var(--color-border);
-        color: var(--color-text);
-        cursor: pointer;
-        display: grid;
-        font-weight: 600;
-        font-size: 1.4rem;
-        gap: 0.5em;
-        inline-size: var(--btn-size);
-        justify-content: center;
-        padding: 0;
-        place-items: center;
-        text-align: center;
-
-        svg {
-          -webkit-touch-callout: none;
-          grid-area: 1/1;
-          inline-size: 1.3em;
-          max-inline-size: unset;
-          user-select: none;
-        }
-      }
-
-      .for-screen-reader {
-        clip-path: inset(50%);
-        height: 1px;
-        width: 1px;
-        overflow: hidden;
-        position: absolute;
-        white-space: nowrap;
-      }
-    </style>
+  </style>
   </head>
 
   <body>
-    <div class="error">
+    <div class="rise" aria-hidden="true"></div>
+  <img class="lockup" src="/logos/victor-lopez-logo-wide.png" alt="Victor Lopez for Hammond City Council" width="640" height="240">
+  <div class="error">
       <div class="error__img">
         <svg stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Server error">
           <path d="M20 16L20 18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>

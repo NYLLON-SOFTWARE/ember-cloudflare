@@ -6,8 +6,8 @@ import { expect, test } from "./fixtures";
  * and user, as the project's owner chose, where Campfire lists its add and person (app/assets/images/).
  */
 const ICONS: Record<string, string> = {
-  "/logos/app-icon-192.png": "49ff9160e2e167043fe948e7b78695c1b55270dff701479ebc6f574eedff6126",
-  "/logos/app-icon.png": "d93bfb957863d1aca5ab6ca4e2f81d592e5ed101df6850b89ac792f6f67d88f3",
+  "/logos/app-icon-192.png": "6485f3680a84ffeff42083619ff0ec1577c9b762edf363ac14d8eda8d5911b27",
+  "/logos/app-icon.png": "48a647419b90ead85be71fce1d4493236220df1969d95160e213d6557e07987e",
   "/shortcuts/plus.svg": "dbd0c9ec345745994d219d9bf30252abe534304e8f006316e14c32c8dbf3fb79",
   "/shortcuts/user.svg": "53e6505904aafd797da6ea432aa148b7858104454e4e9b65895a879e74451ea3",
 };
@@ -78,8 +78,8 @@ test.describe("Installable page head", () => {
         return [...tags].map((tag) => Object.fromEntries([...tag.attributes].map(({ name, value }) => [name, value])));
       }, html);
       expect(tags, path).toEqual([
-        { name: "theme-color", content: "#ffffff", media: "(prefers-color-scheme: light)" },
-        { name: "theme-color", content: "#000000", media: "(prefers-color-scheme: dark)" },
+        { name: "theme-color", content: "#f2eee2", media: "(prefers-color-scheme: light)" },
+        { name: "theme-color", content: "#1a1a1a", media: "(prefers-color-scheme: dark)" },
         { name: "apple-mobile-web-app-capable", content: "yes" },
         { name: "mobile-web-app-capable", content: "yes" },
         { rel: "manifest", href: "/webmanifest.json" },

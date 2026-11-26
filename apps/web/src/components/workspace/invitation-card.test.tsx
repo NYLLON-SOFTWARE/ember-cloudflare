@@ -26,8 +26,8 @@ afterEach(() => {
 describe("Welcome and invite card", () => {
   it("welcomes people with the workspace's join link, labelled for screen readers", () => {
     render(<InvitationCard joinCode={JOIN_CODE} onDismiss={dismiss} />);
-    expect(screen.getByRole("img", { name: "Ember" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Welcome to Ember" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Team Lopez" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Welcome to Team Lopez" })).toBeInTheDocument();
     expect(screen.getByText("To invite people to chat, share the join link below.")).toBeInTheDocument();
     const link = screen.getByRole("textbox", { name: "Share to invite more people" });
     expect(link).toHaveValue(LINK);
@@ -47,7 +47,7 @@ describe("Welcome card for administrators, until they dismiss it", () => {
     render(<InvitationCard joinCode={JOIN_CODE} onDismiss={onDismiss} />);
     const button = screen.getByRole("button", { name: "Dismiss welcome card" });
     expect(button.parentElement!.lastElementChild).toBe(button);
-    expect(button.parentElement).toContainElement(screen.getByRole("heading", { name: "Welcome to Ember" }));
+    expect(button.parentElement).toContainElement(screen.getByRole("heading", { name: "Welcome to Team Lopez" }));
     expect(button).toHaveClass("size-9", "touch:size-11", "ml-auto");
 
     await userEvent.click(button);
@@ -163,6 +163,6 @@ describe("Workspace logo", () => {
       </AccountContext>,
     );
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
-    expect(screen.queryByRole("img", { name: "Ember" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Team Lopez" })).toBeNull();
   });
 });

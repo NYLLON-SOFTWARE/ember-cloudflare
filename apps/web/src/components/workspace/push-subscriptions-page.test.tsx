@@ -72,7 +72,7 @@ afterEach(() => {
 describe("Push subscriptions page", () => {
   it("lists your browsers' subscriptions under the page's title and heading, with Go Back to the last room visited", async () => {
     showPage();
-    expect(document.title).toBe("Push notification subscriptions");
+    expect(document.title).toBe("Push notification subscriptions · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Push Notification Subscriptions" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/7");
 

@@ -61,11 +61,11 @@ const sent = () => vi.mocked(fetch).mock.calls.at(-1)![1]!.body;
 describe("Set up the workspace", () => {
   it("asks for the administrator's name, email address and password", () => {
     render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
-    expect(document.title).toBe("Set up Ember");
+    expect(document.title).toBe("Set up Ember · Team Lopez");
     expect(screen.getByRole("region", { name: "Set up Ember" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Set up Ember" })).toBeInTheDocument();
     expect(screen.getByText("Create the admin account for your workspace.")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Ember" })).toHaveAttribute("src", "/ember-icon.png");
+    expect(screen.getByRole("img", { name: "Victor Lopez for Hammond City Council" })).toHaveAttribute("src", "/logos/victor-lopez-logo-wide.png");
 
     const name = screen.getByLabelText("Name");
     expect(name).toHaveFocus();
@@ -112,7 +112,7 @@ describe("Set up the workspace", () => {
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
     expect(onSetUp).not.toHaveBeenCalled();
     expect(location.pathname).toBe("/first_run");
-    expect(document.title).toBe("Set up Ember");
+    expect(document.title).toBe("Set up Ember · Team Lopez");
     const [path, init] = fetch.mock.calls[0]!;
     expect(path).toBe("/api/first_run");
     expect(init).toMatchObject({ method: "POST" });
@@ -283,7 +283,7 @@ describe("Installer-protected setup link", () => {
   it("asks for the setup link, saying where it is and what to do without it, in the form's place", () => {
     history.replaceState(null, "", "/first_run");
     render(<SetupPage placeholders={DEFAULTS} access="link" onSetUp={() => {}} />);
-    expect(document.title).toBe("Set up Ember");
+    expect(document.title).toBe("Set up Ember · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Set up Ember" })).toBeInTheDocument();
     expect(screen.getByText("Ember is waiting for its administrator.")).toBeInTheDocument();
     expect(linkShape()).toBeInTheDocument();
@@ -355,7 +355,7 @@ describe("Setup password", () => {
   it("asks for the setup password first, in the form's place, saying what to do if it's forgotten", () => {
     history.replaceState(null, "", "/first_run");
     render(<SetupPage placeholders={DEFAULTS} access="password" onSetUp={() => {}} />);
-    expect(document.title).toBe("Set up Ember");
+    expect(document.title).toBe("Set up Ember · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Set up Ember" })).toBeInTheDocument();
     expect(screen.getByText("Ember is waiting for its administrator.")).toBeInTheDocument();
     const field = setupPasswordField();

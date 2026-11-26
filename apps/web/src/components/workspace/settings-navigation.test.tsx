@@ -34,7 +34,7 @@ describe("Community settings page", () => {
     expect(current()).toHaveTextContent("General");
     rerender(<SettingsNavigation section="membership-settings" administrator />);
     expect(current()).toHaveTextContent("Membership");
-    expect(current()).toHaveClass("aria-[current=page]:bg-hover", "aria-[current=page]:font-semibold");
+    expect(current()).toHaveClass("aria-[current=page]:bg-selected", "aria-[current=page]:font-semibold");
   });
 
   it("counts administrators' open reports on Membership, which holds their list, as screen readers hear too", () => {

@@ -74,11 +74,11 @@ test.describe("Light, dark or system appearance", () => {
   test("switches to Dark and keeps it, applied before the app has even loaded", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { colorScheme: "light" } });
     expect(await isDark(ada.page)).toBe(false);
-    await expect(ada.page.locator("body")).toHaveCSS("background-color", "rgb(250, 250, 250)");
+    await expect(ada.page.locator("body")).toHaveCSS("background-color", "rgb(242, 238, 226)");
 
     await choose(ada, "Dark");
     expect(await isDark(ada.page)).toBe(true);
-    await expect(ada.page.locator("body")).toHaveCSS("background-color", "rgb(28, 28, 28)");
+    await expect(ada.page.locator("body")).toHaveCSS("background-color", "rgb(26, 26, 26)");
     await expect(html(ada.page)).toHaveAttribute("data-appearance", "dark");
     expect(await colorScheme(ada.page)).toBe("dark");
     await ada.page.keyboard.press("Escape");
@@ -123,15 +123,15 @@ test.describe("Light, dark or system appearance", () => {
 
   test("colors the browser around the page to match, from the moment it loads", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { colorScheme: "dark" } });
-    expect(await themeColors(ada.page)).toEqual(["#171717", "#171717"]);
+    expect(await themeColors(ada.page)).toEqual(["#1a1a1a", "#1a1a1a"]);
     await choose(ada, "Light");
-    expect(await themeColors(ada.page)).toEqual(["#ffffff", "#ffffff"]);
+    expect(await themeColors(ada.page)).toEqual(["#f2eee2", "#f2eee2"]);
 
     // With the app's scripts blocked, only the inline script in index.html can set it.
     await ada.page.route("**/assets/*.js", (route) => route.abort());
     await ada.page.reload();
     await expect(ada.page.locator("#root")).toBeEmpty();
-    expect(await themeColors(ada.page)).toEqual(["#ffffff", "#ffffff"]);
+    expect(await themeColors(ada.page)).toEqual(["#f2eee2", "#f2eee2"]);
   });
 
   test("keeps every open tab in step, also when the site's storage is cleared", async ({ members }) => {
@@ -184,7 +184,7 @@ test.describe("Light, dark or system appearance", () => {
 
     await choose(ada, "Dark");
     await expect.poll(() => isDark(signIn)).toBe(true);
-    expect(await themeColors(signIn)).toEqual(["#171717", "#171717"]);
+    expect(await themeColors(signIn)).toEqual(["#1a1a1a", "#1a1a1a"]);
     await choose(ada, "System");
     await expect.poll(() => isDark(signIn)).toBe(false);
     await signIn.emulateMedia({ colorScheme: "dark" });

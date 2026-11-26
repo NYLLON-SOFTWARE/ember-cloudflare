@@ -117,8 +117,8 @@ test.describe("Workspace layout", () => {
 
   test("uses Ember's palette and 14px text, light and dark", async ({ members }) => {
     const palettes = {
-      light: { canvas: "rgb(255, 255, 255)", surface: "rgb(250, 250, 250)", hover: "rgb(242, 242, 242)", border: "rgb(229, 229, 229)", muted: "rgb(115, 115, 115)", ink: "rgb(23, 23, 23)" },
-      dark: { canvas: "rgb(23, 23, 23)", surface: "rgb(28, 28, 28)", hover: "rgb(40, 40, 40)", border: "rgb(52, 52, 52)", muted: "rgb(163, 163, 163)", ink: "rgb(245, 245, 245)" },
+      light: { canvas: "rgb(255, 255, 255)", surface: "rgb(242, 238, 226)", hover: "rgb(230, 222, 204)", selected: "rgb(228, 215, 176)", border: "rgb(217, 217, 217)", muted: "rgb(92, 92, 92)", ink: "rgb(0, 0, 0)" },
+      dark: { canvas: "rgb(0, 0, 0)", surface: "rgb(26, 26, 26)", hover: "rgb(38, 38, 38)", selected: "rgb(58, 52, 36)", border: "rgb(51, 51, 51)", muted: "rgb(163, 163, 163)", ink: "rgb(255, 255, 255)" },
     };
     for (const [colorScheme, colors] of Object.entries(palettes) as [keyof typeof palettes, (typeof palettes)["light"]][]) {
       const { page } = await members.signIn(colorScheme === "light" ? "Ada" : "Grace", { context: { colorScheme, viewport: { width: 1280, height: 800 } } });
@@ -129,7 +129,7 @@ test.describe("Workspace layout", () => {
       await expect(header).toHaveCSS("background-color", colors.canvas);
       await expect(header).toHaveCSS("border-bottom-color", colors.border);
       await expect(header.getByRole("heading", { level: 1 })).toHaveCSS("color", colors.ink);
-      await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" })).toHaveCSS("background-color", colors.hover);
+      await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" })).toHaveCSS("background-color", colors.selected);
       await expect(page.getByRole("heading", { name: "DMs" })).toHaveCSS("color", colors.muted);
     }
   });

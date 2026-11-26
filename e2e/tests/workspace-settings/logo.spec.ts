@@ -4,7 +4,7 @@ import { drawnPicture, nextSecond, shownPicture, signInAsAdministrator, useOwnAd
 import { join } from "./fixtures";
 
 /** The picture on `page`'s rail that goes home. */
-const railLogo = (page: Page) => page.getByRole("link", { name: "Ember home" }).locator("img");
+const railLogo = (page: Page) => page.getByRole("link", { name: "Team Lopez home" }).locator("img");
 
 /** The type and size of the picture at `src`, as `page`'s browser fetches and decodes it. */
 const fetchedPicture = (page: Page, src: string) =>

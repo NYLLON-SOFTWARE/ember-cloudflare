@@ -16,7 +16,7 @@ test.describe("Rename the workspace", () => {
     await name.fill(renamed);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByRole("alert")).toHaveText("Changes saved.");
-    await expect(page.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", renamed);
+    await expect(page.getByRole("link", { name: "Team Lopez home" })).toHaveAttribute("title", renamed);
     // Community settings' links take the sidebar's place, which has the new name back in a room.
     await page.getByRole("link", { name: "Go Back" }).click();
     await expect(page.getByRole("complementary", { name: "Conversations" }).getByRole("heading", { level: 2 })).toHaveText(renamed);

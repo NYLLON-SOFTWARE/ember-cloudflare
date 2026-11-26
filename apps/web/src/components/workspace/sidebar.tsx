@@ -23,7 +23,7 @@ import { UserAvatar } from "./user-avatar";
 
 /** A row of the list, a room's or a DM's. */
 const ROW =
-  "flex min-h-9 items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-sm leading-[22px] text-foreground no-underline touch:min-h-11 hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-semibold";
+  "flex min-h-9 items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-sm leading-[22px] text-foreground no-underline touch:min-h-11 hover:bg-hover aria-[current=page]:bg-selected aria-[current=page]:font-semibold aria-[current=page]:text-selected-foreground";
 
 /** A muted row's name, dimmed, as Slack dims a muted channel's, but under the pointer and while it's open. */
 const MUTED = "text-muted-foreground hover:text-foreground aria-[current=page]:text-foreground";
@@ -480,7 +480,7 @@ function DirectRow({ room, meId, current, unreadId, mutedId, huddle, onClick }: 
               {paused ? (
                 <PausedMark
                   presence={presence}
-                  className="-right-1 -bottom-1 size-3.5 ring-2 ring-surface group-hover:ring-hover group-aria-[current=page]:ring-hover"
+                  className="-right-1 -bottom-1 size-3.5 ring-2 ring-surface group-hover:ring-hover group-aria-[current=page]:ring-selected"
                 />
               ) : (
                 presence && <PresenceDot presence={presence} />
@@ -528,8 +528,8 @@ function PresenceDot({ presence }: { presence: Presence }) {
       aria-hidden="true"
       data-presence={presence}
       className={cn(
-        "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-surface group-hover:ring-hover group-aria-[current=page]:ring-hover",
-        presence === "active" ? "bg-positive" : "border-[1.5px] border-muted-foreground bg-surface group-hover:bg-hover group-aria-[current=page]:bg-hover",
+        "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-surface group-hover:ring-hover group-aria-[current=page]:ring-selected",
+        presence === "active" ? "bg-positive" : "border-[1.5px] border-muted-foreground bg-surface group-hover:bg-hover group-aria-[current=page]:bg-selected",
       )}
     />
   );

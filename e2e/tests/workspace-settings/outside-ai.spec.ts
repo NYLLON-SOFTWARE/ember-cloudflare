@@ -114,7 +114,7 @@ test.describe("Outside AI", () => {
     const signIn = await beginSignIn(request, address);
     expect(signIn.resource).toBe(address);
     await page.goto(signIn.authorize);
-    await expect(page).toHaveTitle(/Connect an AI app/);
+    await expect(page).toHaveTitle(/Connect an AI app · Team Lopez/);
     await expect(page.getByRole("heading", { level: 1, name: new RegExp(`^Connect ${APP_NAME} to .+\\?$`) })).toBeVisible();
     await expect(page.getByRole("listitem")).toHaveText(["See the open rooms you're in, read their messages and search them, as you can"]);
     // Sending is theirs to leave out, and allowed unless they do, and their direct messages and private rooms are left out unless they tick them.

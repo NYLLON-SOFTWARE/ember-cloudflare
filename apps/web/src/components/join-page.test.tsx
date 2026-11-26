@@ -71,8 +71,8 @@ const moon = () => new File(["moon"], "moon.jpg", { type: "image/jpeg" });
 describe("Sign up with the join link", () => {
   it("asks for a name, email address and password", () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
-    expect(document.title).toBe("Sign up");
-    expect(screen.getByRole("img", { name: "Ember" })).toBeInTheDocument();
+    expect(document.title).toBe("Sign up · Team Lopez");
+    expect(screen.getByRole("img", { name: "Victor Lopez for Hammond City Council" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Join Ember" })).toBeInTheDocument();
     expect(screen.getByText("Create your account and join the conversation.")).toBeInTheDocument();
 
@@ -332,7 +332,7 @@ describe("Version", () => {
   it("shows Ember's version under the card, as the sign-in page does, and nobody to email", () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     const card = screen.getByRole("heading", { name: /^Join / }).closest("section")!;
-    expect(card.nextElementSibling).toHaveTextContent(/^Ember version 0\.1$/);
+    expect(card.nextElementSibling).toHaveTextContent(/^Team Lopez 0\.1$/);
     expect(screen.queryByRole("link", { name: /@/ })).not.toBeInTheDocument();
   });
 });

@@ -104,7 +104,7 @@ describe("Room settings page", () => {
     serve(openSettings());
     showPage(design);
     expect(await roomName()).toHaveValue("Design");
-    expect(document.title).toBe("Edit settings for Design");
+    expect(document.title).toBe("Edit settings for Design · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Room settings" })).toBeInTheDocument();
     expect(screen.getByText("Manage the room name, access, and members.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");

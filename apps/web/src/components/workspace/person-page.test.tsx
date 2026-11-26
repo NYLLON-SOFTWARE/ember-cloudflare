@@ -103,7 +103,7 @@ describe("Someone's profile page", () => {
     showPage(grace, { people: new Map([[grace.id, grace]]) });
     expect(await heading()).toHaveTextContent("Grace Hopper");
     // The tab is named once the page has drawn them, which can take a moment longer.
-    await waitFor(() => expect(document.title).toBe("Grace Hopper"));
+    await waitFor(() => expect(document.title).toBe("Grace Hopper · Team Lopez"));
     expect(screen.getByText("Wrote the first compiler")).toBeVisible();
     expect(await avatar()).toHaveAttribute("src", grace.avatarUrl);
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");
@@ -196,7 +196,7 @@ describe("Someone's profile page", () => {
     const renamed: DirectoryUser = { ...grace, name: "Grace Brewster Hopper", bio: "Rear admiral", avatarUrl: "/users/t2/avatar?v=2" };
     list(new Map([[grace.id, renamed]]));
     expect(await heading()).toHaveTextContent("Grace Brewster Hopper");
-    await waitFor(() => expect(document.title).toBe("Grace Brewster Hopper"));
+    await waitFor(() => expect(document.title).toBe("Grace Brewster Hopper · Team Lopez"));
     expect(screen.getByText("Rear admiral")).toBeVisible();
     expect(await avatar()).toHaveAttribute("src", renamed.avatarUrl);
   });

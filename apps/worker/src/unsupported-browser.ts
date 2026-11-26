@@ -69,6 +69,7 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
     <meta name="color-scheme" content="light dark">
     <title>${title}</title>
     <link rel="icon" type="image/png" sizes="48x48" href="/logos/app-icon-48.png">
+    <link rel="stylesheet" href="/fonts/team-lopez.css">
     <link rel="apple-touch-icon" href="/logos/app-icon.png">
     <script>
       (function () {
@@ -79,12 +80,12 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
       })();
     </script>
     <style>
-      html { background: #fafafa; color: #171717; }
-      html.dark { background: #1c1c1c; color: #f5f5f5; }
+      html { background: #f2eee2; color: #000; }
+      html.dark { background: #1a1a1a; color: #fff; }
       body {
         margin: 0;
         padding: 60px 0 1px;
-        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font: 16px/1.5 "Nunito Sans", Avenir, system-ui, sans-serif;
         -webkit-font-smoothing: antialiased;
         -webkit-text-size-adjust: none;
       }
@@ -97,11 +98,13 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
         padding: 32px;
         padding: clamp(20px, 3vw, 32px);
         background: #fff;
-        border: 1px solid #e5e5e5;
-        border-radius: 14px;
+        border: 1px solid #d9d9d9;
+        border-radius: 0;
       }
-      .dark .panel { background: #171717; border-color: #343434; }
-      h1 { margin: 0 0 16px; font-size: 24px; line-height: 1.2; letter-spacing: -0.025em; text-align: center; }
+      .dark .panel { background: #000; border-color: #333; }
+      .rise { height: 3px; margin: 0 0 20px; background: #b5a169; transform: rotate(-5deg); }
+      .lockup { display: block; width: min(100%, 360px); height: auto; margin: 0 auto 16px; }
+      h1 { margin: 0 0 16px; font-family: Teko, Impact, sans-serif; font-size: 40px; font-weight: 600; line-height: 0.95; letter-spacing: 0; text-align: center; text-transform: uppercase; }
       h1, p { word-wrap: break-word; overflow-wrap: anywhere; }
       p { margin: 0 0 14px; }
       .browser-list { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; margin: 16px 0; }
@@ -118,15 +121,15 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
         width: 36px;
         height: 36px;
         background: #fff;
-        border: 1px solid #e5e5e5;
-        border-radius: 50%;
+        border: 1px solid #d9d9d9;
+        border-radius: 0;
         cursor: pointer;
         list-style: none;
       }
       .translations summary::-webkit-details-marker { display: none; }
       .translations img { display: block; width: 1.3em; height: 20px; }
       .dark .translations img { filter: invert(1); }
-      .dark .translations summary { background: #171717; border-color: #343434; }
+      .dark .translations summary { background: #000; border-color: #333; }
       .translations:not([open]) .language-list-menu { display: none; }
       .language-list-menu {
         position: absolute;
@@ -136,12 +139,12 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
         width: max-content;
         max-width: 40ch;
         overflow: hidden;
-        background: #e5e5e5;
-        border: 1px solid #e5e5e5;
-        border-radius: 0.5em;
+        background: #f2eee2;
+        border: 1px solid #d9d9d9;
+        border-radius: 0;
         box-shadow: 0 8px 24px #00000012;
       }
-      .dark .language-list-menu { background: #343434; border-color: #343434; }
+      .dark .language-list-menu { background: #1a1a1a; border-color: #333; }
       .language-list {
         display: grid;
         grid-template-columns: min-content 1fr;
@@ -156,7 +159,7 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
       .for-screen-reader { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
       @media (max-width: 900px) {
         body { padding-top: 56px; padding-top: calc(56px + env(safe-area-inset-top)); }
-        .panel { margin: 18px auto 16px; max-width: calc(100% - 24px); padding: 20px 16px; border-radius: 12px; }
+        .panel { margin: 18px auto 16px; max-width: calc(100% - 24px); padding: 20px 16px; border-radius: 0; }
         h1 { font-size: 22px; }
         .translations summary { width: 44px; height: 44px; }
       }
@@ -168,6 +171,8 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
   <body>
     <main>
       <div class="panel">
+        <div class="rise" aria-hidden="true"></div>
+        <img class="lockup" src="/logos/victor-lopez-logo-wide.png" alt="Victor Lopez for Hammond City Council" width="640" height="240">
         <header>
           <h1>Upgrade to a supported web browser</h1>
           <div class="message">
@@ -197,7 +202,7 @@ const scriptHashes = new Map<boolean, Promise<string[]>>();
  * globe once the workspace shows translation buttons.
  */
 export async function unsupportedBrowserPage(request: Request, env: Env): Promise<Response> {
-  const title = isAppleMessages(request.headers.get("User-Agent")) ? "Ember" : "Unsupported browser";
+  const title = isAppleMessages(request.headers.get("User-Agent")) ? "Team Lopez" : "Unsupported browser · Team Lopez";
   const account = await workspace(env).account();
   const translations = account?.hideTranslationButtons === false;
   let hashes = scriptHashes.get(translations);

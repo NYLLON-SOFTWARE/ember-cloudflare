@@ -98,7 +98,7 @@ describe("Search page", () => {
     expect(await screen.findByRole("heading", { name: "Find a conversation" })).toBeVisible();
     expect(screen.getByText("Search messages across your rooms and direct messages.")).toBeVisible();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^Search messages$/);
-    expect(document.title).toBe("Search");
+    expect(document.title).toBe("Search · Team Lopez");
     expect(changeSearch()).toHaveAccessibleName("Search");
     // Nothing's searched for, so there's nothing to narrow or sort.
     expect(filters()).toBeNull();

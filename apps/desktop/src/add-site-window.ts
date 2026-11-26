@@ -40,7 +40,7 @@ export class AddSiteWindow {
       fullscreenable: false,
       title: "Add a Site",
       show: false,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1c1c" : "#fafafa",
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#1a1a1a" : "#f2eee2",
       webPreferences: { preload: PRELOAD, sandbox: true, contextIsolation: true, nodeIntegration: false },
     });
     window.webContents.on("will-navigate", (event) => event.preventDefault());

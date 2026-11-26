@@ -21,7 +21,7 @@ test.describe("Someone's profile page", () => {
     const { page } = ada;
     await page.goto(`/users/${grace.session.user.id}`);
     await expect(heading(page)).toHaveText(grace.name);
-    await expect(page).toHaveTitle(grace.name);
+    await expect(page).toHaveTitle(`${grace.name} · Team Lopez`);
     await expect(page.getByRole("main").getByText("Wrote the first compiler")).toBeVisible();
     await expect(page.getByRole("img", { name: "Profile avatar" })).toBeVisible();
     // Only administrators are told someone's email address, and only your own page has the pencil.
@@ -61,7 +61,7 @@ test.describe("Someone's profile page", () => {
     const { page } = await members.signIn(unique("Ada"));
     const response = await page.goto("/users/nobody");
     expect(response!.status()).toBe(404);
-    await expect(page).toHaveTitle("We can’t find that (404)");
+    await expect(page).toHaveTitle("We can’t find that (404) · Team Lopez");
   });
 });
 

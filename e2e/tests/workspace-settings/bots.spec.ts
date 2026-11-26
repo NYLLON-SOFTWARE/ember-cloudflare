@@ -805,7 +805,7 @@ test.describe("A bot's profile", () => {
     await botNamed(page, name).getByRole("link", { name, exact: true }).click();
     await expect(page).toHaveURL(/\/users\/[^/]+$/);
     const profile = new URL(page.url()).pathname;
-    await expect(page).toHaveTitle(name);
+    await expect(page).toHaveTitle(`${name} · Team Lopez`);
     await expect(page.getByRole("img", { name: "Profile avatar" })).toBeVisible();
     // Neither its name, nor a sign-in link or Ban, which the administrator gets on a person's page.
     await expect(page.getByRole("main").getByRole("heading")).toHaveCount(0);

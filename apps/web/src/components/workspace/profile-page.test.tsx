@@ -191,7 +191,7 @@ afterEach(() => {
 describe("Edit your profile", () => {
   it("reads Your profile, titled with your name, with Go Back and Log out in the top bar", () => {
     showPage();
-    expect(document.title).toBe("Ada Lovelace");
+    expect(document.title).toBe("Ada Lovelace · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();
     expect(screen.getByText("Manage how you appear to the people in your workspace.")).toBeInTheDocument();
     const topBar = screen.getByRole("navigation", { name: "Page" });

@@ -246,7 +246,7 @@ describe("@ember's page", () => {
   it("is titled Edit agent and headed Ember, with Go Back to the AI assistant tab, showing @ember's settings once Ember AI is read", async () => {
     serve({ read: readAs(SONNET) });
     showPage();
-    expect(document.title).toBe("Edit agent");
+    expect(document.title).toBe("Edit agent · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Ember" })).toBeInTheDocument();
     expect(screen.getByText(EMBER_EXPLAINED)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", AGENTS_PATH);

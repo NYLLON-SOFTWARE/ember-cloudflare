@@ -1,9 +1,9 @@
 import { expect, test } from "./fixtures";
 
 const PAGES = [
-  ["/no-such-page", "We can’t find that (404)"],
-  ["/422", "That didn’t work (422)"],
-  ["/500", "Something went wrong (500)"],
+  ["/no-such-page", "We can’t find that (404) · Team Lopez"],
+  ["/422", "That didn’t work (422) · Team Lopez"],
+  ["/500", "Something went wrong (500) · Team Lopez"],
 ] as const;
 
 for (const [path, title] of PAGES) {

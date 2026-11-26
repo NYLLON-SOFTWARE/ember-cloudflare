@@ -256,7 +256,7 @@ afterEach(() => {
 describe("New agent", () => {
   it("is titled New agent, with Go Back to the AI assistant tab, starting on @ember's model at the levels people start at, off the web, in every open room, for everyone to ask", async () => {
     showNewAgent();
-    expect(document.title).toBe("New agent");
+    expect(document.title).toBe("New agent · Team Lopez");
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", AGENTS_PATH);
     expect(await loaded()).toHaveFocus();
     expect(screen.getByRole("heading", { level: 1, name: "New agent" })).toBeInTheDocument();
@@ -813,7 +813,7 @@ describe("An agent's settings", () => {
 
   it("shows the agent as it's saved, titled Edit agent, with who last changed it, and Delete agent", async () => {
     showSettings();
-    expect(document.title).toBe("Edit agent");
+    expect(document.title).toBe("Edit agent · Team Lopez");
     expect(await loaded()).toHaveValue("Recap");
     expect(nameField()).not.toHaveFocus();
     expect(screen.getByRole("heading", { level: 1, name: "Edit Recap" })).toBeInTheDocument();

@@ -345,7 +345,7 @@ test.describe("Push subscriptions page", () => {
 
     // Loaded from the Worker, which answers the page's address with the app.
     await grace.page.goto("/users/me/push_subscriptions");
-    await expect(grace.page).toHaveTitle("Push notification subscriptions");
+    await expect(grace.page).toHaveTitle("Push notification subscriptions · Team Lopez");
     await expect(grace.page.getByRole("heading", { level: 1 })).toHaveText("Push Notification Subscriptions");
     const rows = grace.page.getByRole("list", { name: "Push Notification Subscriptions" }).getByRole("listitem");
     await expect(rows).toHaveCount(1);

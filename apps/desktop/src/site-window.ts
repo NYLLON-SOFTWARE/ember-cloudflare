@@ -123,7 +123,7 @@ export class SiteWindows {
       // Its page says it's out of sight, as Ember asks to tell whether someone's there, only where
       // Chromium doesn't draw it until it's shown.
       paintWhenInitiallyHidden: shown,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? "#171717" : "#ffffff",
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#1a1a1a" : "#f2eee2",
       webPreferences: { ...PAGES, session: sessionOf(site.id, () => this.#addressOf(site.id)) },
     });
     this.#keepToSite(window.webContents, site.id);

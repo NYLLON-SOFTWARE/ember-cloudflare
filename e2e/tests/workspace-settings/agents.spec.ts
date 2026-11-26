@@ -82,7 +82,7 @@ test.describe("Agents", () => {
     await expect(namesIn(card)).toHaveText(["Ember"]);
     await card.getByRole("link", { name: "New agent" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "New agent" })).toBeVisible();
-    await expect(page).toHaveTitle("New agent");
+    await expect(page).toHaveTitle("New agent · Team Lopez");
     await page.getByRole("textbox", { name: "Name" }).fill("Recap");
     await page.getByRole("textbox", { name: "What it does" }).fill("Sums up threads into decisions and to-dos.");
     await page.getByRole("textbox", { name: "Instructions" }).fill("Sum up the conversation so far as decisions and to-dos.");
@@ -133,7 +133,7 @@ test.describe("Agents", () => {
     const card = await openAgents(page);
     await card.getByRole("link", { name: "Edit Scout" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Edit Scout" })).toBeVisible();
-    await expect(page).toHaveTitle("Edit agent");
+    await expect(page).toHaveTitle("Edit agent · Team Lopez");
     const description = page.getByRole("textbox", { name: "What it does" });
     await expect(description).toHaveValue(scout.description);
     await expect(page.getByText(/^Ada Lovelace last changed Scout on /)).toBeVisible();

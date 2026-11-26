@@ -38,7 +38,7 @@ test.describe("Start or reopen a direct message", () => {
     await directRow(grace, [ada]).click();
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${roomId}$`));
     await expect(grace.page.getByRole("heading", { level: 1 })).toHaveText(`Direct message with ${ada.name}`);
-    await expect(grace.page).toHaveTitle(ada.name);
+    await expect(grace.page).toHaveTitle(`${ada.name} · Team Lopez`);
     await grace.connected();
     await expect(grace.composer()).toHaveAttribute("placeholder", `Message ${ada.name}`);
     await expect(directRow(grace, [ada])).toHaveAttribute("aria-current", "page");
@@ -61,13 +61,13 @@ test.describe("Group DMs and DM names", () => {
     await directRow(ada, [grace, linus]).click();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${roomId}$`));
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText(`Direct message with ${first} and ${second}`);
-    await expect(ada.page).toHaveTitle(`${first} and ${second}`);
+    await expect(ada.page).toHaveTitle(`${first} and ${second} · Team Lopez`);
     // Two faces in a grid for the two others.
     await expect(directRow(ada, [grace, linus]).locator("img")).toHaveCount(2);
 
     await settingsLink(ada).click();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/directs/${roomId}/edit$`));
-    await expect(ada.page).toHaveTitle(`Edit settings for ${first} and ${second}`);
+    await expect(ada.page).toHaveTitle(`Edit settings for ${first} and ${second} · Team Lopez`);
     await expect(ada.page.getByRole("main").locator("strong")).toHaveText([first!, second!]);
     await ada.page.getByRole("link", { name: "Go Back" }).click();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${roomId}$`));

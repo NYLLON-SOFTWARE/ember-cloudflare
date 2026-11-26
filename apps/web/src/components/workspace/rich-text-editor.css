@@ -190,7 +190,7 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
 
       background-color: var(--negative);
       border-radius: 50%;
-      color: white;
+      color: #000;
     }
   }
 }

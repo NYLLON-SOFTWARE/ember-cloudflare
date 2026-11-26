@@ -306,7 +306,7 @@ test.describe("Open a room", () => {
     // Home, which is their oldest room, since this browser has shown them none yet.
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
-    await expect(ada.page).toHaveTitle("general");
+    await expect(ada.page).toHaveTitle("general · Team Lopez");
   });
 });
 
@@ -329,7 +329,7 @@ test.describe("Go back to the last room", () => {
     await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } } satisfies Sidebar }));
     await keepOtherRoomsOut(page, []);
     await page.goto("/");
-    await expect(page).toHaveTitle("No rooms yet");
+    await expect(page).toHaveTitle("No rooms yet · Team Lopez");
     const main = page.getByRole("main");
     await expect(main.locator("svg")).toBeVisible();
     await expect(main).toHaveText(session.user.name);
@@ -380,7 +380,7 @@ test.describe("Welcome and invite card", () => {
     const { roomId, joinCode } = await invitation(request, session);
     const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true });
     const log = ada.page.getByRole("log", { name: "Messages in general" });
-    await expect(log.getByRole("heading", { level: 2, name: "Welcome to Ember" })).toBeVisible();
+    await expect(log.getByRole("heading", { level: 2, name: "Welcome to Team Lopez" })).toBeVisible();
     await expect(log.getByText("To invite people to chat, share the join link below.")).toBeVisible();
     await expect(log.getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(new URL(`/join/${joinCode}`, baseURL).href);
     // It takes the place of the welcome an empty room has.
@@ -390,7 +390,7 @@ test.describe("Welcome and invite card", () => {
   test("stays in the first room", async ({ members }) => {
     const ada = await members.signIn("Ada", { administrator: true });
     await expect(ada.page.getByRole("heading", { name: "Welcome to #general" })).toBeVisible();
-    await expect(ada.page.getByRole("heading", { name: "Welcome to Ember" })).toHaveCount(0);
+    await expect(ada.page.getByRole("heading", { name: "Welcome to Team Lopez" })).toHaveCount(0);
   });
 });
 
@@ -398,7 +398,7 @@ test.describe("Welcome card for administrators, until they dismiss it", () => {
   test("shows the welcome card to administrators alone, and to a member made one at once", async ({ members, request, session }) => {
     const { roomId } = await invitation(request, session);
     const grace = await members.signIn("Grace", { path: `/rooms/${roomId}`, serverRooms: true });
-    const card = grace.page.getByRole("heading", { level: 2, name: "Welcome to Ember" });
+    const card = grace.page.getByRole("heading", { level: 2, name: "Welcome to Team Lopez" });
     await expect(card).toHaveCount(0);
 
     await makeAdministrator(request, grace.session);
@@ -410,7 +410,7 @@ test.describe("Welcome card for administrators, until they dismiss it", () => {
     const grace = await members.signIn("Grace", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true });
     const otherTab = await grace.page.context().newPage();
     await otherTab.goto(`/rooms/${roomId}`);
-    const cards = [grace.page, otherTab].map((page) => page.getByRole("heading", { level: 2, name: "Welcome to Ember" }));
+    const cards = [grace.page, otherTab].map((page) => page.getByRole("heading", { level: 2, name: "Welcome to Team Lopez" }));
     for (const card of cards) await expect(card).toBeVisible();
 
     const dismissed = grace.page.waitForResponse((response) => response.url().endsWith("/api/sidebar/invitation") && response.request().method() === "DELETE");

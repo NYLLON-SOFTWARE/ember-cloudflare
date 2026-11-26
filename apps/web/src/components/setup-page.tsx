@@ -78,7 +78,7 @@ export function SetupPage({ placeholders, access, onSetUp }: Props) {
   }, []);
   useEffect(() => {
     const title = document.title;
-    document.title = SETUP_TITLE;
+    document.title = `${SETUP_TITLE} · Team Lopez`;
     return () => void (document.title = title);
   }, []);
 

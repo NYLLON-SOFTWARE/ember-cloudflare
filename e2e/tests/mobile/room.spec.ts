@@ -17,7 +17,7 @@ test("the page for someone in no rooms fits the phone", async ({ page, screenIsF
   await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, huddles: {}, blocks: { userIds: [], version: 0 } } satisfies Sidebar }));
   await keepOtherRoomsOut(page, []);
   await page.goto("/");
-  await expect(page).toHaveTitle("No rooms yet");
+  await expect(page).toHaveTitle("No rooms yet · Team Lopez");
   await expect(page.getByRole("main").locator("svg")).toBeVisible();
   await screenIsFine();
 });
@@ -25,7 +25,7 @@ test("the page for someone in no rooms fits the phone", async ({ page, screenIsF
 test("the welcome card fits the phone", async ({ page, room, screenIsFine }) => {
   await isolateRoom(page, room, { joinCode: "aB3d-Ef5h-iJ7k" });
   await openRoom(page, room);
-  await expect(page.getByRole("heading", { name: "Welcome to Ember" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Welcome to Team Lopez" })).toBeVisible();
   await screenIsFine();
 });
 

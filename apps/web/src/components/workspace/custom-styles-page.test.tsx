@@ -118,7 +118,7 @@ afterEach(() => {
 describe("Custom CSS", () => {
   it("reads Custom CSS, titled Custom styles, with Go Back to workspace settings", () => {
     showPage();
-    expect(document.title).toBe("Custom styles");
+    expect(document.title).toBe("Custom styles · Team Lopez");
     expect(screen.getByRole("heading", { level: 1, name: "Custom CSS" })).toBeInTheDocument();
     expect(screen.getByText("Add custom CSS styles.")).toBeInTheDocument();
     expect(screen.getByText("Use Caution: you could break things.")).toBeInTheDocument();
