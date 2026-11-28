@@ -2,7 +2,9 @@ name: Desktop
 
 # The desktop app (apps/desktop), which installs and builds apart from Ember's workspace: type-checked,
 # tested and packaged on macOS, Windows and Linux whenever it changes, with each system's packages kept
-# for a week. They aren't signed yet (apps/desktop/README.md says how to open them).
+# for a week. On main, the Mac app is also signed with NYLLON LLC's Developer ID and notarized by Apple,
+# once the desktop-signing environment holds them (apps/desktop/README.md#signing-the-mac-app); the rest
+# aren't signed yet (the README says how to open them), and none is released (docs/development.md#releasing).
 on:
   push:
     branches: [main]
@@ -16,6 +18,8 @@ on:
       - apps/desktop/**
       - apps/web/public/ember-icon.png
       - .github/workflows/desktop.yml
+  # To sign main's Mac app again from the Actions tab, as a run's packages last a week.
+  workflow_dispatch:
 
 # It only reads the repository, so its token can only read it.
 permissions:
@@ -75,12 +79,13 @@ jobs:
           echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
       - name: Package it
         shell: bash
-        # Unsigned for now. A Mac's is signed ad hoc, without the hardened runtime that needs a real
-        # signature, since an Apple silicon Mac opens no app that's unsigned. electron-builder signs
-        # nothing for a pull request unless told to, to keep a real signature's secrets from one, and
-        # an ad hoc signature has none. A Mac's leaves its sign-ins unencrypted, too: macOS gives the
-        # keychain's key for them, without asking, only to the build that saved it, and to macOS each
-        # ad hoc build is another app, so it would ask for the keychain's password as each one starts.
+        # With no Developer ID, which only the mac-signed job below has. A Mac's is signed ad hoc, without
+        # the hardened runtime that needs a real signature, since an Apple silicon Mac opens no app that's
+        # unsigned. electron-builder signs nothing for a pull request unless told to, to keep a real
+        # signature's secrets from one, and an ad hoc signature has none. A Mac's leaves its sign-ins
+        # unencrypted, too: macOS gives the keychain's key for them, without asking, only to the build that
+        # saved it, and to macOS each ad hoc build is another app, so it would ask for the keychain's
+        # password as each one starts.
         env:
           CSC_FOR_PULL_REQUEST: true
         run: |
@@ -89,6 +94,9 @@ jobs:
           else
             pnpm package
           fi
+      - name: Check the Mac app starts
+        if: runner.os == 'macOS'
+        run: pnpm check:mac
       - uses: actions/upload-artifact@v6
         with:
           name: ember-desktop-${{ runner.os }}
@@ -98,5 +106,101 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  # Whether the desktop-signing environment holds what signing the Mac app takes yet: until it does,
+  # main's run says so, and mac-signed is skipped.
+  mac-signing:
+    if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: desktop-signing
+      # Only for its secrets: nothing is deployed.
+      deployment: false
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          missing=()
+          for name in MAC_CERTIFICATE MAC_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [ -z "${!name}" ]; then missing+=("$name"); fi
+          done
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ ${#missing[@]} -eq 5 ]; then
+            echo "::notice::The Mac app isn't signed: the desktop-signing environment has no Developer ID yet (apps/desktop/README.md#signing-the-mac-app)."
+          else
+            echo "::error::The desktop-signing environment lacks ${missing[*]}, so the Mac app can't be signed."
+            exit 1
+          fi
+
+  # Main's Mac app, signed with NYLLON LLC's Developer ID, with the hardened runtime and its sign-ins
+  # encrypted, and notarized by Apple, so that macOS opens it as any app from the internet, then checked
+  # and kept for a week. Its secrets are the desktop-signing environment's, which only main may use, so
+  # no pull request's code runs beside them (apps/desktop/README.md#signing-the-mac-app).
+  mac-signed:
+    needs: [desktop, mac-signing]
+    if: needs.mac-signing.outputs.ready == 'true'
+    runs-on: macos-latest
+    # Notarizing waits on Apple, usually for minutes.
+    timeout-minutes: 60
+    environment:
+      name: desktop-signing
+      deployment: false
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      # Pinned to commits, not tags, because this job holds the Developer ID: a moved tag can't change
+      # what runs beside it. These are the commits the tags beside them pointed at.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Use Xcode 26, whose actool compiles the Mac app's icon
+        shell: bash
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -iv beta | sort -V | tail -1)
+          test -n "$xcode" || { echo "This runner has no Xcode 26"; exit 1; }
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Package it, signed and notarized
+        shell: bash
+        # electron-builder signs with the certificate in CSC_LINK, from a keychain of its own that it
+        # deletes once it's done, fails rather than leave the app unsigned, and has Apple notarize each
+        # chip's app with the API key, stapling the ticket to it. notarytool reads the key from a file,
+        # which lasts only as long as this step.
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_TEXT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
+          trap 'rm -f "$APPLE_API_KEY"' EXIT
+          printf '%s\n' "$APPLE_API_KEY_TEXT" > "$APPLE_API_KEY"
+          pnpm package -c.mac.forceCodeSigning=true
+      - name: Check it's signed, notarized and starts
+        run: pnpm check:mac --signed
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ember-desktop-macOS-signed
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
           if-no-files-found: error
           retention-days: 7

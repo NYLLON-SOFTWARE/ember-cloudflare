@@ -25,7 +25,8 @@
     "typecheck": "tsc -p .",
     "test": "vitest run",
     "test:app": "node scripts/build.ts && playwright test -c test/playwright.config.ts",
-    "package": "node scripts/build.ts && electron-builder --publish never"
+    "package": "node scripts/build.ts && electron-builder --publish never",
+    "check:mac": "node scripts/check-mac-app.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",

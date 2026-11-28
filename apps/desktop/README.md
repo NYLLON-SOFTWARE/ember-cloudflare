@@ -48,12 +48,14 @@ removes the one in front, which forgets its address and your sign-in there.
   its own apps' icons, and on Windows and Linux the icon of each of the app's windows turns dark with
   the system while the app runs. Older macOS, and the Start menu, desktop and installer, show it light.
 
-Not yet: sharing a screen in a huddle; links that open the app; and updates, which wait on signing
-(below). Until then, a new version is downloaded and installed by hand.
+Not yet: sharing a screen in a huddle; links that open the app; and updates, which come with the app's
+releases. Until then, a new version is downloaded and installed by hand.
 
 ## Opening a build that isn't signed
 
-Builds aren't signed or notarized yet, so each system warns before it opens one.
+Main's Mac app is signed and notarized, once NYLLON LLC's Developer ID is set up
+([Signing the Mac app](#signing-the-mac-app)), and opens as any app from the internet does. No other
+build is, so each system warns before it opens one.
 
 - **Mac:** open the `.dmg` and drag Ember into Applications, then open it. The first time, macOS says
   it couldn't verify Ember and doesn't open it. Choose **Done**, open **System Settings**, choose
@@ -62,7 +64,7 @@ Builds aren't signed or notarized yet, so each system warns before it opens one.
   Since macOS 15, Control-clicking Ember and choosing **Open** no longer gets past the warning. Or run
   `xattr -dr com.apple.quarantine /Applications/Ember.app` in Terminal, then open Ember, which also works
   when macOS says Ember is damaged. An unsigned build keeps your sign-ins unencrypted on your Mac, since
-  macOS would ask for your keychain's password as each new one starts; signed builds will encrypt them.
+  macOS would ask for your keychain's password as each new one starts; signed builds encrypt them.
 - **Windows:** run the installer, and when SmartScreen says it protected your PC, choose **More info**,
   then **Run anyway**.
 - **Linux:** make the `.AppImage` runnable (`chmod +x Ember-*.AppImage`) and run it, or install the
@@ -80,10 +82,11 @@ pnpm typecheck
 pnpm test             # the unit tests beside the code (src/*.test.ts)
 pnpm test:app         # starts the built app with Playwright and drives it (test/)
 pnpm package          # packages it for the system you're on, into release/
+pnpm check:mac        # on a Mac, checks the package starts and its signature holds; --signed, that it's notarized
 ```
 
-On a Mac without a Developer ID certificate, package it as CI does, signed ad hoc with sign-ins
-unencrypted: `pnpm package -c.mac.identity=- -c.mac.hardenedRuntime=false -c.electronFuses.enableCookieEncryption=false`.
+On a Mac without a Developer ID certificate, package it as CI does for a pull request, signed ad hoc
+with sign-ins unencrypted: `pnpm package -c.mac.identity=- -c.mac.hardenedRuntime=false -c.electronFuses.enableCookieEncryption=false`.
 Packaging on a Mac needs Xcode 26 or later, whose `actool` compiles the app's Icon Composer icon,
 `build/icon.icon`: where another Xcode is selected, point `DEVELOPER_DIR` at Xcode 26's
 `Contents/Developer`, as CI does.
@@ -114,6 +117,57 @@ isolation and no Node, and only two kinds of page have a preload: Add Site's, wh
 function, and the sites' windows', whose bridge the app heeds only from the site's own pages.
 
 GitHub Actions' **Desktop** workflow type-checks, tests and packages the app on macOS, Windows and
-Linux whenever a pull request changes it, and keeps each system's packages for a week, to try, never
-attached to a release. The **Label** workflow labels a pull request that changes the app alone
+Linux whenever a pull request changes it, checks that the Mac app starts, and keeps each system's
+packages for a week, to try, never attached to a release. On main, it signs and notarizes the Mac app
+too (below). The **Label** workflow labels a pull request that changes the app alone
 `desktop`, which keeps it out of Ember's release notes.
+
+## Signing the Mac app
+
+macOS opens an app from the internet only once it's signed with a Developer ID and notarized by Apple,
+which checks it for malware. The Desktop workflow's **mac-signed** job does both on main, with NYLLON
+LLC's Developer ID: it packages the Mac app signed, with the hardened runtime and sign-ins encrypted,
+has Apple notarize each chip's app, staples the ticket to it so that macOS needn't ask Apple as it
+first opens the app, checks it all with `pnpm check:mac --signed`, and keeps the packages for a week as
+the run's `ember-desktop-macOS-signed` artifact. It runs whenever main's app changes, and from the
+Actions tab (**Desktop**, then **Run workflow**). Its secrets are the `desktop-signing` environment's,
+which only main may use, so no pull request's code runs beside them. Until they're there, the run
+says so and signs nothing. The disk image isn't signed itself, as electron-builder advises: the app
+in it is.
+
+Setting it up takes NYLLON LLC's Apple Developer account, whose Account Holder alone can make a
+Developer ID certificate:
+
+1. **Join the Apple Developer Program** as an organization, at
+   [developer.apple.com/programs/enroll](https://developer.apple.com/programs/enroll/), for $99 a year.
+   It takes the company's D-U-N-S number, which [Apple's lookup](https://developer.apple.com/enroll/duns-lookup/)
+   finds, or requests from Dun & Bradstreet for free, which can take a week; a website at the company's
+   own domain; and the Apple Account, with two-factor authentication, of someone who may sign for the
+   company, which Apple may call to check.
+2. **Make a Developer ID Application certificate.** On a Mac, in Keychain Access, choose **Keychain
+   Access → Certificate Assistant → Request a Certificate From a Certificate Authority**, give an email
+   address and a name, and save the request to disk. In the account's
+   [Certificates](https://developer.apple.com/account/resources/certificates/add), add a **Developer ID
+   Application** certificate with the G2 Sub-CA, upload the request, download the certificate and open
+   it, which adds it to your keychain. Then, in Keychain Access's **My Certificates**, export
+   **Developer ID Application: NYLLON LLC (…)**, with its private key, as a .p12 with a strong password.
+   Keep the file and its password somewhere safe besides GitHub, as Apple can't send the key again.
+3. **Make a notary key.** In [App Store Connect](https://appstoreconnect.apple.com/access/integrations/api),
+   under **Users and Access → Integrations → App Store Connect API**, the Account Holder first asks for
+   access, once. Then add a **Team Key** with **Developer** access (or App Manager, should Apple's notary
+   service refuse it), download its .p8 file, which Apple offers only once, and note its Key ID and the
+   Issuer ID above the list.
+4. **Give them to the workflow.** In this repository's **Settings → Environments**, add one named
+   `desktop-signing`, set its **Deployment branches and tags** to **Selected branches and tags** with
+   `main` alone, and add these environment secrets:
+   - `MAC_CERTIFICATE`: the .p12, in base64, which `base64 -i Certificates.p12 | pbcopy` copies
+   - `MAC_CERTIFICATE_PASSWORD`: the .p12's password
+   - `APPLE_API_KEY`: the .p8 file's text, `-----BEGIN PRIVATE KEY-----` and all
+   - `APPLE_API_KEY_ID`: the key's Key ID
+   - `APPLE_API_ISSUER`: the Issuer ID
+
+   Then run the Desktop workflow from the Actions tab, which signs main's app.
+
+Notarizing stops whenever the account has a new agreement to accept, which developer.apple.com shows on
+signing in, until the Account Holder accepts it. A Developer ID certificate lasts five years: apps
+signed with it still open after, and a new one goes in `MAC_CERTIFICATE` as the first did.
