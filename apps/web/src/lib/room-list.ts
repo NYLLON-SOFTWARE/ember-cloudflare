@@ -8,6 +8,7 @@ import {
   type Room,
   type RoomId,
   type Section,
+  type SectionId,
   type SharedRoom,
   type Sidebar,
   type SidebarRoom,
@@ -126,6 +127,49 @@ const withoutRoom = (sections: SidebarSection[], roomId: RoomId): SidebarSection
  */
 export function inDirectOrder<T extends DirectSidebarRoom>(directs: T[]): T[] {
   return directs.toReversed().sort((a, b) => (a.activeAt < b.activeAt ? 1 : a.activeAt > b.activeAt ? -1 : 0));
+}
+
+/**
+ * What else decides the rows the sidebar draws: its sections, the ones this browser has folded, the room
+ * open, whose row stays, and whose welcome DMs it leaves out but for the ones with a huddle in `huddles`.
+ */
+export interface SidebarRows {
+  sections?: SidebarSection[];
+  folded?: ReadonlySet<SectionId>;
+  currentRoomId?: RoomId | null;
+  meId?: UserId;
+  huddles?: Readonly<Record<RoomId, LiveHuddle>>;
+}
+
+/**
+ * The ids of `rooms` in the order the sidebar draws them: the rooms, starred first, then the ones
+ * `sharedOrder` ranks, then the rest, then each section's, of a folded one only those marked unread and
+ * the one open, and then the DMs, none hidden, nor a quiet welcome (`isQuietWelcome`).
+ */
+export function sidebarOrder(rooms: SidebarRoom[], favorites: RoomId[], sharedOrder: RoomId[] = [], rows: SidebarRows = {}): RoomId[] {
+  const { sections = [], folded, currentRoomId = null, meId, huddles = {} } = rows;
+  const { shared, directs } = apart(rooms);
+  const grouped = inSections(inSidebarOrder(shared, favorites, sharedOrder), sections, new Set(favorites));
+  const sectioned = grouped.sections.flatMap(({ section, rooms }) =>
+    folded?.has(section.id) ? rooms.filter((room) => room.id === currentRoomId || markedUnread(room, currentRoomId)) : rooms,
+  );
+  const directsDrawn = directs.filter((room) => room.id === currentRoomId || room.id in huddles || meId === undefined || !isQuietWelcome(room, meId));
+  return [...grouped.loose, ...sectioned, ...inDirectOrder(directsDrawn)].map((room) => room.id);
+}
+
+/**
+ * The room `step` rows from `currentId` in `order`, the nearest one `isUnread` says is unread when it's
+ * given, or null at either end. With no room shown, or one the order leaves out, down starts at the top
+ * and up at the bottom.
+ */
+export function neighborRoom(order: RoomId[], currentId: RoomId | null, step: -1 | 1, isUnread?: (roomId: RoomId) => boolean): RoomId | null {
+  const place = currentId === null ? -1 : order.indexOf(currentId);
+  const start = place === -1 ? (step === 1 ? 0 : order.length - 1) : place + step;
+  for (let at = start; at >= 0 && at < order.length; at += step) {
+    const roomId = order[at]!;
+    if (!isUnread || isUnread(roomId)) return roomId;
+  }
+  return null;
 }
 
 /**
