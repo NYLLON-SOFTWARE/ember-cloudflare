@@ -6,6 +6,9 @@ import { join } from "./fixtures";
 /** The picture on `page`'s rail that goes home. */
 const railLogo = (page: Page) => page.getByRole("link", { name: "Ember home" }).locator("img");
 
+/** Where each of `page`'s icons points: its PNG, its SVG and its Apple touch icon. */
+const iconsOf = (page: Page) => page.locator('link[rel="icon"], link[rel="apple-touch-icon"]').evaluateAll((links) => links.map((link) => link.getAttribute("href")));
+
 /** The type and size of the picture at `src`, as `page`'s browser fetches and decodes it. */
 const fetchedPicture = (page: Page, src: string) =>
   page.evaluate(async (src) => {
@@ -41,8 +44,7 @@ test.describe("Workspace logo", () => {
     expect(await shownPicture(logo)).toEqual({ type: "image/png", width: 512, height: 341 });
     expect(await fetchedPicture(page, `${uploaded}&size=small`)).toEqual({ type: "image/png", width: 192, height: 128 });
     await expect(railLogo(page)).toHaveAttribute("src", uploaded);
-    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", `${uploaded}&size=small`);
-    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", uploaded);
+    await expect.poll(() => iconsOf(page)).toEqual([`${uploaded}&size=small`, `${uploaded}&size=small`, uploaded]);
     await expect(page.locator("body")).toHaveClass(/\baccount-has-logo\b/);
     // The member's open page shows it at once, and the installed app's icons are its variants.
     await expect(railLogo(member)).toHaveAttribute("src", uploaded);
@@ -61,8 +63,7 @@ test.describe("Workspace logo", () => {
     await expect(remove).toHaveCount(0);
     await expect(logo).toHaveAttribute("src", "/logos/app-icon.png");
     await expect(railLogo(page)).toHaveAttribute("src", "/ember-icon.png");
-    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/logos/app-icon-48.png");
-    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/logos/app-icon.png");
+    await expect.poll(() => iconsOf(page)).toEqual(["/logos/app-icon-48.png", "/logos/app-icon.svg", "/logos/apple-touch-icon.png"]);
     await expect(railLogo(member)).toHaveAttribute("src", "/ember-icon.png");
     await member.context().close();
   });

@@ -40,6 +40,9 @@ removes the one in front, which forgets its address and your sign-in there.
   clipboard, full screen and keeping the screen awake, and nothing else. On a Mac, macOS asks once whether Ember
   may use the camera and microphone, and the app says where in System Settings to allow them if not.
 - Downloads ask where to save, starting in your Downloads folder.
+- Ember's icon follows your system's appearance: macOS 26 draws it light, dark or tinted, as it does
+  its own apps' icons, and on Windows and Linux the icon of each of the app's windows turns dark with
+  the system while the app runs. Older macOS, and the Start menu, desktop and installer, show it light.
 
 Not yet: sharing a screen in a huddle; links that open the app; and updates, which wait on signing
 (below). Until then, a new version is downloaded and installed by hand.
@@ -77,6 +80,14 @@ pnpm package          # packages it for the system you're on, into release/
 
 On a Mac without a Developer ID certificate, package it as CI does, signed ad hoc with sign-ins
 unencrypted: `pnpm package -c.mac.identity=- -c.mac.hardenedRuntime=false -c.electronFuses.enableCookieEncryption=false`.
+Packaging on a Mac needs Xcode 26 or later, whose `actool` compiles the app's Icon Composer icon,
+`build/icon.icon`: where another Xcode is selected, point `DEVELOPER_DIR` at Xcode 26's
+`Contents/Developer`, as CI does.
+
+The icon's files are made from the web app's: `build/icon.icon` holds the flame in each appearance over
+the icon's sunset, or `system-dark` in dark mode, with a warm glow behind it there, `build/icon.png` is
+its light look for Windows' and Linux's packages, and `src/icons/` holds its light and dark looks for the
+windows. `apps/web/src/components/icons/README.md` says where they come from.
 
 `pnpm test:app` adds made-up Ember sites, served by the tests on your computer, and keeps each test's
 sites in a folder of its own. On Linux it needs a display: run it under `xvfb-run`, and on Ubuntu 24.04
@@ -89,8 +100,9 @@ pages, Add Site and the page a window shows when its site doesn't answer. A site
 what Ember's workspace socket says a push would show, since no push service reaches Electron, and how
 many conversations are unread, through `preload/site.cts` and `site-bridge.ts`, which match Ember's
 `apps/web/src/lib/desktop-app.ts`; `site-notifications.ts` shows the notifications, `app-badge.ts`
-counts the unread on the app's icon (drawn by `badge-image.ts` on Windows), and `tray.ts` keeps the
-tray's icon. Electron's security checklist holds throughout: every window is sandboxed with context
+counts the unread on the app's icon (drawn by `badge-image.ts` on Windows), `tray.ts` keeps the
+tray's icon, and `app-icon.ts` gives the windows the app's icon in the system's appearance on Windows
+and Linux. Electron's security checklist holds throughout: every window is sandboxed with context
 isolation and no Node, and only two kinds of page have a preload: Add Site's, which exposes one
 function, and the sites' windows', whose bridge the app heeds only from the site's own pages.
 

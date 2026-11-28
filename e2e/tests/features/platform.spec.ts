@@ -6,8 +6,9 @@ import { expect, test } from "./fixtures";
  * and user, as the project's owner chose, where Campfire lists its add and person (app/assets/images/).
  */
 const ICONS: Record<string, string> = {
-  "/logos/app-icon-192.png": "49ff9160e2e167043fe948e7b78695c1b55270dff701479ebc6f574eedff6126",
-  "/logos/app-icon.png": "d93bfb957863d1aca5ab6ca4e2f81d592e5ed101df6850b89ac792f6f67d88f3",
+  "/logos/app-icon-192.png": "07b030b035c078a40a0dc2aaa202672d8433351e4ec8683f3e8b48237769f33f",
+  "/logos/app-icon.png": "5d77eb4d6851542d53c54a6a0544a18b9a1f7ea9d3fdb76c2c8cf45447dc5812",
+  "/logos/app-icon-maskable.png": "1a7bd112c182871a18c5ef1e247324dd9669c5a83030b02b7b0a7d3bf7126d87",
   "/shortcuts/plus.svg": "dbd0c9ec345745994d219d9bf30252abe534304e8f006316e14c32c8dbf3fb79",
   "/shortcuts/user.svg": "53e6505904aafd797da6ea432aa148b7858104454e4e9b65895a879e74451ea3",
 };
@@ -84,7 +85,8 @@ test.describe("Installable page head", () => {
         { name: "mobile-web-app-capable", content: "yes" },
         { rel: "manifest", href: "/webmanifest.json" },
         { rel: "icon", type: "image/png", sizes: "48x48", href: "/logos/app-icon-48.png" },
-        { rel: "apple-touch-icon", href: "/logos/app-icon.png" },
+        { rel: "icon", type: "image/svg+xml", href: "/logos/app-icon.svg" },
+        { rel: "apple-touch-icon", href: "/logos/apple-touch-icon.png" },
       ]);
     }
   });

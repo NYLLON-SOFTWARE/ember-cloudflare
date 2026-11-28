@@ -10,7 +10,10 @@ export function useAccountLogo(logo: string | null): void {
   useLayoutEffect(() => {
     if (!logo) return;
     document.body.classList.add("account-has-logo");
-    const restore = [pointLink("icon", `${logo}&size=small`), pointLink("apple-touch-icon", logo)];
+    // Each of index.html's icons, its PNG and its SVG, since a browser shows whichever it prefers.
+    const icons = [...document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"]')].map((link) => pointLink(link, `${logo}&size=small`));
+    const touchIcon = document.head.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+    const restore = [...icons, ...(touchIcon ? [pointLink(touchIcon, logo)] : [])];
     return () => {
       document.body.classList.remove("account-has-logo");
       for (const pointBack of restore) pointBack();
@@ -19,17 +22,15 @@ export function useAccountLogo(logo: string | null): void {
 }
 
 /**
- * Points the page's `rel` link at `href`, without the size index.html gives Ember's own icon, answering
- * what points it back.
+ * Points `link` at the logo's PNG at `href`, without the size index.html gives Ember's own icon,
+ * answering what points it back.
  */
-function pointLink(rel: string, href: string): () => void {
-  const link = document.head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
-  if (!link) return () => {};
-  const stock = { href: link.getAttribute("href"), sizes: link.getAttribute("sizes") };
+function pointLink(link: HTMLLinkElement, href: string): () => void {
+  const stock = (["href", "type", "sizes"] as const).map((name) => [name, link.getAttribute(name)] as const);
   link.setAttribute("href", href);
+  if (link.hasAttribute("type")) link.setAttribute("type", "image/png");
   link.removeAttribute("sizes");
   return () => {
-    if (stock.href !== null) link.setAttribute("href", stock.href);
-    if (stock.sizes !== null) link.setAttribute("sizes", stock.sizes);
+    for (const [name, value] of stock) if (value !== null) link.setAttribute(name, value);
   };
 }

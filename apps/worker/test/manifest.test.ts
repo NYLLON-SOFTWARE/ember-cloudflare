@@ -30,7 +30,7 @@ describe("Web app manifest", () => {
       icons: [
         { src: "/logos/app-icon-192.png", type: "image/png", sizes: "192x192" },
         { src: "/logos/app-icon.png", type: "image/png", sizes: "512x512" },
-        { src: "/logos/app-icon.png", type: "image/png", sizes: "512x512", purpose: "maskable" },
+        { src: "/logos/app-icon-maskable.png", type: "image/png", sizes: "512x512", purpose: "maskable" },
       ],
       start_url: "/",
       display: "standalone",

@@ -12,17 +12,18 @@ const DESCRIPTION = "A real-time chat app that runs entirely on Cloudflare.";
 
 /**
  * The manifest for a workspace named `name` whose logo is at `logo`. Its icons are the logo's variants,
- * or Ember's stock icons while there's no logo. Its screenshots have Campfire's sizes and labels, but
- * they're Ember's own, which `pnpm screenshots` makes.
+ * or Ember's stock icons while there's no logo, whose maskable one fills its square, for the system to
+ * cut to its own shape. Its screenshots have Campfire's sizes and labels, but they're Ember's own, which
+ * `pnpm screenshots` makes.
  */
 export function webManifest(name: string, logo: string | null) {
-  const [small, large] = logo ? [`${logo}&size=small`, logo] : ["/logos/app-icon-192.png", "/logos/app-icon.png"];
+  const [small, large, maskable] = logo ? [`${logo}&size=small`, logo, logo] : ["/logos/app-icon-192.png", "/logos/app-icon.png", "/logos/app-icon-maskable.png"];
   return {
     name,
     icons: [
       { src: small, type: "image/png", sizes: "192x192" },
       { src: large, type: "image/png", sizes: "512x512" },
-      { src: large, type: "image/png", sizes: "512x512", purpose: "maskable" },
+      { src: maskable, type: "image/png", sizes: "512x512", purpose: "maskable" },
     ],
     start_url: "/",
     display: "standalone",

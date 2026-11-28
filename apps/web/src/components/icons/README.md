@@ -17,19 +17,33 @@ the one the editor paints over Lexxy's, every icon the error pages draw, and the
 | `room-icon.tsx`, `room-icon-label.ts` | A room's icon, from its own file, as a mask in the color of the text around it, or `#` for the default, and what the pickers call it, crediting Iconoir's |
 
 The brand images live in `apps/web/public`, with the icons the web app manifest lists.
-`logos/app-icon.png` and `logos/app-icon-192.png` are Ember's icons: the home-screen icon and the
-installed app's. `shortcuts/plus.svg` and `shortcuts/user.svg` are Iconoir's, byte for byte, for the
-installed app's New chat room and My profile shortcuts. The favicon,
-`logos/app-icon-48.png`, is the same image scaled from 512px down to 48px: browsers fetch the favicon
-while the page loads, and in Lighthouse the 121 KB original delayed a room's largest paint by about
-390 ms on mobile and 80 ms on desktop. For the same reason, while the workspace has a logo the app
-points the favicon at the logo's 192-pixel variant, and only the Apple touch icon at its 512-pixel
-one (`hooks/use-account-logo.ts`).
+Ember's app icon is its flame in white on a sunset, or in the sunset's colors on near-black where the
+system is dark. `brand/app-icon-light.svg` and `brand/app-icon-dark.svg` here draw each as a full
+square, with the flame's four petals traced from Ember's first app icon, and every size is the square
+as Chromium draws it: `logos/app-icon.png` (512px) and `logos/app-icon-192.png`, the home-screen icon
+and the installed app's, are the light square cut to a rounded square (a superellipse) 87.5% of their
+width, as the manifest's icons that aren't maskable are shown as they are, and
+`logos/app-icon-maskable.png` and `logos/apple-touch-icon.png` (180px) are the whole light square, for
+Android and iOS to cut to their own shapes. No browser switches an installed app's icon or a home
+screen's with the system yet, so those stay light.
+The favicon is `logos/app-icon.svg`: the flame's outline in white on the sunset, or in the sunset's
+colors on near-black under `prefers-color-scheme: dark`, which Chrome, Edge and Firefox follow (Safari
+shows it light), and `logos/app-icon-48.png` is its light look for browsers that can't read an SVG
+icon. Both are small, as browsers fetch the favicon while the page loads: in Lighthouse a 121 KB one
+delayed a room's largest paint by about 390 ms on mobile and 80 ms on desktop. For the same reason,
+while the workspace has a logo the app points both at the logo's 192-pixel variant, and only the Apple
+touch icon at its 512-pixel one (`hooks/use-account-logo.ts`).
+The desktop app's icons are drawn from the same squares: `apps/desktop/build/icon.png` (1024px) and
+`apps/desktop/src/icons/` (256px, light and dark) as the home-screen icon is, and the Mac's Icon
+Composer icon, `apps/desktop/build/icon.icon`, from each square's flame, and the dark square's glow, on
+a fill of its own: the sunset's two ends, or macOS's own dark.
+`shortcuts/plus.svg` and `shortcuts/user.svg` are Iconoir's, byte for byte, for the installed app's New
+chat room and My profile shortcuts.
 `ember-icon.png` is Ember's flame, on the rail and the sign-in card, scaled from 1254px down to 192px,
 so the page doesn't load 595 KB for a 44px mark.
-`assistant-avatar.svg` is @ember's avatar, which the Worker serves as its picture: the flame's outline,
-traced from `logos/app-icon.png`, in white on the app icon's sunset. It fills its square, which the app
-cuts to the circle every bot's avatar is.
+`assistant-avatar.svg` is @ember's avatar, which the Worker serves as its picture: the flame's outline
+in white on the app icon's sunset. It fills its square, which the app cuts to the circle every bot's
+avatar is.
 `browsers/` holds Campfire's browser logos, byte for byte, for the Worker's "Upgrade to a supported web
 browser" page, and `globe.svg` is Iconoir's globe, byte for byte, for that page's translation button.
 They're static files rather than icons here because that page is plain HTML from the Worker, which
