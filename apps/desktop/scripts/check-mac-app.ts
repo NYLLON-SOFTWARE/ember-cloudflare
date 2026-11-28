@@ -16,8 +16,6 @@ const APPS: Record<string, string> = {
 };
 /** Add Site's page, as add-site-window.ts opens it, with the title it has once it's loaded. */
 const ADD_SITE = { url: "ember-app://pages/add-site.html", title: "Add a Site" };
-/** Where the starting app lists its pages, as Chromium's remote debugging does. */
-const DEBUGGING_PORT = 9223;
 /** How long the app may take to show Add Site: a first start waits on macOS checking the new app. */
 const START_TIME = 90_000;
 
@@ -57,10 +55,14 @@ function checkDiskImage(image: string): void {
 /** Starts `app` with a folder of its own, as on a person's first start, and waits until it shows Add Site. */
 async function checkStarts(app: string): Promise<void> {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "ember-desktop-"));
-  // A mock keychain, as the runner's keychain may be locked, which would ask for its password.
-  const started = spawn(path.join(app, "Contents", "MacOS", "Ember"), [`--remote-debugging-port=${DEBUGGING_PORT}`, "--use-mock-keychain"], {
+  // Its pages are listed by Chromium's remote debugging, on a free port that it writes in the app's
+  // folder, so they can only be this app's. A mock keychain, as the runner's keychain may be locked,
+  // which would ask for its password.
+  const started = spawn(path.join(app, "Contents", "MacOS", "Ember"), ["--remote-debugging-port=0", "--use-mock-keychain"], {
     env: { ...process.env, EMBER_DESKTOP_USER_DATA: userData },
     stdio: ["ignore", "pipe", "pipe"],
+    // A process group of its own, with its helpers, to stop together.
+    detached: true,
   });
   let printed = "";
   started.stdout.on("data", (chunk) => (printed += chunk));
@@ -70,24 +72,34 @@ async function checkStarts(app: string): Promise<void> {
   void exited.then(() => (running = false));
   try {
     const deadline = Date.now() + START_TIME;
-    while (!(await showsAddSite())) {
+    while (!(await showsAddSite(userData))) {
       if (!running) throw new Error(`${app} quit as it started:\n${printed}`);
       if (Date.now() > deadline) throw new Error(`${app} didn't show Add Site within ${START_TIME / 1000} seconds:\n${printed}`);
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     console.log(`${app} starts and shows Add Site.`);
   } finally {
-    started.kill();
-    const killing = setTimeout(() => started.kill("SIGKILL"), 10_000);
+    const stop = (signal: NodeJS.Signals) => {
+      try {
+        process.kill(-started.pid!, signal);
+      } catch {
+        // It's stopped already.
+      }
+    };
+    stop("SIGTERM");
+    const killing = setTimeout(() => stop("SIGKILL"), 10_000);
     await exited;
     clearTimeout(killing);
+    started.stdout.destroy();
+    started.stderr.destroy();
   }
 }
 
-/** Whether the app starting shows Add Site yet, by the pages it lists, or not while it doesn't answer. */
-async function showsAddSite(): Promise<boolean> {
+/** Whether the app starting with its folder at `userData` shows Add Site yet, by the pages it lists, or not while it doesn't answer. */
+async function showsAddSite(userData: string): Promise<boolean> {
   try {
-    const response = await fetch(`http://127.0.0.1:${DEBUGGING_PORT}/json/list`, { signal: AbortSignal.timeout(5_000) });
+    const [port] = fs.readFileSync(path.join(userData, "DevToolsActivePort"), "utf8").split("\n");
+    const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(5_000) });
     const pages = (await response.json()) as { type: string; url: string; title: string }[];
     return pages.some((page) => page.type === "page" && page.url === ADD_SITE.url && page.title === ADD_SITE.title);
   } catch {
