@@ -35,8 +35,8 @@ while the workspace has a logo the app points both at the logo's 192-pixel varia
 touch icon at its 512-pixel one (`hooks/use-account-logo.ts`).
 The desktop app's icons are drawn from the same squares: `apps/desktop/build/icon.png` (1024px) and
 `apps/desktop/src/icons/` (256px, light and dark) as the home-screen icon is, and the Mac's Icon
-Composer icon, `apps/desktop/build/icon.icon`, from each square's flame, and the dark square's glow, on
-a fill of its own: the sunset's two ends, or macOS's own dark.
+Composer icon, `apps/desktop/build/icon.icon`, from each square's flame, the light square's sunset, and
+the dark square's glow over macOS's own dark.
 `shortcuts/plus.svg` and `shortcuts/user.svg` are Iconoir's, byte for byte, for the installed app's New
 chat room and My profile shortcuts.
 `ember-icon.png` is Ember's flame, on the rail and the sign-in card, scaled from 1254px down to 192px,
