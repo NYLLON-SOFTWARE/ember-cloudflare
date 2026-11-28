@@ -4,11 +4,11 @@ import { useAccountLogo } from "./use-account-logo";
 
 const LOGO = "/account/logo?v=20261017120000";
 
-/** The page's icon and Apple touch icon links, as index.html has them. */
+/** The page's icons and Apple touch icon links, as index.html has them. */
 beforeEach(() => {
   document.head.insertAdjacentHTML(
     "beforeend",
-    '<link rel="icon" type="image/png" sizes="48x48" href="/logos/app-icon-48.png"><link rel="apple-touch-icon" href="/logos/app-icon.png">',
+    '<link rel="icon" type="image/png" sizes="48x48" href="/logos/app-icon-48.png"><link rel="icon" type="image/svg+xml" href="/logos/app-icon.svg"><link rel="apple-touch-icon" href="/logos/apple-touch-icon.png">',
   );
 });
 
@@ -16,33 +16,45 @@ afterEach(() => {
   for (const link of document.head.querySelectorAll("link")) link.remove();
 });
 
-const icon = () => document.head.querySelector('link[rel="icon"]')!;
+const icons = () => document.head.querySelectorAll('link[rel="icon"]');
+const pngIcon = () => icons()[0]!;
+const svgIcon = () => icons()[1]!;
 const touchIcon = () => document.head.querySelector('link[rel="apple-touch-icon"]')!;
 
+/** Expects the page's icons to be Ember's own, as index.html has them. */
+function expectEmbersIcons() {
+  expect(pngIcon()).toHaveAttribute("href", "/logos/app-icon-48.png");
+  expect(pngIcon()).toHaveAttribute("type", "image/png");
+  expect(pngIcon()).toHaveAttribute("sizes", "48x48");
+  expect(svgIcon()).toHaveAttribute("href", "/logos/app-icon.svg");
+  expect(svgIcon()).toHaveAttribute("type", "image/svg+xml");
+  expect(touchIcon()).toHaveAttribute("href", "/logos/apple-touch-icon.png");
+}
+
 describe("Workspace logo", () => {
-  it("makes the workspace's logo the page's icon, its small variant, and Apple touch icon", () => {
+  it("makes the workspace's logo each of the page's icons, its small variant, and Apple touch icon", () => {
     const { unmount } = renderHook(() => useAccountLogo(LOGO));
-    expect(icon()).toHaveAttribute("href", `${LOGO}&size=small`);
-    expect(icon()).not.toHaveAttribute("sizes");
-    expect(icon()).toHaveAttribute("type", "image/png");
+    for (const icon of [pngIcon(), svgIcon()]) {
+      expect(icon).toHaveAttribute("href", `${LOGO}&size=small`);
+      expect(icon).toHaveAttribute("type", "image/png");
+      expect(icon).not.toHaveAttribute("sizes");
+    }
     expect(touchIcon()).toHaveAttribute("href", LOGO);
     unmount();
-    expect(icon()).toHaveAttribute("href", "/logos/app-icon-48.png");
-    expect(icon()).toHaveAttribute("sizes", "48x48");
-    expect(touchIcon()).toHaveAttribute("href", "/logos/app-icon.png");
+    expectEmbersIcons();
   });
 
   it("follows the logo as it changes, keeping Ember's icons while there's none", () => {
     const { rerender, unmount } = renderHook(({ logo }) => useAccountLogo(logo), { initialProps: { logo: null as string | null } });
-    expect(icon()).toHaveAttribute("href", "/logos/app-icon-48.png");
+    expectEmbersIcons();
     rerender({ logo: LOGO });
-    expect(icon()).toHaveAttribute("href", `${LOGO}&size=small`);
+    expect(pngIcon()).toHaveAttribute("href", `${LOGO}&size=small`);
     rerender({ logo: "/account/logo?v=20261017130000" });
-    expect(icon()).toHaveAttribute("href", "/account/logo?v=20261017130000&size=small");
+    expect(pngIcon()).toHaveAttribute("href", "/account/logo?v=20261017130000&size=small");
+    expect(svgIcon()).toHaveAttribute("href", "/account/logo?v=20261017130000&size=small");
     expect(touchIcon()).toHaveAttribute("href", "/account/logo?v=20261017130000");
     rerender({ logo: null });
-    expect(icon()).toHaveAttribute("href", "/logos/app-icon-48.png");
-    expect(touchIcon()).toHaveAttribute("href", "/logos/app-icon.png");
+    expectEmbersIcons();
     unmount();
   });
 });

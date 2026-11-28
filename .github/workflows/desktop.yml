@@ -8,15 +8,13 @@ on:
     branches: [main]
     paths:
       - apps/desktop/**
-      # The flame its pages show, and its icon.
+      # The flame its pages show.
       - apps/web/public/ember-icon.png
-      - apps/web/public/logos/app-icon.png
       - .github/workflows/desktop.yml
   pull_request:
     paths:
       - apps/desktop/**
       - apps/web/public/ember-icon.png
-      - apps/web/public/logos/app-icon.png
       - .github/workflows/desktop.yml
 
 # It only reads the repository, so its token can only read it.
@@ -68,6 +66,13 @@ jobs:
           name: ember-desktop-test-results-${{ runner.os }}
           path: apps/desktop/test-results
           retention-days: 7
+      - name: Use Xcode 26, whose actool compiles the Mac app's icon
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -iv beta | sort -V | tail -1)
+          test -n "$xcode" || { echo "This runner has no Xcode 26"; exit 1; }
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
       - name: Package it
         shell: bash
         # Unsigned for now. A Mac's is signed ad hoc, without the hardened runtime that needs a real

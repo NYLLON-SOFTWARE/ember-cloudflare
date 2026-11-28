@@ -16,7 +16,10 @@ publish: null
 files:
   - dist/**
   - package.json
-icon: ../web/public/logos/app-icon.png
+# Ember's icon, from build/: icon.png for Windows and Linux, in its light look, and on a Mac the Icon
+# Composer icon, icon.icon, which macOS 26 draws light, dark or tinted as the system is, and Xcode 26's
+# actool compiles, with an .icns of its light look for older macOS.
+icon: icon.png
 
 # What would let the packaged app run as plain Node, or be inspected, is off, and it checks its own
 # files as it starts.
@@ -35,6 +38,7 @@ electronFuses:
 
 mac:
   category: public.app-category.social-networking
+  icon: icon.icon
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -54,6 +58,8 @@ win:
 
 linux:
   target: [AppImage, deb]
+  # Named again, since electron-builder takes a Mac's icon for Linux's where Linux names none.
+  icon: icon.png
   # The window's class names the app's .desktop file, so desktops show its windows as Ember's.
   syncDesktopName: true
   category: Network

@@ -1,5 +1,5 @@
-// Builds the app into dist/, afresh: its TypeScript, then what its pages need beside their scripts, their
-// HTML and CSS, and Ember's flame from the web app.
+// Builds the app into dist/, afresh: its TypeScript, then what its pages need beside their scripts (their
+// HTML and CSS, and Ember's flame from the web app), and the icons its windows show in each appearance.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -17,3 +17,4 @@ for (const file of fs.readdirSync(pages).filter((name) => /\.(html|css)$/.test(n
   fs.copyFileSync(path.join(pages, file), path.join(dist, "pages", file));
 }
 fs.copyFileSync(path.join(desktop, "..", "web", "public", "ember-icon.png"), path.join(dist, "pages", "ember-icon.png"));
+fs.cpSync(path.join(desktop, "src", "icons"), path.join(dist, "icons"), { recursive: true });

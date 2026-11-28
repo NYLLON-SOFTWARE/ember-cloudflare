@@ -69,7 +69,8 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
     <meta name="color-scheme" content="light dark">
     <title>${title}</title>
     <link rel="icon" type="image/png" sizes="48x48" href="/logos/app-icon-48.png">
-    <link rel="apple-touch-icon" href="/logos/app-icon.png">
+    <link rel="icon" type="image/svg+xml" href="/logos/app-icon.svg">
+    <link rel="apple-touch-icon" href="/logos/apple-touch-icon.png">
     <script>
       (function () {
         var saved, dark = false;

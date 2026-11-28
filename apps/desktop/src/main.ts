@@ -3,6 +3,7 @@ import path from "node:path";
 import type { AddSiteOutcome } from "./add-site-bridge.ts";
 import { AddSiteWindow } from "./add-site-window.ts";
 import { AppBadge } from "./app-badge.ts";
+import { followAppearance } from "./app-icon.ts";
 import { registerPagesScheme } from "./app-pages.ts";
 import { applicationMenu } from "./menu.ts";
 import { siteAddressOf } from "./site-address.ts";
@@ -33,6 +34,7 @@ if (app.requestSingleInstanceLock()) void app.whenReady().then(start);
 else app.quit();
 
 function start(): void {
+  followAppearance();
   const sites = new Sites(path.join(app.getPath("userData"), "sites.json"));
   const windows = new SiteWindows(sites);
   const addSiteWindow = new AddSiteWindow(addSite);
