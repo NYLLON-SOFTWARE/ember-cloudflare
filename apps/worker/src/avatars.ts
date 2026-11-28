@@ -19,7 +19,7 @@ import { workspace } from "./workspace";
 /** `expires_in 30.minutes, public: true, stale_while_revalidate: 1.week` */
 const CACHE_CONTROL = "max-age=1800, public, stale-while-revalidate=604800";
 
-/** Where the built app has @ember's picture: Ember's flame in white on the app icon's sunset. */
+/** Where the built app has @ember's picture: Ember's flame in white on a sunset. */
 const FLAME = "/assistant-avatar.svg";
 
 /** Rails' `/users/:user_id/avatar`, which takes the token as the id. */

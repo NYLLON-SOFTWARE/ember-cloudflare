@@ -3,16 +3,16 @@
     {
       "value" : {
         "linear-gradient" : [
-          "display-p3:0.95545,0.71086,0.28359,1.00000",
-          "display-p3:0.80621,0.19481,0.21541,1.00000"
+          "display-p3:1.00000,1.00000,1.00000,1.00000",
+          "display-p3:0.93450,0.92210,0.90758,1.00000"
         ],
         "orientation" : {
           "start" : {
-            "x" : 1,
+            "x" : 0.5,
             "y" : 0
           },
           "stop" : {
-            "x" : 0,
+            "x" : 0.5,
             "y" : 1
           }
         }
@@ -31,6 +31,10 @@
           "hidden-specializations" : [
             {
               "appearance" : "dark",
+              "value" : true
+            },
+            {
+              "appearance" : "tinted",
               "value" : true
             }
           ],
@@ -64,6 +68,27 @@
               0
             ]
           }
+        },
+        {
+          "glass" : false,
+          "hidden-specializations" : [
+            {
+              "value" : true
+            },
+            {
+              "appearance" : "tinted",
+              "value" : false
+            }
+          ],
+          "image-name" : "flame-tinted.png",
+          "name" : "Flame tinted",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
         }
       ],
       "name" : "Flame",
@@ -71,77 +96,6 @@
         "kind" : "neutral",
         "opacity" : 0.5
       },
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
-      }
-    },
-    {
-      "layers" : [
-        {
-          "glass" : false,
-          "hidden-specializations" : [
-            {
-              "value" : true
-            },
-            {
-              "appearance" : "dark",
-              "value" : false
-            }
-          ],
-          "image-name" : "glow-dark.png",
-          "name" : "Glow",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
-        }
-      ],
-      "name" : "Glow",
-      "shadow" : {
-        "kind" : "none",
-        "opacity" : 0.5
-      },
-      "specular" : false,
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
-      }
-    },
-    {
-      "layers" : [
-        {
-          "glass" : false,
-          "hidden-specializations" : [
-            {
-              "appearance" : "dark",
-              "value" : true
-            },
-            {
-              "appearance" : "tinted",
-              "value" : true
-            }
-          ],
-          "image-name" : "sunset-light.png",
-          "name" : "Sunset",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
-        }
-      ],
-      "name" : "Sunset",
-      "shadow" : {
-        "kind" : "none",
-        "opacity" : 0.5
-      },
-      "specular" : false,
       "translucency" : {
         "enabled" : false,
         "value" : 0.5
