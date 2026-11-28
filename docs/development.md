@@ -166,6 +166,15 @@ release's contributors.
 Ember's version is a release's or a beta's, which the Release workflow checks, since copies tell
 them apart by their tags and know no other kind.
 
+The desktop app (`apps/desktop`) isn't part of Ember's releases. It has a version of its own, and
+the Label workflow (`.github/workflows/label.yml`) labels a pull request that changes it alone
+`desktop`, which keeps it out of Ember's release notes: label one that changes it and a guide about
+it by hand. It isn't signed or notarized yet, so nothing offers a download of it, and its only builds
+are the Desktop workflow's, kept a week to try. It's never released on this repository's Releases
+page, nor are its builds attached to one of Ember's: General settings takes the latest release there
+for Ember's, and GitHub makes a newly published release the latest. Its tags, once it has releases,
+are named like `desktop/v1.0.0`, which no `v*` pattern matches.
+
 ## Performance
 
 `pnpm perf` load-tests the Worker under `wrangler dev` on both storage backends (latency,

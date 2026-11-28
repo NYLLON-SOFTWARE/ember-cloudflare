@@ -1,0 +1,23 @@
+name: Label
+
+# Labels each pull request by the files it changes, as .github/labeler.yml says, so that one changing
+# the desktop app alone is labelled desktop, which keeps it out of Ember's release notes. It only adds
+# labels, never takes one off.
+on:
+  # pull_request_target, not pull_request, so that pull requests from forks are labelled too. It never
+  # checks out their code: the labeler asks GitHub which files they change, and reads its settings from main.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  label:
+    if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Pinned to a commit, not a tag, because this job can write to pull requests. It's the commit v7.0.0 points at.
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
