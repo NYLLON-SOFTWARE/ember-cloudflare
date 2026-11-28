@@ -1,6 +1,7 @@
-# How `pnpm package` packages the app for the system it runs on, into release/. The packages are
-# unsigned for now: signing, notarization and updates come once NYLLON LLC's Apple and Microsoft
-# accounts are settled.
+# How `pnpm package` packages the app for the system it runs on, into release/. A Mac's is signed with a
+# Developer ID and notarized by Apple where it's given them, as the Desktop workflow gives main's NYLLON
+# LLC's (README.md#signing-the-mac-app); pull requests' are signed ad hoc. Windows' isn't signed yet,
+# and the app doesn't update itself yet.
 
 appId: com.nyllon.ember
 productName: Ember
