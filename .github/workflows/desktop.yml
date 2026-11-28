@@ -106,12 +106,13 @@ jobs:
           actool icon-check/Icon.icon --compile icon-check/actool --output-format human-readable-text --notices --warnings --errors \
             --output-partial-info-plist icon-check/actool/info.plist --app-icon Icon --include-all-app-icons \
             --target-device mac --minimum-deployment-target 26.0 --platform macosx || true
-          ictool=$(find "$DEVELOPER_DIR/.." -name ictool -type f 2>/dev/null | head -1)
+          ictool="$DEVELOPER_DIR/../Applications/Icon Composer.app/Contents/Executables/ictool"
+          test -x "$ictool" || ictool=$(find "$DEVELOPER_DIR/.." -path '*Icon Composer.app/*' -name ictool -type f 2>/dev/null | head -1)
           echo "ictool: $ictool"
-          "$ictool" --help 2>&1 | head -80 || true
-          for rendition in Default Dark TintedLight TintedDark ClearLight ClearDark; do
-            "$ictool" icon-check/Icon.icon --export-image --output-file "icon-check/$rendition.png" --platform macOS \
-              --rendition "$rendition" --width 512 --height 512 --scale 1 2>&1 | tail -5 || true
+          "$ictool" -h 2>&1 | head -80 || true
+          for rendition in Default Light Dark TintedLight TintedDark ClearLight ClearDark; do
+            "$ictool" icon-check/Icon.icon --export-preview macOS "$rendition" 512 512 1 -45 "icon-check/render-$rendition.png" 2>&1 | tail -5 \
+              || "$ictool" icon-check/Icon.icon --export-preview macOS "$rendition" 512 512 1 "icon-check/render-$rendition.png" 2>&1 | tail -5 || true
           done
           rm -rf icon-check/Icon.icon
           ls -laR icon-check
