@@ -45,6 +45,8 @@ an open room, which ask first in a room of six or more, and which administrators
 themselves or turn off in a room. Link a room with #: anyone who isn't in a private room sees a lock
 and "private room" in place of its name. Quote a message, react with any emoji or a few words of your
 own, and edit or delete what you wrote. You see who's here and who's typing, as it happens.
+Download a transcript of a room or DM you're in, or of every conversation you're in, as Markdown or
+JSON.
 
 ![Ember's Launch room under its top bar: the sidebar in sections, a deploy bot's card, reactions, and a thread open beside the room](docs/screenshots/hero.png)
 

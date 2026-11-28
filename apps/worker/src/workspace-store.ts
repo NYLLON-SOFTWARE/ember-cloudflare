@@ -1958,8 +1958,11 @@ const roomSwitches = (row: HuddlesAllowedRow & ChannelMentionsAllowedRow): Pick<
 /** A DM, `id`, last active at `activeAt`, with the people `members` reads, and who it welcomes, if anyone. */
 const directOf = (id: RoomId, activeAt: string, members: DirectMemberRow[], start: StartRow): DirectRoom => ({ id, kind: "direct", members: membersOf(members), activeAt, ...joinedOf(start) });
 
+/** What `roomOf` reads of a room someone is in, as `ROOMS_FOR_USER` and `ROOM_FOR_USER` both read it. */
+type RoomRow = Pick<SidebarRow, "id" | "kind" | "name" | "icon" | "active_at" | "huddles_allowed" | "channel_mentions_allowed" | "newcomer_id" | "started_at">;
+
 /** A room someone is in, with the people in it if it's a DM, whom `members` reads. */
-const roomOf = (row: SidebarRow, members: DirectMemberRow[] = []): Room =>
+const roomOf = (row: RoomRow, members: DirectMemberRow[] = []): Room =>
   row.kind === "direct" ? directOf(row.id, row.active_at, members, row) : { id: row.id, kind: row.kind, name: row.name ?? "", icon: row.icon, ...roomSwitches(row) };
 
 /**
@@ -2039,6 +2042,15 @@ export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.ic
     rooms.huddle_user_ids, rooms.huddles_allowed, rooms.channel_mentions_allowed, rooms.section_id
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY memberships.created_at, rooms.created_at, rooms.id`;
+
+/** One of someone's rooms, for a transcript of it: nothing unless they're in it. */
+export const ROOM_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, ${START}, rooms.huddles_allowed, rooms.channel_mentions_allowed
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ? AND memberships.room_id = ?`;
+
+/** Who's in a room, for naming a DM in a transcript, once the caller is known to be in it. */
+const MEMBERS_OF_ROOM = `SELECT memberships.room_id, users.id, users.name FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? ORDER BY memberships.user_id`;
 
 /** The ids of the rooms in `rows` that the shared order ranks, in its order. */
 const sharedOrderOf = (rows: SidebarRow[]): RoomId[] =>
@@ -5269,6 +5281,17 @@ export class WorkspaceStore {
     );
     const due = [row?.revocation, row?.purge, row?.reindex, row?.readers, row?.picture, row?.membership, row?.catchUp, row?.refresh].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
+  }
+
+  /**
+   * A room the person is in, with the people in it if it's a DM, or null when they aren't. Asked after
+   * they're known to be in it, so listing its members doesn't name a private room they can't open.
+   */
+  async roomForUser(userId: UserId, roomId: RoomId): Promise<Room | null> {
+    const [row] = await this.db.all<RoomRow>(ROOM_FOR_USER, userId, roomId);
+    if (!row) return null;
+    if (row.kind !== "direct") return roomOf(row);
+    return roomOf(row, await this.db.all<DirectMemberRow>(MEMBERS_OF_ROOM, roomId));
   }
 
   /**
