@@ -89,6 +89,39 @@ jobs:
           else
             pnpm package
           fi
+      # TEMPORARY, while the new icon is checked: the Mac's icon as actool compiled it and ictool draws it.
+      - name: Draw the Mac icon in each appearance
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p icon-check
+          sw_vers; xcodebuild -version; actool --version
+          resources=$(ls -d release/mac*/Ember.app/Contents/Resources | head -1)
+          echo "Resources: $resources"; ls -la "$resources" | head -40
+          plutil -p "$resources/../Info.plist" | grep -i icon || true
+          cp "$resources/icon.icns" "$resources/Assets.car" icon-check/ || true
+          xcrun assetutil --info "$resources/Assets.car" > icon-check/assets.json || true
+          cp -R build/icon.icon icon-check/Icon.icon
+          mkdir -p icon-check/actool
+          actool icon-check/Icon.icon --compile icon-check/actool --output-format human-readable-text --notices --warnings --errors \
+            --output-partial-info-plist icon-check/actool/info.plist --app-icon Icon --include-all-app-icons \
+            --target-device mac --minimum-deployment-target 26.0 --platform macosx || true
+          ictool="$DEVELOPER_DIR/../Applications/Icon Composer.app/Contents/Executables/ictool"
+          test -x "$ictool" || ictool=$(find "$DEVELOPER_DIR/.." -path '*Icon Composer.app/*' -name ictool -type f 2>/dev/null | head -1)
+          echo "ictool: $ictool"
+          "$ictool" -h 2>&1 | head -80 || true
+          for rendition in Default Light Dark TintedLight TintedDark ClearLight ClearDark; do
+            "$ictool" icon-check/Icon.icon --export-preview macOS "$rendition" 512 512 1 -45 "icon-check/render-$rendition.png" 2>&1 | tail -5 \
+              || "$ictool" icon-check/Icon.icon --export-preview macOS "$rendition" 512 512 1 "icon-check/render-$rendition.png" 2>&1 | tail -5 || true
+          done
+          rm -rf icon-check/Icon.icon
+          ls -laR icon-check
+      - uses: actions/upload-artifact@v6
+        if: runner.os == 'macOS'
+        with:
+          name: ember-desktop-icon-check
+          path: apps/desktop/icon-check
+          retention-days: 2
       - uses: actions/upload-artifact@v6
         with:
           name: ember-desktop-${{ runner.os }}
