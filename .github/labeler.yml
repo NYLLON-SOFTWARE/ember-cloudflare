@@ -1,0 +1,9 @@
+# The labels the Label workflow (.github/workflows/label.yml) gives pull requests, by the files they change.
+
+# A pull request that changes the desktop app alone, which Ember's release notes leave out
+# (.github/release.yml), since the app ships apart from Ember. One that changes anything else too
+# usually changes Ember as well, so it's left to label by hand. The labeler asks that one of the globs
+# match every file, so the app's folder and its workflow are one glob.
+desktop:
+  - changed-files:
+      - any-glob-to-all-files: "{apps/desktop/**,.github/workflows/desktop.yml}"

@@ -6,6 +6,10 @@ unread, wherever the site is hosted. The
 app holds no Ember of its own: each site serves its pages as it does to a browser, so the app shows
 each site as up to date as the site is.
 
+**It isn't released yet.** Until it's signed and notarized there's no download of it, and the builds
+GitHub Actions makes are for trying a change. Its releases will be its own, never on this repository's
+Releases page, which is Ember's ([Releasing](../../docs/development.md#releasing)).
+
 ## Using it
 
 The first time it opens, the app asks for the address of an Ember site, such as `chat.example.com`.
@@ -110,4 +114,6 @@ isolation and no Node, and only two kinds of page have a preload: Add Site's, wh
 function, and the sites' windows', whose bridge the app heeds only from the site's own pages.
 
 GitHub Actions' **Desktop** workflow type-checks, tests and packages the app on macOS, Windows and
-Linux whenever a pull request changes it, and keeps each system's packages for a week.
+Linux whenever a pull request changes it, and keeps each system's packages for a week, to try, never
+attached to a release. The **Label** workflow labels a pull request that changes the app alone
+`desktop`, which keeps it out of Ember's release notes.

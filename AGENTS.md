@@ -28,6 +28,10 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `docs/development
   left to do.
 - Tests live beside the code (`*.test.ts`), except the worker's, which run inside workerd from
   `apps/worker/test/`. Run `pnpm typecheck && pnpm test && pnpm build` before committing.
+- The desktop app (`apps/desktop`) installs, builds and is tested apart from Ember's workspace, and
+  isn't signed yet, so nothing offers a download of it: never attach its builds to a release, nor
+  publish a release of it on this repository's Releases page, which every copy reads as Ember's
+  (`docs/development.md#releasing`).
 - `pnpm perf` load-tests the Worker and the web app (`perf/README.md`). When a change touches
   broadcasts, presence, storage queries or the message timeline, run `pnpm perf --quick` before and
   after it and check the two with `pnpm perf compare`.

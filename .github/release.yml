@@ -1,6 +1,6 @@
 # How GitHub writes a release's notes, which list the pull requests merged since the release before.
-# They leave out the desktop app's, labelled desktop: a release is of the Ember that copies run, and
-# the desktop app ships apart from it.
+# They leave out the desktop app's, labelled desktop, as the Label workflow labels one that changes the
+# app alone: a release is of the Ember that copies run, and the desktop app ships apart from it.
 changelog:
   exclude:
     labels:
