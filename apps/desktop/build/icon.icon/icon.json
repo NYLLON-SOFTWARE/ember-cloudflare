@@ -28,14 +28,35 @@
       "layers" : [
         {
           "glass" : false,
-          "image-name" : "flame-light.png",
-          "image-name-specializations" : [
+          "hidden-specializations" : [
             {
               "appearance" : "dark",
-              "value" : "flame-dark.png"
+              "value" : true
             }
           ],
+          "image-name" : "flame-light.png",
           "name" : "Flame",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "glass" : false,
+          "hidden-specializations" : [
+            {
+              "value" : true
+            },
+            {
+              "appearance" : "dark",
+              "value" : false
+            }
+          ],
+          "image-name" : "flame-dark.png",
+          "name" : "Flame dark",
           "position" : {
             "scale" : 1,
             "translation-in-points" : [
