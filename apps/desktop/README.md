@@ -84,13 +84,13 @@ Packaging on a Mac needs Xcode 26 or later, whose `actool` compiles the app's Ic
 `build/icon.icon`: where another Xcode is selected, point `DEVELOPER_DIR` at Xcode 26's
 `Contents/Developer`, as CI does.
 
-The icon's files are made from the web app's: `build/icon.icon` holds the flame in each appearance over
-the icon's sunset, or `system-dark` in dark mode, with a warm glow behind it there, `build/icon.png` is
-its light look for Windows' and Linux's packages, and `src/icons/` holds its light and dark looks for the
-windows. `apps/web/src/components/icons/README.md` says where they come from. Each appearance's flame is
-a layer that the other appearances hide, since `actool` keeps a layer's `hidden-specializations` but not
-its `image-name-specializations`, and so is the light sunset, since macOS draws a fill's gradient only
-from top to bottom.
+The icon's files are made from the web app's: `build/icon.icon` holds the flame in each appearance, white
+in the tinted and clear ones, over the light icon's white, or `system-dark` in dark mode, `build/icon.png`
+is its light look for Windows' and Linux's packages, and `src/icons/` holds its light and dark looks for
+the windows. `apps/web/src/components/icons/README.md` says where they come from. Each appearance's flame
+is a layer that the other appearances hide, since `actool` keeps a layer's `hidden-specializations` but
+not its `image-name-specializations`. The white's gradient runs from top to bottom, the only way macOS
+draws a fill's, so a gradient that ran another way would have to be a layer too.
 
 `pnpm test:app` adds made-up Ember sites, served by the tests on your computer, and keeps each test's
 sites in a folder of its own. On Linux it needs a display: run it under `xvfb-run`, and on Ubuntu 24.04

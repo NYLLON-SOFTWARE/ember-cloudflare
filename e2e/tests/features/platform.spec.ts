@@ -6,9 +6,9 @@ import { expect, test } from "./fixtures";
  * and user, as the project's owner chose, where Campfire lists its add and person (app/assets/images/).
  */
 const ICONS: Record<string, string> = {
-  "/logos/app-icon-192.png": "07b030b035c078a40a0dc2aaa202672d8433351e4ec8683f3e8b48237769f33f",
-  "/logos/app-icon.png": "5d77eb4d6851542d53c54a6a0544a18b9a1f7ea9d3fdb76c2c8cf45447dc5812",
-  "/logos/app-icon-maskable.png": "1a7bd112c182871a18c5ef1e247324dd9669c5a83030b02b7b0a7d3bf7126d87",
+  "/logos/app-icon-192.png": "cedbf7f5e009b1b84d5eb7a74e9823a5ec525d49cb7e6fe8f783f3988b24def2",
+  "/logos/app-icon.png": "3c69862b32eefbb21b845c2ffe2d61b04b49ef2758add8cec2b5fab365e05a0a",
+  "/logos/app-icon-maskable.png": "02b6ef0f9ad280f0a6362da22f1fe85ef1398aaaa825c858eb654050353520bc",
   "/shortcuts/plus.svg": "dbd0c9ec345745994d219d9bf30252abe534304e8f006316e14c32c8dbf3fb79",
   "/shortcuts/user.svg": "53e6505904aafd797da6ea432aa148b7858104454e4e9b65895a879e74451ea3",
 };
