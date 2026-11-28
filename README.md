@@ -206,6 +206,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Light and dark** | ✅ | ✅ |
 | **Incoming webhooks** | ✅ Slack-compatible, with attachments and Block Kit | ✅ |
 | **Bots that answer** | ✅ through a webhook per bot | ✅ through Slack apps |
+| **Export everything** | ✅ an administrator exports every message, DMs included, as NDJSON | ✅ on Business+ (compliance exports) |
 | **Ways to join** | Join link and QR code, email invitations, email domains, open sign-up with Turnstile, Memberful | Invitations, invite links and approved email domains |
 | **Single sign-on** | OpenID Connect with any provider (Zitadel, Keycloak, Okta, Entra ID, Google), with group rules and back-channel logout, and Memberful, for membership communities, whose members can sign in on Ember's own page with a code it emails them | Google on every plan, and SAML SSO with SCIM on Business+ |
 
@@ -220,7 +221,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Reminders** | — | ✅ |
 | **Pinned and saved messages, and custom status** | — | ✅ |
 | **Guest accounts** | — | ✅ on paid plans |
-| **Exports of every message, DMs included** | — not yet | ✅ on Business+ and up |
+| **Exports of every message, DMs included** | ✅ an administrator exports everything as NDJSON | ✅ on Business+ and up (compliance exports) |
 | **Support** | GitHub issues | ✅ 24/7 on Business+ |
 
 If your team lives in canvases, workflows and a hundred integrations, Slack earns its price. If you

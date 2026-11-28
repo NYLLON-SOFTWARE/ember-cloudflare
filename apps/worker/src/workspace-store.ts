@@ -25,6 +25,9 @@ import {
   type DirectRoom,
   type EmailInvitation,
   type EmailLinkKind,
+  type ExportedListing,
+  type ExportedRoom,
+  type ExportedUser,
   type Favorites,
   type Involvement,
   type MembersChange,
@@ -1403,6 +1406,45 @@ const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   agent: row.agent === 1,
   keptFor: keptForIn(row.agent_access),
   pausedUntil: row.notifications_paused_until,
+});
+
+/** Someone as `EXPORT_PEOPLE` reads them. */
+interface ExportPersonRow {
+  id: UserId;
+  name: string;
+  email_address: string | null;
+  bio: string | null;
+  role: number;
+  status: number;
+}
+
+/** A room as `EXPORT_ROOMS` reads it. */
+interface ExportRoomRow {
+  id: RoomId;
+  kind: RoomKind;
+  name: string | null;
+  icon: SharedRoom["icon"];
+  created_at: string;
+}
+
+/** Someone as an export lists them, from what `EXPORT_PEOPLE` read. */
+const exportedPerson = ({ id, name, email_address, bio, role, status }: ExportPersonRow): ExportedUser => ({
+  id,
+  name,
+  emailAddress: email_address,
+  bio,
+  role: ROLES[role] ?? "member",
+  status: STATUSES[status] ?? "active",
+});
+
+/** A room as an export lists it, with who's in it when it's for just them. */
+const exportedRoom = ({ id, kind, name, icon, created_at }: ExportRoomRow, memberIds: UserId[] | undefined): ExportedRoom => ({
+  id,
+  kind,
+  name,
+  icon,
+  createdAt: created_at,
+  ...(memberIds && { memberIds }),
 });
 
 interface BotRow extends DirectoryRow {
@@ -3285,6 +3327,19 @@ const DIRECTORY_COLUMNS = `users.id, users.name, users.username, users.bio, user
 
 /** Everyone ?1 is told of, for the people directory: removed and banned people too, whose messages stay (`listedTo`). */
 const DIRECTORY = `SELECT ${DIRECTORY_COLUMNS} FROM users WHERE ${listedTo("?1")} ORDER BY id`;
+
+/** Everyone for an export, their email addresses included, which only administrators may read. */
+const EXPORT_PEOPLE = `SELECT users.id, users.name, users.email_address, users.bio, users.role, users.status FROM users ORDER BY users.id`;
+
+/**
+ * Every room for an export: the shared ones by name, and the DMs after them in the order they were
+ * made, which is the order their ids sort in but for the rooms from before the Workspace kept a list.
+ */
+const EXPORT_ROOMS = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, rooms.created_at FROM rooms
+  ORDER BY rooms.kind = 'direct', lower(rooms.name), rooms.created_at, rooms.id`;
+
+/** Who is in each room, room by room, for an export to say of the rooms that are for just who's in them. */
+const EXPORT_MEMBERS = `SELECT room_id, user_id FROM memberships ORDER BY room_id, user_id`;
 
 /** Someone active, as the directory lists them. */
 const ACTIVE_PERSON = `SELECT ${DIRECTORY_COLUMNS} FROM users WHERE id = ? AND status = ${ACTIVE}`;
@@ -5820,6 +5875,23 @@ export class WorkspaceStore {
     return (await this.db.all<DirectoryRow>(DIRECTORY, askerId)).map(directoryEntry);
   }
 
+  /**
+   * Everyone and every room, but no messages, which each room's own object reads: an export's one
+   * answer from the Workspace. Everyone is in the order they joined, and rooms are the shared ones by
+   * name, then the DMs in the order they were made, each naming who's in it when it's for just them.
+   */
+  async exportWorkspace(): Promise<ExportedListing> {
+    const [people, rooms, members] = (await this.db.batch([
+      statement(EXPORT_PEOPLE),
+      statement(EXPORT_ROOMS),
+      statement(EXPORT_MEMBERS),
+    ])) as [ExportPersonRow[], ExportRoomRow[], Array<{ room_id: RoomId; user_id: UserId }>];
+    const membersByRoom = Map.groupBy(members, ({ room_id }) => room_id);
+    return {
+      users: people.map(exportedPerson),
+      rooms: rooms.map((room) => exportedRoom(room, room.kind === "open" ? undefined : userIdsOf(membersByRoom.get(room.id) ?? []))),
+    };
+  }
   /** Someone as the people directory lists them, whatever their status, or null if nobody has id `userId`. */
   async person(userId: UserId): Promise<DirectoryEntry | null> {
     const [row] = await this.db.all<DirectoryRow>(PERSON, userId);

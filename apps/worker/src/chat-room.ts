@@ -799,6 +799,15 @@ export class ChatRoom extends DurableObject<Env> {
     return this.serially(() => this.storeFor(roomId).withIds(ids));
   }
 
+  /**
+   * The next page of the room's messages for an export: every message after `after`, replies sent only
+   * to their threads included and deleted ones too, oldest first, as the search reindex reads the room
+   * a page at a time. Nothing here changes, and the Workspace has said who may ask.
+   */
+  async exportPage(roomId: RoomId, after: string | null, limit: number): Promise<{ messages: Message[]; hasMore: boolean }> {
+    return this.serially(() => this.storeFor(roomId).exportPage(after, limit));
+  }
+
   /** Everyone who wrote or reacted in the room, for the Workspace to keep when it registers a legacy room. */
   async authors(roomId: RoomId): Promise<User[]> {
     return this.serially(() => this.storeFor(roomId).authors());

@@ -130,6 +130,11 @@ export class Ember {
     return sessionOf(await this.request(`/api/join/${encodeURIComponent(code)}`, { method: "POST", ...userForm(person, avatar), expected: [201] }));
   }
 
+  /** Signs in with an email address and a password, as the sign-in form does. */
+  async signIn(emailAddress: string, password: string): Promise<Session> {
+    return sessionOf(await this.json("/api/session", "POST", { emailAddress, password }, { expected: [201] }));
+  }
+
   async settings(session: Session): Promise<WorkspaceSettings> {
     return (await (await this.request("/api/account", { session })).json()) as WorkspaceSettings;
   }

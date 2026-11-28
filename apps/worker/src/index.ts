@@ -187,6 +187,7 @@ import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import { guestSignIn, type Env } from "./env";
 import { failed, notFound } from "./error-pages";
+import { exportListing, exportRoomMessages } from "./export";
 import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
@@ -1773,6 +1774,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/searches" && request.method === "GET") return () => searchMessages(request, env);
   if (pathname === "/api/searches" && request.method === "POST") return () => recordSearch(request, env);
   if (pathname === "/api/searches" && request.method === "DELETE") return () => clearSearches(request, env);
+  if (pathname === "/api/export" && request.method === "GET") return () => exportListing(request, env);
+  // A room's id never needs percent-encoding, so an encoded segment names no room of the export.
+  const exportRoom = pathname.match(/^\/api\/export\/rooms\/([^/]+)\/messages$/);
+  if (exportRoom && request.method === "GET")
+    return () => (isRoomId(exportRoom[1]!) ? exportRoomMessages(request, env, exportRoom[1]!) : problem(404, ROOM_NOT_FOUND));
   if (pathname === "/api/push-subscriptions" && request.method === "GET") return () => listPushSubscriptions(request, env);
   if (pathname === "/api/push-subscriptions" && request.method === "POST") return () => savePushSubscription(request, env);
   const pushSubscription = pathname.match(/^\/api\/push-subscriptions\/([^/]+)$/);
